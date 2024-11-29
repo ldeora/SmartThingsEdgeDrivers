@@ -1,0 +1,6 @@
+name: 'Zigbee IKEA VINDSTYRKA Sensor'
+packageKey: 'zigbee-ikea-vindstyrka'
+permissions:
+  zigbee: {}
+description: "SmartThings driver for IKEA VINDSTYRKA"
+vendorSupportInformation: "https://community.smartthings.com/u/andreas_roedl/summary"

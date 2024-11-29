@@ -1,0 +1,6 @@
+zigbeeManufacturer:
+  - id: "IKEA of Sweden/VINDSTYRKA"
+    deviceLabel: IKEA VINDSTYRKA
+    manufacturer: IKEA of Sweden
+    model: VINDSTYRKA
+    deviceProfileName: humidity-temp-dust-tvoc
