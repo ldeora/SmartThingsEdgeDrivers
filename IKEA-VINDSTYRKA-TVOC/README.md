@@ -36,7 +36,7 @@ The driver integrates the VINDSTYRKA sensor with the SmartThings ecosystem, enab
 
 Click on the following link and follow the instructions:
 
-https://bestow-regional.api.smartthings.com/invite/Pw2DN18eRbj3
+https://bestow-regional.api.smartthings.com/invite/1J2Qy7ZkxL20
 
 ---
 
