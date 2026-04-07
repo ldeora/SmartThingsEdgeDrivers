@@ -1,0 +1,28 @@
+{
+  "name": "Aqara Target Distance",
+  "attributes": {
+    "distance": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "value": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 6
+          },
+          "unit": {
+            "type": "string",
+            "enum": [
+              "m"
+            ],
+            "default": "m"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "value"
+        ]
+      }
+    }
+  }
+}

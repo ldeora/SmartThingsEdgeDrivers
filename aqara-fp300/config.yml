@@ -1,0 +1,6 @@
+name: "Aqara FP300 Presence Sensor"
+packageKey: aqara-fp300
+permissions:
+  zigbee: {}
+description: "SmartThings Zigbee Edge driver for Aqara FP300 (lumi.sensor_occupy.agl8)"
+vendorSupportInformation: "Community driver"

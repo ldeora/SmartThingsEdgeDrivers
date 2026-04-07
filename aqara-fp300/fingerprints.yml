@@ -1,0 +1,11 @@
+zigbeeManufacturer:
+  - id: "Aqara/lumi.sensor_occupy.agl8"
+    deviceLabel: Aqara Presence Sensor FP300
+    manufacturer: Aqara
+    model: lumi.sensor_occupy.agl8
+    deviceProfileName: aqara-fp300
+  - id: "LUMI/lumi.sensor_occupy.agl8"
+    deviceLabel: Aqara Presence Sensor FP300
+    manufacturer: LUMI
+    model: lumi.sensor_occupy.agl8
+    deviceProfileName: aqara-fp300

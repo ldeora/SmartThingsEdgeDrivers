@@ -1,0 +1,313 @@
+name: aqara-fp300
+components:
+  - id: main
+    capabilities:
+      - id: presenceSensor
+        version: 1
+      - id: motionSensor
+        version: 1
+      - id: battery
+        version: 1
+      - id: temperatureMeasurement
+        version: 1
+      - id: relativeHumidityMeasurement
+        version: 1
+      - id: illuminanceMeasurement
+        version: 1
+      - id: oceancircle09600.aqaratargetdistance
+        version: 1
+      - id: refresh
+        version: 1
+    categories:
+      - name: PresenceSensor
+preferences:
+  - preferenceId: tempOffset
+    explicit: true
+  - preferenceId: humidityOffset
+    explicit: true
+
+  - title: Presence detection mode
+    name: fp300PresenceMode
+    description: Select both sensors, mmWave only, or PIR only.
+    required: false
+    preferenceType: enumeration
+    definition:
+      options:
+        both: Both
+        mmwave: mmWave only
+        pir: PIR only
+      default: both
+
+  - title: Motion sensitivity
+    name: fp300MotionSensitivity
+    description: Presence detection sensitivity.
+    required: false
+    preferenceType: enumeration
+    definition:
+      options:
+        low: Low
+        medium: Medium
+        high: High
+      default: medium
+
+  - title: Absence delay (s)
+    name: fp300AbsenceDelay
+    description: Delay before absence is reported.
+    required: false
+    preferenceType: integer
+    definition:
+      minimum: 10
+      maximum: 300
+      default: 10
+
+  - title: PIR detection interval (s)
+    name: fp300PirInterval
+    description: Higher frequency improves accuracy but reduces battery life.
+    required: false
+    preferenceType: integer
+    definition:
+      minimum: 2
+      maximum: 300
+      default: 10
+
+  - title: AI adaptive sensitivity
+    name: fp300AiAdaptive
+    description: Enable Aqara AI adaptive sensitivity.
+    required: false
+    preferenceType: boolean
+    definition:
+      default: false
+
+  - title: AI interference identification
+    name: fp300AiInterference
+    description: Enable identification of fans, AC units, and other interference sources.
+    required: false
+    preferenceType: boolean
+    definition:
+      default: false
+
+  - title: Start target distance tracking
+    name: fp300TrackDist
+    description: Set to On and save to trigger tracking of the current target distance. Toggle back Off to run it again later.
+    required: false
+    preferenceType: boolean
+    definition:
+      default: false
+
+  - title: Start spatial learning
+    name: fp300SpatialLearn
+    description: Set to On and save to trigger Aqara AI spatial learning. Toggle back Off to run it again later.
+    required: false
+    preferenceType: boolean
+    definition:
+      default: false
+
+  - title: Restart device
+    name: fp300RestartDevice
+    description: Set to On and save to restart the FP300. Toggle back Off after use.
+    required: false
+    preferenceType: boolean
+    definition:
+      default: false
+
+  - title: Temp/humidity sampling mode
+    name: fp300TempHumSampling
+    description: Custom unlocks the period and reporting settings below.
+    required: false
+    preferenceType: enumeration
+    definition:
+      options:
+        off: Off
+        low: Low
+        medium: Medium
+        high: High
+        custom: Custom
+      default: medium
+
+  - title: Temp/humidity sampling period (s)
+    name: fp300TempHumSamplePeriod
+    description: Device-side sample cadence in custom mode.
+    required: false
+    preferenceType: number
+    definition:
+      minimum: 0.5
+      maximum: 3600
+      default: 60
+
+  - title: Temperature reporting interval (s)
+    name: fp300TempRptInterval
+    description: Custom report interval.
+    required: false
+    preferenceType: integer
+    definition:
+      minimum: 600
+      maximum: 3600
+      default: 600
+
+  - title: Temperature reporting threshold (°C)
+    name: fp300TempRptThreshold
+    description: Temperature delta required for reporting in custom mode.
+    required: false
+    preferenceType: number
+    definition:
+      minimum: 0.2
+      maximum: 3.0
+      default: 0.2
+
+  - title: Temperature reporting mode
+    name: fp300TempReportingMode
+    description: Threshold, interval, or both.
+    required: false
+    preferenceType: enumeration
+    definition:
+      options:
+        threshold: Threshold
+        interval: Interval
+        both: Threshold and interval
+      default: both
+
+  - title: Humidity reporting interval (s)
+    name: fp300HumRptInterval
+    description: Custom report interval.
+    required: false
+    preferenceType: integer
+    definition:
+      minimum: 600
+      maximum: 3600
+      default: 600
+
+  - title: Humidity reporting threshold (%)
+    name: fp300HumRptThreshold
+    description: Humidity delta required for reporting in custom mode.
+    required: false
+    preferenceType: number
+    definition:
+      minimum: 2.0
+      maximum: 15.0
+      default: 2.0
+
+  - title: Humidity reporting mode
+    name: fp300HumRptMode
+    description: Threshold, interval, or both.
+    required: false
+    preferenceType: enumeration
+    definition:
+      options:
+        threshold: Threshold
+        interval: Interval
+        both: Threshold and interval
+      default: both
+
+  - title: Light sampling mode
+    name: fp300LightSampling
+    description: Custom unlocks the period and reporting settings below.
+    required: false
+    preferenceType: enumeration
+    definition:
+      options:
+        off: Off
+        low: Low
+        medium: Medium
+        high: High
+        custom: Custom
+      default: medium
+
+  - title: Light sampling period (s)
+    name: fp300LightSamplingPeriod
+    description: Device-side illuminance sample cadence in custom mode.
+    required: false
+    preferenceType: number
+    definition:
+      minimum: 0.5
+      maximum: 3600
+      default: 60
+
+  - title: Light reporting interval (s)
+    name: fp300LightRptInterval
+    description: Custom illuminance report interval.
+    required: false
+    preferenceType: integer
+    definition:
+      minimum: 20
+      maximum: 3600
+      default: 60
+
+  - title: Light reporting threshold (%)
+    name: fp300LightRptThreshold
+    description: Illuminance delta required for reporting in custom mode.
+    required: false
+    preferenceType: number
+    definition:
+      minimum: 3.0
+      maximum: 20.0
+      default: 3.0
+
+  - title: Light reporting mode
+    name: fp300LightReportingMode
+    description: Threshold, interval, or both.
+    required: false
+    preferenceType: enumeration
+    definition:
+      options:
+        threshold: Threshold
+        interval: Interval
+        both: Threshold and interval
+      default: both
+
+  - title: Detection range mask (advanced)
+    name: fp300DetectionRangeMask
+    description: Raw 24-bit detection mask (0..16777215) for 0.25 m segments.
+    required: false
+    preferenceType: integer
+    definition:
+      minimum: 0
+      maximum: 16777215
+      default: 16777215
+
+  - title: Detect 0-1 m
+    name: fp300Range0to1
+    description: Coarse 1 m band toggle.
+    required: false
+    preferenceType: boolean
+    definition:
+      default: true
+
+  - title: Detect 1-2 m
+    name: fp300Range1to2
+    description: Coarse 1 m band toggle.
+    required: false
+    preferenceType: boolean
+    definition:
+      default: true
+
+  - title: Detect 2-3 m
+    name: fp300Range2to3
+    description: Coarse 1 m band toggle.
+    required: false
+    preferenceType: boolean
+    definition:
+      default: true
+
+  - title: Detect 3-4 m
+    name: fp300Range3to4
+    description: Coarse 1 m band toggle.
+    required: false
+    preferenceType: boolean
+    definition:
+      default: true
+
+  - title: Detect 4-5 m
+    name: fp300Range4to5
+    description: Coarse 1 m band toggle.
+    required: false
+    preferenceType: boolean
+    definition:
+      default: true
+
+  - title: Detect 5-6 m
+    name: fp300Range5to6
+    description: Coarse 1 m band toggle.
+    required: false
+    preferenceType: boolean
+    definition:
+      default: true
