@@ -1,0 +1,67 @@
+name: aqara-h2-us-1ch
+components:
+  - id: main
+    capabilities:
+      - id: button
+        version: 1
+      - id: powerMeter
+        version: 1
+      - id: energyMeter
+        version: 1
+      - id: refresh
+        version: 1
+      - id: healthCheck
+        version: 1
+    categories:
+      - name: Button
+  - id: top
+    capabilities:
+      - id: button
+        version: 1
+    categories:
+      - name: Button
+  - id: bottom
+    capabilities:
+      - id: button
+        version: 1
+    categories:
+      - name: Button
+preferences:
+  - title: LED indicator
+    name: ledIndicator
+    preferenceType: boolean
+    definition:
+      default: true
+  - title: Flip LED
+    name: flipLed
+    preferenceType: boolean
+    definition:
+      default: false
+  - title: Power-on mode
+    name: powerOnMode
+    preferenceType: enumeration
+    definition:
+      options:
+        on: "On"
+        previous: "Previous"
+        off: "Off"
+        inverted: "Inverted"
+      default: previous
+  - title: Top mode
+    name: opModeTop
+    preferenceType: enumeration
+    definition:
+      options:
+        relay: "Control relay"
+        decoupled: "Decoupled"
+      default: relay
+  - title: Lock top relay
+    name: lockRelayTop
+    preferenceType: boolean
+    definition:
+      default: false
+  - title: Bottom multi-click
+    name: multiClickBottom
+    preferenceType: boolean
+    definition:
+      default: true

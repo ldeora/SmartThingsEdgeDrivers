@@ -1,0 +1,6 @@
+name: Aqara H2 Wall Switches (EU/US - 1CH/2CH)
+packageKey: aqara-h2-wall-switches
+description: Zigbee Edge driver for Aqara H2 Wall Switch EU/US 1CH/2CH (lumi.switch.agl009, lumi.switch.agl010, lumi.switch.agl004, lumi.switch.agl005)
+vendorSupportInformation: Community driver
+permissions:
+  zigbee: {}

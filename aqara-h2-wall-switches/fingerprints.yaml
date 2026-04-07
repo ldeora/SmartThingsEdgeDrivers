@@ -1,0 +1,21 @@
+zigbeeManufacturer:
+  - id: "Aqara/lumi.switch.agl009"
+    deviceLabel: Aqara H2 Wall Switch 1CH
+    manufacturer: Aqara
+    model: lumi.switch.agl009
+    deviceProfileName: aqara-h2-1ch
+  - id: "Aqara/lumi.switch.agl010"
+    deviceLabel: Aqara H2 Wall Switch 2CH
+    manufacturer: Aqara
+    model: lumi.switch.agl010
+    deviceProfileName: aqara-h2-2ch
+  - id: "Aqara/lumi.switch.agl004"
+    deviceLabel: Aqara H2 Wall Switch US 1CH
+    manufacturer: Aqara
+    model: lumi.switch.agl004
+    deviceProfileName: aqara-h2-us-1ch
+  - id: "Aqara/lumi.switch.agl005"
+    deviceLabel: Aqara H2 Wall Switch US 2CH
+    manufacturer: Aqara
+    model: lumi.switch.agl005
+    deviceProfileName: aqara-h2-us-2ch
