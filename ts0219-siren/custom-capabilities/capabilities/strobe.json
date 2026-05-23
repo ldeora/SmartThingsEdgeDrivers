@@ -1,0 +1,43 @@
+{
+  "name": "Strobe",
+  "attributes": {
+    "strobe": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "value": {
+            "type": "string",
+            "enum": [
+              "off",
+              "on"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "value"
+        ]
+      },
+      "setter": "setStrobe",
+      "enumCommands": []
+    }
+  },
+  "commands": {
+    "setStrobe": {
+      "name": "setStrobe",
+      "arguments": [
+        {
+          "name": "strobe",
+          "optional": false,
+          "schema": {
+            "type": "string",
+            "enum": [
+              "off",
+              "on"
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

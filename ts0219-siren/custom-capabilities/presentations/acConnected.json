@@ -1,0 +1,71 @@
+{
+  "id": "oceancircle09600.acConnected",
+  "version": 1,
+  "dashboard": {
+    "states": [
+      {
+        "label": "{{acConnected.value}}",
+        "alternatives": [
+          {
+            "key": "disconnected",
+            "value": "Disconnected",
+            "type": "inactive"
+          },
+          {
+            "key": "connected",
+            "value": "Connected",
+            "type": "active"
+          }
+        ]
+      }
+    ],
+    "actions": [],
+    "basicPlus": []
+  },
+  "detailView": [
+    {
+      "label": "AC connected",
+      "displayType": "state",
+      "state": {
+        "label": "{{acConnected.value}}",
+        "alternatives": [
+          {
+            "key": "disconnected",
+            "value": "Disconnected",
+            "type": "inactive"
+          },
+          {
+            "key": "connected",
+            "value": "Connected",
+            "type": "active"
+          }
+        ]
+      }
+    }
+  ],
+  "automation": {
+    "conditions": [
+      {
+        "label": "AC connected",
+        "displayType": "list",
+        "list": {
+          "value": "acConnected.value",
+          "valueType": "string",
+          "alternatives": [
+            {
+              "key": "disconnected",
+              "value": "Disconnected",
+              "type": "inactive"
+            },
+            {
+              "key": "connected",
+              "value": "Connected",
+              "type": "active"
+            }
+          ]
+        }
+      }
+    ],
+    "actions": []
+  }
+}

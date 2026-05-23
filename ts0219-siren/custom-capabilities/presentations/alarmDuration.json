@@ -1,0 +1,55 @@
+{
+  "id": "oceancircle09600.alarmDuration",
+  "version": 1,
+  "dashboard": {
+    "states": [
+      {
+        "label": "{{alarmDuration.value}} s"
+      }
+    ],
+    "actions": [],
+    "basicPlus": []
+  },
+  "detailView": [
+    {
+      "label": "Alarm duration",
+      "displayType": "numberField",
+      "numberField": {
+        "command": "setAlarmDuration",
+        "value": "alarmDuration.value",
+        "range": [
+          0,
+          3600
+        ]
+      }
+    }
+  ],
+  "automation": {
+    "conditions": [
+      {
+        "label": "Alarm duration",
+        "displayType": "numberField",
+        "numberField": {
+          "value": "alarmDuration.value",
+          "range": [
+            0,
+            3600
+          ]
+        }
+      }
+    ],
+    "actions": [
+      {
+        "label": "Set Alarm duration",
+        "displayType": "numberField",
+        "numberField": {
+          "command": "setAlarmDuration",
+          "range": [
+            0,
+            3600
+          ]
+        }
+      }
+    ]
+  }
+}

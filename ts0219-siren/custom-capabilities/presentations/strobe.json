@@ -1,0 +1,110 @@
+{
+  "id": "oceancircle09600.strobe",
+  "version": 1,
+  "dashboard": {
+    "states": [
+      {
+        "label": "{{strobe.value}}",
+        "alternatives": [
+          {
+            "key": "off",
+            "value": "Off",
+            "type": "inactive"
+          },
+          {
+            "key": "on",
+            "value": "On",
+            "type": "active"
+          }
+        ]
+      }
+    ],
+    "actions": [],
+    "basicPlus": []
+  },
+  "detailView": [
+    {
+      "label": "Strobe",
+      "displayType": "list",
+      "list": {
+        "command": {
+          "name": "setStrobe",
+          "alternatives": [
+            {
+              "key": "off",
+              "value": "Off",
+              "type": "inactive"
+            },
+            {
+              "key": "on",
+              "value": "On",
+              "type": "active"
+            }
+          ],
+          "argumentType": "string"
+        },
+        "state": {
+          "value": "strobe.value",
+          "valueType": "string",
+          "alternatives": [
+            {
+              "key": "off",
+              "value": "Off",
+              "type": "inactive"
+            },
+            {
+              "key": "on",
+              "value": "On",
+              "type": "active"
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "automation": {
+    "conditions": [
+      {
+        "label": "Strobe",
+        "displayType": "list",
+        "list": {
+          "value": "strobe.value",
+          "valueType": "string",
+          "alternatives": [
+            {
+              "key": "off",
+              "value": "Off",
+              "type": "inactive"
+            },
+            {
+              "key": "on",
+              "value": "On",
+              "type": "active"
+            }
+          ]
+        }
+      }
+    ],
+    "actions": [
+      {
+        "label": "Set Strobe",
+        "displayType": "list",
+        "list": {
+          "command": "setStrobe",
+          "alternatives": [
+            {
+              "key": "off",
+              "value": "Off",
+              "type": "inactive"
+            },
+            {
+              "key": "on",
+              "value": "On",
+              "type": "active"
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

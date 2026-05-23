@@ -1,0 +1,39 @@
+{
+  "name": "Alarm Duration",
+  "attributes": {
+    "alarmDuration": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "value": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 3600
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "value"
+        ]
+      },
+      "setter": "setAlarmDuration",
+      "enumCommands": []
+    }
+  },
+  "commands": {
+    "setAlarmDuration": {
+      "name": "setAlarmDuration",
+      "arguments": [
+        {
+          "name": "alarmDuration",
+          "optional": false,
+          "schema": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 3600
+          }
+        }
+      ]
+    }
+  }
+}

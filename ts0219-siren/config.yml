@@ -1,0 +1,5 @@
+name: TS0219 Siren
+packageKey: ts0219-siren
+permissions:
+  zigbee: {}
+description: SmartThings Edge driver for TS0219-based Zigbee sirens

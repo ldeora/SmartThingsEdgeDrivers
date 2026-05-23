@@ -1,0 +1,38 @@
+{
+  "id": "oceancircle09600.batteryVoltage",
+  "version": 1,
+  "dashboard": {
+    "states": [
+      {
+        "label": "{{batteryVoltage.value}} mV"
+      }
+    ],
+    "actions": [],
+    "basicPlus": []
+  },
+  "detailView": [
+    {
+      "label": "Battery voltage",
+      "displayType": "state",
+      "state": {
+        "label": "{{batteryVoltage.value}} mV"
+      }
+    }
+  ],
+  "automation": {
+    "conditions": [
+      {
+        "label": "Battery voltage",
+        "displayType": "numberField",
+        "numberField": {
+          "value": "batteryVoltage.value",
+          "range": [
+            0,
+            10000
+          ]
+        }
+      }
+    ],
+    "actions": []
+  }
+}

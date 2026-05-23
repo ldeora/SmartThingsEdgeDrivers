@@ -1,0 +1,39 @@
+{
+  "name": "Siren Volume",
+  "attributes": {
+    "sirenVolume": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "value": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "value"
+        ]
+      },
+      "setter": "setSirenVolume",
+      "enumCommands": []
+    }
+  },
+  "commands": {
+    "setSirenVolume": {
+      "name": "setSirenVolume",
+      "arguments": [
+        {
+          "name": "sirenVolume",
+          "optional": false,
+          "schema": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100
+          }
+        }
+      ]
+    }
+  }
+}

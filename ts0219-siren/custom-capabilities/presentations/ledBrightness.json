@@ -1,0 +1,55 @@
+{
+  "id": "oceancircle09600.ledBrightness",
+  "version": 1,
+  "dashboard": {
+    "states": [
+      {
+        "label": "{{ledBrightness.value}} %"
+      }
+    ],
+    "actions": [],
+    "basicPlus": []
+  },
+  "detailView": [
+    {
+      "label": "LED brightness",
+      "displayType": "numberField",
+      "numberField": {
+        "command": "setLedBrightness",
+        "value": "ledBrightness.value",
+        "range": [
+          0,
+          100
+        ]
+      }
+    }
+  ],
+  "automation": {
+    "conditions": [
+      {
+        "label": "LED brightness",
+        "displayType": "numberField",
+        "numberField": {
+          "value": "ledBrightness.value",
+          "range": [
+            0,
+            100
+          ]
+        }
+      }
+    ],
+    "actions": [
+      {
+        "label": "Set LED brightness",
+        "displayType": "numberField",
+        "numberField": {
+          "command": "setLedBrightness",
+          "range": [
+            0,
+            100
+          ]
+        }
+      }
+    ]
+  }
+}

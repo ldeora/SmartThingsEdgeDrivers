@@ -1,0 +1,160 @@
+{
+  "id": "oceancircle09600.sirenLevel",
+  "version": 1,
+  "dashboard": {
+    "states": [
+      {
+        "label": "{{sirenLevel.value}}",
+        "alternatives": [
+          {
+            "key": "low",
+            "value": "Low",
+            "type": "inactive"
+          },
+          {
+            "key": "medium",
+            "value": "Medium",
+            "type": "active"
+          },
+          {
+            "key": "high",
+            "value": "High",
+            "type": "active"
+          },
+          {
+            "key": "very_high",
+            "value": "Very high",
+            "type": "active"
+          }
+        ]
+      }
+    ],
+    "actions": [],
+    "basicPlus": []
+  },
+  "detailView": [
+    {
+      "label": "Siren level",
+      "displayType": "list",
+      "list": {
+        "command": {
+          "name": "setSirenLevel",
+          "alternatives": [
+            {
+              "key": "low",
+              "value": "Low",
+              "type": "inactive"
+            },
+            {
+              "key": "medium",
+              "value": "Medium",
+              "type": "active"
+            },
+            {
+              "key": "high",
+              "value": "High",
+              "type": "active"
+            },
+            {
+              "key": "very_high",
+              "value": "Very high",
+              "type": "active"
+            }
+          ],
+          "argumentType": "string"
+        },
+        "state": {
+          "value": "sirenLevel.value",
+          "valueType": "string",
+          "alternatives": [
+            {
+              "key": "low",
+              "value": "Low",
+              "type": "inactive"
+            },
+            {
+              "key": "medium",
+              "value": "Medium",
+              "type": "active"
+            },
+            {
+              "key": "high",
+              "value": "High",
+              "type": "active"
+            },
+            {
+              "key": "very_high",
+              "value": "Very high",
+              "type": "active"
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "automation": {
+    "conditions": [
+      {
+        "label": "Siren level",
+        "displayType": "list",
+        "list": {
+          "value": "sirenLevel.value",
+          "valueType": "string",
+          "alternatives": [
+            {
+              "key": "low",
+              "value": "Low",
+              "type": "inactive"
+            },
+            {
+              "key": "medium",
+              "value": "Medium",
+              "type": "active"
+            },
+            {
+              "key": "high",
+              "value": "High",
+              "type": "active"
+            },
+            {
+              "key": "very_high",
+              "value": "Very high",
+              "type": "active"
+            }
+          ]
+        }
+      }
+    ],
+    "actions": [
+      {
+        "label": "Set Siren level",
+        "displayType": "list",
+        "list": {
+          "command": "setSirenLevel",
+          "alternatives": [
+            {
+              "key": "low",
+              "value": "Low",
+              "type": "inactive"
+            },
+            {
+              "key": "medium",
+              "value": "Medium",
+              "type": "active"
+            },
+            {
+              "key": "high",
+              "value": "High",
+              "type": "active"
+            },
+            {
+              "key": "very_high",
+              "value": "Very high",
+              "type": "active"
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

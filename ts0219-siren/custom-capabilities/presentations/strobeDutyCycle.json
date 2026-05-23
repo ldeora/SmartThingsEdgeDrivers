@@ -1,0 +1,55 @@
+{
+  "id": "oceancircle09600.strobeDutyCycle",
+  "version": 1,
+  "dashboard": {
+    "states": [
+      {
+        "label": "{{strobeDutyCycle.value}}"
+      }
+    ],
+    "actions": [],
+    "basicPlus": []
+  },
+  "detailView": [
+    {
+      "label": "Strobe duty cycle",
+      "displayType": "numberField",
+      "numberField": {
+        "command": "setStrobeDutyCycle",
+        "value": "strobeDutyCycle.value",
+        "range": [
+          0,
+          10
+        ]
+      }
+    }
+  ],
+  "automation": {
+    "conditions": [
+      {
+        "label": "Strobe duty cycle",
+        "displayType": "numberField",
+        "numberField": {
+          "value": "strobeDutyCycle.value",
+          "range": [
+            0,
+            10
+          ]
+        }
+      }
+    ],
+    "actions": [
+      {
+        "label": "Set Strobe duty cycle",
+        "displayType": "numberField",
+        "numberField": {
+          "command": "setStrobeDutyCycle",
+          "range": [
+            0,
+            10
+          ]
+        }
+      }
+    ]
+  }
+}

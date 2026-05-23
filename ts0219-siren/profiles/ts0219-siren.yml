@@ -1,0 +1,124 @@
+name: ts0219Siren
+components:
+- id: main
+  capabilities:
+  - id: alarm
+    version: 1
+  - id: switch
+    version: 1
+  - id: battery
+    version: 1
+  - id: powerSource
+    version: 1
+  - id: audioVolume
+    version: 1
+  - id: oceancircle09600.sirenVolume
+    version: 1
+  - id: oceancircle09600.alarmDuration
+    version: 1
+  - id: oceancircle09600.sirenLevel
+    version: 1
+  - id: oceancircle09600.strobe
+    version: 1
+  - id: oceancircle09600.strobeLevel
+    version: 1
+  - id: oceancircle09600.strobeDutyCycle
+    version: 1
+  - id: oceancircle09600.ledBrightness
+    version: 1
+  - id: oceancircle09600.batteryVoltage
+    version: 1
+  - id: oceancircle09600.acConnected
+    version: 1
+  - id: refresh
+    version: 1
+  categories:
+  - name: Siren
+preferences:
+- name: defaultDuration
+  title: Default alarm duration
+  description: Duration in seconds used when SmartThings sends alarm/switch on without
+    an explicit duration.
+  required: true
+  preferenceType: integer
+  definition:
+    minimum: 0
+    maximum: 3600
+    default: 180
+- name: defaultVolume
+  title: Default volume
+  description: Initial siren volume written during configuration. Real-world siren
+    volume may be non-linear.
+  required: true
+  preferenceType: integer
+  definition:
+    minimum: 0
+    maximum: 100
+    default: 50
+- name: defaultSirenLevel
+  title: Default siren level
+  description: IAS WD siren level used by alarm/switch on commands.
+  required: true
+  preferenceType: enumeration
+  definition:
+    options:
+      low: Low
+      medium: Medium
+      high: High
+      very_high: Very high
+    default: high
+- name: defaultStrobe
+  title: Strobe during alarm
+  description: Request strobe while the alarm is active. Some siren variants ignore
+    this flag.
+  required: true
+  preferenceType: boolean
+  definition:
+    default: true
+- name: defaultStrobeLevel
+  title: Strobe level
+  description: IAS WD strobe level. Some siren variants ignore this value.
+  required: true
+  preferenceType: enumeration
+  definition:
+    options:
+      low: Low
+      medium: Medium
+      high: High
+      very_high: Very high
+    default: high
+- name: strobeDutyCycle
+  title: Strobe duty cycle
+  description: IAS WD strobe duty cycle, 0-10. Some siren variants ignore this value.
+  required: true
+  preferenceType: integer
+  definition:
+    minimum: 0
+    maximum: 10
+    default: 0
+- name: ledBrightness
+  title: LED brightness
+  description: Writes IAS WD attribute 0x0001. Experimental; may have no visible effect
+    on some units.
+  required: true
+  preferenceType: integer
+  definition:
+    minimum: 0
+    maximum: 100
+    default: 50
+- name: writeWooxAttrs
+  title: Write siren attributes
+  description: Write duration, volume, and LED brightness attributes during configuration/preference
+    changes.
+  required: true
+  preferenceType: boolean
+  definition:
+    default: true
+- name: bindIASZone
+  title: Bind IAS Zone
+  description: Request IAS Zone binding during configuration. Disable only if the
+    device misbehaves after configure.
+  required: true
+  preferenceType: boolean
+  definition:
+    default: true

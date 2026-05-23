@@ -1,0 +1,39 @@
+{
+  "name": "LED Brightness",
+  "attributes": {
+    "ledBrightness": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "value": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "value"
+        ]
+      },
+      "setter": "setLedBrightness",
+      "enumCommands": []
+    }
+  },
+  "commands": {
+    "setLedBrightness": {
+      "name": "setLedBrightness",
+      "arguments": [
+        {
+          "name": "ledBrightness",
+          "optional": false,
+          "schema": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100
+          }
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,47 @@
+{
+  "name": "Siren Level",
+  "attributes": {
+    "sirenLevel": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "value": {
+            "type": "string",
+            "enum": [
+              "low",
+              "medium",
+              "high",
+              "very_high"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "value"
+        ]
+      },
+      "setter": "setSirenLevel",
+      "enumCommands": []
+    }
+  },
+  "commands": {
+    "setSirenLevel": {
+      "name": "setSirenLevel",
+      "arguments": [
+        {
+          "name": "sirenLevel",
+          "optional": false,
+          "schema": {
+            "type": "string",
+            "enum": [
+              "low",
+              "medium",
+              "high",
+              "very_high"
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

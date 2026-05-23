@@ -1,0 +1,55 @@
+{
+  "id": "oceancircle09600.sirenVolume",
+  "version": 1,
+  "dashboard": {
+    "states": [
+      {
+        "label": "{{sirenVolume.value}} %"
+      }
+    ],
+    "actions": [],
+    "basicPlus": []
+  },
+  "detailView": [
+    {
+      "label": "Siren volume",
+      "displayType": "numberField",
+      "numberField": {
+        "command": "setSirenVolume",
+        "value": "sirenVolume.value",
+        "range": [
+          0,
+          100
+        ]
+      }
+    }
+  ],
+  "automation": {
+    "conditions": [
+      {
+        "label": "Siren volume",
+        "displayType": "numberField",
+        "numberField": {
+          "value": "sirenVolume.value",
+          "range": [
+            0,
+            100
+          ]
+        }
+      }
+    ],
+    "actions": [
+      {
+        "label": "Set Siren volume",
+        "displayType": "numberField",
+        "numberField": {
+          "command": "setSirenVolume",
+          "range": [
+            0,
+            100
+          ]
+        }
+      }
+    ]
+  }
+}

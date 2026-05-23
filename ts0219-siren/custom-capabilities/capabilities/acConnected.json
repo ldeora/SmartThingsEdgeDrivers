@@ -1,0 +1,25 @@
+{
+  "name": "AC Connected",
+  "attributes": {
+    "acConnected": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "value": {
+            "type": "string",
+            "enum": [
+              "connected",
+              "disconnected"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "value"
+        ]
+      },
+      "enumCommands": []
+    }
+  },
+  "commands": {}
+}

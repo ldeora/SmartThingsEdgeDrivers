@@ -1,0 +1,39 @@
+{
+  "name": "Strobe Duty Cycle",
+  "attributes": {
+    "strobeDutyCycle": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "value": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 10
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "value"
+        ]
+      },
+      "setter": "setStrobeDutyCycle",
+      "enumCommands": []
+    }
+  },
+  "commands": {
+    "setStrobeDutyCycle": {
+      "name": "setStrobeDutyCycle",
+      "arguments": [
+        {
+          "name": "strobeDutyCycle",
+          "optional": false,
+          "schema": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 10
+          }
+        }
+      ]
+    }
+  }
+}

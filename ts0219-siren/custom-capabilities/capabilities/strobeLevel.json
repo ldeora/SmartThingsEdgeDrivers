@@ -1,0 +1,47 @@
+{
+  "name": "Strobe Level",
+  "attributes": {
+    "strobeLevel": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "value": {
+            "type": "string",
+            "enum": [
+              "low",
+              "medium",
+              "high",
+              "very_high"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "value"
+        ]
+      },
+      "setter": "setStrobeLevel",
+      "enumCommands": []
+    }
+  },
+  "commands": {
+    "setStrobeLevel": {
+      "name": "setStrobeLevel",
+      "arguments": [
+        {
+          "name": "strobeLevel",
+          "optional": false,
+          "schema": {
+            "type": "string",
+            "enum": [
+              "low",
+              "medium",
+              "high",
+              "very_high"
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

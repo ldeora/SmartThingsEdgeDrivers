@@ -1,0 +1,160 @@
+{
+  "id": "oceancircle09600.strobeLevel",
+  "version": 1,
+  "dashboard": {
+    "states": [
+      {
+        "label": "{{strobeLevel.value}}",
+        "alternatives": [
+          {
+            "key": "low",
+            "value": "Low",
+            "type": "inactive"
+          },
+          {
+            "key": "medium",
+            "value": "Medium",
+            "type": "active"
+          },
+          {
+            "key": "high",
+            "value": "High",
+            "type": "active"
+          },
+          {
+            "key": "very_high",
+            "value": "Very high",
+            "type": "active"
+          }
+        ]
+      }
+    ],
+    "actions": [],
+    "basicPlus": []
+  },
+  "detailView": [
+    {
+      "label": "Strobe level",
+      "displayType": "list",
+      "list": {
+        "command": {
+          "name": "setStrobeLevel",
+          "alternatives": [
+            {
+              "key": "low",
+              "value": "Low",
+              "type": "inactive"
+            },
+            {
+              "key": "medium",
+              "value": "Medium",
+              "type": "active"
+            },
+            {
+              "key": "high",
+              "value": "High",
+              "type": "active"
+            },
+            {
+              "key": "very_high",
+              "value": "Very high",
+              "type": "active"
+            }
+          ],
+          "argumentType": "string"
+        },
+        "state": {
+          "value": "strobeLevel.value",
+          "valueType": "string",
+          "alternatives": [
+            {
+              "key": "low",
+              "value": "Low",
+              "type": "inactive"
+            },
+            {
+              "key": "medium",
+              "value": "Medium",
+              "type": "active"
+            },
+            {
+              "key": "high",
+              "value": "High",
+              "type": "active"
+            },
+            {
+              "key": "very_high",
+              "value": "Very high",
+              "type": "active"
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "automation": {
+    "conditions": [
+      {
+        "label": "Strobe level",
+        "displayType": "list",
+        "list": {
+          "value": "strobeLevel.value",
+          "valueType": "string",
+          "alternatives": [
+            {
+              "key": "low",
+              "value": "Low",
+              "type": "inactive"
+            },
+            {
+              "key": "medium",
+              "value": "Medium",
+              "type": "active"
+            },
+            {
+              "key": "high",
+              "value": "High",
+              "type": "active"
+            },
+            {
+              "key": "very_high",
+              "value": "Very high",
+              "type": "active"
+            }
+          ]
+        }
+      }
+    ],
+    "actions": [
+      {
+        "label": "Set Strobe level",
+        "displayType": "list",
+        "list": {
+          "command": "setStrobeLevel",
+          "alternatives": [
+            {
+              "key": "low",
+              "value": "Low",
+              "type": "inactive"
+            },
+            {
+              "key": "medium",
+              "value": "Medium",
+              "type": "active"
+            },
+            {
+              "key": "high",
+              "value": "High",
+              "type": "active"
+            },
+            {
+              "key": "very_high",
+              "value": "Very high",
+              "type": "active"
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

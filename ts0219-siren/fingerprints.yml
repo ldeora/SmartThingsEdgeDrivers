@@ -1,0 +1,11 @@
+zigbeeManufacturer:
+- id: Woox/R7051/TS0219
+  deviceLabel: Woox R7051 Siren
+  manufacturer: _TYZB01_ynsiasng
+  model: TS0219
+  deviceProfileName: ts0219Siren
+- id: Immax/NEO-07504L/TS0219
+  deviceLabel: Immax NEO Smart Siren
+  manufacturer: _TYZB01_b6eaxdlh
+  model: TS0219
+  deviceProfileName: ts0219Siren
