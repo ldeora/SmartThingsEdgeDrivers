@@ -1,0 +1,4 @@
+name: Aqara H2 Outlet EU
+packageKey: aqara-h2-outlet-eu
+permissions:
+  zigbee: {}

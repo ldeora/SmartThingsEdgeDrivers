@@ -1,0 +1,30 @@
+zigbeeManufacturer:
+  - id: "Aqara/lumi.plug.aeu001"
+    deviceLabel: Aqara H2 Wall Outlet EU
+    manufacturer: Aqara
+    model: lumi.plug.aeu001
+    deviceProfileName: aqara-h2-wall-outlet-eu
+  - id: "LUMI/lumi.plug.aeu001"
+    deviceLabel: Aqara H2 Wall Outlet EU
+    manufacturer: LUMI
+    model: lumi.plug.aeu001
+    deviceProfileName: aqara-h2-wall-outlet-eu
+
+# Manual rescue fingerprint. isJoinable:false avoids stealing joins from other metering plugs,
+# but should allow the driver to appear as a compatible alternative if SmartThings did not
+# match the manufacturer/model string exactly.
+zigbeeGeneric:
+  - id: "Aqara-H2-Outlet-EU-metering-manual"
+    deviceLabel: Aqara H2 Wall Outlet EU
+    zigbeeProfiles:
+      - 0x0104
+    deviceIdentifiers:
+      - 0x0000
+    clusters:
+      server:
+        - 0x0000
+        - 0x0702
+        - 0x0B04
+        - 0xFCC0
+    deviceProfileName: aqara-h2-wall-outlet-eu
+    isJoinable: false

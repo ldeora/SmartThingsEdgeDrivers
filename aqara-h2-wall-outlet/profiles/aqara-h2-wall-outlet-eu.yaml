@@ -1,0 +1,63 @@
+name: aqara-h2-wall-outlet-eu
+components:
+  - id: main
+    capabilities:
+      - id: switch
+        version: 1
+      - id: powerMeter
+        version: 1
+      - id: energyMeter
+        version: 1
+      - id: voltageMeasurement
+        version: 1
+      - id: currentMeasurement
+        version: 1
+      - id: temperatureMeasurement
+        version: 1
+      - id: refresh
+        version: 1
+      - id: healthCheck
+        version: 1
+    categories:
+      - name: SmartPlug
+preferences:
+  - title: LED indicator
+    name: ledIndicator
+    preferenceType: boolean
+    definition:
+      default: true
+  - title: Power-on behavior
+    name: powerOnBehavior
+    required: true
+    preferenceType: enumeration
+    definition:
+      options:
+        on: "On"
+        previous: "Previous"
+        off: "Off"
+        inverted: "Inverted"
+      default: previous
+  - title: Button lock
+    name: buttonLock
+    preferenceType: boolean
+    definition:
+      default: false
+  - title: Charging protection
+    name: chargingProtection
+    preferenceType: boolean
+    definition:
+      default: false
+  - title: Charging protection limit
+    name: chargingLimit
+    preferenceType: number
+    definition:
+      minimum: 0.1
+      maximum: 2
+      default: 2
+  - title: Overload protection
+    name: overloadProtection
+    preferenceType: number
+    definition:
+      minimum: 100
+      maximum: 3840
+      default: 3840
