@@ -1,0 +1,6 @@
+name: LEDVANCE Plug EU EM
+packageKey: ledvance-plug-eu-em
+description: SmartThings Edge driver for the LEDVANCE SMART+ Plug indoor EU with energy meter.
+vendorSupportInformation: https://github.com/ldeora/SmartThingsEdgeDrivers
+permissions:
+  zigbee: {}

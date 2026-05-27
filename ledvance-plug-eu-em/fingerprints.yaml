@@ -1,0 +1,11 @@
+zigbeeManufacturer:
+  - id: "LEDVANCE/PLUG EU EM T"
+    deviceLabel: LEDVANCE Plug EU EM
+    manufacturer: LEDVANCE
+    model: PLUG EU EM T
+    deviceProfileName: ledvance-plug-eu-em
+  - id: "LEDVANCE/PLUG EU EM T black"
+    deviceLabel: LEDVANCE Plug EU EM
+    manufacturer: LEDVANCE
+    model: PLUG EU EM T, black
+    deviceProfileName: ledvance-plug-eu-em

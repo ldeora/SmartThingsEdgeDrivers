@@ -1,0 +1,32 @@
+name: ledvance-plug-eu-em
+components:
+  - id: main
+    capabilities:
+      - id: switch
+        version: 1
+      - id: powerMeter
+        version: 1
+      - id: energyMeter
+        version: 1
+      - id: voltageMeasurement
+        version: 1
+      - id: currentMeasurement
+        version: 1
+      - id: refresh
+        version: 1
+      - id: healthCheck
+        version: 1
+    categories:
+      - name: SmartPlug
+preferences:
+  - title: Power-on behavior
+    name: powerOnBehavior
+    required: true
+    preferenceType: enumeration
+    definition:
+      options:
+        off: "Off"
+        on: "On"
+        toggle: "Toggle"
+        previous: "Previous"
+      default: previous
