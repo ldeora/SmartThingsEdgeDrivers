@@ -1,0 +1,101 @@
+name: tuya-air-purifier
+components:
+  - id: main
+    capabilities:
+      - id: switch
+        version: 1
+      - id: refresh
+        version: 1
+      - id: airPurifierFanMode
+        version: 1
+      - id: fineDustSensor
+        version: 1
+      - id: airQualityHealthConcern
+        version: 1
+      - id: filterState
+        version: 1
+    categories:
+      - name: AirPurifier
+  - id: ionizer
+    label: Ionizer
+    capabilities:
+      - id: switch
+        version: 1
+    categories:
+      - name: Switch
+  - id: uv
+    label: UV
+    capabilities:
+      - id: switch
+        version: 1
+    categories:
+      - name: Switch
+  - id: displayLight
+    label: Display light
+    capabilities:
+      - id: oceancircle09600.airPurifierDisplayLight
+        version: 1
+    categories:
+      - name: Light
+  - id: timer
+    label: Timer
+    capabilities:
+      - id: oceancircle09600.airPurifierTimer
+        version: 1
+    categories:
+      - name: Switch
+preferences:
+  - title: 'Host / IP address'
+    name: host
+    description: 'Static/reserved LAN IP address of the Tuya air purifier. Use a DHCP reservation so this does not change.'
+    required: true
+    preferenceType: string
+    definition:
+      minLength: 7
+      maxLength: 45
+      stringType: text
+      default: '192.168.1.102'
+  - title: 'Device ID'
+    name: deviceId
+    description: 'Tuya device ID from TinyTuya'
+    required: true
+    preferenceType: string
+    definition:
+      minLength: 1
+      maxLength: 64
+      stringType: text
+      default: 'REPLACE_WITH_DEVICE_ID'
+  - title: 'Local key'
+    name: localKey
+    description: 'Tuya local key from TinyTuya. Keep private.'
+    required: true
+    preferenceType: string
+    definition:
+      minLength: 16
+      maxLength: 64
+      stringType: password
+      default: 'REPLACE_WITH_LOCAL_KEY'
+  - title: 'Poll interval seconds'
+    name: pollInterval
+    description: 'Status refresh interval. 30 seconds is recommended; lower values update external changes sooner but create more LAN/Edge traffic.'
+    required: true
+    preferenceType: integer
+    definition:
+      minimum: 5
+      maximum: 600
+      default: 30
+
+  - title: 'Auto rediscover IP'
+    name: autoRediscovery
+    description: 'After the configured IP fails, probe TCP/6668 on the same /24 and use the IP that answers with the configured Device ID/local key. Keep the manual Host/IP as fallback.'
+    required: true
+    preferenceType: boolean
+    definition:
+      default: true
+  - title: 'Verbose Tuya packet logging'
+    name: verboseLogging
+    description: 'Log raw Tuya send/receive JSON packets. Useful for debugging, but leave disabled for normal use to reduce log noise.'
+    required: true
+    preferenceType: boolean
+    definition:
+      default: false

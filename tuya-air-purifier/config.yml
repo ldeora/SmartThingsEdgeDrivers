@@ -1,0 +1,5 @@
+name: 'Tuya Air Purifier Local'
+packageKey: 'tuya-air-purifier'
+permissions:
+  lan: {}
+  discovery: {}

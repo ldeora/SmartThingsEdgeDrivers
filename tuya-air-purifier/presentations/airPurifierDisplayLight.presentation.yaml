@@ -1,0 +1,50 @@
+dashboard:
+  states:
+    - label: '{{displayLightMode.value}}'
+detailView:
+  - label: 'Display light'
+    displayType: list
+    list:
+      command:
+        name: setDisplayLightMode
+        alternatives:
+          - key: 'off'
+            value: 'Off'
+          - key: soft
+            value: 'Soft'
+          - key: standard
+            value: 'Standard'
+      state:
+        value: displayLightMode.value
+        alternatives:
+          - key: 'off'
+            value: 'Off'
+          - key: soft
+            value: 'Soft'
+          - key: standard
+            value: 'Standard'
+automation:
+  conditions:
+    - label: 'Display light'
+      displayType: list
+      list:
+        alternatives:
+          - key: 'off'
+            value: 'Off'
+          - key: soft
+            value: 'Soft'
+          - key: standard
+            value: 'Standard'
+        value: displayLightMode.value
+  actions:
+    - label: 'Set display light'
+      displayType: list
+      list:
+        command: setDisplayLightMode
+        alternatives:
+          - key: 'off'
+            value: 'Off'
+          - key: soft
+            value: 'Soft'
+          - key: standard
+            value: 'Standard'

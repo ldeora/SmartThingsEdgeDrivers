@@ -1,0 +1,54 @@
+dashboard:
+  states:
+    - label: '{{timerMode.value}} · {{timerRemaining.value}} min'
+detailView:
+  - label: 'Timer'
+    displayType: list
+    list:
+      command:
+        name: setTimerMode
+        alternatives:
+          - key: 'off'
+            value: 'Off'
+          - key: twoHours
+            value: '2 hours'
+          - key: fourHours
+            value: '4 hours'
+      state:
+        value: timerMode.value
+        alternatives:
+          - key: 'off'
+            value: 'Off'
+          - key: twoHours
+            value: '2 hours'
+          - key: fourHours
+            value: '4 hours'
+  - label: 'Remaining'
+    displayType: state
+    state:
+      label: '{{timerRemaining.value}} min'
+automation:
+  conditions:
+    - label: 'Timer mode'
+      displayType: list
+      list:
+        alternatives:
+          - key: 'off'
+            value: 'Off'
+          - key: twoHours
+            value: '2 hours'
+          - key: fourHours
+            value: '4 hours'
+        value: timerMode.value
+  actions:
+    - label: 'Set timer'
+      displayType: list
+      list:
+        command: setTimerMode
+        alternatives:
+          - key: 'off'
+            value: 'Off'
+          - key: twoHours
+            value: '2 hours'
+          - key: fourHours
+            value: '4 hours'

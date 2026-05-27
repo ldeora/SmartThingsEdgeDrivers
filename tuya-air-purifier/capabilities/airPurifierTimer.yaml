@@ -1,0 +1,47 @@
+id: airPurifierTimer
+version: 1
+status: proposed
+name: Air Purifier Timer
+attributes:
+  timerMode:
+    schema:
+      type: object
+      properties:
+        value:
+          type: string
+          enum:
+            - off
+            - twoHours
+            - fourHours
+      additionalProperties: false
+      required:
+        - value
+    enumCommands: []
+  timerRemaining:
+    schema:
+      type: object
+      properties:
+        value:
+          type: integer
+          minimum: 0
+          maximum: 480
+        unit:
+          type: string
+          enum:
+            - min
+      additionalProperties: false
+      required:
+        - value
+    enumCommands: []
+commands:
+  setTimerMode:
+    name: setTimerMode
+    arguments:
+      - name: timerMode
+        optional: false
+        schema:
+          type: string
+          enum:
+            - off
+            - twoHours
+            - fourHours
