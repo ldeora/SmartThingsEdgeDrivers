@@ -1,0 +1,6 @@
+name: 'Aqara Curtain Driver E1'
+packageKey: 'aqara-curtain-driver-e1'
+permissions:
+  zigbee: {}
+description: 'Minimal SmartThings Edge driver for the Aqara Curtain Driver E1 (lumi.curtain.agl001)'
+vendorSupportInformation: 'https://support.smartthings.com'
