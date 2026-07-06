@@ -1,0 +1,7 @@
+name: Davis AirLink LAN
+packageKey: davis-airlink-lan
+permissions:
+  lan: {}
+  discovery: {}
+description: SmartThings LAN Edge Driver for the Davis AirLink air quality sensor with local PM, temperature, humidity, and health concern reporting.
+vendorSupportInformation: Community driver by Andreas Roedl
