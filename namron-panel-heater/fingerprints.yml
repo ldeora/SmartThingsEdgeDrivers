@@ -1,0 +1,82 @@
+zigbeeManufacturer:
+  - id: "NAMRON-AS/5401392"
+    deviceLabel: "Namron Panel Heater 400 W White"
+    manufacturer: "NAMRON AS"
+    model: "5401392"
+    deviceProfileName: namron-panel-heater
+  - id: "NAMRON-AS/5401393"
+    deviceLabel: "Namron Panel Heater 600 W White"
+    manufacturer: "NAMRON AS"
+    model: "5401393"
+    deviceProfileName: namron-panel-heater
+  - id: "NAMRON-AS/5401394"
+    deviceLabel: "Namron Panel Heater 800 W White"
+    manufacturer: "NAMRON AS"
+    model: "5401394"
+    deviceProfileName: namron-panel-heater
+  - id: "NAMRON-AS/5401395"
+    deviceLabel: "Namron Panel Heater 1000 W White"
+    manufacturer: "NAMRON AS"
+    model: "5401395"
+    deviceProfileName: namron-panel-heater
+  - id: "NAMRON-AS/5401396"
+    deviceLabel: "Namron Panel Heater 400 W Black"
+    manufacturer: "NAMRON AS"
+    model: "5401396"
+    deviceProfileName: namron-panel-heater
+  - id: "NAMRON-AS/5401397"
+    deviceLabel: "Namron Panel Heater 600 W Black"
+    manufacturer: "NAMRON AS"
+    model: "5401397"
+    deviceProfileName: namron-panel-heater
+  - id: "NAMRON-AS/5401398"
+    deviceLabel: "Namron Panel Heater 800 W Black"
+    manufacturer: "NAMRON AS"
+    model: "5401398"
+    deviceProfileName: namron-panel-heater
+  - id: "NAMRON-AS/5401399"
+    deviceLabel: "Namron Panel Heater 1000 W Black"
+    manufacturer: "NAMRON AS"
+    model: "5401399"
+    deviceProfileName: namron-panel-heater
+  # Fallback spelling observed in some public descriptions. Keep after the exact NAMRON AS entries.
+  - id: "Namron/5401392"
+    deviceLabel: "Namron Panel Heater 400 W White"
+    manufacturer: "Namron"
+    model: "5401392"
+    deviceProfileName: namron-panel-heater
+  - id: "Namron/5401393"
+    deviceLabel: "Namron Panel Heater 600 W White"
+    manufacturer: "Namron"
+    model: "5401393"
+    deviceProfileName: namron-panel-heater
+  - id: "Namron/5401394"
+    deviceLabel: "Namron Panel Heater 800 W White"
+    manufacturer: "Namron"
+    model: "5401394"
+    deviceProfileName: namron-panel-heater
+  - id: "Namron/5401395"
+    deviceLabel: "Namron Panel Heater 1000 W White"
+    manufacturer: "Namron"
+    model: "5401395"
+    deviceProfileName: namron-panel-heater
+  - id: "Namron/5401396"
+    deviceLabel: "Namron Panel Heater 400 W Black"
+    manufacturer: "Namron"
+    model: "5401396"
+    deviceProfileName: namron-panel-heater
+  - id: "Namron/5401397"
+    deviceLabel: "Namron Panel Heater 600 W Black"
+    manufacturer: "Namron"
+    model: "5401397"
+    deviceProfileName: namron-panel-heater
+  - id: "Namron/5401398"
+    deviceLabel: "Namron Panel Heater 800 W Black"
+    manufacturer: "Namron"
+    model: "5401398"
+    deviceProfileName: namron-panel-heater
+  - id: "Namron/5401399"
+    deviceLabel: "Namron Panel Heater 1000 W Black"
+    manufacturer: "Namron"
+    model: "5401399"
+    deviceProfileName: namron-panel-heater

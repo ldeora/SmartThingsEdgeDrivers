@@ -1,0 +1,7 @@
+name: 'Namron Panel Heater'
+packageKey: 'namron-panel-heater'
+defaultProfile: 'namron-panel-heater'
+permissions:
+  zigbee: {}
+description: 'SmartThings Edge driver for Namron 540139X Zigbee panel heaters with thermostat, metering, and core device settings.'
+vendorSupportInformation: 'Community driver by Andreas Roedl / oceancircle09600'
