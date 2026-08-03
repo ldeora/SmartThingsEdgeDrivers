@@ -1,0 +1,6 @@
+matterManufacturer:
+  - id: "4933/16898"
+    deviceLabel: Meross MS605 Smart Presence Sensor
+    vendorId: 0x1345
+    productId: 0x4202
+    deviceProfileName: meross-ms605

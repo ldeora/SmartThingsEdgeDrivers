@@ -1,0 +1,6 @@
+name: 'Meross MS605 Presence Sensor'
+packageKey: 'meross-ms605-presence-sensor'
+permissions:
+  matter: {}
+description: 'SmartThings Edge driver for the Meross MS605 Matter-over-Thread multi-zone presence sensor'
+vendorSupportInformation: 'https://github.com/ldeora/SmartThingsEdgeDrivers'

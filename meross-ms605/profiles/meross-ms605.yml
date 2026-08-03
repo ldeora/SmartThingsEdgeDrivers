@@ -1,0 +1,34 @@
+name: meross-ms605
+components:
+- id: main
+  capabilities:
+  - id: presenceSensor
+    version: 1
+  - id: illuminanceMeasurement
+    version: 1
+  - id: battery
+    version: 1
+  - id: firmwareUpdate
+    version: 1
+  - id: refresh
+    version: 1
+  categories:
+  - name: PresenceSensor
+- id: zone1
+  capabilities:
+  - id: presenceSensor
+    version: 1
+  categories:
+  - name: PresenceSensor
+- id: zone2
+  capabilities:
+  - id: presenceSensor
+    version: 1
+  categories:
+  - name: PresenceSensor
+- id: zone3
+  capabilities:
+  - id: presenceSensor
+    version: 1
+  categories:
+  - name: PresenceSensor
