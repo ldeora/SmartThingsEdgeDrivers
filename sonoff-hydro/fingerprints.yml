@@ -1,0 +1,36 @@
+zigbeeManufacturer:
+  - id: "SONOFF/SWV-ZFE"
+    deviceLabel: "SONOFF Hydro ONE"
+    manufacturer: "SONOFF"
+    model: "SWV-ZFE"
+    deviceProfileName: sonoff-hydro-one
+  - id: "SONOFF/SWV-ZFU"
+    deviceLabel: "SONOFF Hydro ONE"
+    manufacturer: "SONOFF"
+    model: "SWV-ZFU"
+    deviceProfileName: sonoff-hydro-one
+  - id: "SONOFF/SWV-ZNE"
+    deviceLabel: "SONOFF Hydro ONE Lite"
+    manufacturer: "SONOFF"
+    model: "SWV-ZNE"
+    deviceProfileName: sonoff-hydro-one-lite
+  - id: "SONOFF/SWV-ZNU"
+    deviceLabel: "SONOFF Hydro ONE Lite"
+    manufacturer: "SONOFF"
+    model: "SWV-ZNU"
+    deviceProfileName: sonoff-hydro-one-lite
+  - id: "SONOFF/SWV-ZF2"
+    deviceLabel: "SONOFF Hydro DUO"
+    manufacturer: "SONOFF"
+    model: "SWV-ZF2"
+    deviceProfileName: sonoff-hydro-duo
+  - id: "SONOFF/SWV-ZF2E"
+    deviceLabel: "SONOFF Hydro DUO"
+    manufacturer: "SONOFF"
+    model: "SWV-ZF2E"
+    deviceProfileName: sonoff-hydro-duo
+  - id: "SONOFF/SWV-ZF2U"
+    deviceLabel: "SONOFF Hydro DUO"
+    manufacturer: "SONOFF"
+    model: "SWV-ZF2U"
+    deviceProfileName: sonoff-hydro-duo

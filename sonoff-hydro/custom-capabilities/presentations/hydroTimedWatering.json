@@ -1,0 +1,90 @@
+{
+  "dashboard": {
+    "states": [
+      {
+        "label": "Timed watering: {{timedWatering.value}}"
+      }
+    ],
+    "actions": []
+  },
+  "detailView": [
+    {
+      "label": "Status",
+      "displayType": "state",
+      "state": {
+        "label": "{{timedWatering.value}}"
+      }
+    },
+    {
+      "label": "Last timed duration",
+      "displayType": "state",
+      "state": {
+        "label": "{{timedOpenMinutes.value}} {{timedOpenMinutes.unit}}"
+      }
+    },
+    {
+      "label": "Open valve for minutes",
+      "displayType": "numberField",
+      "numberField": {
+        "command": "openForMinutes",
+        "value": "timedOpenMinutes.value",
+        "unit": "timedOpenMinutes.unit",
+        "range": [
+          1,
+          719
+        ],
+        "step": 1,
+        "argumentType": "integer",
+        "valueType": "number"
+      }
+    }
+  ],
+  "automation": {
+    "conditions": [
+      {
+        "label": "Timed watering state",
+        "displayType": "list",
+        "list": {
+          "alternatives": [
+            {
+              "key": "idle",
+              "value": "idle",
+              "type": "inactive"
+            },
+            {
+              "key": "requested",
+              "value": "requested",
+              "type": "active"
+            },
+            {
+              "key": "running",
+              "value": "running",
+              "type": "active"
+            }
+          ],
+          "value": "timedWatering.value",
+          "valueType": "string",
+          "multiSelectable": false
+        }
+      }
+    ],
+    "actions": [
+      {
+        "label": "Open valve for minutes",
+        "displayType": "numberField",
+        "numberField": {
+          "command": "openForMinutes",
+          "unit": "timedOpenMinutes.unit",
+          "range": [
+            1,
+            719
+          ],
+          "step": 1,
+          "argumentType": "integer"
+        }
+      }
+    ]
+  },
+  "id": "oceancircle09600.hydroTimedWatering",
+  "version": 1
+}

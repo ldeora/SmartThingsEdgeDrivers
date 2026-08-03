@@ -1,0 +1,82 @@
+{
+  "name": "Hydro valve alerts",
+  "attributes": {
+    "waterShortage": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "value": {
+            "title": "Water shortage",
+            "type": "string",
+            "enum": [
+              "clear",
+              "detected"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "value"
+        ]
+      }
+    },
+    "waterLeakage": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "value": {
+            "title": "Water leakage",
+            "type": "string",
+            "enum": [
+              "clear",
+              "detected"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "value"
+        ]
+      }
+    },
+    "frostProtection": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "value": {
+            "title": "Frost protection",
+            "type": "string",
+            "enum": [
+              "clear",
+              "active"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "value"
+        ]
+      }
+    },
+    "failSafe": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "value": {
+            "title": "Fail-safe",
+            "type": "string",
+            "enum": [
+              "clear",
+              "active"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "value"
+        ]
+      }
+    }
+  },
+  "commands": {}
+}

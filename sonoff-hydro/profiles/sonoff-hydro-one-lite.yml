@@ -1,0 +1,69 @@
+name: sonoff-hydro-one-lite
+components:
+- id: main
+  capabilities:
+  - id: valve
+    version: 1
+  - id: switch
+    version: 1
+  - id: battery
+    version: 1
+  - id: refresh
+    version: 1
+  - id: healthCheck
+    version: 1
+  - id: firmwareUpdate
+    version: 1
+  - id: oceancircle09600.hydroTimedWatering
+    version: 1
+  - id: oceancircle09600.hydroLiteIrrigationStatus
+    version: 1
+  categories:
+  - name: WaterValve
+preferences:
+- name: debugLogging
+  title: Debug logging
+  description: Log additional raw 0xFC11 private-cluster reports. Leave disabled
+    unless troubleshooting.
+  required: false
+  preferenceType: boolean
+  definition:
+    default: false
+- name: realTimeDurationUnit
+  title: Real-time duration unit
+  description: Select how real-time irrigation duration values are displayed.
+    Leave at minutes unless the value shown in SmartThings is clearly scaled incorrectly.
+  required: false
+  preferenceType: enumeration
+  definition:
+    options:
+      minutes: minutes
+      seconds: seconds
+    default: minutes
+- name: manualDuration
+  title: Device-side watering limit
+  description: Sets and verifies the valve firmware watering limit. Change this value to allow runs longer than 10 minutes. Basic Open and Close never depend on synchronization.
+  required: false
+  preferenceType: integer
+  definition:
+    minimum: 1
+    maximum: 719
+    default: 10
+- name: readPrivateOnRefresh
+  title: Read private status on refresh
+  description: Read the key SONOFF 0xFC11 attributes when Refresh is pressed. Disable
+    only if the sleepy valve becomes sluggish.
+  required: false
+  preferenceType: boolean
+  definition:
+    default: true
+- name: childLock
+  title: Child lock
+  description: Enables or disables the SONOFF child lock setting.
+  required: false
+  preferenceType: enumeration
+  definition:
+    options:
+      unlocked: unlocked
+      locked: locked
+    default: unlocked

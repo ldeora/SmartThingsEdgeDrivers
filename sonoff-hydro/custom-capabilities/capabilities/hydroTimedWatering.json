@@ -1,0 +1,69 @@
+{
+  "name": "Hydro timed watering",
+  "attributes": {
+    "timedWatering": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "value": {
+            "title": "Timed watering state",
+            "type": "string",
+            "enum": [
+              "idle",
+              "requested",
+              "running"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "value"
+        ]
+      }
+    },
+    "timedOpenMinutes": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "value": {
+            "title": "Last requested timed-open duration",
+            "type": "number",
+            "minimum": 0,
+            "maximum": 719
+          },
+          "unit": {
+            "type": "string",
+            "enum": [
+              "min"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "value",
+          "unit"
+        ]
+      }
+    }
+  },
+  "commands": {
+    "openForMinutes": {
+      "name": "openForMinutes",
+      "arguments": [
+        {
+          "name": "minutes",
+          "optional": false,
+          "schema": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 719
+          }
+        }
+      ]
+    },
+    "stop": {
+      "name": "stop",
+      "arguments": []
+    }
+  }
+}

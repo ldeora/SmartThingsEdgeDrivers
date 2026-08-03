@@ -1,0 +1,75 @@
+{
+  "dashboard": {
+    "states": [
+      {
+        "label": "{{valveWorkState.value}} \u00b7 {{realTimeIrrigationDuration.value}} {{realTimeIrrigationDuration.unit}} \u00b7 {{realTimeIrrigationVolume.value}} {{realTimeIrrigationVolume.unit}}"
+      }
+    ],
+    "actions": []
+  },
+  "detailView": [
+    {
+      "label": "Valve status",
+      "displayType": "state",
+      "state": {
+        "label": "{{valveWorkState.value}}"
+      }
+    },
+    {
+      "label": "Current duration",
+      "displayType": "state",
+      "state": {
+        "label": "{{realTimeIrrigationDuration.value}} {{realTimeIrrigationDuration.unit}}"
+      }
+    },
+    {
+      "label": "Current volume",
+      "displayType": "state",
+      "state": {
+        "label": "{{realTimeIrrigationVolume.value}} {{realTimeIrrigationVolume.unit}}"
+      }
+    },
+    {
+      "label": "Hourly duration",
+      "displayType": "state",
+      "state": {
+        "label": "{{hourIrrigationDuration.value}} {{hourIrrigationDuration.unit}}"
+      }
+    },
+    {
+      "label": "Hourly volume",
+      "displayType": "state",
+      "state": {
+        "label": "{{hourIrrigationVolume.value}} {{hourIrrigationVolume.unit}}"
+      }
+    }
+  ],
+  "automation": {
+    "conditions": [
+      {
+        "label": "Valve status",
+        "displayType": "list",
+        "list": {
+          "alternatives": [
+            {
+              "key": "idle",
+              "value": "idle",
+              "type": "inactive"
+            },
+            {
+              "key": "working",
+              "value": "working",
+              "type": "active"
+            }
+          ],
+          "value": "valveWorkState.value",
+          "valueType": "string",
+          "multiSelectable": false
+        }
+      }
+    ],
+    "actions": []
+  },
+  "id": "oceancircle09600.hydroIrrigationStatus",
+  "version": 1
+}

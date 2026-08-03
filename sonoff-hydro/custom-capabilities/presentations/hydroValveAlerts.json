@@ -1,0 +1,131 @@
+{
+  "dashboard": {
+    "states": [
+      {
+        "label": "Shortage {{waterShortage.value}} \u00b7 Leak {{waterLeakage.value}}"
+      }
+    ],
+    "actions": []
+  },
+  "detailView": [
+    {
+      "label": "Water shortage",
+      "displayType": "state",
+      "state": {
+        "label": "{{waterShortage.value}}"
+      }
+    },
+    {
+      "label": "Water leakage",
+      "displayType": "state",
+      "state": {
+        "label": "{{waterLeakage.value}}"
+      }
+    },
+    {
+      "label": "Frost protection",
+      "displayType": "state",
+      "state": {
+        "label": "{{frostProtection.value}}"
+      }
+    },
+    {
+      "label": "Fail-safe",
+      "displayType": "state",
+      "state": {
+        "label": "{{failSafe.value}}"
+      }
+    }
+  ],
+  "automation": {
+    "conditions": [
+      {
+        "label": "Water shortage",
+        "displayType": "list",
+        "list": {
+          "alternatives": [
+            {
+              "key": "clear",
+              "value": "clear",
+              "type": "inactive"
+            },
+            {
+              "key": "detected",
+              "value": "detected",
+              "type": "active"
+            }
+          ],
+          "value": "waterShortage.value",
+          "valueType": "string",
+          "multiSelectable": false
+        }
+      },
+      {
+        "label": "Water leak",
+        "displayType": "list",
+        "list": {
+          "alternatives": [
+            {
+              "key": "clear",
+              "value": "clear",
+              "type": "inactive"
+            },
+            {
+              "key": "detected",
+              "value": "detected",
+              "type": "active"
+            }
+          ],
+          "value": "waterLeakage.value",
+          "valueType": "string",
+          "multiSelectable": false
+        }
+      },
+      {
+        "label": "Frost protection",
+        "displayType": "list",
+        "list": {
+          "alternatives": [
+            {
+              "key": "clear",
+              "value": "clear",
+              "type": "inactive"
+            },
+            {
+              "key": "active",
+              "value": "active",
+              "type": "active"
+            }
+          ],
+          "value": "frostProtection.value",
+          "valueType": "string",
+          "multiSelectable": false
+        }
+      },
+      {
+        "label": "Fail-safe",
+        "displayType": "list",
+        "list": {
+          "alternatives": [
+            {
+              "key": "clear",
+              "value": "clear",
+              "type": "inactive"
+            },
+            {
+              "key": "active",
+              "value": "active",
+              "type": "active"
+            }
+          ],
+          "value": "failSafe.value",
+          "valueType": "string",
+          "multiSelectable": false
+        }
+      }
+    ],
+    "actions": []
+  },
+  "id": "oceancircle09600.hydroValveAlerts",
+  "version": 1
+}

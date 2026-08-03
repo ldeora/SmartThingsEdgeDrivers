@@ -1,0 +1,5 @@
+name: SONOFF Hydro Water Valves
+packageKey: sonoff-hydro-one
+description: SmartThings Edge driver for SONOFF Hydro ONE, Hydro ONE Lite, and Hydro DUO Zigbee water valves.
+permissions:
+  zigbee: {}

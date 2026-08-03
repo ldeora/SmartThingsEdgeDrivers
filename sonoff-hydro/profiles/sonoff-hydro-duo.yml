@@ -1,0 +1,140 @@
+name: sonoff-hydro-duo
+components:
+- id: main
+  label: Channel 1
+  capabilities:
+  - id: valve
+    version: 1
+  - id: switch
+    version: 1
+  - id: battery
+    version: 1
+  - id: waterSensor
+    version: 1
+  - id: refresh
+    version: 1
+  - id: healthCheck
+    version: 1
+  - id: firmwareUpdate
+    version: 1
+  - id: oceancircle09600.hydroTimedWatering
+    version: 1
+  - id: oceancircle09600.hydroIrrigationStatus
+    version: 1
+  - id: oceancircle09600.hydroValveAlerts
+    version: 1
+  categories:
+  - name: WaterValve
+- id: channel2
+  label: Channel 2
+  capabilities:
+  - id: valve
+    version: 1
+  - id: switch
+    version: 1
+  - id: oceancircle09600.hydroTimedWatering
+    version: 1
+  - id: oceancircle09600.hydroIrrigationStatus
+    version: 1
+  categories:
+  - name: WaterValve
+preferences:
+- name: debugLogging
+  title: Debug logging
+  description: Log additional raw 0xFC11 private-cluster reports and write attempts.
+    Leave disabled unless troubleshooting.
+  required: false
+  preferenceType: boolean
+  definition:
+    default: false
+- name: realTimeDurationUnit
+  title: Real-time duration unit
+  description: Select how real-time irrigation duration values are displayed.
+    Leave at minutes unless the value shown in SmartThings is clearly scaled incorrectly.
+  required: false
+  preferenceType: enumeration
+  definition:
+    options:
+      minutes: minutes
+      seconds: seconds
+    default: minutes
+- name: manualDuration
+  title: Device-side watering limit
+  description: Sets and verifies both the valve firmware duration and fail-safe limit. Change this value to allow runs longer than 10 minutes. Basic Open and Close never depend on synchronization.
+  required: false
+  preferenceType: integer
+  definition:
+    minimum: 1
+    maximum: 719
+    default: 10
+- name: readPrivateOnRefresh
+  title: Read private status on refresh
+  description: Read key SONOFF 0xFC11 attributes from both channels when Refresh
+    is pressed. Disable only if the sleepy valve becomes sluggish.
+  required: false
+  preferenceType: boolean
+  definition:
+    default: true
+- name: childLock
+  title: Child lock
+  description: Enables or disables the shared SONOFF child lock setting.
+  required: false
+  preferenceType: enumeration
+  definition:
+    options:
+      unlocked: unlocked
+      locked: locked
+    default: unlocked
+- name: shortageAlarm
+  title: Water shortage alarm
+  description: Enable or disable the valve's water-shortage alarm in the private 0x5020
+    settings payload. Written only when this preference changes.
+  required: false
+  preferenceType: enumeration
+  definition:
+    options:
+      disabled: disabled
+      enabled: enabled
+    default: disabled
+- name: leakAlarm
+  title: Water leak alarm
+  description: Enable or disable the valve's water-leak alarm in the private 0x5020
+    settings payload. Written only when this preference changes.
+  required: false
+  preferenceType: enumeration
+  definition:
+    options:
+      disabled: disabled
+      enabled: enabled
+    default: disabled
+- name: shortageAutoClose
+  title: Shortage auto-close
+  description: Enable or disable automatic valve close on water shortage. Written
+    only when this preference changes.
+  required: false
+  preferenceType: enumeration
+  definition:
+    options:
+      disabled: disabled
+      enabled: enabled
+    default: disabled
+- name: shortageDuration
+  title: Shortage alarm duration
+  description: 'Water-shortage alarm duration in minutes. Valid device range: 1-10.
+    Written only when this preference changes.'
+  required: false
+  preferenceType: integer
+  definition:
+    minimum: 1
+    maximum: 10
+    default: 1
+- name: leakDuration
+  title: Leak alarm duration
+  description: 'Water-leak alarm duration in minutes. Valid device range: 1-3. Written
+    only when this preference changes.'
+  required: false
+  preferenceType: integer
+  definition:
+    minimum: 1
+    maximum: 3
+    default: 1

@@ -1,0 +1,42 @@
+{
+  "name": "Hydro lite irrigation status",
+  "attributes": {
+    "valveWorkState": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "value": {
+            "title": "Valve work state",
+            "type": "string",
+            "enum": ["idle", "working"]
+          }
+        },
+        "additionalProperties": false,
+        "required": ["value"]
+      }
+    },
+    "realTimeIrrigationDuration": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "value": {"title": "Real-time irrigation duration", "type": "number", "minimum": 0},
+          "unit": {"type": "string", "enum": ["min", "s"]}
+        },
+        "additionalProperties": false,
+        "required": ["value", "unit"]
+      }
+    },
+    "hourIrrigationDuration": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "value": {"title": "Hourly irrigation duration", "type": "number", "minimum": 0},
+          "unit": {"type": "string", "enum": ["min"]}
+        },
+        "additionalProperties": false,
+        "required": ["value", "unit"]
+      }
+    }
+  },
+  "commands": {}
+}
