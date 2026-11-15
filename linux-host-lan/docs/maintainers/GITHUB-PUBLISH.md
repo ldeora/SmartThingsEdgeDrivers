@@ -1,60 +1,74 @@
 # Publishing Linux Host LAN in ldeora/SmartThingsEdgeDrivers
 
-The public repository already organizes Edge drivers in independent root directories. Add **one** new directory, `linux-host-lan/`; do not overwrite the repository's existing drivers or its root `README.md`. This release has been prepared but **has not been pushed**.
+**Source import completed:** Linux Host LAN was merged into `main` through [PR #1](https://github.com/ldeora/SmartThingsEdgeDrivers/pull/1) on 2026-11-15. The source lives in [`linux-host-lan/`](https://github.com/ldeora/SmartThingsEdgeDrivers/tree/main/linux-host-lan). Do not import the GitHub-ready ZIP into the repository a second time.
 
-## Before making this public
+**Current task:** prepare the **draft prerelease** `linux-host-lan-v0.3.1-beta.1`. A draft can be reviewed without advertising an unfinished public download. This guide deliberately leaves broader public-beta gates open.
 
-1. **License selected:** Apache-2.0. Verify `LICENSE` is present in the repository subtree and in both agent bundles; confirm code provenance and attribution (including any third-party contributions) before publishing.
-2. Review `SECURITY.md`, `docs/beta/PUBLICATION-GATES.md`, and the source. The current HTTP protocol is designed for trusted LANs, not public WAN exposure.
-3. Prepare a dedicated SmartThings beta channel and verify a fresh install on a separate SmartThings account, including publisher-owned custom capabilities. Do **not** tell volunteers to create capabilities themselves.
-4. CI matrix tests, cross-distro service installation and beta tester hardware tests remain pending. Avoid claims of certified compatibility.
+## Prerelease safeguards
 
-## Push the project subtree (recommended branch/PR workflow)
+1. Apache-2.0 licensing is present in `linux-host-lan/LICENSE` and the agent archives. Check code provenance and any third-party attribution before public distribution.
+2. The project targets trusted LANs, not public networks. Review `SECURITY.md` and `docs/beta/PUBLICATION-GATES.md` before releasing assets to volunteers.
+3. The Gentoo Agent 0.3.0 + Edge Driver 0.2.9 combination is hardware validated. Other distributions have **not** passed full systemd/hardware testing; the six-distro CI template remains inactive.
+4. The publisher must verify the driver channel, custom capabilities and a separate tester account before inviting volunteers.
 
-```sh
-git clone https://github.com/ldeora/SmartThingsEdgeDrivers.git
-cd SmartThingsEdgeDrivers
-git switch -c linux-host-lan-beta
-# Extract the github-ready ZIP here; it adds linux-host-lan/
+## Build and verify the release artifacts
 
-cd linux-host-lan
-python3 -m unittest discover -s tests -q
-cd ..
-git status --short
-git add linux-host-lan/
-git commit -m 'Add Linux Host LAN closed-beta source and agent installer'
-git push -u origin linux-host-lan-beta
-```
-
-Create a pull request into `main`, review changes and merge it. At the existing repository root, consider adding a one-line link to the new project without changing other drivers:
-
-```markdown
-- [Linux Host LAN — Linux system monitoring and power control](linux-host-lan/)
-```
-
-## Build GitHub Release assets (after source review)
-
-From `SmartThingsEdgeDrivers/linux-host-lan/`:
+Start from an up-to-date local checkout **after the documentation PR is merged**:
 
 ```sh
-python3 scripts/ci/build_release.py --output-dir dist
-cd dist
-sha256sum -c SHA256SUMS.txt
-```
-
-**Release tag:** `linux-host-lan-v0.3.1-beta.1` (prefix avoids conflicting with tags for other drivers in this monorepo). After the PR is merged, tag the reviewed commit:
-
-```sh
+cd ~/devel/ghar/SmartThingsEdgeDrivers
 git switch main
 git pull --ff-only
-git tag linux-host-lan-v0.3.1-beta.1
+cd linux-host-lan
+python3 -m unittest discover -s tests -q
+sha256sum -c FILES.sha256
+python3 scripts/ci/build_release.py --output-dir dist
+(cd dist && sha256sum -c SHA256SUMS.txt)
+```
+
+The release builder produces **four** upload assets in `linux-host-lan/dist/`:
+
+- `linux-host-lan-github-ready-v0.3.1-beta.1.zip` — project-only source snapshot (optional GitHub Release asset; GitHub also auto-generates repository-wide source archives)
+- `linux-host-agent-bundle-v0.3.1-beta.1.tar.gz` — recommended volunteer Linux download
+- `linux-host-agent-bundle-v0.3.1-beta.1.zip` — alternative volunteer download
+- `SHA256SUMS.txt` — checksums for the three generated archives
+
+The standalone agent bundles include the Apache-2.0 license and exclude development-only driver files, tests, machine identities and secrets. Do not publish control keys, UUIDs, local configuration, or service state files.
+
+## Tag the reviewed source
+
+Run these commands from the **repository root**, after confirming the correct `main` commit and a clean work tree:
+
+```sh
+cd ~/devel/ghar/SmartThingsEdgeDrivers
+git status --short
+git rev-parse --short HEAD
+git tag -a linux-host-lan-v0.3.1-beta.1 -m 'Linux Host LAN v0.3.1-beta.1'
 git push origin linux-host-lan-v0.3.1-beta.1
 ```
 
-Create a **draft, prerelease** on GitHub for the tag and attach **all three** generated archives (GitHub-ready project source ZIP, agent `.tar.gz`, agent `.zip`) and `SHA256SUMS.txt`. Each archive includes the Apache-2.0 `LICENSE`. The checksum manifest must reference only assets that are actually available. The checksums do not authenticate the publisher; signed releases should be added later. Release documentation should link to the same source tag and clearly identify Agent 0.3.0, Edge Driver 0.2.9 and Gentoo-only hardware validation.
+Do not reuse or forcibly move a published version tag. If the reviewed code changes after tagging, prepare a new prerelease version instead.
 
-Do **not** enable the prepared CI workflow merely by copying it unmodified: it lives inside `linux-host-lan/ci/` and must be reviewed/activated at the repository root as `.github/workflows/`, with correct working directory and action pinning.
+## Create a DRAFT prerelease with GitHub CLI
 
-## Forum and tester onboarding
+From the repository root, with `gh auth status` showing the expected account:
 
-Publish the recruitment thread after the sources, agent assets and beta channel invitation are actually available. Put the repository path, GitHub Release link and SmartThings invitation link into the thread; do not invent these links in advance. Recommend monitoring-only installation first. Use GitHub Issues for reproducible bugs and the forum for discussion.
+```sh
+gh release create linux-host-lan-v0.3.1-beta.1 \
+  linux-host-lan/dist/linux-host-agent-bundle-v0.3.1-beta.1.tar.gz \
+  linux-host-lan/dist/linux-host-agent-bundle-v0.3.1-beta.1.zip \
+  linux-host-lan/dist/linux-host-lan-github-ready-v0.3.1-beta.1.zip \
+  linux-host-lan/dist/SHA256SUMS.txt \
+  --draft --prerelease \
+  --title 'Linux Host LAN v0.3.1-beta.1 (closed beta)' \
+  --notes-file linux-host-lan/docs/maintainers/RELEASE-NOTES-DRAFT.md \
+  --verify-tag
+```
+
+Review the draft in GitHub's Releases UI. It is intentionally **not yet published**; publishing requires an explicit decision after the remaining release gates are reviewed. GitHub's automatically generated ZIP/TAR source archives refer to the **entire monorepo**, so volunteers should use the named Linux Host Agent bundle instead.
+
+## SmartThings channel and support
+
+Create the beta channel/invitation separately; do not substitute a GitHub download for the hub-installed Edge Driver. Validate the existing `oceancircle09600` capabilities, device presentations, and hub onboarding from an account other than the publisher's. Provide the real driver-channel URL and release URL in the SmartThings Community post only after both are verified.
+
+Bug reports belong in [GitHub Issues](https://github.com/ldeora/SmartThingsEdgeDrivers/issues), with the forum used for general discussion. Never request unredacted diagnostic logs or the HMAC control token. Instructions for CI activation are in `docs/maintainers/CI-ACTIVATION.md`; leave it inactive until review.
