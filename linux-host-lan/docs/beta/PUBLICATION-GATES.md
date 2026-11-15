@@ -4,7 +4,8 @@ The following block an unrestricted public beta; a small privately shared source
 
 - [x] **Select a license:** project owner chose Apache-2.0; full `LICENSE` included in source and agent bundles.
 - [ ] **Confirm rights and attribution:** verify provenance and ownership of any reused or third-party code; add any required notices before public release.
-- [ ] Select source repository, public issue tracker, disclosure contact, update/support scope and code-of-conduct expectations.
+- [x] **Choose source repository and issue tracker:** [`ldeora/SmartThingsEdgeDrivers`](https://github.com/ldeora/SmartThingsEdgeDrivers) (`linux-host-lan/`) and [GitHub Issues](https://github.com/ldeora/SmartThingsEdgeDrivers/issues); source merged through PR #1.
+- [ ] Define a private security-disclosure contact, beta support/update scope and code-of-conduct expectations.
 - [ ] Pin third-party GitHub Actions to reviewed commit SHAs; review source dependencies and Python testing-only dependency policy.
 - [ ] Run the six-distro GitHub Actions matrix; publish links to successful runs and attach artifacts. A workflow file alone is not evidence.
 - [ ] At least two target environments outside Gentoo perform a **systemd PID 1 installation**; one should enforce SELinux/AppArmor.
@@ -16,4 +17,4 @@ The following block an unrestricted public beta; a small privately shared source
 - [ ] Prepare signed, checksum-verified release source files, privacy-safe diagnostics, install/upgrade/uninstall instructions and explicit support boundaries.
 - [ ] Decide DEB/RPM packaging ownership and migration strategy; package artifacts remain deferred until their own lifecycle tests pass.
 
-**Still open:** copyright/provenance review, cross-distro CI execution, distribution-specific systemd/MAC policy tests, external hardware validation and release signing/publishing. Selecting Apache-2.0 does not close the other gates. The CI workflow template is only a proposal until activated and run.
+**Source and license decisions completed. Still open:** copyright/provenance review, cross-distro CI execution, distribution-specific systemd/MAC policy tests, external hardware validation and release signing/publishing. Selecting Apache-2.0 does not close the other gates. The CI workflow template is only a proposal until activated and run.
