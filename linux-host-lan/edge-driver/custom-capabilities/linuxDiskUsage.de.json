@@ -1,0 +1,9 @@
+{
+  "tag": "de",
+  "label": "Root-Dateisystem",
+  "attributes": {
+    "diskUsage": {
+      "label": "Speicherbelegung"
+    }
+  }
+}

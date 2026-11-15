@@ -1,0 +1,137 @@
+# Advanced monitoring profile; custom capabilities must be registered first.
+name: linux-host-advanced
+components:
+- id: main
+  capabilities:
+  - id: switch
+    version: 1
+  - id: refresh
+    version: 1
+  - id: temperatureMeasurement
+    version: 1
+  - id: oceancircle09600.linuxHostStatus
+    version: 1
+  - id: oceancircle09600.linuxCpuUsage
+    version: 1
+  - id: oceancircle09600.linuxMemoryUsage
+    version: 1
+  - id: oceancircle09600.linuxDiskUsage
+    version: 1
+  - id: oceancircle09600.linuxUptime
+    version: 1
+  - id: oceancircle09600.linuxLoad
+    version: 1
+  categories:
+  - name: Switch
+- id: wake
+  capabilities:
+  - id: momentary
+    version: 1
+  categories:
+  - name: Switch
+- id: reboot
+  capabilities:
+  - id: momentary
+    version: 1
+  categories:
+  - name: Switch
+- id: suspend
+  capabilities:
+  - id: momentary
+    version: 1
+  categories:
+  - name: Switch
+preferences:
+- name: pollInterval
+  title: Availability polling (seconds)
+  description: Interval used to check whether the Linux agent is running.
+  required: true
+  preferenceType: integer
+  definition:
+    minimum: 10
+    maximum: 300
+    default: 30
+- name: telemetryInterval
+  title: Telemetry polling (seconds)
+  description: Interval for CPU, memory, temperature, disk and uptime polling.
+  required: true
+  preferenceType: integer
+  definition:
+    minimum: 30
+    maximum: 3600
+    default: 60
+- name: hostOverride
+  title: Static host address
+  description: Optional address:port after first discovery. IP addresses preferred;
+    HTTPS is not supported.
+  required: false
+  preferenceType: string
+  definition:
+    stringType: text
+    default: ''
+- name: wolMacOverride
+  title: WOL MAC override
+  description: Ethernet MAC address for the target machine; required if agent cannot
+    report one.
+  required: false
+  preferenceType: string
+  definition:
+    stringType: text
+    default: ''
+- name: wolBroadcastOverride
+  title: WOL broadcast IPv4
+  description: Leave empty to use agent's recommended subnet broadcast or 255.255.255.255.
+  required: false
+  preferenceType: string
+  definition:
+    stringType: text
+    default: ''
+- name: wolPort
+  title: WOL UDP port
+  description: Commonly 9 or 7.
+  required: true
+  preferenceType: integer
+  definition:
+    minimum: 1
+    maximum: 65535
+    default: 9
+- name: allowPowerCommands
+  title: Enable shutdown/reboot/suspend
+  description: Requires a Linux power helper and the 64-character authentication key.
+  required: false
+  preferenceType: boolean
+  definition:
+    default: false
+- name: controlKey
+  title: Power control key (64 hex chars)
+  description: Copy from the Linux agent installation. Sensitive; SmartThings preferences
+    are not a secure vault.
+  required: false
+  preferenceType: string
+  definition:
+    stringType: text
+    default: ''
+- name: failureThreshold
+  title: Unreachable after failed polls
+  description: Failed health checks required before host state inference.
+  required: true
+  preferenceType: integer
+  definition:
+    minimum: 2
+    maximum: 10
+    default: 3
+- name: assumeOffWhenUnreachable
+  title: Infer Switch Off after timeouts
+  description: Set switch OFF after repeated host timeouts. Host OFF is inferred from repeated timeouts, never electrically verified. Agent connection refusal retains ON.
+  required: true
+  preferenceType: boolean
+  definition:
+    default: true
+- name: debugLogging
+  title: Debug logging
+  description: Log detailed polling and discovery diagnostics; never logs control
+    keys.
+  required: false
+  preferenceType: boolean
+  definition:
+    default: false

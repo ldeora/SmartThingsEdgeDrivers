@@ -1,0 +1,24 @@
+{
+  "integration": "0.3.1-beta.1",
+  "agent": "0.3.0",
+  "edge_driver": "0.2.9",
+  "agent_protocol": 1,
+  "release_stage": "closed-beta-engineering-candidate-not-yet-public",
+  "hardware_validated": [
+    "Gentoo Linux / systemd 261 / Python 3.14: agent 0.3.0, driver 0.2.9, monitored and power cycled on 2026-11-15"
+  ],
+  "source_smoke_validated": [
+    "Debian 13: Python tests, installer preview, loopback agent (no systemd PID 1)"
+  ],
+  "ci_matrix_defined_not_executed": [
+    "Debian 12",
+    "Debian 13",
+    "Ubuntu 24.04",
+    "Ubuntu 26.04",
+    "Fedora 43",
+    "Fedora 44"
+  ],
+  "managed_state": "/var/lib/linux-host-agent",
+  "power_control_default": "disabled",
+  "redistribution_license": "Apache-2.0"
+}

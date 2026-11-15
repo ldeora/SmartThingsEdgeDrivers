@@ -1,0 +1,176 @@
+{
+  "dashboard": {
+    "states": [
+      {
+        "label": "{{status.value}}",
+        "alternatives": [
+          {
+            "key": "running",
+            "value": "{{i18n.attributes.status.i18n.value.running.label}}",
+            "type": "active"
+          },
+          {
+            "key": "starting",
+            "value": "{{i18n.attributes.status.i18n.value.starting.label}}",
+            "type": "active"
+          },
+          {
+            "key": "stopping",
+            "value": "{{i18n.attributes.status.i18n.value.stopping.label}}",
+            "type": "active"
+          },
+          {
+            "key": "suspending",
+            "value": "{{i18n.attributes.status.i18n.value.suspending.label}}",
+            "type": "active"
+          },
+          {
+            "key": "suspended",
+            "value": "{{i18n.attributes.status.i18n.value.suspended.label}}",
+            "type": "inactive"
+          },
+          {
+            "key": "stopped",
+            "value": "{{i18n.attributes.status.i18n.value.stopped.label}}",
+            "type": "inactive"
+          },
+          {
+            "key": "rebooting",
+            "value": "{{i18n.attributes.status.i18n.value.rebooting.label}}",
+            "type": "active"
+          },
+          {
+            "key": "unreachable",
+            "value": "{{i18n.attributes.status.i18n.value.unreachable.label}}",
+            "type": "active"
+          },
+          {
+            "key": "unknown",
+            "value": "{{i18n.attributes.status.i18n.value.unknown.label}}",
+            "type": "inactive"
+          }
+        ]
+      }
+    ],
+    "actions": [],
+    "basicPlus": []
+  },
+  "detailView": [
+    {
+      "label": "{{i18n.label}}",
+      "displayType": "state",
+      "state": {
+        "label": "{{status.value}}",
+        "alternatives": [
+          {
+            "key": "running",
+            "value": "{{i18n.attributes.status.i18n.value.running.label}}",
+            "type": "active"
+          },
+          {
+            "key": "starting",
+            "value": "{{i18n.attributes.status.i18n.value.starting.label}}",
+            "type": "active"
+          },
+          {
+            "key": "stopping",
+            "value": "{{i18n.attributes.status.i18n.value.stopping.label}}",
+            "type": "active"
+          },
+          {
+            "key": "suspending",
+            "value": "{{i18n.attributes.status.i18n.value.suspending.label}}",
+            "type": "active"
+          },
+          {
+            "key": "suspended",
+            "value": "{{i18n.attributes.status.i18n.value.suspended.label}}",
+            "type": "inactive"
+          },
+          {
+            "key": "stopped",
+            "value": "{{i18n.attributes.status.i18n.value.stopped.label}}",
+            "type": "inactive"
+          },
+          {
+            "key": "rebooting",
+            "value": "{{i18n.attributes.status.i18n.value.rebooting.label}}",
+            "type": "active"
+          },
+          {
+            "key": "unreachable",
+            "value": "{{i18n.attributes.status.i18n.value.unreachable.label}}",
+            "type": "active"
+          },
+          {
+            "key": "unknown",
+            "value": "{{i18n.attributes.status.i18n.value.unknown.label}}",
+            "type": "inactive"
+          }
+        ]
+      }
+    }
+  ],
+  "automation": {
+    "conditions": [
+      {
+        "label": "{{i18n.label}}",
+        "displayType": "list",
+        "list": {
+          "value": "status.value",
+          "valueType": "string",
+          "alternatives": [
+            {
+              "key": "running",
+              "value": "{{i18n.attributes.status.i18n.value.running.label}}",
+              "type": "active"
+            },
+            {
+              "key": "starting",
+              "value": "{{i18n.attributes.status.i18n.value.starting.label}}",
+              "type": "active"
+            },
+            {
+              "key": "stopping",
+              "value": "{{i18n.attributes.status.i18n.value.stopping.label}}",
+              "type": "active"
+            },
+            {
+              "key": "suspending",
+              "value": "{{i18n.attributes.status.i18n.value.suspending.label}}",
+              "type": "active"
+            },
+            {
+              "key": "suspended",
+              "value": "{{i18n.attributes.status.i18n.value.suspended.label}}",
+              "type": "inactive"
+            },
+            {
+              "key": "stopped",
+              "value": "{{i18n.attributes.status.i18n.value.stopped.label}}",
+              "type": "inactive"
+            },
+            {
+              "key": "rebooting",
+              "value": "{{i18n.attributes.status.i18n.value.rebooting.label}}",
+              "type": "active"
+            },
+            {
+              "key": "unreachable",
+              "value": "{{i18n.attributes.status.i18n.value.unreachable.label}}",
+              "type": "active"
+            },
+            {
+              "key": "unknown",
+              "value": "{{i18n.attributes.status.i18n.value.unknown.label}}",
+              "type": "inactive"
+            }
+          ]
+        }
+      }
+    ],
+    "actions": []
+  },
+  "id": "oceancircle09600.linuxHostStatus",
+  "version": 1
+}

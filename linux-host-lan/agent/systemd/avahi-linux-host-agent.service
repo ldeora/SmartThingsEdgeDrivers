@@ -1,0 +1,11 @@
+<?xml version="1.0" standalone='no'?>
+<!DOCTYPE service-group SYSTEM "avahi-service.dtd">
+<service-group>
+  <name replace-wildcards="yes">Linux Host Agent on %h</name>
+  <service>
+    <type>_linuxhost._tcp</type>
+    <port>8765</port>
+    <txt-record>api=1</txt-record>
+    <txt-record>agent=linux-host-agent</txt-record>
+  </service>
+</service-group>

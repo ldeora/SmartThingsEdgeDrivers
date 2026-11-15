@@ -1,0 +1,15 @@
+{
+  "tag": "de",
+  "label": "Systemlast",
+  "attributes": {
+    "loadOne": {
+      "label": "1 Min."
+    },
+    "loadFive": {
+      "label": "5 Min."
+    },
+    "loadFifteen": {
+      "label": "15 Min."
+    }
+  }
+}
