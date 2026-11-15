@@ -1,0 +1,21 @@
+# Python / tooling
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+.coverage
+coverage.xml
+
+# Local diagnostics, credentials and generated builds
+beta-report*.txt
+local-diagnostics/
+release-assets/
+build/
+dist/
+.env
+*.key
+*control-token*
+*installation-id*
+*.pem
+.DS_Store

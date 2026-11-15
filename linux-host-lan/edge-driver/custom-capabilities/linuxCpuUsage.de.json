@@ -1,0 +1,9 @@
+{
+  "tag": "de",
+  "label": "CPU-Auslastung",
+  "attributes": {
+    "cpuUsage": {
+      "label": "CPU-Auslastung"
+    }
+  }
+}

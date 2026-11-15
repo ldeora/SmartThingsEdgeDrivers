@@ -1,0 +1,38 @@
+{
+  "dashboard": {
+    "states": [
+      {
+        "label": "CPU {{cpuUsage.value}} %"
+      }
+    ],
+    "actions": [],
+    "basicPlus": []
+  },
+  "detailView": [
+    {
+      "label": "{{i18n.attributes.cpuUsage.label}}",
+      "displayType": "state",
+      "state": {
+        "label": "{{cpuUsage.value}} %"
+      }
+    }
+  ],
+  "automation": {
+    "conditions": [
+      {
+        "label": "CPU utilization",
+        "displayType": "numberField",
+        "numberField": {
+          "value": "cpuUsage.value",
+          "range": [
+            0,
+            100
+          ]
+        }
+      }
+    ],
+    "actions": []
+  },
+  "id": "oceancircle09600.linuxCpuUsage",
+  "version": 1
+}

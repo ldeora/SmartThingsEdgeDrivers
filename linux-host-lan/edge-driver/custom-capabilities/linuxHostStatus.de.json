@@ -1,0 +1,40 @@
+{
+  "tag": "de",
+  "label": "Hoststatus",
+  "attributes": {
+    "status": {
+      "label": "Zustand",
+      "i18n": {
+        "value": {
+          "running": {
+            "label": "Läuft"
+          },
+          "starting": {
+            "label": "Startet"
+          },
+          "stopping": {
+            "label": "Fährt herunter"
+          },
+          "suspending": {
+            "label": "Geht in Standby"
+          },
+          "suspended": {
+            "label": "Standby"
+          },
+          "stopped": {
+            "label": "Heruntergefahren"
+          },
+          "rebooting": {
+            "label": "Startet neu"
+          },
+          "unreachable": {
+            "label": "Nicht erreichbar"
+          },
+          "unknown": {
+            "label": "Unbekannt"
+          }
+        }
+      }
+    }
+  }
+}

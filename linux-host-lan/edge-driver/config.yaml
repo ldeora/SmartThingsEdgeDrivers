@@ -1,0 +1,7 @@
+name: Linux Host LAN
+packageKey: linux-host-lan
+permissions:
+  lan: {}
+  discovery: {}
+description: Local SmartThings Edge driver for Linux hosts with discovery, WOL, authenticated power control and telemetry.
+vendorSupportInformation: Community Linux Host Agent

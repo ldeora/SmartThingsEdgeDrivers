@@ -1,0 +1,38 @@
+{
+  "dashboard": {
+    "states": [
+      {
+        "label": "Root {{diskUsage.value}} %"
+      }
+    ],
+    "actions": [],
+    "basicPlus": []
+  },
+  "detailView": [
+    {
+      "label": "{{i18n.attributes.diskUsage.label}}",
+      "displayType": "state",
+      "state": {
+        "label": "{{diskUsage.value}} %"
+      }
+    }
+  ],
+  "automation": {
+    "conditions": [
+      {
+        "label": "Root filesystem usage",
+        "displayType": "numberField",
+        "numberField": {
+          "value": "diskUsage.value",
+          "range": [
+            0,
+            100
+          ]
+        }
+      }
+    ],
+    "actions": []
+  },
+  "id": "oceancircle09600.linuxDiskUsage",
+  "version": 1
+}

@@ -1,0 +1,14 @@
+[Unit]
+Description=Linux Host restricted power helper socket
+
+[Socket]
+ListenStream=/run/linux-host-agent/power.sock
+SocketUser=root
+SocketGroup=linuxhost
+SocketMode=0660
+DirectoryMode=0755
+Accept=no
+RemoveOnStop=yes
+
+[Install]
+WantedBy=sockets.target

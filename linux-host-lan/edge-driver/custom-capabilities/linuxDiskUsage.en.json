@@ -1,0 +1,9 @@
+{
+  "tag": "en",
+  "label": "Root filesystem",
+  "attributes": {
+    "diskUsage": {
+      "label": "Disk usage"
+    }
+  }
+}
