@@ -4,7 +4,8 @@
 param(
   [string]$PublishedDirectory = (Join-Path (Split-Path $PSScriptRoot -Parent) 'publish/win-x64'),
   [switch]$SkipFirewall,
-  [switch]$EnablePower
+  [switch]$EnablePower,
+  [string]$HubIPv4 = ''
 )
 $ErrorActionPreference = 'Stop'
 $service = 'ComputerHostAgent'
@@ -12,6 +13,15 @@ $programs = Join-Path $env:ProgramFiles 'Computer Host Agent'
 $state = Join-Path $env:ProgramData 'ComputerHostAgent'
 $exe = Join-Path $programs 'ComputerHost.WindowsAgent.exe'
 $source = Join-Path $PublishedDirectory 'ComputerHost.WindowsAgent.exe'
+if ($HubIPv4) {
+  $addr = $null
+  if (-not [Net.IPAddress]::TryParse($HubIPv4, [ref]$addr) -or
+      $addr.AddressFamily -ne [Net.Sockets.AddressFamily]::InterNetwork -or
+      $addr.Equals([Net.IPAddress]::Any) -or $addr.Equals([Net.IPAddress]::Broadcast) -or
+      $addr.GetAddressBytes()[0] -ge 224) {
+    throw 'HubIPv4 must be a valid unicast IPv4 address.'
+  }
+}
 if (-not (Test-Path -LiteralPath $source)) { throw "Published executable not found: $source" }
 $principal = [Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsIdentity]::GetCurrent())
 if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { throw 'Run PowerShell as Administrator.' }
@@ -30,6 +40,11 @@ if ($PSCmdlet.ShouldProcess($service, ('Install service; power enabled: ' + [boo
 
   $existing = Get-Service -Name $service -ErrorAction SilentlyContinue
   if ($existing) {
+    $installedService = Get-CimInstance Win32_Service -Filter "Name='$service'"
+    if ($installedService.StartName -ne 'NT AUTHORITY\LocalService' -or
+        $installedService.PathName -notlike '*ComputerHost.WindowsAgent.exe*') {
+      throw 'Existing service has unexpected binary/account; refusing to replace it.'
+    }
     if ($existing.Status -ne 'Stopped') { Stop-Service -Name $service -ErrorAction Stop }
   }
   New-Item -ItemType Directory -Path $programs -Force | Out-Null
@@ -62,10 +77,11 @@ if ($PSCmdlet.ShouldProcess($service, ('Install service; power enabled: ' + [boo
   }
   if (-not $SkipFirewall) {
     Get-NetFirewallRule -Name 'ComputerHostAgent-TCP8765' -ErrorAction SilentlyContinue | Remove-NetFirewallRule
+    $remoteScope = if ($HubIPv4) { $HubIPv4 } else { 'LocalSubnet' }
     New-NetFirewallRule -Name 'ComputerHostAgent-TCP8765' -DisplayName 'Computer Host Agent (trusted LAN)' `
       -Direction Inbound -Action Allow -Protocol TCP -LocalPort 8765 -Program $exe -Profile Private `
-      -RemoteAddress LocalSubnet | Out-Null
-    Write-Warning 'Firewall allows TCP 8765 only from LocalSubnet on PRIVATE networks. Review local topology and narrow to hub IP for greater security.'
+      -RemoteAddress $remoteScope | Out-Null
+    Write-Warning "Firewall allows TCP 8765 only from $remoteScope on PRIVATE networks. UDP/5353 mDNS remains subject to Windows network discovery policy."
   }
   Start-Service -Name $service
   Get-Service -Name $service | Format-Table Name,Status,StartType
