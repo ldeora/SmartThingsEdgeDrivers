@@ -18,8 +18,8 @@ jobs:
       run:
         working-directory: computer-host-lan
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '10.0.x'
       - name: Build (warnings are errors)
@@ -33,7 +33,7 @@ jobs:
         shell: pwsh
         run: ./windows-agent/scripts/Smoke-WindowsAgent.ps1 -Executable "${{ github.workspace }}/computer-host-lan/windows-agent/publish/win-x64/ComputerHost.WindowsAgent.exe"
       - name: Archive unsigned development executable
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: computer-host-windows-unsigned-dev-win-x64
           path: computer-host-lan/windows-agent/publish/win-x64/
@@ -87,15 +87,15 @@ jobs:
       run:
         working-directory: computer-host-lan
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '10.0.x'
       - name: Cross-publish arm64 package (not executed)
         shell: pwsh
         run: ./windows-agent/scripts/Publish-WindowsAgent.ps1 -Runtime win-arm64
       - name: Archive unsigned development arm64 executable
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: computer-host-windows-unsigned-dev-win-arm64
           path: computer-host-lan/windows-agent/publish/win-arm64/
