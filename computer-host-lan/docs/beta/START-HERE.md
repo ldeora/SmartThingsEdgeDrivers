@@ -1,6 +1,6 @@
 # Computer Host LAN — volunteer beta quick start
 
-**Publication status:** pre-release preparation. The official Computer Host LAN beta channel invitation and versioned GitHub Release links will be added **after** they are created and tested. Do not follow old `Linux Host LAN` beta guides for this project; those use protocol v1.
+**Public beta v0.5.1-beta.1:** Download the host agent from the [official GitHub prerelease](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.1-beta.1) and install the Edge Driver through the [verified SmartThings channel invitation](https://bestow-regional.api.smartthings.com/invite/1J2Qy7ZkxL20). A separate SmartThings account successfully installed this driver; real Windows 11 host discovery and power remain beta test objectives. Do not follow old `Linux Host LAN` beta guides for this project; those use protocol v1.
 
 ## Requirements
 
@@ -8,16 +8,17 @@ A LAN-capable SmartThings hub, private trusted LAN with UDP5353/mDNS (for discov
 
 ## 1. Download and verify
 
-Obtain the matching host installer from a **permanent versioned GitHub Release** (not a temporary Actions artifact), verify its SHA-256 file and extract it locally. Windows x64 ZIP contains `publish/win-x64/`, `scripts/`, `docs/` and license. Linux source installer is separate. Both require the same `Computer Host LAN` Edge Driver.
+Obtain the matching host installer from the [permanent v0.5.1-beta.1 GitHub prerelease](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.1-beta.1) (not a temporary Actions artifact), verify its SHA-256 file and extract it locally. Windows x64 ZIP contains `publish/win-x64/`, `scripts/`, `docs/` and license. Linux source installer is separate. Both require the same `Computer Host LAN` Edge Driver.
 
 ## 2. Install monitoring only
 
-**Windows:** open PowerShell **as Administrator** in the extracted folder.
+**Windows:** open PowerShell **as Administrator** in the extracted folder, substituting your real hub IP for the example:
 
 ```powershell
+$hubIPv4 = '192.168.1.20'  # example only
 .\scripts\Verify-Package.ps1
 .\scripts\Install-WindowsAgent.ps1 -WhatIf
-.\scripts\Install-WindowsAgent.ps1 -HubIPv4 <HUB_IPV4>
+.\scripts\Install-WindowsAgent.ps1 -HubIPv4 $hubIPv4
 Get-Service ComputerHostAgent
 Invoke-RestMethod http://127.0.0.1:8765/v2/info
 ```
@@ -34,7 +35,7 @@ avahi-browse -rt _computerhost._tcp
 
 ## 3. Install SmartThings driver and pair
 
-The publisher will provide a **Computer Host LAN beta channel invitation URL** and version to install. Accept the invitation, select your hub, install the driver and use **Scan nearby**. The host is discovered as Linux or Windows using `_computerhost._tcp`. Verify switch ON, host status, CPU%, RAM%, disk and uptime. Linux adds CPU temperature (when available) and load averages; Windows does not.
+Open the [ARoedl SmartThings Edge Drivers invitation](https://bestow-regional.api.smartthings.com/invite/1J2Qy7ZkxL20), sign in, accept, enroll your hub, install **Computer Host LAN** under **Available Drivers**, then use **Scan nearby**. The host is discovered as Linux or Windows using `_computerhost._tcp`. Verify switch ON, host status, CPU%, RAM%, disk and uptime. Linux adds CPU temperature (when available) and load averages; Windows does not.
 
 If discovery fails, report network profile, multicast reachability and HTTP response (redact IP/MAC/UUID). Do **not** turn off the system firewall globally. The `hostOverride` preference does not perform initial pairing.
 
