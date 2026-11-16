@@ -58,9 +58,11 @@ if ($PSCmdlet.ShouldProcess($service, ('Install service; power enabled: ' + [boo
   if ($EnablePower) {
     $tokenPath = Join-Path $state 'control-token'
     if (-not (Test-Path -LiteralPath $tokenPath)) {
-      $keyBytes = [byte[]]::new(32)
-      [System.Security.Cryptography.RandomNumberGenerator]::Fill($keyBytes)
-      $keyHex = [Convert]::ToHexString($keyBytes).ToLowerInvariant()
+      # Compatible with Windows PowerShell 5.1 (.NET Framework) and PowerShell 7+.
+      $keyBytes = New-Object byte[] 32
+      $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+      try { $rng.GetBytes($keyBytes) } finally { $rng.Dispose() }
+      $keyHex = ([BitConverter]::ToString($keyBytes)).Replace('-', '').ToLowerInvariant()
       [System.IO.File]::WriteAllText($tokenPath, $keyHex + "`n", [System.Text.Encoding]::ASCII)
     } else {
       $existingKey = (Get-Content -LiteralPath $tokenPath -Raw).Trim()
