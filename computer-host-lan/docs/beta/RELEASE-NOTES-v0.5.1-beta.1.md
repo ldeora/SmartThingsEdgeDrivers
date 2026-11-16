@@ -4,7 +4,7 @@
 
 ## Downloads and driver channel
 
-Download the release assets below and verify them with the attached `SHA256SUMS.txt` before installation.
+The official release page is [Computer Host LAN v0.5.1-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.1-beta.1). Download the assets from that page and verify them with the attached `SHA256SUMS.txt` before installation.
 
 - **Windows 11 x64:** `computer-host-lan-v0.5.1-beta.1-windows-x64-unsigned.zip` — self-contained Windows service, installer/uninstaller, checksum verifier, sanitized diagnostics and checklist.
 - **Linux (systemd):** `computer-host-lan-v0.5.1-beta.1-source.zip` — Python host agent and installer, shared Edge Driver sources and tests.
