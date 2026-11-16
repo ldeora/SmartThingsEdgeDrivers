@@ -62,6 +62,7 @@ def build(published: Path, output_dir: Path, runtime: str, commit: str) -> Path:
         add_source(entries, f"scripts/{helper}", ROOT / "windows-agent/scripts" / helper)
     for dst, src in DOCUMENTS.items():
         add_source(entries, dst, src)
+    add_source(entries, "docs/RELEASE-NOTES.md", ROOT / "docs/beta" / f"RELEASE-NOTES-v{version}.md")
     add_source(entries, "LICENSE", ROOT / "LICENSE")
     entries["README.md"] = (f"""# Computer Host LAN — Windows test kit
 
@@ -97,7 +98,7 @@ shutdown/WOL only with physical access and saved work. Windows power behavior
 varies across hardware and power states. Uninstall via
 .\\scripts\\Uninstall-WindowsAgent.ps1 (retains state by default).
 
-For feedback use docs/TEST-CHECKLIST.md and the sanitized
+Release notes: docs/RELEASE-NOTES.md. For feedback use docs/TEST-CHECKLIST.md and the sanitized
 .\\scripts\\Collect-WindowsDiagnostics.ps1; manually review reports before sharing.
 No .NET SDK is required for the self-contained executable.
 
