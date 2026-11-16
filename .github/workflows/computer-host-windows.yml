@@ -3,11 +3,11 @@ on:
   push:
     paths:
       - 'computer-host-lan/windows-agent/**'
-      - '.github/workflows/windows-agent.yml'
+      - '.github/workflows/computer-host-windows.yml'
   pull_request:
     paths:
       - 'computer-host-lan/windows-agent/**'
-      - '.github/workflows/windows-agent.yml'
+      - '.github/workflows/computer-host-windows.yml'
   workflow_dispatch:
 permissions:
   contents: read
