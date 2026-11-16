@@ -48,7 +48,8 @@ jobs:
           $install = Join-Path $agent 'scripts/Install-WindowsAgent.ps1'
           $uninstall = Join-Path $agent 'scripts/Uninstall-WindowsAgent.ps1'
           try {
-            & $install -PublishedDirectory $publish -SkipFirewall
+            & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $install -PublishedDirectory $publish -SkipFirewall
+            if ($LASTEXITCODE -ne 0) { throw 'Windows PowerShell 5.1 monitoring install failed' }
             $svc = Get-CimInstance Win32_Service -Filter "Name='ComputerHostAgent'"
             if ($svc.StartName -ne 'NT AUTHORITY\LocalService' -or $svc.State -ne 'Running') {
               throw "Unexpected service account/state: $($svc.StartName) / $($svc.State)"
@@ -65,6 +66,42 @@ jobs:
             $permissions = Get-Acl -LiteralPath $state
             if (-not $permissions.AreAccessRulesProtected) { throw 'State directory ACL is not protected' }
             Write-Host 'PASS LocalService, HTTP monitoring, protected state and default-disabled power'
+            & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $install -PublishedDirectory $publish -SkipFirewall -EnablePower
+            if ($LASTEXITCODE -ne 0) { throw 'Windows PowerShell 5.1 opt-in install failed' }
+            $secretPath = Join-Path $state 'control-token'
+            $secret = (Get-Content -LiteralPath $secretPath -Raw).Trim()
+            if ($secret -cnotmatch '^[a-f0-9]{64}
+          } finally {
+            & $uninstall -PurgeState
+          }
+  windows-arm64-build:
+    runs-on: windows-2025
+    defaults:
+      run:
+        working-directory: computer-host-lan
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Cross-publish arm64 package (not executed)
+        shell: pwsh
+        run: ./windows-agent/scripts/Publish-WindowsAgent.ps1 -Runtime win-arm64
+      - name: Archive unsigned development arm64 executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: computer-host-windows-unsigned-dev-win-arm64
+          path: computer-host-lan/windows-agent/publish/win-arm64/
+          if-no-files-found: error
+          retention-days: 7
+) { throw 'Control token malformed' }
+            $infoPower = Invoke-RestMethod 'http://127.0.0.1:8765/v2/info' -TimeoutSec 3
+            if (@($infoPower.power_actions).Count -ne 3) { throw 'Opt-in power not advertised' }
+            & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $install -PublishedDirectory $publish -SkipFirewall
+            if ($LASTEXITCODE -ne 0) { throw 'Windows PowerShell 5.1 power-disable upgrade failed' }
+            $infoOff = Invoke-RestMethod 'http://127.0.0.1:8765/v2/info' -TimeoutSec 3
+            if (@($infoOff.power_actions).Count -ne 0) { throw 'Power remained enabled after opt-out' }
+            Write-Host 'PASS Windows PowerShell 5.1 install, secure token, opt-in and power opt-out'
           } finally {
             & $uninstall -PurgeState
           }
