@@ -39,6 +39,35 @@ jobs:
           path: computer-host-lan/windows-agent/publish/win-x64/
           if-no-files-found: error
           retention-days: 7
+      - name: Install as LocalService and verify service monitoring (no power command)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $agent = Join-Path (Get-Location) 'windows-agent'
+          $publish = Join-Path $agent 'publish/win-x64'
+          $install = Join-Path $agent 'scripts/Install-WindowsAgent.ps1'
+          $uninstall = Join-Path $agent 'scripts/Uninstall-WindowsAgent.ps1'
+          try {
+            & $install -PublishedDirectory $publish -SkipFirewall
+            $svc = Get-CimInstance Win32_Service -Filter "Name='ComputerHostAgent'"
+            if ($svc.StartName -ne 'NT AUTHORITY\LocalService' -or $svc.State -ne 'Running') {
+              throw "Unexpected service account/state: $($svc.StartName) / $($svc.State)"
+            }
+            $ready = $false
+            for ($i = 0; $i -lt 30; $i++) {
+              try {
+                $info = Invoke-RestMethod 'http://127.0.0.1:8765/v2/info' -TimeoutSec 2
+                if ($info.platform -eq 'windows' -and @($info.power_actions).Count -eq 0) { $ready = $true; break }
+              } catch { Start-Sleep -Seconds 1 }
+            }
+            if (-not $ready) { throw 'LocalService Windows Service did not provide monitoring endpoint' }
+            $state = Join-Path $env:ProgramData 'ComputerHostAgent'
+            $permissions = Get-Acl -LiteralPath $state
+            if (-not $permissions.AreAccessRulesProtected) { throw 'State directory ACL is not protected' }
+            Write-Host 'PASS LocalService, HTTP monitoring, protected state and default-disabled power'
+          } finally {
+            & $uninstall -PurgeState
+          }
   windows-arm64-build:
     runs-on: windows-2025
     defaults:
