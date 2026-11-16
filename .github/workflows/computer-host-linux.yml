@@ -22,8 +22,8 @@ jobs:
       matrix:
         python: ['3.10', '3.11', '3.12', '3.13', '3.14']
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python }}
       - name: Install test-only requirements
@@ -69,7 +69,7 @@ jobs:
     container:
       image: ${{ matrix.image }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install build-time prerequisites
         run: ${{ matrix.install }}
       - name: Unit tests, installer preview, loopback smoke
@@ -79,7 +79,7 @@ jobs:
     name: Reproducible source archives and checksums
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Create release candidate source and docs archives
         working-directory: computer-host-lan
         shell: bash
@@ -89,7 +89,7 @@ jobs:
           cd "$RUNNER_TEMP/computer-host-package"
           sha256sum -c *-SHA256SUMS.txt
       - name: Retain source candidate as CI evidence (not a public release)
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: computer-host-lan-source-candidate
           path: ${{ runner.temp }}/computer-host-package/
