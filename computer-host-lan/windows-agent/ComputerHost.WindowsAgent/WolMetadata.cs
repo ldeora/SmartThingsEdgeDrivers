@@ -5,7 +5,7 @@ namespace ComputerHost.WindowsAgent;
 
 /// <summary>Reports a candidate wired NIC only. NOT a claim that Windows or firmware
 /// will wake from S4/S5 or even S3. Users must verify physical wake themselves.</summary>
-public sealed class WolMetadata(AgentOptions options)
+public sealed class WolMetadata
 {
     public string? Mac { get; }
     public string? Broadcast { get; }
