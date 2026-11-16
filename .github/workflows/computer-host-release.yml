@@ -16,7 +16,7 @@ jobs:
   linux-source:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Build versioned Linux source and docs
         shell: bash
         working-directory: computer-host-lan
@@ -26,7 +26,7 @@ jobs:
           cd "$RUNNER_TEMP/computer-host-source"
           sha256sum -c *-SHA256SUMS.txt
       - name: Upload source and documentation candidates
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: computer-host-release-source
           path: ${{ runner.temp }}/computer-host-source/
@@ -38,11 +38,11 @@ jobs:
       run:
         working-directory: computer-host-lan
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '10.0.x'
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
       - name: Windows contract telemetry and HMAC tests
@@ -78,7 +78,7 @@ jobs:
           if (-not (Test-Path (Join-Path $unpack 'publish/win-x64/ComputerHost.WindowsAgent.exe'))) { throw 'Executable missing' }
           Write-Host 'PASS Windows x64 kit, internal checksums, unsigned binary and diagnostics'
       - name: Upload unsigned Windows test kit
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: computer-host-release-windows-x64
           path: ${{ runner.temp }}/computer-host-windows/
@@ -89,9 +89,9 @@ jobs:
     needs: [linux-source, windows-x64]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Download release candidate components
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: computer-host-release-*
           path: ${{ runner.temp }}/computer-host-release/
@@ -114,7 +114,7 @@ jobs:
             > RELEASE-CANDIDATE-NOTICE.txt
           ls -lh *.zip SHA256SUMS.txt
       - name: Upload one complete unsigned beta-candidate set
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: computer-host-lan-complete-unsigned-beta-candidate
           path: ${{ runner.temp }}/computer-host-release/
