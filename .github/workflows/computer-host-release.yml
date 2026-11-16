@@ -64,7 +64,10 @@ jobs:
           $zip = Get-ChildItem -LiteralPath $out -Filter '*.zip' | Select-Object -First 1
           if (-not $zip) { throw 'No Windows ZIP was produced' }
           $sha = (Get-FileHash -LiteralPath $zip.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
-          $expected = (Get-Content -LiteralPath "$($zip.FullName).sha256" -Raw).Split(' ')[0].Trim()
+          Get-ChildItem -LiteralPath $out -File | Select-Object Name,Length | Format-Table
+          $checksumFile = Get-ChildItem -LiteralPath $out -File -Filter '*.sha256' | Select-Object -First 1
+          if (-not $checksumFile) { throw 'Packaging step did not produce an external .sha256 file' }
+          $expected = (Get-Content -LiteralPath $checksumFile.FullName -Raw).Split(' ')[0].Trim()
           if ($sha -ne $expected) { throw 'Outer Windows ZIP checksum mismatch' }
           $unpack = Join-Path $env:RUNNER_TEMP 'computer-host-unpacked'
           Expand-Archive -LiteralPath $zip.FullName -DestinationPath $unpack -Force
