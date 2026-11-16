@@ -1,7 +1,13 @@
 name: Computer Host Linux reference verification
 on:
   push:
+    paths:
+      - 'computer-host-lan/**'
+      - '.github/workflows/computer-host-linux.yml'
   pull_request:
+    paths:
+      - 'computer-host-lan/**'
+      - '.github/workflows/computer-host-linux.yml'
   workflow_dispatch:
 permissions:
   contents: read
