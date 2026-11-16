@@ -1,7 +1,13 @@
 # Read-only SHA256 verification. Checksums are NOT Authenticode signatures.
 [CmdletBinding()]
-param([string]$Manifest = (Join-Path (Split-Path $PSScriptRoot -Parent) 'FILES.sha256'))
+param([string]$Manifest)
 $ErrorActionPreference = 'Stop'
+if ([string]::IsNullOrWhiteSpace($Manifest)) {
+  $scriptFile = $MyInvocation.MyCommand.Path
+  if ([string]::IsNullOrWhiteSpace($scriptFile)) { throw 'Cannot determine verifier script path' }
+  $scriptDir = Split-Path -Parent $scriptFile
+  $Manifest = Join-Path (Split-Path -Parent $scriptDir) 'FILES.sha256'
+}
 if (-not (Test-Path -LiteralPath $Manifest -PathType Leaf)) { throw "No checksum manifest: $Manifest" }
 $root = Split-Path -Parent (Resolve-Path -LiteralPath $Manifest)
 $seen = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)

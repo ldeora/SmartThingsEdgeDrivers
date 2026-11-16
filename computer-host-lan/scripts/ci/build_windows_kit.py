@@ -134,9 +134,9 @@ https://github.com/ldeora/SmartThingsEdgeDrivers/tree/main/computer-host-lan
         expected = set(entries)
         if member_names != expected:
             raise ValueError("ZIP member list mismatch")
-        for name, data in entries.items():
-            if hashlib.sha256(archive.read(name)).digest() != hashlib.sha256(data).digest():
-                raise ValueError(f"ZIP content mismatch: {name}")
+        for entry_name, data in entries.items():
+            if hashlib.sha256(archive.read(entry_name)).digest() != hashlib.sha256(data).digest():
+                raise ValueError(f"ZIP content mismatch: {entry_name}")
         for line in archive.read("FILES.sha256").decode("utf-8").splitlines():
             digest, rel = line.split("  ", 1)
             if hashlib.sha256(archive.read(rel)).hexdigest() != digest:
