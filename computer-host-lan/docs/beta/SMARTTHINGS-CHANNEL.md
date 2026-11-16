@@ -1,20 +1,24 @@
-# Computer Host LAN — beta SmartThings Edge channel
+# Computer Host LAN — SmartThings Edge beta channel
 
-This project is **not** the older Linux Host LAN driver. Publisher: `oceancircle09600` custom capabilities; driver package key `computer-host-lan`; discovery service `_computerhost._tcp`; separate Linux and Windows profiles. The channel invitation URL is **not yet issued or validated**.
+**Channel:** ARoedl SmartThings Edge Drivers  
+**Channel ID:** `7a23289c-d1f8-42cc-ba10-4ffd219b89bb`  
+**Driver:** Computer Host LAN  
+**Driver ID:** `2ab3db0e-3b78-499e-bc3b-bcfa7f62b9f7`  
+**Assigned SmartThings driver version:** `2026-11-16T00:05:31.405213849`  
+**Invitation:** https://bestow-regional.api.smartthings.com/invite/1J2Qy7ZkxL20
 
-## Publisher preparation (owner)
+This is the existing public channel containing other community Edge drivers. No additional channel is needed for this beta. The invitation/channel IDs and assigned driver version were checked with `smartthings edge:channels:invites` and `smartthings edge:channels:drivers`. Another SmartThings account successfully installed **Computer Host LAN** through this invitation. This confirms channel distribution, **not** Windows 11 LAN discovery, profile presentation or power/WOL behavior.
 
-1. Confirm six custom capability IDs and English/German presentations are available in the publisher's SmartThings account (see `edge-driver/custom-capabilities/REGISTER.md`). Ordinary testers must not register these.
-2. Create or select a **Computer Host LAN-specific beta Edge driver channel**. Keep the original Linux Host LAN channel/driver untouched.
-3. From `computer-host-lan/` package and install the `edge-driver/` using the SmartThings CLI. Record the installed driver ID, package version, channel assignment and hub firmware.
-4. Assign the tested package version to the beta channel; create a channel invitation using SmartThings CLI ```smartthings edge:channels:invites:create``` after confirming channel selection. Do not invent an invitation URL.
-5. **Before public announcement:** open that invitation with a *second* SmartThings account/hub if available, install the driver on its hub, and verify app presentation and first discovery. A working owner's account alone is insufficient evidence of cross-account custom capability UI.
-6. Record how to publish a newer driver version and how testers can update channel installations. Provide an uninstall/rollback path for existing devices.
+## Install Computer Host LAN on the SmartThings hub
 
-## Tester onboarding (after invite is live)
+1. Open the [channel invitation](https://bestow-regional.api.smartthings.com/invite/1J2Qy7ZkxL20) and sign in to the Samsung account associated with the intended hub.
+2. Accept the invitation and **Enroll** the hub in the channel if it is not enrolled already.
+3. Under the hub, choose **Available Drivers** and install **Computer Host LAN**.
+4. Install the matching Computer Host LAN host agent from the [v0.5.1-beta.1 GitHub prerelease](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.1-beta.1) on a separate test computer.
+5. Ensure the hub can reach the host on **TCP 8765** and mDNS/UDP 5353 works on the trusted LAN. In SmartThings, select **Scan nearby**. The host advertises `_computerhost._tcp` and exposes protocol `/v2`.
 
-Accept the published invitation, select a suitable hub, install **Computer Host LAN**, then install the host agent separately and use **Scan nearby**. Host must be reachable on TCP8765 and advertise `_computerhost._tcp` via mDNS UDP5353. Manual `hostOverride` is *not* a way to create the initial device.
+**Important:** This shared channel also lists other drivers. Testers need only **Computer Host LAN**; installing unrelated drivers is unnecessary. This protocol-v2 driver is separate from the older protocol-v1 **Linux Host LAN** driver. Do not combine them.
 
-**Placeholders to fill only after validation:** beta channel invitation URL, channel name/ID, driver version/ID, supported hub requirements and first-time enrollment notes.
+On the owner's hub, the installed driver version matched the assigned channel version above. Assigned driver versions do not automatically update just because new source is committed to GitHub. For a new driver version, package it, assign it to the channel, and manage hub installation/update deliberately. Preserve the legacy driver/channel and avoid unexpected update of other published drivers.
 
-Official SmartThings docs: https://developer.smartthings.com/docs/devices/hub-connected/driver-channels and https://developer.smartthings.com/docs/devices/hub-connected/enroll-in-a-shared-channel/.
+Official SmartThings instructions: https://developer.smartthings.com/docs/devices/hub-connected/enroll-in-a-shared-channel/ and https://developer.smartthings.com/docs/devices/hub-connected/driver-channels/.

@@ -1,51 +1,44 @@
-# Computer Host LAN v0.5.1-beta.1 — public beta release notes (draft)
+# Computer Host LAN v0.5.1-beta.1 — public beta
 
-> **Draft only:** These notes are prepared for the first Computer Host LAN GitHub prerelease. They are not evidence that the prerelease or a SmartThings channel invitation is live.
+**Computer Host LAN** is a local SmartThings Edge integration for monitoring Linux and Windows computers and, when explicitly enabled, controlling selected power operations. It consists of a cross-platform **Computer Host LAN Edge Driver** and a small agent running on each computer. It is separate from the original Linux-only **Linux Host LAN** driver.
 
-This is the first cross-platform **Computer Host LAN** beta for SmartThings Edge. It is independent of the original **Linux Host LAN** project. Both host agents use the same protocol v2 (`/v2` HTTP API and `_computerhost._tcp` mDNS service) and the same Computer Host LAN Edge Driver.
+## Downloads and driver channel
 
-## What's included
+Download the release assets below and verify them with the attached `SHA256SUMS.txt` before installation.
 
-- **Linux:** Python/systemd/Avahi host agent, CPU temperature where supported, CPU and RAM/disk usage, uptime, Linux load, automatic discovery, opt-in authenticated shutdown/reboot/suspend and SmartThings-hub Wake-on-LAN.
-- **Windows x64:** self-contained .NET 10 executable, Windows Service under LocalService, native DNS-SD registration, Win32 CPU/RAM/disk/uptime metrics, opt-in HMAC-authenticated best-effort reboot/shutdown/suspend, candidate WOL MAC/broadcast data for hub-triggered wake.
-- Power commands **disabled by default**. Separate optional installation opt-in and SmartThings device preference required.
-- Installation scripts, Windows diagnostic collector, integrity checker, structured tester checklist, release checksums, and uninstall instructions.
+- **Windows 11 x64:** `computer-host-lan-v0.5.1-beta.1-windows-x64-unsigned.zip` — self-contained Windows service, installer/uninstaller, checksum verifier, sanitized diagnostics and checklist.
+- **Linux (systemd):** `computer-host-lan-v0.5.1-beta.1-source.zip` — Python host agent and installer, shared Edge Driver sources and tests.
+- **Documentation:** `computer-host-lan-v0.5.1-beta.1-documentation.zip` — installation, technical and volunteer testing guides.
+- **Checksums:** `SHA256SUMS.txt`.
 
-## Verified
+**SmartThings Edge Driver invitation:** [ARoedl SmartThings Edge Drivers](https://bestow-regional.api.smartthings.com/invite/1J2Qy7ZkxL20). Sign in with your Samsung account, accept, enroll your hub, choose **Available Drivers**, and install **Computer Host LAN**. The existing shared channel contains other drivers too; only Computer Host LAN is needed. External channel installation has been confirmed.
 
-- Real Gentoo Linux `hydra` plus SmartThings hub: discovery/telemetry, agent interruption and recovery, reboot, suspend/WOL, and full shutdown/WOL power cycle.
-- Windows Server 2025 x64 GitHub Actions: .NET compile/run, protocol and security contract tests, HTTP smoke, LocalService installation, protected state, PowerShell 5.1 power opt-in/opt-out. No actual Windows shutdown/reboot/suspend command was sent.
-- Windows ARM64 cross-compilation only; **not** an ARM64 hardware claim.
-- Linux Python 3.10–3.14 and Debian/Ubuntu/Fedora source/container tests, not full hardware or real systemd PID1 certification.
+**Start here:** [beta quick start](https://github.com/ldeora/SmartThingsEdgeDrivers/blob/main/computer-host-lan/docs/beta/START-HERE.md) · [installation guide](https://github.com/ldeora/SmartThingsEdgeDrivers/blob/main/computer-host-lan/INSTALLATION.md) · [hardware test checklist](https://github.com/ldeora/SmartThingsEdgeDrivers/blob/main/computer-host-lan/docs/beta/TESTER-CHECKLIST.md) · [GitHub issue reporting](https://github.com/ldeora/SmartThingsEdgeDrivers/issues/new/choose).
 
-## Not yet verified
+## Capabilities
 
-Windows 11 discovery from a real SmartThings hub, Windows native mDNS behavior on typical LANs, actual Windows power transitions, S0/S3/S4/S5 and Fast Startup WOL support; non-Gentoo Linux hardware configurations and cross-account channel onboarding. These are the reasons for public volunteer testing.
+Both agents expose CPU utilization, memory and disk usage, uptime and online availability over a local TCP 8765 HTTP API, with automatic `_computerhost._tcp` mDNS discovery. Linux additionally reports CPU temperature and load where available; Windows **does not fabricate those readings**.
 
-## Download / install
+A switch and dedicated actions allow Wake-on-LAN and optional authenticated reboot, suspend and shutdown. Power management is **disabled by default** and requires opt-in on the host and in SmartThings. It uses a shared secret and challenge-based HMAC authentication; never share that secret.
 
-After publication, obtain the three release ZIPs and `SHA256SUMS.txt` from the **official, permanent GitHub Release** for tag `computer-host-lan-v0.5.1-beta.1`. Verify SHA-256 before extraction.
+## What has been tested
 
-The Windows kit is unsigned. Run the bundled package verifier, start with monitoring-only installation on a test computer, and only consider power operations with physical recovery available. Do not bypass security controls indiscriminately or use the initial beta on unattended/critical systems.
+- **Linux:** Real SmartThings hub with Gentoo Linux (`hydra`): discovery, telemetry, service recovery, reboot, suspend followed by WOL, and shutdown followed by WOL.
+- **Windows:** Windows Server 2025 x64 GitHub Actions: .NET 10 build, protocol/HMAC tests, telemetry, local HTTP smoke, actual `LocalService` installation, protected persistent state, and PowerShell 5.1 power opt-in/out. The Windows binary is self-contained and **unsigned**.
+- **Additional CI:** Linux Python 3.10–3.14 and Debian, Ubuntu, Fedora source/container tests. Windows ARM64 cross-publish was successful, but ARM64 hardware has **not** been tested.
 
-Install the **Computer Host LAN** Edge Driver via the publisher's separately supplied, verified SmartThings beta-channel invitation. The old Linux Host LAN driver is protocol v1 and is not interchangeable.
+## What we need volunteer testers for
 
-Guides: [quick start](START-HERE.md) · [installation](../../INSTALLATION.md) · [test checklist](TESTER-CHECKLIST.md) · [feedback/privacy](FEEDBACK-AND-SUPPORT.md).
+The first priority is **Windows 11 x64 on real hardware**: installation as a Windows Service, LAN discovery from a real SmartThings hub, the Windows profile and metric updates, recovery after service interruption and reboot. We also welcome Linux testers on Debian, Ubuntu, Fedora and other systemd distributions.
 
-## Support and safety
+Optional hardware power tests should proceed in this order: **reboot → suspend/WOL → shutdown/WOL**. Save open work and have physical access to the test computer first. Windows Modern Standby, S3/S4/S5, Fast Startup, firmware and NIC settings determine whether waking actually works; compatibility is **not guaranteed**. A `202 Accepted` power response only means the action was scheduled.
 
-Submit reproducible reports using the [Computer Host LAN issue template](https://github.com/ldeora/SmartThingsEdgeDrivers/issues/new/choose) and the test case ID. Never post the host's HMAC control token, IP/MAC, UUID, SmartThings account/location identifiers, or unredacted logs. Use the bundled sanitized diagnostics and review output before publishing it.
+## Security, privacy and feedback
 
-Local HTTP telemetry is not encrypted, so limit TCP 8765 to the SmartThings hub on a trusted private LAN. Power request acceptance (HTTP 202) means the action was scheduled; it does not guarantee physical completion. WOL capability depends on firmware, network hardware and OS power policy.
+Use **only on a trusted private LAN**. Local HTTP telemetry is not TLS-encrypted; restrict TCP 8765 to the SmartThings hub wherever possible and never forward the port to the Internet. Begin with monitoring-only installation on a test machine.
 
-## Release versions
+Please report results using the [structured checklist](https://github.com/ldeora/SmartThingsEdgeDrivers/blob/main/computer-host-lan/docs/beta/TESTER-CHECKLIST.md) and the [Computer Host LAN issue template](https://github.com/ldeora/SmartThingsEdgeDrivers/issues/new/choose). The kit contains a sanitized Windows diagnostic collector. **Review reports manually:** never publish the control token, IP/MAC addresses, host UUID, SmartThings account/location IDs, authentication headers or raw logs.
 
-| Component | Version |
-| --- | --- |
-| Integration / source bundle | **0.5.1-beta.1** |
-| Linux Host Agent | 0.4.0-dev.1 |
-| SmartThings Edge Driver | 0.4.0-dev.1 |
-| Windows Host Agent | 0.2.0-alpha.1 |
-| Wire protocol | v2 |
+**Versions:** integration `0.5.1-beta.1`; Linux agent `0.4.0-dev.1`; Edge Driver source `0.4.0-dev.1`; Windows agent `0.2.0-alpha.1`; protocol v2.
 
-**Maintenance scope:** Experimental community beta. No automatic updates, signed binaries, Windows MSI, DEB/RPM packaging or manufacturer certification are claimed.
+This is an experimental community beta, not a signed or certified product. There are no automatic updates, MSI/DEB/RPM installers, or guarantees for unattended/critical computers.
