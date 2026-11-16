@@ -1,23 +1,21 @@
-# Computer Host LAN — release plan
+# Computer Host LAN — v0.5.1-beta.1 distribution plan
 
-## Phase A: repository preparation
-- [x] Isolate `computer-host-lan/` from legacy `linux-host-lan/`.
-- [x] Run Windows x64 build/service smoke and Linux CI; ARM64 cross-publish.
-- [x] Replace stale prerelease onboarding docs and remove duplicate inactive workflows.
-- [x] Merge project PR #3 and release-packaging PR #4; source and Windows package checksum generation verified in GitHub Actions.
+## Completed
+- [x] Implement separate protocol-v2 project without modifying the existing `linux-host-lan/`.
+- [x] Validate Linux discovery/metrics/recovery and opt-in power/WOL on real Gentoo `hydra`.
+- [x] Windows x64 .NET 10 compilation, HTTP/HMAC tests, service installation and opt-in/out on Windows CI; ARM64 cross-publish labeled experimental.
+- [x] Merge the integration, packaging and beta version PRs (#3–#5).
+- [x] Produce a fixed-commit Linux source ZIP, docs ZIP and unsigned Windows x64 tester kit with SHA-256 verification.
+- [x] Create draft prerelease `computer-host-lan-v0.5.1-beta.1` with four assets.
+- [x] Verify [existing shared channel invitation](https://bestow-regional.api.smartthings.com/invite/1J2Qy7ZkxL20), assigned Computer Host LAN driver and installation from another SmartThings account.
+- [x] Prepare public release notes, copyable installation commands, structured tester checklist and Community announcement.
 
-## Phase B: publishable prerelease
-- [x] Select integration version **v0.5.1-beta.1** and intended tag **computer-host-lan-v0.5.1-beta.1**; **do not create tag until release commit has passed CI**.
-- [ ] Build versioned source and Windows x64 install kit from that commit in CI; sign where feasible or prominently label unsigned; attach SHA-256, source/license, known limitations and upgrade notes.
-- [ ] Verify asset download and checksum as a new tester would. Do not rely on 7-day Actions artifacts.
+## Before publishing
+- [ ] Merge final channel/onboarding documentation update and pass CI.
+- [ ] Refresh draft release assets and notes from the new *exact* `main` commit, checking Windows BUILD-INFO.json, source release.json and SHA-256 checksums.
+- [ ] Publisher approves license/provenance and security wording.
+- [ ] Publish GitHub prerelease as a **prerelease**; verify four permanent public assets and hashes.
+- [ ] Post the [prepared Community invitation](docs/beta/COMMUNITY-ANNOUNCEMENT.md), with GitHub Release and verified channel links.
 
-## Phase C: SmartThings distribution
-- [ ] Verify new Computer Host LAN driver package key, its six capabilities, bilingual presentations and both Linux/Windows profiles.
-- [ ] Assign the driver to an appropriate beta channel and generate a verified invitation.
-- [ ] Perform test enrollment with another account/hub before posting.
-- [ ] Record steps for controlled driver updates and host agent rollbacks.
-
-## Phase D: SmartThings Community
-Publish one announcement with **permanent** GitHub release assets, SmartThings channel enrollment link, quick-start guides, supported/unverified matrix, opt-in power warnings and a GitHub issue-template link. Recruit technically capable Windows 11 and Linux volunteers. Hardware behavior is the aim of the beta; do not claim Windows 11 power-state compatibility already proven.
-
-See `docs/beta/PUBLICATION-GATES.md` and `docs/beta/FEEDBACK-AND-SUPPORT.md`.
+## Beta hardware tasks (not blockers)
+Real Windows 11 LAN/mDNS pairing, correct profile/metrics, Windows power/S0/S3/S4/S5 and WOL, and more Linux distributions. No claims of MSI/DEB/RPM, signing or auto-update.
