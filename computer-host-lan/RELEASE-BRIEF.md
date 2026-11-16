@@ -1,6 +1,6 @@
 # Computer Host LAN — release engineering brief
 
-**Status:** v0.5.1-dev.1, validated development branch; not yet a public GitHub prerelease.
+**Status:** v0.5.1-beta.1 release candidate, awaiting final CI, channel verification and permanent GitHub prerelease; not published yet.
 
 ## Functional scope
 

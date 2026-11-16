@@ -68,7 +68,7 @@ def build(published: Path, output_dir: Path, runtime: str, commit: str) -> Path:
 Integration {version} · Windows agent {agent_version} · {runtime}
 Source commit: {commit}
 
-**Unsigned public-beta candidate, NOT a published release.**
+**Unsigned public-beta test package. Verify its origin against the official GitHub prerelease before installation.**
 No Windows 11 SmartThings hardware discovery, shutdown or WOL claim has been
 verified yet. Physical recovery is required for power testing.
 Use only on a trusted PRIVATE LAN; never forward TCP 8765 to the Internet.
@@ -111,7 +111,7 @@ https://github.com/ldeora/SmartThingsEdgeDrivers/tree/main/computer-host-lan
         "source_commit": commit.lower(),
         "unsigned": True,
         "hardware_validated": False,
-        "release_state": "candidate—not-published",
+        "release_state": "unsigned-beta-package",
     }, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
 
     manifest = "".join(f"{hashlib.sha256(data).hexdigest()}  {name}\n"

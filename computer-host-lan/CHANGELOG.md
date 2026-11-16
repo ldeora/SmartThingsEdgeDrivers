@@ -1,5 +1,12 @@
 # Computer Host LAN — change log
 
+## v0.5.1-beta.1 (2026-11-16) — public-beta release candidate
+
+- Cross-platform Computer Host LAN integration packaged for volunteer testing with an independently versioned protocol-v2 Linux agent, shared Edge Driver and native Windows Host Agent.
+- GitHub CI now assembles and verifies a complete unsigned Windows x64 kit (installer, verifier, sanitized diagnostics, test checklist and license) alongside Linux source and documentation archives, using SHA-256 manifests.
+- No changes to the hardware-validated Linux agent and Edge Driver runtime; Windows 11 mDNS discovery and physical power/WOL compatibility remain **untested**.
+- Publication is **pending** final versioned CI, copyright/provenance review, permanent GitHub Release assets and a working SmartThings beta channel invitation.
+
 ## v0.5.1-dev.1 (2026-11-16) — cross-platform CI candidate
 
 - Retains the Linux v0.4.0-dev.1 reference agent and its hardware-validated SmartThings Edge Driver behavior.

@@ -4,10 +4,10 @@
 - [x] Isolate `computer-host-lan/` from legacy `linux-host-lan/`.
 - [x] Run Windows x64 build/service smoke and Linux CI; ARM64 cross-publish.
 - [x] Replace stale prerelease onboarding docs and remove duplicate inactive workflows.
-- [ ] Review and merge the new project via PR; verify release-source checksum generation.
+- [x] Merge project PR #3 and release-packaging PR #4; source and Windows package checksum generation verified in GitHub Actions.
 
 ## Phase B: publishable prerelease
-- [ ] Decide the final name/version and tag from a **fixed passing commit**.
+- [x] Select integration version **v0.5.1-beta.1** and intended tag **computer-host-lan-v0.5.1-beta.1**; **do not create tag until release commit has passed CI**.
 - [ ] Build versioned source and Windows x64 install kit from that commit in CI; sign where feasible or prominently label unsigned; attach SHA-256, source/license, known limitations and upgrade notes.
 - [ ] Verify asset download and checksum as a new tester would. Do not rely on 7-day Actions artifacts.
 

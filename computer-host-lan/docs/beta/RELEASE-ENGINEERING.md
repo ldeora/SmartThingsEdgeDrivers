@@ -19,8 +19,7 @@ URLs in a public SmartThings Community announcement**.
    source ZIP, Windows ZIP, documentation, and checksums.
 3. Use a namespaced annotated tag such as
    computer-host-lan-v0.5.1-beta.1 **only when release versions match contents**.
-   The current development integration version is 0.5.1-dev.1, so a beta.1 tag
-   requires an explicit controlled version change first.
+   The release-candidate integration version is 0.5.1-beta.1. Wait for CI on the final merged release commit before creating the corresponding tag.
 4. Draft a GitHub prerelease; attach individually verified release ZIPs and
    SHA256SUMS.txt; clearly mark Windows binaries as **unsigned**.
 5. Verify the release downloads and their checksums as a new user. Do not

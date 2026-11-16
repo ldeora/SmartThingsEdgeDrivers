@@ -1,6 +1,6 @@
 # Computer Host LAN — beta status (2026-11-16)
 
-**Development revision:** integration v0.5.1-dev.1; Linux agent/Edge Driver v0.4.0-dev.1; Windows agent v0.2.0-alpha.1. **No Computer Host LAN GitHub prerelease has been published yet.**
+**Release candidate:** integration v0.5.1-beta.1; Linux agent/Edge Driver v0.4.0-dev.1; Windows agent v0.2.0-alpha.1. **No Computer Host LAN GitHub prerelease has been published yet.**
 
 **Confirmed:**
 - Gentoo `hydra` + SmartThings hub: protocol v2 discovery/telemetry, interruption recovery, reboot, suspend/WOL and shutdown/WOL (real hardware).

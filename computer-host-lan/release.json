@@ -1,9 +1,9 @@
 {
-  "integration": "0.5.1-dev.1",
+  "integration": "0.5.1-beta.1",
   "agent": "0.4.0-dev.1",
   "edge_driver": "0.4.0-dev.1",
   "agent_protocol": 2,
-  "release_stage": "cross-platform-development-ci-validated-public-beta-not-published",
+  "release_stage": "beta1-candidate-ci-validation-pending-not-published",
   "hardware_validated": [
     "Linux Gentoo hydra / SmartThings hub: protocol v2 discovery, telemetry, service-interruption recovery, reboot, suspend/WOL and full shutdown/WOL (2026-11-16)"
   ],
@@ -20,5 +20,5 @@
   "windows_agent": "0.2.0-alpha.1",
   "windows_power_control": "opt-in best effort, hardware/firmware WOL unvalidated",
   "smartthings_beta_channel": "pending-owner-publication",
-  "github_prerelease": "not-published"
+  "github_prerelease": "pending-publication-after-release-validation"
 }
