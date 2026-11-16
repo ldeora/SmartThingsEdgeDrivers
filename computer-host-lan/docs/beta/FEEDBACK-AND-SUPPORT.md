@@ -1,6 +1,6 @@
 # Computer Host LAN — volunteer feedback
 
-Use a **Computer Host LAN** GitHub issue (issue template pending) for reproducible reports; the SmartThings Community thread can be used for initial coordination. Do not post security-sensitive diagnostics publicly. If a report requires a control key, HMAC header, packet capture or private account data, do **not** attach it to a public issue.
+Use the [Computer Host LAN GitHub issue template](https://github.com/ldeora/SmartThingsEdgeDrivers/issues/new/choose) for reproducible reports; the SmartThings Community thread can be used for initial coordination. Do not post security-sensitive diagnostics publicly. If a report requires a control key, HMAC header, packet capture or private account data, do **not** attach it to a public issue.
 
 ## Report format
 
