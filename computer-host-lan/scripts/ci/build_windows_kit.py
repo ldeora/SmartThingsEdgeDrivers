@@ -62,13 +62,14 @@ def build(published: Path, output_dir: Path, runtime: str, commit: str) -> Path:
         add_source(entries, f"scripts/{helper}", ROOT / "windows-agent/scripts" / helper)
     for dst, src in DOCUMENTS.items():
         add_source(entries, dst, src)
+    add_source(entries, "docs/RELEASE-NOTES.md", ROOT / "docs/beta" / f"RELEASE-NOTES-v{version}.md")
     add_source(entries, "LICENSE", ROOT / "LICENSE")
     entries["README.md"] = (f"""# Computer Host LAN — Windows test kit
 
 Integration {version} · Windows agent {agent_version} · {runtime}
 Source commit: {commit}
 
-**Unsigned public-beta candidate, NOT a published release.**
+**Unsigned public-beta test package. Verify its origin against the official GitHub prerelease before installation.**
 No Windows 11 SmartThings hardware discovery, shutdown or WOL claim has been
 verified yet. Physical recovery is required for power testing.
 Use only on a trusted PRIVATE LAN; never forward TCP 8765 to the Internet.
@@ -97,7 +98,7 @@ shutdown/WOL only with physical access and saved work. Windows power behavior
 varies across hardware and power states. Uninstall via
 .\\scripts\\Uninstall-WindowsAgent.ps1 (retains state by default).
 
-For feedback use docs/TEST-CHECKLIST.md and the sanitized
+Release notes: docs/RELEASE-NOTES.md. For feedback use docs/TEST-CHECKLIST.md and the sanitized
 .\\scripts\\Collect-WindowsDiagnostics.ps1; manually review reports before sharing.
 No .NET SDK is required for the self-contained executable.
 
@@ -111,7 +112,7 @@ https://github.com/ldeora/SmartThingsEdgeDrivers/tree/main/computer-host-lan
         "source_commit": commit.lower(),
         "unsigned": True,
         "hardware_validated": False,
-        "release_state": "candidate—not-published",
+        "release_state": "unsigned-beta-package",
     }, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
 
     manifest = "".join(f"{hashlib.sha256(data).hexdigest()}  {name}\n"

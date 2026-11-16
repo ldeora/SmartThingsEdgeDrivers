@@ -8,7 +8,7 @@
 | Windows LocalService install and opt-in/out | PASS in CI | PowerShell 5.1, state ACLs; no physical power command |
 | Windows ARM64 hardware | OPEN | Cross-published only |
 | Real Windows 11 mDNS / SmartThings pairing | OPEN | Purpose of volunteer beta |
-| Reproducible fixed-commit release assets | OPEN | New prerelease build/publishing work |
+| Reproducible fixed-commit release assets | CANDIDATE CI PASSED | [PR #4 release workflow](https://github.com/ldeora/SmartThingsEdgeDrivers/actions/runs/43835476167); final tagged-commit build still required |
 | Driver channel invitation / cross-account app | OPEN | Owner must publish/test |
 | Support, privacy, license provenance review | OPEN | Final prerelease checklist |
 

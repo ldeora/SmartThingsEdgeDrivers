@@ -73,6 +73,7 @@ jobs:
           Expand-Archive -LiteralPath $zip.FullName -DestinationPath $unpack -Force
           & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $unpack 'scripts/Verify-Package.ps1')
           if ($LASTEXITCODE -ne 0) { throw 'Windows PowerShell 5.1 package verification failed' }
+          if (-not (Test-Path (Join-Path $unpack 'docs/RELEASE-NOTES.md'))) { throw 'Release notes missing' }
           if (-not (Test-Path (Join-Path $unpack 'scripts/Collect-WindowsDiagnostics.ps1'))) { throw 'Diagnostics missing' }
           if (-not (Test-Path (Join-Path $unpack 'publish/win-x64/ComputerHost.WindowsAgent.exe'))) { throw 'Executable missing' }
           Write-Host 'PASS Windows x64 kit, internal checksums, unsigned binary and diagnostics'

@@ -1,6 +1,6 @@
 # Native Windows Host Agent — v0.2.0-alpha.1
 
-Companion to **Computer Host LAN v0.5.1-dev.1**, sharing protocol v2 and `_computerhost._tcp` discovery with the Linux agent.
+Companion to **Computer Host LAN v0.5.1-beta.1**, sharing protocol v2 and `_computerhost._tcp` discovery with the Linux agent.
 
 ## Verified versus not verified
 

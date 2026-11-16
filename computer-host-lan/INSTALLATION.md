@@ -1,6 +1,6 @@
 # Computer Host LAN — installation (protocol v2)
 
-**Current state:** Development v0.5.1-dev.1, not yet a published GitHub prerelease. The host agent and SmartThings Edge Driver are installed separately. A verified developer-channel invitation for outside testers is **not yet available**.
+**Current state:** Public-beta release candidate v0.5.1-beta.1, not yet a published GitHub prerelease. The host agent and SmartThings Edge Driver are installed separately. A verified developer-channel invitation for outside testers is **not yet available**.
 
 ## Before installation
 

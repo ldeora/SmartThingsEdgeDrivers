@@ -1,6 +1,6 @@
 # Computer Host LAN — SmartThings for Linux and Windows
 
-**Development version: v0.5.1-dev.1** · Shared SmartThings Edge Driver v0.4.0-dev.1 · Linux agent v0.4.0-dev.1 · Windows agent v0.2.0-alpha.1 · Protocol v2.
+**Public-beta release candidate: v0.5.1-beta.1** · Shared SmartThings Edge Driver v0.4.0-dev.1 · Linux agent v0.4.0-dev.1 · Windows agent v0.2.0-alpha.1 · Protocol v2.
 
 Computer Host LAN is a **separate** project from [Linux Host LAN](../linux-host-lan/). It uses the `_computerhost._tcp` discovery service and `/v2` HTTP API. **Do not pair a protocol-v1 Linux Host LAN agent with this driver.**
 
@@ -27,4 +27,4 @@ Windows system metrics include CPU, RAM, system-drive usage and uptime. CPU temp
 - [Security limitations](docs/beta/SECURITY-AND-PRIVACY.md)
 - [Release gates](docs/beta/PUBLICATION-GATES.md)
 
-**Do not distribute this development branch as a finished public beta.** The SmartThings beta channel invitation, immutable versioned GitHub Release assets, first Windows 11 LAN discovery and the release support process are pending. The historical Linux v0.3.1 material lives in `docs/history/v0.3.1-beta.1/`. Existing Linux Host LAN devices remain on the separate legacy project.
+**Release candidate only — not yet a published prerelease.** Permanent GitHub Release assets and the verified Computer Host LAN SmartThings beta channel invitation are still pending. Windows 11 real-hardware discovery and power testing are the purpose of volunteer recruitment. The historical Linux v0.3.1 material lives in `docs/history/v0.3.1-beta.1/`. Existing Linux Host LAN devices remain on the separate legacy project.
