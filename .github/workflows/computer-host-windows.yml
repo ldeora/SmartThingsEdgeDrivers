@@ -1,0 +1,62 @@
+name: Computer Host Windows agent (build and non-destructive validation)
+on:
+  push:
+    branches:
+      - feature/computer-host-lan
+    paths:
+      - 'computer-host-lan/windows-agent/**'
+      - '.github/workflows/computer-host-windows.yml'
+  pull_request:
+    paths:
+      - 'computer-host-lan/windows-agent/**'
+      - '.github/workflows/computer-host-windows.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  windows-build:
+    runs-on: windows-2025
+    defaults:
+      run:
+        working-directory: computer-host-lan
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Build with warnings as errors
+        run: dotnet build windows-agent/ComputerHost.WindowsAgent/ComputerHost.WindowsAgent.csproj -c Release
+      - name: Contract, HMAC and Win32 metrics tests
+        run: dotnet run --project windows-agent/ComputerHost.WindowsAgent.Tests/ComputerHost.WindowsAgent.Tests.csproj -c Release
+      - name: Publish self-contained Windows x64
+        shell: pwsh
+        run: ./windows-agent/scripts/Publish-WindowsAgent.ps1 -Runtime win-x64
+      - name: Non-destructive HTTP smoke, including invalid signature
+        shell: pwsh
+        run: ./windows-agent/scripts/Smoke-WindowsAgent.ps1 -Executable "${{ github.workspace }}/computer-host-lan/windows-agent/publish/win-x64/ComputerHost.WindowsAgent.exe"
+      - name: Upload unsigned Windows x64 development build
+        uses: actions/upload-artifact@v4
+        with:
+          name: computer-host-windows-alpha-unsigned-win-x64
+          path: computer-host-lan/windows-agent/publish/win-x64/
+          if-no-files-found: error
+          retention-days: 7
+  arm64-cross-publish:
+    runs-on: windows-2025
+    defaults:
+      run:
+        working-directory: computer-host-lan
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Cross-publish ARM64 (not executed)
+        shell: pwsh
+        run: ./windows-agent/scripts/Publish-WindowsAgent.ps1 -Runtime win-arm64
+      - uses: actions/upload-artifact@v4
+        with:
+          name: computer-host-windows-alpha-unsigned-win-arm64
+          path: computer-host-lan/windows-agent/publish/win-arm64/
+          if-no-files-found: error
+          retention-days: 7
