@@ -1,16 +1,12 @@
-# Windows Host Agent — 0.2.0-alpha.1 (SOURCE-ONLY, UNVALIDATED)
+# Native Windows Host Agent — v0.2.0-alpha.1
 
-Companion to **Computer Host LAN v0.5.1-dev.1**, using protocol v2 with the
-Linux-validated v0.4.0-dev.1 Edge Driver. The Windows agent adds **opt-in,
-best-effort** reboot, shutdown and suspend; Wake is sent by the SmartThings
-hub using a candidate Ethernet MAC and broadcast address, not by the agent.
+Companion to **Computer Host LAN v0.5.1-dev.1**, sharing protocol v2 and `_computerhost._tcp` discovery with the Linux agent.
 
-**This source is not Windows-build-validated or real-device tested.** The
-Linux agent, Linux installation scripts and Lua driver source are unchanged.
+## Verified versus not verified
 
-## Build on Windows 11 (or GitHub Actions Windows Server 2025)
+The source **compiles and runs** in GitHub Actions on Windows Server 2025 (x64 .NET 10). Contract tests, HMAC/replay protection, Win32 metrics, HTTP smoke, self-contained publishing, LocalService installation, protected state and PowerShell 5.1 opt-in/opt-out passed: [CI run](https://github.com/ldeora/SmartThingsEdgeDrivers/actions/runs/43827358333). ARM64 builds cross-publish but have not been executed. **No physical Windows 11 SmartThings hub pairing, native DNS-SD interoperability or real power-cycle test has yet passed.**
 
-Install .NET 10 SDK, then in `windows-agent/`:
+## Build
 
 ```powershell
 dotnet build .\ComputerHost.WindowsAgent\ComputerHost.WindowsAgent.csproj -c Release
@@ -19,75 +15,28 @@ dotnet run --project .\ComputerHost.WindowsAgent.Tests\ComputerHost.WindowsAgent
 .\scripts\Smoke-WindowsAgent.ps1 -Executable "$PWD\publish\win-x64\ComputerHost.WindowsAgent.exe"
 ```
 
-The smoke test deliberately exercises monitoring-only mode, opt-in challenges,
-and *invalid* signatures. It never submits a valid power request and must never
-restart or shut down the CI runner. Native DNS-SD is disabled during CI smoke.
+Builds use .NET 10. Published x64 binaries are self-contained, so ordinary testers do not need the SDK. The smoke test disables mDNS and never sends valid power commands.
 
-## Install on a test Windows PC (elevated PowerShell)
+## Install (Windows 11 x64, elevated PowerShell)
+
+From the same directory as the published bundle and installer scripts:
 
 ```powershell
 .\scripts\Install-WindowsAgent.ps1 -WhatIf
-.\scripts\Install-WindowsAgent.ps1                  # MONITORING ONLY
+.\scripts\Install-WindowsAgent.ps1 -HubIPv4 <YOUR_SMARTTHINGS_HUB_IPV4>
 Get-Service ComputerHostAgent
 Invoke-RestMethod http://127.0.0.1:8765/v2/info
-.\scripts\Get-WolDiagnostics.ps1                   # read-only
-```
-
-To **explicitly enable** power control, after verifying monitoring, run:
-
-```powershell
-.\scripts\Install-WindowsAgent.ps1 -EnablePower
-# Read privately on the PC and enter as SmartThings controlKey preference:
-Get-Content "$env:ProgramData\ComputerHostAgent\control-token"
-```
-
-The installer generates a 256-bit key once and preserves it across upgrades.
-It does not print the key. The state directory is ACL-restricted to SYSTEM,
-Administrators and LocalService; no user documents or other files are modified.
-Installing **without** `-EnablePower` leaves power disabled, including upgrades.
-
-In SmartThings, enable the device's `allowPowerCommands` preference and set
-`controlKey` to the private 64-hex key. Keep the correct WOL MAC/broadcast; an
-Ethernet device detected by Windows is only a *candidate*, not verified wake
-hardware. The shared driver performs the HMAC challenge and sends WOL packets.
-
-On Windows, reboot/shutdown call `InitiateSystemShutdownEx` with a 15-second
-countdown and **no forced application termination**; suspend calls
-`SetSuspendState(false,false,false)` preserving wake events. The response
-HTTP 202 means command *scheduled*, not that the PC has shut down. Power
-operations can fail due to permissions, policy, interactive applications,
-Modern Standby or firmware. There is no guarantee of wake after shutdown,
-Fast Startup or S5. Test suspend/WOL before shutdown/WOL with local physical
-recovery available. Do not disable Fast Startup automatically.
-
-## Troubleshooting and removal
-
-```powershell
 .\scripts\Get-WolDiagnostics.ps1
-Get-Service ComputerHostAgent
-.\scripts\Uninstall-WindowsAgent.ps1 -WhatIf
-.\scripts\Uninstall-WindowsAgent.ps1
 ```
 
-The service runs as `NT AUTHORITY\LocalService`. The installer creates a
-Private/LocalSubnet TCP-8765 firewall rule. Narrow to the hub's IPv4 address
-where practical. No TCP port forwarding. Native DNS-SD on UDP 5353 may need
-additional firewall configuration; this has not yet been verified.
+Omit `-HubIPv4` to allow `LocalSubnet` on a Private Windows firewall profile. The installer **does not** configure Windows mDNS/UDP5353, firmware WOL or sleep policies. The service runs as `NT AUTHORITY\LocalService`, persists identity under `%ProgramData%\ComputerHostAgent` and does not enable power on a fresh install or ordinary reinstall.
 
-The Power control key is stored in `%ProgramData%\ComputerHostAgent\control-token`.
-**Never paste it into public logs or GitHub issues.** Do not distribute this
-unsigned source build as a finished public release.
+## Optional power management
 
-## Known limitations
+After SmartThings discovery and telemetry succeed, save all open work and ensure physical recovery is possible. Run the installer again with `-EnablePower`, read the 64-hex token **privately** from `%ProgramData%\ComputerHostAgent\control-token`, and enter it into the SmartThings `controlKey` preference with `allowPowerCommands` enabled. Never post the key, HMAC signatures, IP/MAC or raw logs publicly.
 
-- No real Windows compilation or actual SmartThings hub discovery test yet.
-- No CPU temperature or Linux load averages in Windows.
-- Windows boot-session GUID uses a persisted uptime heuristic. Fast Startup,
-  hibernate, sleep and major clock adjustments need physical validation.
-- No automatic installer code signing; Win32 mDNS callback behavior is unverified.
-- Windows power state is inferred from network checks, not electrically measured.
-- WOL is hardware/firmware dependent, especially from Fast Startup or S5.
-- No TLS on local telemetry; power uses HMAC-SHA256 with 30-second one-time
-  challenges but the network remains observable. Trusted LAN only.
+The Windows native operations are **best-effort** and hardware-dependent: reboot first, suspend/WOL second, shutdown/WOL last. A 202 response means accepted for scheduling, not confirmed completion. Windows S0/S3/S4/S5 support, Fast Startup and WOL depend on policy, NIC and firmware.
 
-See `docs/ARCHITECTURE.md` and `docs/HARDWARE-TEST-MATRIX.md`.
+Reinstall **without** `-EnablePower` to disable remote power. Uninstall with `.\scripts\Uninstall-WindowsAgent.ps1`; add `-PurgeState` **only** to intentionally remove persistent identity and key. No binary is signed. The public-beta ZIP and permanent GitHub release are pending.
+
+See [platform installation](../INSTALLATION.md), [tester checklist](docs/HARDWARE-TEST-MATRIX.md) and [security/privacy](../docs/beta/SECURITY-AND-PRIVACY.md).

@@ -1,17 +1,11 @@
-> **Historical v0.3.1-beta.1 beta document.** This page describes the previous Linux-only
-> integration and is **not** a valid installation or protocol guide for
-> v0.4.0-dev.1. Use root `README.md`, `PROTOCOL.md` and `INSTALLATION.md`.
+# Computer Host LAN — public beta security and privacy
 
-# Security, privacy and operational boundaries
+**Trusted private LAN only.** The host agent's monitoring HTTP API (`/v2/info`, `/v2/health`, `/v2/metrics`) is not TLS encrypted and can reveal host metadata to clients permitted to reach TCP8765. Permit connections only from the SmartThings hub's IPv4 address when practical; otherwise restrict to a private trusted subnet. Never configure router port forwarding. Windows installer `-HubIPv4` optionally scopes its **Private-profile** firewall rule.
 
-The agent runs an HTTP listener on TCP/8765 using the local network, not HTTPS. A network observer may see host metadata and monitoring values. Power requests use HMAC-SHA256 signatures and short-lived one-time nonces, but **HMAC is not network encryption**. For the beta, only install on a trusted LAN and restrict incoming TCP/8765 to the SmartThings hub (and a specific trusted administrator if required).
+**Power operations:** disabled by default. They require explicit opt-in on the host and in SmartThings and a shared random 256-bit key. HMAC-SHA256 binds short-lived single-use challenge nonces to the operation; challenges and authenticated HTTP still traverse a non-TLS local transport. Keep `control-token` and the SmartThings preference confidential, and remember that the hub/account can initiate a power action if compromised.
 
-The read-only `/v1/info` endpoint reveals hostname, OS name, agent installation identity and Wake-on-LAN metadata. Do not expose it to the internet. Do not forward TCP/8765 on a router. The installer does not automatically configure a firewall or proxy.
+**No guarantees about sleep or electrical power:** Windows native power API requests can be refused or delayed; `HTTP 202` only acknowledges scheduling. Wake-on-LAN magic packets are unauthenticated at the network layer, and cannot guarantee resuming a given hardware power state, especially Windows S4/S5/Fast Startup. SmartThings may infer stopped/suspended from a timeout; this isn't a physical measurement.
 
-The standard agent runs unprivileged as `linuxhost`. Optional shutdown/reboot/suspend use a separate root-owned helper over a Unix socket, accept only three fixed power actions and require an explicit opt-in. The sensitive HMAC key is stored locally under `/var/lib/linux-host-agent/control-token` and entered into the SmartThings device configuration; treat both copies as secrets. Never transmit the key to testers or include it in diagnostics.
+**Tester reports:** do not share host UUIDs, private IPs, MAC addresses, hostnames, SmartThings account/location IDs, HMAC signatures/nonces, screenshots with identifying fields, or raw `journalctl`/Windows event logs. Windows sanitized collector and Linux `beta-report.sh` avoid known identifiers, but **manually review** their output. The Windows WOL diagnostic script can display MAC addresses.
 
-The Linux agent does not need external APIs for its local network endpoints. The SmartThings hub and platform may synchronize device attributes and history through the normal SmartThings service. Testers should review SmartThings' own privacy policies independently.
-
-Do not enable remote power control for a machine where abrupt or unexpected power transitions could cause harm. The device may have disks mounted, jobs running, unsaved work or services used by others. Host status following an unacknowledged network outage is an inference, **not cryptographic proof of shutdown or suspend**.
-
-Review required before unrestricted public release: independent source audit, network abuse tests, limits verification, credential rotation model, package file ownership, kernel/systemd privilege constraints, SELinux/AppArmor compatibility and a verified signed-release process.
+The Windows Service runs as `NT AUTHORITY\LocalService` with ACL-protected state; Linux uses a restricted `linuxhost` account and a separately restricted power-helper socket. Neither implementation is independently security-certified. Installation should be limited to consented test hardware, not critical or production systems.

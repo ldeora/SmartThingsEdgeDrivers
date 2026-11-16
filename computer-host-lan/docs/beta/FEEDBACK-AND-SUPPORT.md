@@ -1,42 +1,28 @@
-> **Historical v0.3.1-beta.1 beta document.** This page describes the previous Linux-only
-> integration and is **not** a valid installation or protocol guide for
-> v0.4.0-dev.1. Use root `README.md`, `PROTOCOL.md` and `INSTALLATION.md`.
+# Computer Host LAN — volunteer feedback
 
-# Beta feedback and bug report protocol
+Use a **Computer Host LAN** GitHub issue (issue template pending) for reproducible reports; the SmartThings Community thread can be used for initial coordination. Do not post security-sensitive diagnostics publicly. If a report requires a control key, HMAC header, packet capture or private account data, do **not** attach it to a public issue.
 
-## What to send
+## Report format
 
-1. The result of `./scripts/beta-report.sh` (review before publishing).
-2. SmartThings Edge Driver version and Linux Agent version (not installation ID).
-3. Which feature was attempted and exactly what happened; expected versus actual.
-4. Whether it reproduces; approximate elapsed time and number of failed polls.
-5. Whether the system uses NetworkManager, systemd-networkd, SELinux, AppArmor or a firewall.
-6. Whether WOL worked before/after a **reboot** and whether it was suspend versus full shutdown.
-7. Only the relevant, **manually redacted** log lines if needed.
+- Integration release and host agent version (Linux or Windows):
+- Computer Host LAN Edge Driver version:
+- OS, version/build, architecture (Windows 11 x64/ARM64, Linux distribution/kernel):
+- Hub model/firmware and whether first-time channel enrollment succeeded:
+- Wired Ethernet / Wi-Fi / VPN / multiple NICs (no MAC/IP):
+- Test ID from [checklist](TESTER-CHECKLIST.md), or reproduction steps:
+- Expected result / observed result / reproducibility:
+- Monitoring-only or power opt-in? Relevant power state (S0/S3/S4/S5/unknown):
+- Sanitized diagnostics (optional); screenshot with device/location IDs obscured:
+- Recovery steps or workaround:
 
-## Do not share
+## Safe diagnostics
 
-Never post `/var/lib/linux-host-agent/control-token`, HMAC signatures/nonces, raw power HTTP requests, LAN IP addresses, NIC MACs, device IDs, personal hostnames, SmartThings account/location IDs, unredacted journal exports, or full network profiles. Screenshots can reveal user names, home names or device IDs—review them first.
+Windows: run `scripts/Collect-WindowsDiagnostics.ps1` from the tester kit and **review the output** before attaching. `Get-WolDiagnostics.ps1` can display MAC addresses and must not be posted without manual redaction.
 
-The beta report tool intentionally prints no tokens, hostnames, MACs, addresses, installation UUIDs or SmartThings IDs. It cannot sanitize other files you decide to attach.
+Linux: run `scripts/beta-report.sh` and review manually. Do not attach full `journalctl` output automatically.
 
-## Bug report template
+**Never share:** `control-token`, authentication signatures/nonces, SmartThings credentials/account/location IDs, internal IP/MAC addresses, personal hostnames or installation UUIDs. Treat raw logs and screenshots as personal until inspected. GitHub issue comments and attachments are public in this repository.
 
-```text
-Linux Host beta integration version:
-Agent version:
-Edge Driver version:
-Distribution / version:
-Kernel:
-Python:
-Systemd / networking manager:
-Read-only monitoring or power-control issue:
-Steps to reproduce:
-Expected:
-Observed:
-Does it happen after an agent restart / hub reboot / host boot?:
-WOL-capable Ethernet? (yes/no/not tested):
-Relevant SANITIZED logs:
-```
+## Expected support scope
 
-Support channels and issue tracker URLs will be published by the maintainer; they are intentionally not invented here.
+This is an experimental community beta. Linux behavior is reference-tested on Gentoo; other distributions and Windows 11 physical power/mDNS behavior are the purpose of voluntary testing, not guaranteed. The operator must be capable of restoring power, network and normal service. No automatic updates, unattended-machine guarantees or manufacturer certification.

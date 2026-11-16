@@ -1,24 +1,18 @@
-> **Historical v0.3.1-beta.1 beta document.** This page describes the previous Linux-only
-> integration and is **not** a valid installation or protocol guide for
-> v0.4.0-dev.1. Use root `README.md`, `PROTOCOL.md` and `INSTALLATION.md`.
+# Computer Host LAN — compatibility evidence (2026-11-16)
 
-# Compatibility evidence (as of 2026-11-15)
-
-**Evidence legend:** Real hardware = agent + SmartThings hub + power actions actually verified. Source smoke = unit tests, installer preview and loopback HTTP in a container environment; no systemd PID 1 nor physical power management. Planned = workflow added but not executed.
-
-| Target | Evidence | Remaining questions |
+| Platform | Evidence | Outstanding |
 | --- | --- | --- |
-| Gentoo Linux, systemd 261 | **Real hardware PASSED**, Python 3.14, Agent 0.3.0, Edge 0.2.9 | Rollback on real system, adverse network tests |
-| Debian 13 | **Source smoke PASSED** on Debian 13 container, Python 3.13 | systemd PID 1, Avahi, app pairing, physical power, firewall |
-| Debian 12 | **CI planned** | package prerequisites, full lifecycle |
-| Ubuntu 24.04 LTS | **CI planned** | netplan manager variant, firewall, Avahi |
-| Ubuntu 26.04 LTS | **CI planned** | netplan/networkd/NM, service startup |
-| Fedora 43 / 44 | **CI planned** | SELinux enforcing, firewalld, NetworkManager |
-| RHEL 9 / Rocky / AlmaLinux | Compatibility investigation | Explicit Python 3.11/3.12, SELinux, support lifecycle |
-| RHEL 10 / compatible | Compatibility investigation | SELinux, installation, network/firewall |
-| Arch Linux | Compatibility investigation | rolling updates and minimal-system dependencies |
-| openSUSE 16/Tumbleweed | Compatibility investigation | network manager, MAC policies, packaging |
+| Gentoo Linux (`hydra`), systemd-networkd, Python 3.14 | **Real SmartThings hub hardware passed:** v2 discovery/metrics, service interruption/recovery, reboot, suspend/WOL, full shutdown/WOL | Other hardware, long unattended run, upgrade/rollback edge cases |
+| Debian 12/13 | Python/unit and installer-source smoke **CI passed in containers** | Real systemd PID1, Avahi, hardware WOL |
+| Ubuntu 24.04/26.04 | Python/unit and installer-source smoke **CI passed in containers** | Full systemd/network manager integration, hardware WOL |
+| Fedora 43/44 | Python/unit and installer-source smoke **CI passed in containers** | SELinux enforcing, firewalld, actual hardware |
+| Windows Server 2025 x64 | .NET 10 compile/run, metrics/API/HMAC tests, `LocalService` install/upgrade/opt-in/out on CI runner **passed** | Physical power actions, SmartThings LAN/mDNS, Windows desktop sleep policy |
+| Windows 11 x64 | **No verified hardware result yet** | This is a primary beta volunteer target |
+| Windows ARM64 | Cross-publish passed | Execution, installer, mDNS, power, hardware WOL |
+| Other Linux, Windows variants | Not validated | Must not be advertised as verified |
 
-The source smoke CI matrix in `.github/workflows/tests.yml` is **not executed by merely publishing this archive**. GitHub Actions results or other evidence must be collected after the repository is set up. `systemd-analyze verify` is a static unit check; it is not the same as starting a service under PID 1. Physical WOL testing needs a compatible NIC, firmware configuration and an external hub/device; containers generally cannot provide that evidence.
+Windows and Linux use the same v2 protocol but platform-specific app profiles. Windows has no fabricated CPU temperature or Linux load averages.
 
-The initial closed beta should use a small volunteer group across at least Debian/Ubuntu and Fedora as well as Gentoo. For each target, require a clean install, source smoke, trusted-LAN discovery, state recovery, upgrade/rollback and—where supported—hardware WOL/power testing. Do not mark a distribution “supported” solely from passing Python tests.
+A pass in CI **does not** prove SmartThings device discovery, real S0/S3/S4/S5 transitions or WOL on a different network. WOL can fail after Windows Fast Startup or firmware-specific shutdown. Status `OFF` is inferred from network evidence, not physically measured.
+
+[Windows CI](https://github.com/ldeora/SmartThingsEdgeDrivers/actions/runs/43827358333) · [Linux CI](https://github.com/ldeora/SmartThingsEdgeDrivers/actions/runs/43827358342).

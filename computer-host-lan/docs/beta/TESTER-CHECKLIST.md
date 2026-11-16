@@ -1,53 +1,36 @@
-> **Historical v0.3.1-beta.1 beta document.** This page describes the previous Linux-only
-> integration and is **not** a valid installation or protocol guide for
-> v0.4.0-dev.1. Use root `README.md`, `PROTOCOL.md` and `INSTALLATION.md`.
+# Computer Host LAN — hardware beta test checklist
 
-# Closed-beta acceptance checklist
+**Record:** OS + version/build, architecture (x64/ARM64), host agent version, Computer Host LAN driver version, hub model/firmware, wired/wireless interface class and whether WOL is expected. Use **PASS / FAIL / N/A / NOT TESTED** for each. Never include the control token, personal hostname, internal IPv4/MAC, hub location or unredacted device IDs.
 
-Record each case as PASS / FAIL / NOT APPLICABLE, including the distribution/version, kernel version and agent/driver versions. Keep credentials and network identifiers private.
+## Monitoring / discovery (all testers)
 
-## Baseline (all testers)
+- [ ] M01: Downloaded the matching versioned package; verified SHA-256 / package integrity.
+- [ ] M02: Installer dry run/preview; installed monitoring **without** power opt-in.
+- [ ] M03: Service runs as restricted principal (`linuxhost` on Linux; `LocalService` on Windows).
+- [ ] M04: `/v2/info` reports correct `platform`, protocol v2, power actions empty by default.
+- [ ] M05: `/v2/health` and `/v2/metrics` provide non-fabricated values.
+- [ ] M06: Computer is discovered through `_computerhost._tcp` by the hub on a trusted LAN.
+- [ ] M07: SmartThings device is unique, correct Linux/Windows profile, usable app presentation.
+- [ ] M08: CPU, RAM, disk, uptime, status and switch update; missing optional sensors do not break other metrics.
+- [ ] M09: Stop only agent; app reports unavailable, without claiming confirmed physical power-off.
+- [ ] M10: Restart agent; existing device recovers without losing identity.
+- [ ] M11: Restart host; service starts automatically, boot ID rotates and uptime resets.
+- [ ] M12: Reinstall/upgrade preserves UUID; no duplicate device or unexpectedly enabled power.
+- [ ] M13: Uninstall removes service and application-owned firewall rule; state retained unless purge requested.
+- [ ] M14: Diagnostics are readable and manually reviewed for identifiers before sharing.
 
-- [ ] `preflight.sh` reports the required tools and compatible Python; no unsupported assumptions made
-- [ ] Installer dry run shows only expected files; no firewall/network/WOL change
-- [ ] Fresh monitoring-only install succeeds without downloading pip packages
-- [ ] Agent is running under `linuxhost`, not root; privileged power socket is not enabled by default
-- [ ] `GET /v1/info`, `/v1/health`, `/v1/metrics` respond locally
-- [ ] SmartThings discovers the host via Avahi/mDNS (or developer repackaged manual-host fallback)
-- [ ] CPU temperature is shown if sensor supported (absence should not break other metrics)
-- [ ] CPU, memory, disk, uptime, load and status update in the app
-- [ ] Agent stop gives `unreachable` and does not falsely report host shutdown after TCP refusal
-- [ ] Agent start returns to `running` without re-pairing or losing identity
-- [ ] Agent service and monitoring survive an ordinary reboot
-- [ ] In-place reinstall/upgrade retains identity, credentials, preferences and WOL settings
-- [ ] Redacted `beta-report.sh` produces no secrets or host identifiers
+## Optional power / wake (requires physical recovery)
 
-## Power tests (explicit opt-in, local recovery path required)
+- [ ] P01: Test machine only, saved work, correct NIC and appropriate wake firmware/Windows policy.
+- [ ] P02: Enabling power creates private 64-hex key; not printed in report or logs.
+- [ ] P03: SmartThings remains unable to run power without matching opt-in/key.
+- [ ] P04: Reboot command results in fresh boot and agent/device recovery.
+- [ ] P05: Suspend command enters actual hardware-supported sleep state.
+- [ ] P06: Wake button resumes suspended machine; uptime/boot ID remain consistent with a resume.
+- [ ] P07: Shutdown command eventually powers off computer (not merely agent process).
+- [ ] P08: WOL starts the powered-off host, **if** firmware/NIC/OS state permits; otherwise mark N/A or FAIL with state details.
+- [ ] P09: Rejected/invalid HMAC command never executes a power action.
+- [ ] P10: Disabling opt-in removes `power_actions` and disables remote shutdown/reboot/suspend.
+- [ ] P11: WOL/availability remains sensible under transient LAN/mDNS outage and hub reboot.
 
-- [ ] Read-only WOL detection identifies support, including root requirement where applicable
-- [ ] Persistent WOL configuration survives reboot; NIC advertises magic packet wake (`Wake-on: g`)
-- [ ] Authenticated reboot returns to Running; Switch stays On
-- [ ] Suspend state and delayed Off transition behave as documented
-- [ ] WOL wakes the suspended host; telemetry resumes
-- [ ] Authenticated shutdown turns host off and Switch eventually Off
-- [ ] WOL turns powered-off host on; status and Switch return to Running/On
-- [ ] Restarting **only** the agent does not falsely flip the Switch to Off
-
-## Lifecycle tests (test machine / VM only)
-
-- [ ] Documented rollback restores the previous service version and state
-- [ ] Deliberately simulated installation failure rolls back managed files (never delete identity/token)
-- [ ] Uninstall removes only application-owned files and stops services
-- [ ] Reinstall after uninstall reuses persistent identity when intended
-- [ ] No native DEB/RPM package overwrote script-managed `/etc/systemd/system` units
-
-## Additional interoperability evidence
-
-- [ ] systemd PID 1 verified, not merely installed
-- [ ] NetworkManager/networkd/other manager identified and documented
-- [ ] SELinux enforcing/AppArmor restrictions checked (if present)
-- [ ] IPv4 and optional IPv6 LAN paths checked
-- [ ] TCP 8765 allowed only from the hub/trusted LAN; mDNS multicast routing understood
-- [ ] Multi-NIC/Tailscale/VPN tested with explicit `--wol-interface` when necessary
-
-Keep PASS/FAIL evidence per scenario. A passing container job is not a physical power-control test. Collect sanitized service logs only when an error occurs. Include a reproducible failure description rather than uploading complete journals.
+Include `powercfg /a` output **after redaction** on Windows, or Linux `ethtool` WOL support flags. Mark any untested condition explicitly. A CI cross-build is not an ARM64 hardware test; server CI is not a Windows 11 SmartThings hub test.

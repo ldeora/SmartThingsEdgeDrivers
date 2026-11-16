@@ -1,32 +1,20 @@
-> **Historical v0.3.1-beta.1 beta document.** This page describes the previous Linux-only
-> integration and is **not** a valid installation or protocol guide for
-> v0.4.0-dev.1. Use root `README.md`, `PROTOCOL.md` and `INSTALLATION.md`.
+# Computer Host LAN — beta SmartThings Edge channel
 
-# SmartThings beta channel and device presentation
+This project is **not** the older Linux Host LAN driver. Publisher: `oceancircle09600` custom capabilities; driver package key `computer-host-lan`; discovery service `_computerhost._tcp`; separate Linux and Windows profiles. The channel invitation URL is **not yet issued or validated**.
 
-The Linux Host Edge Driver is **v0.2.9** in this candidate. The integration archive's version change does not require repackaging/installing that driver on existing functioning hubs. Publisher-owned custom capabilities are defined under `oceancircle09600` and their presentation/locale files are included in `edge-driver/custom-capabilities/`.
+## Publisher preparation (owner)
 
-## Channel-owner preparation
+1. Confirm six custom capability IDs and English/German presentations are available in the publisher's SmartThings account (see `edge-driver/custom-capabilities/REGISTER.md`). Ordinary testers must not register these.
+2. Create or select a **Computer Host LAN-specific beta Edge driver channel**. Keep the original Linux Host LAN channel/driver untouched.
+3. From `computer-host-lan/` package and install the `edge-driver/` using the SmartThings CLI. Record the installed driver ID, package version, channel assignment and hub firmware.
+4. Assign the tested package version to the beta channel; create a channel invitation using SmartThings CLI ```smartthings edge:channels:invites:create``` after confirming channel selection. Do not invent an invitation URL.
+5. **Before public announcement:** open that invitation with a *second* SmartThings account/hub if available, install the driver on its hub, and verify app presentation and first discovery. A working owner's account alone is insufficient evidence of cross-account custom capability UI.
+6. Record how to publish a newer driver version and how testers can update channel installations. Provide an uninstall/rollback path for existing devices.
 
-1. Pick a **separate beta/test channel** rather than replacing the stable driver for existing users. Verify channel ownership and whether its invitation settings fit a limited volunteer pilot.
-2. Verify all six capabilities and their presentations exist in `oceancircle09600`; verify the German and English presentations using the owner's SmartThings account. Do not instruct public testers to register their own capabilities.
-3. Package the tested Edge Driver in the selected channel. CLI commands from the official channel documentation include:
+## Tester onboarding (after invite is live)
 
-   ```sh
-   smartthings edge:drivers:package edge-driver --install
-   smartthings edge:channels:assign
-   smartthings edge:channels:invites:create
-   ```
+Accept the published invitation, select a suitable hub, install **Computer Host LAN**, then install the host agent separately and use **Scan nearby**. Host must be reachable on TCP8765 and advertise `_computerhost._tcp` via mDNS UDP5353. Manual `hostOverride` is *not* a way to create the initial device.
 
-   Confirm the channel and driver IDs interactively. No channel invitation URL is pre-filled in this archive.
-4. Enroll a **different tester account and hub** through the invite and verify an actual first-time installation and advanced monitoring profile. A working developer account alone does not prove that a public tester can see the six custom capabilities.
-5. Verify updates: a channel assignment pins a driver version; publishing a newer package does not automatically update the version already installed on every tester hub. Document the update instructions.
-6. Only after license, security, distro and tester gates are met, distribute the invitation and beta installation archive together.
+**Placeholders to fill only after validation:** beta channel invitation URL, channel name/ID, driver version/ID, supported hub requirements and first-time enrollment notes.
 
-## Tester onboarding
-
-An invited user accepts the driver-channel invitation, signs in, enrolls the hub and installs the driver. The Linux agent is installed separately from a trusted source. The Linux computer must be discoverable via Avahi/mDNS and reachable on TCP 8765 from the hub. See `START-HERE.md`.
-
-Official references:
-- https://developer.smartthings.com/docs/devices/hub-connected/driver-channels
-- https://developer.smartthings.com/docs/devices/hub-connected/enroll-in-a-shared-channel/
+Official SmartThings docs: https://developer.smartthings.com/docs/devices/hub-connected/driver-channels and https://developer.smartthings.com/docs/devices/hub-connected/enroll-in-a-shared-channel/.

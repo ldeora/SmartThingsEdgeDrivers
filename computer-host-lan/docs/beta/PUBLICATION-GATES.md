@@ -1,22 +1,21 @@
-> **Historical v0.3.1-beta.1 beta document.** This page describes the previous Linux-only
-> integration and is **not** a valid installation or protocol guide for
-> v0.4.0-dev.1. Use root `README.md`, `PROTOCOL.md` and `INSTALLATION.md`.
+# Computer Host LAN — public beta publication gates
 
-# Release / distribution gates
+The intention is to **recruit real hardware testers**, so Windows 11 and multi-distribution power-state certification are not prerequisites. The following distribution hygiene requirements *are* prerequisites for a public forum announcement:
 
-The following block an unrestricted public beta; a small privately shared source-testing pilot may validate these items, but must carry explicit safety and compatibility warnings.
+- [x] Separate driver source and package key from legacy `linux-host-lan`.
+- [x] Linux Gentoo hardware reference (discovery, telemetry, WOL/power).
+- [x] Windows x64 build, HTTP contract, LocalService install, opt-in/out CI; ARM64 cross-publish clearly labeled.
+- [x] Source license file present (Apache-2.0); **owner still to confirm rights and attributions before redistribution**.
+- [ ] Resolve repo-level stale docs and release metadata; ensure documented CI results match real runs.
+- [ ] Review and merge project PR into `main` (or publish a deliberate stable branch with permanent links).
+- [ ] Produce versioned, checksum-verified assets from an immutable tested commit; no temporary Actions artifact link in forum post.
+- [ ] Include Windows x64 installer, source/Linux installer, guides, sanitized diagnostics, upgrade/removal instructions and known limitations; inspect ZIP contents from a fresh checkout.
+- [ ] Verify GitHub Issue template, privacy/security reporting and release update procedure.
+- [ ] Publish publisher-owned Computer Host LAN Edge Driver to appropriate beta channel; generate invitation link.
+- [ ] Validate channel enrollment with a separate SmartThings account/hub and both profiles' presentations if possible.
+- [ ] Publish explicit caution: power commands disabled by default; no TLS on LAN telemetry; Windows NIC/S0/S3/S4/S5 wake not guaranteed; unsigned beta.
+- [ ] Confirm copyright attribution/code provenance and any redistributed dependency terms.
 
-- [ ] **Choose an open-source license** and add actual `LICENSE` file with correct author rights. No license is currently selected by this assistant on behalf of the project owner.
-- [ ] Select source repository, public issue tracker, disclosure contact, update/support scope and code-of-conduct expectations.
-- [ ] Pin third-party GitHub Actions to reviewed commit SHAs; review source dependencies and Python testing-only dependency policy.
-- [ ] Run the six-distro GitHub Actions matrix; publish links to successful runs and attach artifacts. A workflow file alone is not evidence.
-- [ ] At least two target environments outside Gentoo perform a **systemd PID 1 installation**; one should enforce SELinux/AppArmor.
-- [ ] At least one additional physical host confirms monitoring; power/WOL testing only where hardware is capable.
-- [ ] Verify unattended install failure, rollback, uninstall and reinstall with real service activation, not just mock tests.
-- [ ] Confirm authenticated reboot/suspend/shutdown flow, nonce replays, failed requests and recovery on supported hardware.
-- [ ] Review listener TLS/trusted-LAN threat model and authenticated power-key lifecycle; provide key rotation instructions.
-- [ ] Publish SmartThings Edge driver in designated beta channel, verify advanced profile and custom presentations on a *new* developer/tester account.
-- [ ] Prepare signed, checksum-verified release source files, privacy-safe diagnostics, install/upgrade/uninstall instructions and explicit support boundaries.
-- [ ] Decide DEB/RPM packaging ownership and migration strategy; package artifacts remain deferred until their own lifecycle tests pass.
+**After announcement:** Windows 11 real-hardware discovery/power, additional Linux distributions, persistent WOL across configurations, and installer edge-case testing are volunteer acceptance scenarios. DEB/RPM, MSI, code signing, automatic updates, complete ARM64 hardware support and broader OS guarantees can be postponed, explicitly marked unavailable.
 
-**Blocked today:** licensing decision, actual cross-distro CI execution, distribution-specific systemd/MAC policy tests, external hardware validation and production signing/publishing. The checked-in CI workflow is only a proposal until run.
+Evidence: [Windows CI](https://github.com/ldeora/SmartThingsEdgeDrivers/actions/runs/43827358333) · [Linux CI](https://github.com/ldeora/SmartThingsEdgeDrivers/actions/runs/43827358342). Both reference commit `366eff3`; rerun after publication changes.
