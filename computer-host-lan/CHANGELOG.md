@@ -1,36 +1,21 @@
-# Change log — Phase 2
+# Computer Host LAN — change log
 
-## 0.5.0-dev.1 (2026-11-16) — Windows monitoring alpha source
+## v0.5.1-dev.1 (2026-11-16) — cross-platform CI candidate
 
-- Added C#/.NET 10 native Windows Host Agent source, system metrics,
-  boot-session tracking, persistent UUID, read-only v2 HTTP API and native DNS-SD.
-- Added Windows Service install/uninstall scripts, self-contained publish
-  recipe, console contract tests, Windows CI build and HTTP smoke definition.
-- Updated Windows SmartThings profile to be monitoring-only (no power buttons
-  or unsupported CPU temperature); **Linux profile and driver logic unchanged**.
-- Linux v0.4.0-dev.1 independently validated on Gentoo `hydra`: monitoring,
-  mDNS, agent restart/recovery, reboot, suspend/WOL, full shutdown/WOL.
-- Windows agent has not been compiled/executed on real Windows in this
-  environment; do not present as an installable signed release.
+- Retains the Linux v0.4.0-dev.1 reference agent and its hardware-validated SmartThings Edge Driver behavior.
+- Native Windows Host Agent v0.2.0-alpha.1 provides CPU/RAM/drive/uptime telemetry, Windows Service and DNS-SD registration, opt-in HMAC-authenticated reboot/shutdown/suspend and candidate WOL metadata.
+- Windows Server 2025 x64 CI verified compilation, self-contained publishing, protocol/HMAC tests, HTTP smoke, LocalService installation, protected state, and PowerShell 5.1 opt-in/out. Real Windows 11 SmartThings and hardware power behavior remain **unverified**.
+- Windows ARM64 cross-publish verified; runtime untested.
+- Separate `computer-host-lan/` project directory; independent `linux-host-lan/` retained.
+- Follow-up repository cleanup updates active CI workflows, versioned source-manifest generation, current beta guidance and issue reporting. No Windows or Linux runtime changes in that cleanup.
+- Not yet a released public-beta version. No SmartThings channel invitation or permanent GitHub release assets yet.
 
-# Changelog
+## v0.5.0-dev.1 (2026-11-16) — Windows monitoring source
 
-## 0.4.0-dev.1 — 2026-11-16 — cross-platform source refactor (NOT verified on hub)
+Initial Windows monitoring agent implementation and test scaffolding.
 
-- Renamed SmartThings driver from Linux Host LAN to Computer Host LAN, with
-  `computer-host-lan` package key, `computerhost` Lua modules, and new device
-  network IDs. No in-place device or automation migration is attempted.
-- Introduced generic agent protocol `computer-host-agent` v2 with `/v2/*`,
-  mandatory `platform`, generic HMAC request headers, and DNS-SD
-  `_computerhost._tcp`.
-- Added Linux/Windows SmartThings profiles; kept Linux-specific `linuxLoad`
-  and all formerly available Linux metrics, state-machine operations and
-  power controls. No Windows agent is included at this stage.
-- Added five platform-independent custom capabilities in the existing account
-  namespace; new capability registration is required for the updated profiles.
-- Retained Linux systemd service, privileged helper, installer, WOL scripts,
-  protective resource limits, persistent state and opt-in controls.
-- Added generic contract, platform selection and Linux parity tests.
-- Source tests and loopback tests pass; actual hub/hardware validation pending.
+## v0.4.0-dev.1 (2026-11-16) — generic protocol v2
 
-See `docs/history/v0.3.1-beta.1/CHANGELOG.md` for the original version history.
+New `_computerhost._tcp` discovery, `computer-host-agent` API v2, shared driver, platform-specific profiles and custom monitoring capabilities. Linux successfully validated on Gentoo `hydra`.
+
+Older Linux-only release history: [archived change log](docs/history/v0.3.1-beta.1/CHANGELOG.md).
