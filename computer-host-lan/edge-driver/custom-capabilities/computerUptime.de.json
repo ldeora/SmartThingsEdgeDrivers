@@ -1,0 +1,12 @@
+{
+  "tag": "de",
+  "label": "Systemlaufzeit",
+  "attributes": {
+    "uptimeMinutes": {
+      "label": "Laufzeit (Minuten)"
+    },
+    "uptimeText": {
+      "label": "Laufzeit"
+    }
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "tag": "en",
+  "label": "CPU usage",
+  "attributes": {
+    "cpuUsage": {
+      "label": "CPU usage"
+    }
+  }
+}

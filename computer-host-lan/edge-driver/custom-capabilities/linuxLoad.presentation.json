@@ -1,0 +1,74 @@
+{
+  "dashboard": {
+    "states": [
+      {
+        "label": "Load 1m {{loadOne.value}} · 5m {{loadFive.value}} · 15m {{loadFifteen.value}}"
+      }
+    ],
+    "actions": [],
+    "basicPlus": []
+  },
+  "detailView": [
+    {
+      "label": "{{i18n.attributes.loadOne.label}}",
+      "displayType": "state",
+      "state": {
+        "label": "{{loadOne.value}}"
+      }
+    },
+    {
+      "label": "{{i18n.attributes.loadFive.label}}",
+      "displayType": "state",
+      "state": {
+        "label": "{{loadFive.value}}"
+      }
+    },
+    {
+      "label": "{{i18n.attributes.loadFifteen.label}}",
+      "displayType": "state",
+      "state": {
+        "label": "{{loadFifteen.value}}"
+      }
+    }
+  ],
+  "automation": {
+    "conditions": [
+      {
+        "label": "{{i18n.attributes.loadOne.label}}",
+        "displayType": "numberField",
+        "numberField": {
+          "value": "loadOne.value",
+          "range": [
+            0,
+            1000000
+          ]
+        }
+      },
+      {
+        "label": "{{i18n.attributes.loadFive.label}}",
+        "displayType": "numberField",
+        "numberField": {
+          "value": "loadFive.value",
+          "range": [
+            0,
+            1000000
+          ]
+        }
+      },
+      {
+        "label": "{{i18n.attributes.loadFifteen.label}}",
+        "displayType": "numberField",
+        "numberField": {
+          "value": "loadFifteen.value",
+          "range": [
+            0,
+            1000000
+          ]
+        }
+      }
+    ],
+    "actions": []
+  },
+  "id": "oceancircle09600.linuxLoad",
+  "version": 1
+}

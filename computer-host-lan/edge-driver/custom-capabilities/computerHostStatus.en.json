@@ -1,0 +1,40 @@
+{
+  "tag": "en",
+  "label": "Host status",
+  "attributes": {
+    "status": {
+      "label": "State",
+      "i18n": {
+        "value": {
+          "running": {
+            "label": "Running"
+          },
+          "starting": {
+            "label": "Starting"
+          },
+          "stopping": {
+            "label": "Shutting down"
+          },
+          "suspending": {
+            "label": "Suspending"
+          },
+          "suspended": {
+            "label": "Suspended"
+          },
+          "stopped": {
+            "label": "Shut down"
+          },
+          "rebooting": {
+            "label": "Restarting"
+          },
+          "unreachable": {
+            "label": "Unreachable"
+          },
+          "unknown": {
+            "label": "Unknown"
+          }
+        }
+      }
+    }
+  }
+}

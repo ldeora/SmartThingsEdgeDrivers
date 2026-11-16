@@ -1,0 +1,38 @@
+{
+  "dashboard": {
+    "states": [
+      {
+        "label": "Up {{uptimeText.value}}"
+      }
+    ],
+    "actions": [],
+    "basicPlus": []
+  },
+  "detailView": [
+    {
+      "label": "{{i18n.attributes.uptimeText.label}}",
+      "displayType": "state",
+      "state": {
+        "label": "{{uptimeText.value}}"
+      }
+    }
+  ],
+  "automation": {
+    "conditions": [
+      {
+        "label": "System uptime (minutes)",
+        "displayType": "numberField",
+        "numberField": {
+          "value": "uptimeMinutes.value",
+          "range": [
+            0,
+            100000000
+          ]
+        }
+      }
+    ],
+    "actions": []
+  },
+  "id": "oceancircle09600.computerUptime",
+  "version": 1
+}

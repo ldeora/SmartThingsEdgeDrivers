@@ -1,0 +1,2 @@
+# Development/test dependency only; the agent runtime needs no PyPI modules.
+PyYAML>=6,<7

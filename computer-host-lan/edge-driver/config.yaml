@@ -1,0 +1,7 @@
+name: Computer Host LAN
+packageKey: computer-host-lan
+permissions:
+  lan: {}
+  discovery: {}
+description: Local SmartThings Edge driver for Linux and Windows computers with discovery, WOL, authenticated power control and telemetry.
+vendorSupportInformation: Community Computer Host Agent
