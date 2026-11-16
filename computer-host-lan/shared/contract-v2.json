@@ -1,0 +1,45 @@
+{
+  "name": "computer-host-agent",
+  "api_version": 2,
+  "service_type": "_computerhost._tcp",
+  "domain": "local",
+  "default_port": 8765,
+  "protocol_envelope_required": [
+    "protocol",
+    "api_version",
+    "platform",
+    "id"
+  ],
+  "platforms": [
+    "linux",
+    "windows"
+  ],
+  "routes": {
+    "info": "GET /v2/info",
+    "health": "GET /v2/health",
+    "metrics": "GET /v2/metrics",
+    "challenge": "GET /v2/challenge",
+    "shutdown": "POST /v2/power/shutdown",
+    "reboot": "POST /v2/power/reboot",
+    "suspend": "POST /v2/power/suspend"
+  },
+  "signature": {
+    "algorithm": "HMAC-SHA256",
+    "input_template": "POST\\n{path}\\n{nonce}\\n",
+    "nonce_header": "X-ComputerHost-Nonce",
+    "signature_header": "X-ComputerHost-Signature",
+    "nonce_hex_length": 48,
+    "key_hex_length": 64,
+    "test_vector": {
+      "key_hex": "0101010101010101010101010101010101010101010101010101010101010101",
+      "path": "/v2/power/reboot",
+      "nonce": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "expected_signature_hex": "bee90235a4e0de60ce651fac03e27ed024fa49ed822feb81943deb96283843e2"
+    }
+  },
+  "linux_only_metrics": [
+    "load_1m",
+    "load_5m",
+    "load_15m"
+  ]
+}

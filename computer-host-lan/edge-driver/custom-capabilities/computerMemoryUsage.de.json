@@ -1,0 +1,12 @@
+{
+  "tag": "de",
+  "label": "Arbeitsspeicher",
+  "attributes": {
+    "memoryUsage": {
+      "label": "RAM-Auslastung"
+    },
+    "memoryTotalGiB": {
+      "label": "Installierter RAM"
+    }
+  }
+}

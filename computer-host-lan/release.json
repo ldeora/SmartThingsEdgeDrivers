@@ -1,0 +1,23 @@
+{
+  "integration": "0.5.1-dev.1",
+  "agent": "0.4.0-dev.1",
+  "edge_driver": "0.4.0-dev.1",
+  "agent_protocol": 2,
+  "release_stage": "windows-agent-source-only-uncompiled-no-Windows-runtime-validation",
+  "hardware_validated": [
+    "Linux Gentoo hydra / SmartThings hub: protocol v2 discovery, telemetry, service-interruption recovery, reboot, suspend/WOL, full shutdown/WOL, user-reported 2026-11-16"
+  ],
+  "source_smoke_validated": [
+    "Linux Python/Lua 0.4.0-dev.1 baseline (87 tests) + Windows static source checks; no .NET compilation"
+  ],
+  "ci_matrix_defined_not_executed": [
+    "Linux: Debian 12/13, Ubuntu 24.04/26.04, Fedora 43/44",
+    "Windows Server 2025 x64 .NET 10 build/smoke + win-arm64 cross-publish"
+  ],
+  "managed_state": "/var/lib/linux-host-agent",
+  "power_control_default": "disabled",
+  "redistribution_license": "Apache-2.0",
+  "linux_reference_baseline": "Linux agent and Edge Driver v0.4.0-dev.1 real-hardware verified on hydra by user on 2026-11-16; Linux source/service unchanged in Phase 2",
+  "windows_agent": "0.2.0-alpha.1",
+  "windows_power_control": "opt-in best effort, unvalidated on Windows"
+}

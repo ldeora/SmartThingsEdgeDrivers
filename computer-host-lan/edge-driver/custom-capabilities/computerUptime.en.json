@@ -1,0 +1,12 @@
+{
+  "tag": "en",
+  "label": "System uptime",
+  "attributes": {
+    "uptimeMinutes": {
+      "label": "Uptime (minutes)"
+    },
+    "uptimeText": {
+      "label": "Uptime"
+    }
+  }
+}

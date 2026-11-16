@@ -1,0 +1,45 @@
+{
+  "dashboard": {
+    "states": [
+      {
+        "label": "RAM {{memoryUsage.value}} %"
+      }
+    ],
+    "actions": [],
+    "basicPlus": []
+  },
+  "detailView": [
+    {
+      "label": "{{i18n.attributes.memoryUsage.label}}",
+      "displayType": "state",
+      "state": {
+        "label": "{{memoryUsage.value}} %"
+      }
+    },
+    {
+      "label": "{{i18n.attributes.memoryTotalGiB.label}}",
+      "displayType": "state",
+      "state": {
+        "label": "{{memoryTotalGiB.value}} GiB"
+      }
+    }
+  ],
+  "automation": {
+    "conditions": [
+      {
+        "label": "Memory utilization",
+        "displayType": "numberField",
+        "numberField": {
+          "value": "memoryUsage.value",
+          "range": [
+            0,
+            100
+          ]
+        }
+      }
+    ],
+    "actions": []
+  },
+  "id": "oceancircle09600.computerMemoryUsage",
+  "version": 1
+}

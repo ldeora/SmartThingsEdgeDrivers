@@ -1,0 +1,12 @@
+<?xml version="1.0" standalone='no'?>
+<!DOCTYPE service-group SYSTEM "avahi-service.dtd">
+<service-group>
+  <name replace-wildcards="yes">Computer Host Agent (Linux) on %h</name>
+  <service>
+    <type>_computerhost._tcp</type>
+    <port>8765</port>
+    <txt-record>api=2</txt-record>
+    <txt-record>agent=computer-host-agent</txt-record>
+    <txt-record>platform=linux</txt-record>
+  </service>
+</service-group>

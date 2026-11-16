@@ -1,0 +1,12 @@
+{
+  "tag": "en",
+  "label": "Memory",
+  "attributes": {
+    "memoryUsage": {
+      "label": "RAM usage"
+    },
+    "memoryTotalGiB": {
+      "label": "Installed RAM"
+    }
+  }
+}

@@ -1,11 +1,28 @@
-# Computer Host LAN (cross-platform)
+# Computer Host LAN — Cross-platform SmartThings integration
 
-This new project is intentionally separate from `linux-host-lan/`.
+**Development release v0.5.1-dev.1** (source only, 2026-11-16). Separate project
+from `linux-host-lan/`, which remains untouched and available for rollback.
 
-**Staging branch:** `feature/computer-host-lan`. The complete v0.5.1-dev.1 source tree is prepared as a downloadable archive and must be staged here before enabling GitHub Actions; this branch currently contains only the project scaffold.
+One SmartThings LAN Edge Driver, a Linux agent (Python/systemd/Avahi) and a
+native Windows agent (C#/.NET 10/Windows Service/native DNS-SD), all using the
+same protocol v2 and `_computerhost._tcp.local` discovery.
 
-Planned layout: `agent/` (Linux), `windows-agent/` (.NET 10), `edge-driver/` (shared Lua), `tests/` and `scripts/`.
+## Verified status
 
-The Linux reference v0.4.0-dev.1 has passed real SmartThings hub validation. Windows v0.2.0-alpha.1 introduces opt-in best-effort power commands, but **has not been compiled or hardware validated**. Do not deploy it to unattended computers.
+- **Linux v0.4.0-dev.1:** Tested on Gentoo `hydra` and a SmartThings hub for
+  telemetry, mDNS discovery, agent interruption/recovery, reboot, suspend/WOL,
+  and shutdown/WOL. Linux code and driver Lua code were not changed for this
+  Windows power-management iteration.
+- **Windows v0.2.0-alpha.1:** Source implementation of monitoring plus opt-in
+  HMAC-authenticated reboot, shutdown, suspend and candidate WOL metadata.
+  **Not compiled or executed on Windows yet; no hardware claims.**
+- Power commands default OFF. Windows wake from S5/Fast Startup is unsupported
+  by Microsoft even though some firmware may allow it.
 
-When staging the complete source package, place it under `computer-host-lan/` and the GitHub Actions workflows under repository-root `.github/workflows/`. This work must not modify `linux-host-lan/`.
+Start with [Windows agent README](windows-agent/README.md), [protocol](PROTOCOL.md),
+[testing](windows-agent/docs/HARDWARE-TEST-MATRIX.md) and [security](SECURITY.md).
+The real GitHub Actions workflow belongs at repository root
+`.github/workflows/computer-host-windows.yml`, not inside this subdirectory.
+
+No installer runs as part of extraction. Do not deploy the unverified Windows
+power agent on an unattended or nonrecoverable computer.

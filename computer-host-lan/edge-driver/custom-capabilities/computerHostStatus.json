@@ -1,0 +1,32 @@
+{
+  "name": "Computer Host Status",
+  "attributes": {
+    "status": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "value": {
+            "type": "string",
+            "enum": [
+              "running",
+              "starting",
+              "stopping",
+              "suspending",
+              "suspended",
+              "stopped",
+              "rebooting",
+              "unreachable",
+              "unknown"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "value"
+        ]
+      },
+      "enumCommands": []
+    }
+  },
+  "commands": {}
+}

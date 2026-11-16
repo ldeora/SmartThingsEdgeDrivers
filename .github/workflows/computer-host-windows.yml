@@ -1,15 +1,13 @@
-name: Computer Host Windows agent (build and non-destructive validation)
+name: Computer Host Windows agent (build, power-contract tests and smoke)
 on:
   push:
-    branches:
-      - feature/computer-host-lan
     paths:
       - 'computer-host-lan/windows-agent/**'
-      - '.github/workflows/computer-host-windows.yml'
+      - '.github/workflows/windows-agent.yml'
   pull_request:
     paths:
       - 'computer-host-lan/windows-agent/**'
-      - '.github/workflows/computer-host-windows.yml'
+      - '.github/workflows/windows-agent.yml'
   workflow_dispatch:
 permissions:
   contents: read
@@ -24,24 +22,24 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
-      - name: Build with warnings as errors
+      - name: Build (warnings are errors)
         run: dotnet build windows-agent/ComputerHost.WindowsAgent/ComputerHost.WindowsAgent.csproj -c Release
-      - name: Contract, HMAC and Win32 metrics tests
+      - name: Contract and Win32 telemetry tests
         run: dotnet run --project windows-agent/ComputerHost.WindowsAgent.Tests/ComputerHost.WindowsAgent.Tests.csproj -c Release
-      - name: Publish self-contained Windows x64
+      - name: Publish self-contained Windows x64 executable
         shell: pwsh
         run: ./windows-agent/scripts/Publish-WindowsAgent.ps1 -Runtime win-x64
-      - name: Non-destructive HTTP smoke, including invalid signature
+      - name: HTTP smoke on Windows runner (not a real SmartThings LAN)
         shell: pwsh
         run: ./windows-agent/scripts/Smoke-WindowsAgent.ps1 -Executable "${{ github.workspace }}/computer-host-lan/windows-agent/publish/win-x64/ComputerHost.WindowsAgent.exe"
-      - name: Upload unsigned Windows x64 development build
+      - name: Archive unsigned development executable
         uses: actions/upload-artifact@v4
         with:
-          name: computer-host-windows-alpha-unsigned-win-x64
+          name: computer-host-windows-unsigned-dev-win-x64
           path: computer-host-lan/windows-agent/publish/win-x64/
           if-no-files-found: error
           retention-days: 7
-  arm64-cross-publish:
+  windows-arm64-build:
     runs-on: windows-2025
     defaults:
       run:
@@ -51,12 +49,13 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
-      - name: Cross-publish ARM64 (not executed)
+      - name: Cross-publish arm64 package (not executed)
         shell: pwsh
         run: ./windows-agent/scripts/Publish-WindowsAgent.ps1 -Runtime win-arm64
-      - uses: actions/upload-artifact@v4
+      - name: Archive unsigned development arm64 executable
+        uses: actions/upload-artifact@v4
         with:
-          name: computer-host-windows-alpha-unsigned-win-arm64
+          name: computer-host-windows-unsigned-dev-win-arm64
           path: computer-host-lan/windows-agent/publish/win-arm64/
           if-no-files-found: error
           retention-days: 7
