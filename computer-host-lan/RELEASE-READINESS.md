@@ -1,19 +1,18 @@
-# Computer Host LAN — prerelease readiness
+# Computer Host LAN — beta release readiness
 
-| Gate | Status | Evidence / next step |
-| --- | --- | --- |
-| Separate repository directory / legacy isolation | PASS | `computer-host-lan/`; existing `linux-host-lan/` kept |
-| Linux core reference | PASS on Gentoo | Real SmartThings hub tests, 2026-11-16 |
-| Windows x64 compile + API smoke | PASS in CI | [Windows run](https://github.com/ldeora/SmartThingsEdgeDrivers/actions/runs/43827358333) |
-| Windows LocalService install and opt-in/out | PASS in CI | PowerShell 5.1, state ACLs; no physical power command |
-| Windows ARM64 hardware | OPEN | Cross-published only |
-| Real Windows 11 mDNS / SmartThings pairing | OPEN | Purpose of volunteer beta |
-| Reproducible fixed-commit release assets | CANDIDATE CI PASSED | [PR #4 release workflow](https://github.com/ldeora/SmartThingsEdgeDrivers/actions/runs/43835476167); final tagged-commit build still required |
-| Driver channel invitation / cross-account app | OPEN | Owner must publish/test |
-| Support, privacy, license provenance review | OPEN | Final prerelease checklist |
+| Item | Status |
+| --- | --- |
+| Separate protocol-v2 project; legacy Linux Host LAN preserved | PASS |
+| Gentoo + real SmartThings hub | PASS (hardware tested) |
+| Windows x64 compile, HTTP/HMAC tests and LocalService install | PASS (CI only) |
+| Windows 11 real SmartThings discovery and WOL | **Open — beta purpose** |
+| Linux distro CI | PASS (source/container, not physical hardware) |
+| Versioned release packaging and checksums | PASS at `eb277dde`; rerun at final documentation commit |
+| GitHub Release | Draft created with four assets; publication pending |
+| [SmartThings shared channel](https://bestow-regional.api.smartthings.com/invite/1J2Qy7ZkxL20) | Confirmed; another account installed Computer Host LAN |
+| Windows app profile / full LAN device discovery | Unverified, tester target |
+| Copyright/third-party provenance | Owner sign-off required |
 
-## Release boundary
+**Immediate publication sequence:** merge the final documentation update; verify all three CI workflows on the resulting `main` commit; replace four draft release assets and notes from that commit; publish the GitHub prerelease; verify public downloads; then publish the SmartThings Community invitation.
 
-A beta may ship before hardware validation across Windows 11 variants, but must have a functioning verified installer, recoverable uninstall, permanent checksummed assets, accurate documentation and no unsupported compatibility claims. Local HTTP is intentionally **not** TLS secured; only trusted private LANs and scope-limited firewall rules should be used. Power remains disabled by default.
-
-The files in `docs/history/v0.3.1-beta.1/` document the **older Linux-only** project and are not current Computer Host LAN instructions.
+The Windows ZIP is **unsigned**; monitor on a trusted Private LAN only (no HTTP TLS or port forwarding). Power commands stay off by default, and S0/S3/S4/S5 wake is hardware-dependent. The existing `linux-host-lan/` project is not changed or superseded.

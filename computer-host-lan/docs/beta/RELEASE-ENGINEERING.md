@@ -1,38 +1,19 @@
-# Computer Host LAN beta distribution — release engineering
+# Computer Host LAN — public beta release engineering
 
-This directory is used by the owner to **prepare** a release from a fixed reviewed commit.
+**Version:** v0.5.1-beta.1 · **Tag:** `computer-host-lan-v0.5.1-beta.1`.
 
-## Candidate CI, not publication
+The [verified SmartThings channel invitation](https://bestow-regional.api.smartthings.com/invite/1J2Qy7ZkxL20) already distributes the Computer Host LAN driver. Another SmartThings account has installed it. The shared channel also contains other custom drivers; testers install only **Computer Host LAN**.
 
-The [beta candidate workflow](../../../.github/workflows/computer-host-release.yml)
-runs Windows x64 publish/HTTP tests, creates a self-contained Windows ZIP,
-and creates Linux source and documentation archives. SHA-256 manifests are
-generated from the exact bytes published. CI unpacks and validates all assets
-before archiving a candidate. GitHub Actions artifacts expire; **do not use their
-URLs in a public SmartThings Community announcement**.
+The GitHub draft prerelease was initially prepared from `eb277dde1fce72784c2da44eadbdd60f5356e20f`. **After merging any release-documentation changes, rebuild and replace its assets from the new exact `main` commit before publication.** Do not mix archives built from different commits.
 
-## Publishing (after PR merge and channel verification)
+The [.github/workflows/computer-host-release.yml](../../../.github/workflows/computer-host-release.yml) workflow builds source/docs ZIPs, tests and packages the unsigned Windows x64 agent, verifies the Windows package under Windows PowerShell 5.1 after extraction, and assembles a unified `SHA256SUMS.txt`. It never publishes releases, signs files, modifies SmartThings or executes authenticated power commands.
 
-1. Make sure both platform CI jobs and the release-candidate workflow are green
-   on the intended commit on main. Review changes and author/licensing notices.
-2. Download the single release-candidate artifact for that commit and inspect
-   source ZIP, Windows ZIP, documentation, and checksums.
-3. Use a namespaced annotated tag such as
-   computer-host-lan-v0.5.1-beta.1 **only when release versions match contents**.
-   The release-candidate integration version is 0.5.1-beta.1. Wait for CI on the final merged release commit before creating the corresponding tag.
-4. Draft a GitHub prerelease; attach individually verified release ZIPs and
-   SHA256SUMS.txt; clearly mark Windows binaries as **unsigned**.
-5. Verify the release downloads and their checksums as a new user. Do not
-   publish an invitation or promise full Windows 11 compatibility yet.
-6. Obtain and verify the SmartThings Computer Host LAN beta Edge channel invite,
-   driver ID and public tester onboarding from a second account/hub.
+## Safe release publication
+1. Confirm all Windows, Linux and release-packaging checks passed for the final `main` commit.
+2. Download that commit's **complete** release-candidate artifact; verify all ZIPs with `sha256sum -c SHA256SUMS.txt`.
+3. Confirm the Windows kit's `BUILD-INFO.json` and the source bundle's `release.json` match the final commit and version.
+4. Replace all four draft release assets and its body with the vetted notes from that same commit. Keep it a draft while checking.
+5. Confirm no mismatched existing tag; publish as **prerelease**, targeting the final commit. Verify resulting Git tag and public downloads.
+6. Publish the [prepared SmartThings Community post](COMMUNITY-ANNOUNCEMENT.md).
 
-### What is not validated
-
-Windows 11 host mDNS discoverability from a real SmartThings hub, physical
-Windows reboot, suspend, shutdown, wake from S3/Modern Standby/S4/S5, and
-ARM64 runtime behavior are the subject of volunteer hardware testing.
-Linux cross-distro CI is container/source validation, not a physical WOL pass.
-
-No automated job in this repository creates tags, publishes releases, signs
-binaries, changes your production SmartThings channel, or activates real power.
+**Disclosures:** Windows 11 real hardware discovery and power/WOL have not been validated. HTTP telemetry is not encrypted; use only on trusted LANs. The Windows executable is unsigned. Windows ARM64 is cross-built only; Linux distro container tests are not physical power tests.

@@ -19,11 +19,12 @@ Builds use .NET 10. Published x64 binaries are self-contained, so ordinary teste
 
 ## Install (Windows 11 x64, elevated PowerShell)
 
-From the same directory as the published bundle and installer scripts:
+From the extracted Windows kit (PowerShell as Administrator), replace the example with your hub's IP:
 
 ```powershell
+$hubIPv4 = '192.168.1.20'  # example only
 .\scripts\Install-WindowsAgent.ps1 -WhatIf
-.\scripts\Install-WindowsAgent.ps1 -HubIPv4 <YOUR_SMARTTHINGS_HUB_IPV4>
+.\scripts\Install-WindowsAgent.ps1 -HubIPv4 $hubIPv4
 Get-Service ComputerHostAgent
 Invoke-RestMethod http://127.0.0.1:8765/v2/info
 .\scripts\Get-WolDiagnostics.ps1
@@ -37,6 +38,6 @@ After SmartThings discovery and telemetry succeed, save all open work and ensure
 
 The Windows native operations are **best-effort** and hardware-dependent: reboot first, suspend/WOL second, shutdown/WOL last. A 202 response means accepted for scheduling, not confirmed completion. Windows S0/S3/S4/S5 support, Fast Startup and WOL depend on policy, NIC and firmware.
 
-Reinstall **without** `-EnablePower` to disable remote power. Uninstall with `.\scripts\Uninstall-WindowsAgent.ps1`; add `-PurgeState` **only** to intentionally remove persistent identity and key. No binary is signed. The public-beta ZIP and permanent GitHub release are pending.
+Reinstall **without** `-EnablePower` to disable remote power. Uninstall with `.\scripts\Uninstall-WindowsAgent.ps1`; add `-PurgeState` **only** to intentionally remove persistent identity and key. No binary is signed. The [unsigned beta package](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.1-beta.1) and verified [SmartThings channel invitation](https://bestow-regional.api.smartthings.com/invite/1J2Qy7ZkxL20) are the entry points for testers.
 
 See [platform installation](../INSTALLATION.md), [tester checklist](docs/HARDWARE-TEST-MATRIX.md) and [security/privacy](../docs/beta/SECURITY-AND-PRIVACY.md).

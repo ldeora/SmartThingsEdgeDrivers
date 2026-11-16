@@ -3,7 +3,7 @@
   "agent": "0.4.0-dev.1",
   "edge_driver": "0.4.0-dev.1",
   "agent_protocol": 2,
-  "release_stage": "beta1-candidate-ci-validation-pending-not-published",
+  "release_stage": "public-beta-v0.5.1-beta.1",
   "hardware_validated": [
     "Linux Gentoo hydra / SmartThings hub: protocol v2 discovery, telemetry, service-interruption recovery, reboot, suspend/WOL and full shutdown/WOL (2026-11-16)"
   ],
@@ -19,6 +19,12 @@
   "linux_reference_baseline": "Linux agent and Edge Driver v0.4.0-dev.1 real-hardware verified on hydra; their runtime source unchanged in Windows Phase 2",
   "windows_agent": "0.2.0-alpha.1",
   "windows_power_control": "opt-in best effort, hardware/firmware WOL unvalidated",
-  "smartthings_beta_channel": "pending-owner-publication",
-  "github_prerelease": "pending-publication-after-release-validation"
+  "smartthings_beta_channel": {
+    "name": "ARoedl SmartThings Edge Drivers",
+    "channel_id": "7a23289c-d1f8-42cc-ba10-4ffd219b89bb",
+    "driver_id": "2ab3db0e-3b78-499e-bc3b-bcfa7f62b9f7",
+    "invitation_url": "https://bestow-regional.api.smartthings.com/invite/1J2Qy7ZkxL20",
+    "external_installation_confirmed": true
+  },
+  "github_prerelease": "https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.1-beta.1"
 }

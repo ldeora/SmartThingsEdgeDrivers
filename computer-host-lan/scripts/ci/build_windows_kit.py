@@ -85,8 +85,11 @@ Use only on a trusted PRIVATE LAN; never forward TCP 8765 to the Internet.
    Get-Service ComputerHostAgent
    Invoke-RestMethod http://127.0.0.1:8765/v2/info
    Omit -HubIPv4 to allow the LocalSubnet on Private profiles.
-4. Follow docs/START-HERE.md after the publisher supplies a tested SmartThings
-   Computer Host LAN beta Edge Driver channel invitation.
+4. Open the verified SmartThings Edge channel invitation:
+   https://bestow-regional.api.smartthings.com/invite/1J2Qy7ZkxL20
+   Sign in, accept, enroll your hub and install Computer Host LAN under Available
+   Drivers. Then use Scan nearby in the SmartThings app.
+   Full instructions: docs/START-HERE.md.
 
 ## Optional power (after monitoring is working)
 

@@ -1,6 +1,6 @@
 # Computer Host LAN — installation (protocol v2)
 
-**Current state:** Public-beta release candidate v0.5.1-beta.1, not yet a published GitHub prerelease. The host agent and SmartThings Edge Driver are installed separately. A verified developer-channel invitation for outside testers is **not yet available**.
+**Public beta v0.5.1-beta.1:** Obtain the host agent from the [official GitHub prerelease](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.1-beta.1) and install the Edge Driver separately from the verified [ARoedl SmartThings Edge Drivers channel](https://bestow-regional.api.smartthings.com/invite/1J2Qy7ZkxL20). Another account has successfully installed the driver.
 
 ## Before installation
 
@@ -8,28 +8,29 @@ Use a trusted private LAN and a SmartThings hub that supports LAN Edge drivers. 
 
 ## Windows 11 x64 (first volunteers)
 
-Download the **versioned Windows ZIP** from the future Computer Host LAN GitHub prerelease, verify the published SHA-256, and extract it without altering directories. The executable is self-contained (.NET runtime bundled); administrator rights are necessary to register a Windows Service.
+Download the **versioned Windows ZIP** from the [Computer Host LAN v0.5.1-beta.1 GitHub prerelease](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.1-beta.1), verify the published SHA-256, and extract it without altering directories. The executable is self-contained (.NET runtime bundled); administrator rights are necessary to register a Windows Service.
 
-From **elevated PowerShell** inside the extracted tester kit:
+From **elevated PowerShell** inside the extracted tester kit, replace the example with your hub's actual IPv4 address:
 
 ```powershell
+$hubIPv4 = '192.168.1.20'  # example only
 .\scripts\Verify-Package.ps1
 .\scripts\Install-WindowsAgent.ps1 -WhatIf
-.\scripts\Install-WindowsAgent.ps1 -HubIPv4 <SMARTTHINGS_HUB_IPV4>
+.\scripts\Install-WindowsAgent.ps1 -HubIPv4 $hubIPv4
 Get-Service ComputerHostAgent
 Invoke-RestMethod http://127.0.0.1:8765/v2/info
 Invoke-RestMethod http://127.0.0.1:8765/v2/health
 Invoke-RestMethod http://127.0.0.1:8765/v2/metrics
 ```
 
-Replace the placeholder with the actual hub IPv4 address. Omit `-HubIPv4` to permit `LocalSubnet` on **Private** Windows network profiles. The installer does not modify BIOS, Windows sleep/fast-startup options, WOL adapter configuration, or mDNS firewall policies. Windows DNS-SD discovery on real PC/hub networks still needs volunteer verification.
+Use the actual hub IPv4 address in `$hubIPv4`. Omit `-HubIPv4` to permit `LocalSubnet` on **Private** Windows network profiles. The installer does not modify BIOS, Windows sleep/fast-startup options, WOL adapter configuration, or mDNS firewall policies. Windows DNS-SD discovery on real PC/hub networks still needs volunteer verification.
 
-Once the SmartThings beta channel is published, enroll the hub, install the `Computer Host LAN` Edge Driver, and use SmartThings **Scan nearby**. The Windows profile omits CPU temperature and Linux load. If discovery fails, report it rather than disabling the firewall globally; `hostOverride` only works *after* first pairing.
+Open the [verified channel invitation](https://bestow-regional.api.smartthings.com/invite/1J2Qy7ZkxL20), sign in, accept, enroll your hub and install **Computer Host LAN** under **Available Drivers**. Then use SmartThings **Scan nearby**. The Windows profile omits CPU temperature and Linux load. If discovery fails, report it rather than disabling the firewall globally; `hostOverride` only works *after* first pairing.
 
 **Optional authenticated power commands — test PC, saved work and physical recovery only:**
 
 ```powershell
-.\scripts\Install-WindowsAgent.ps1 -EnablePower -HubIPv4 <SMARTTHINGS_HUB_IPV4>
+.\scripts\Install-WindowsAgent.ps1 -EnablePower -HubIPv4 $hubIPv4
 # Inspect the control key privately; NEVER paste into public reports.
 Get-Content "$env:ProgramData\ComputerHostAgent\control-token"
 ```
