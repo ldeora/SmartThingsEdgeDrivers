@@ -17,7 +17,6 @@ if (@($selected).Count -gt 1) { throw 'Choose only one of -Install, -Run or -Rem
 
 $taskName = 'ComputerHost-InteractiveLock-POC'
 $lockScript = Join-Path $PSScriptRoot 'Invoke-LocalSessionLock.ps1'
-if (-not (Test-Path -LiteralPath $lockScript)) { throw "Missing $lockScript" }
 
 $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
 $user = $identity.Name
@@ -38,6 +37,7 @@ if (-not ($Install -or $Run -or $Remove)) {
 
 if ($Install) {
     if ($existing) { throw "Task '$taskName' already exists. Refusing to overwrite it." }
+    if (-not (Test-Path -LiteralPath $lockScript)) { throw "Missing $lockScript" }
     if ($lockScript.Contains('"')) { throw 'Unexpected quote character in script path.' }
 
     $powershell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
@@ -53,6 +53,9 @@ if ($Install) {
     }
 } elseif ($Run) {
     if (-not $existing) { throw "Task '$taskName' not installed. Run -Install first." }
+    if (@($existing.Actions).Count -ne 1 -or $existing.Actions[0].Arguments -notlike '*Invoke-LocalSessionLock.ps1*') {
+        throw 'Existing task does not match our proof of concept; refusing to run it.'
+    }
     if ($PSCmdlet.ShouldProcess($taskName, 'Run task now and request Windows workstation lock')) {
         Start-ScheduledTask -TaskName $taskName -ErrorAction Stop
         Write-Host 'Task execution requested. Verify manually whether Windows locked; this does not confirm completion.'
@@ -61,6 +64,9 @@ if ($Install) {
     if (-not $existing) {
         Write-Host "Task '$taskName' was not present."
         return
+    }
+    if (@($existing.Actions).Count -ne 1 -or $existing.Actions[0].Arguments -notlike '*Invoke-LocalSessionLock.ps1*') {
+        throw 'Existing task does not match our proof of concept; refusing to remove it.'
     }
     if ($PSCmdlet.ShouldProcess($taskName, 'Unregister proof-of-concept task')) {
         Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction Stop
