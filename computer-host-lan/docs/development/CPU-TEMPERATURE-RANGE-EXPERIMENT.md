@@ -1,6 +1,6 @@
 # CPU temperature automation range — isolated experiment (2026-11-17)
 
-**Status:** Experimental branch only. Not published to the public driver channel, not installed on the reference hub, and not verified in the SmartThings mobile routine editor.
+**Status (2026-11-17):** Merged in PR #9. The owner packaged and installed the updated Edge Driver on the Gentoo/SmartThings reference installation and **successfully created and saved routines with multiple CPU-temperature thresholds above 60 °C**. This validates mobile routine-editor acceptance on that installation; it does not prove that an above-threshold routine has actually fired or that other app/hub versions behave identically. The original v0.5.1-beta.1 release assets remain unchanged.
 
 ## Problem
 
@@ -22,14 +22,18 @@ References:
 - The original CPU temperature event, deadband (0.5 °C), monitoring, power handling, discovery, HMAC, WOL, Linux/Windows agents, device profiles, protocol and release assets are **unchanged**.
 - No account-level capability definitions or presentations are modified.
 
-## Test gates before merge
+## Original test gates and results
 
-1. PR CI: Python/Lua tests and Linux/Windows workflows pass. Confirm no baseline monitoring, discovery or power regression.
-2. Use **only a private/test driver installation**, not the public channel or a production device. Preserve the currently published `v0.5.1-beta.1` driver as rollback reference.
-3. On a Linux device reporting a real temperature, confirm the standard `temperatureRange` state appears with minimum `-40`, maximum `150`, unit `C`. Confirm ordinary temperature continues updating.
-4. Restart SmartThings and edit a new routine. Check whether a temperature condition **above 60 °C** can be entered and saved. The app may cache the range from initial device installation. Do **not** delete/re-pair a production device just to test UI behavior.
-5. Confirm routine history/telemetry are unaffected; condition is not silently clamped to 50 °C. Test app versions, if possible.
-6. Confirm an offline/unavailable Linux temperature doesn't emit fabricated readings, and Windows devices continue to have no temperature capability.
-7. If the app ignores the range on existing devices, retain this branch as an experiment. Investigate initial installation timing or a CPU-specific custom capability separately; do **not** modify shared standard-capability presentations without a compelling reason.
+1. **PASSED (CI):** Python/Lua tests and Linux/Windows workflows passed in PR #9. No intended changes to baseline monitoring, discovery or power.
+2. **Compatibility note:** The owner installed the updated driver on the reference hub. Preserve the published `v0.5.1-beta.1` release as a rollback reference; a GitHub merge itself does not distribute an Edge Driver to all hubs.
+3. **NOT EXPLICITLY REPORTED:** Confirm the standard `temperatureRange` state appears with minimum `-40`, maximum `150`, unit `C`; independently verify ordinary temperature updates.
+4. **PASSED (owner hardware and mobile app):** Multiple temperature conditions **above 60 °C** could be entered and saved in SmartThings routines on the existing installation. No device deletion/re-pair was required.
+5. **PARTIAL:** The routine editor accepted thresholds above 60 °C rather than enforcing the former 50 °C limit. Actual routine firing, telemetry/event-history regression and different app versions remain to be checked.
+6. **CI only; hardware not explicitly retested:** Ensure an unavailable CPU-temperature value emits no fabricated range/readings and Windows devices retain no CPU-temperature capability.
+7. **Not needed on the reference hub:** The app accepted the range on the existing device. Do not modify account-level standard-capability presentations.
 
 This change does **not** implement an automatic thermal shutdown. A routine that switches off a computer is user-created, sampled periodically and should not substitute for CPU/firmware thermal protection.
+
+## Outcome and next workstream
+
+The temperature routine UI limitation is resolved on the owner's installed Linux/SmartThings combination. Keep the change as-is and avoid expanding the temperature feature before the next stable release. Windows interactive session locking is a separate optional research track and must not modify the published power-control path before hardware validation.
