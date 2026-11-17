@@ -1,4 +1,6 @@
-# Windows physical hardware test matrix (unvalidated)
+# Windows physical hardware test matrix (partially validated by volunteer)
+
+# First Windows 11 volunteer: installation/basic SmartThings operation and the Suspend, Reboot and Shutdown (Off) commands were reported working in November 2026. This does not close the full matrix below; WOL was not yet tested, and metrics, service recovery and diverse Windows hardware still need explicit results.
 
 For each tester record Windows version/build, OS powercfg states, wired NIC
 model/driver, physical/virtual PC, and whether NIC is connected to hub LAN.
