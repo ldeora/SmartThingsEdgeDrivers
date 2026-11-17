@@ -61,6 +61,29 @@ local function finite_number(value)
   return type(value)=="number" and value==value and value~=math.huge and value~=-math.huge
 end
 
+-- EXPERIMENT: Advertise the CPU sensor's supported range for SmartThings
+-- automation conditions. This is standard temperatureMeasurement metadata,
+-- not a new sensor or an alteration to the reported temperature.
+-- Transient field: re-emit once after a driver restart/profile migration.
+local CPU_TEMP_RANGE_SENT = "computerhost_cpu_temperature_range_sent"
+local function publish_cpu_temperature_range(device,value)
+  if not finite_number(value) or value < -40 or value > 150 then return end
+  if not supports(device,"temperatureMeasurement") then return end
+  if device:get_field(CPU_TEMP_RANGE_SENT) then return end
+  local ok,err=pcall(function()
+    device:emit_event(caps.temperatureMeasurement.temperatureRange({
+      value={minimum=-40,maximum=150},unit="C"
+    }))
+  end)
+  if not ok then
+    -- A range presentation/attribute failure must NEVER block ordinary
+    -- temperature reporting or other telemetry. Retry on the next reading.
+    log.warn("Computer Host CPU temperature range event failed: "..tostring(err))
+    return
+  end
+  device:set_field(CPU_TEMP_RANGE_SENT,true)
+end
+
 local function uptime_text(seconds)
   if not finite_number(seconds) or seconds<0 then return nil end
   local total_minutes=math.floor(seconds/60)
@@ -100,6 +123,9 @@ function M.metrics(device,metrics)
     end
   end
 
+  -- Publish optional range metadata before the first real temperature.
+  -- This does not affect Windows (which has no CPU temperature measurement).
+  publish_cpu_temperature_range(device,metrics.cpu_temperature_c)
   -- Standard capability: keep CPU temperature available to every profile.
   changed("cpu_temperature_c",metrics.cpu_temperature_c,0.5,function(value)
     device:emit_event(caps.temperatureMeasurement.temperature({value=value,unit="C"}))
