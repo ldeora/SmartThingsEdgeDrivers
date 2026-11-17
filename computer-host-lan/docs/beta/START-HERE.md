@@ -1,6 +1,6 @@
 # Computer Host LAN — volunteer beta quick start
 
-**Public beta v0.5.1-beta.1:** Download the host agent from the [official GitHub prerelease](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.1-beta.1) and install the Edge Driver through the [verified SmartThings channel invitation](https://bestow-regional.api.smartthings.com/invite/1J2Qy7ZkxL20). A separate SmartThings account successfully installed this driver; real Windows 11 host discovery and power remain beta test objectives. Do not follow old `Linux Host LAN` beta guides for this project; those use protocol v1.
+**Public beta v0.5.1-beta.1:** Download the host agent from the [official GitHub prerelease](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.1-beta.1) and install the Edge Driver through the [verified SmartThings channel invitation](https://bestow-regional.api.smartthings.com/invite/1J2Qy7ZkxL20). A Windows 11 public-beta volunteer has now reported successful installation and basic SmartThings operation plus Suspend, Reboot, and Shutdown (Off); WOL and further platform coverage still need testers. Do not follow old `Linux Host LAN` beta guides for this project; those use protocol v1.
 
 ## Requirements
 
