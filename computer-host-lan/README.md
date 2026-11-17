@@ -12,7 +12,7 @@ Computer Host LAN is a **separate** project from [Linux Host LAN](../linux-host-
 | Linux / Debian 12–13, Ubuntu 24.04–26.04, Fedora 43–44 | Source/container tests passed in CI; no physical power/state certification |
 | Windows x64 | .NET 10 build, protocol/security tests, HTTP smoke, installation as `NT AUTHORITY\LocalService` and opt-in/opt-out tested on Windows Server 2025 runner ([CI](https://github.com/ldeora/SmartThingsEdgeDrivers/actions/runs/43827358333)) |
 | Windows ARM64 | Cross-publish passed; not executed on ARM64 hardware |
-| Windows 11 with a SmartThings hub | **Not yet physically validated**; the public beta is intended to recruit volunteers for this |
+| Windows 11 with a SmartThings hub | **First beta tester reports successful installation and basic operation, plus Suspend, Reboot and Shutdown (Off)**; detailed monitoring and Windows WOL remain unverified |
 
 Windows system metrics include CPU, RAM, system-drive usage and uptime. CPU temperature and Linux load averages are not invented on Windows. Shutdown/reboot/suspend are opt-in, best-effort and HMAC-authenticated. WOL is sent by the hub and depends on the NIC, firmware, network topology and Windows power state.
 
@@ -27,4 +27,4 @@ Windows system metrics include CPU, RAM, system-drive usage and uptime. CPU temp
 - [Security limitations](docs/beta/SECURITY-AND-PRIVACY.md)
 - [Release gates](docs/beta/PUBLICATION-GATES.md)
 
-**Get the beta:** Download [Computer Host LAN v0.5.1-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.1-beta.1) and install the driver from the verified [ARoedl SmartThings Edge Drivers invitation](https://bestow-regional.api.smartthings.com/invite/1J2Qy7ZkxL20). A second SmartThings account has installed the driver through this channel. Windows 11 LAN discovery and hardware power/WOL remain beta test objectives. The historical Linux v0.3.1 material lives in `docs/history/v0.3.1-beta.1/`. Existing Linux Host LAN devices remain on the separate legacy project.
+**Get the beta:** Download [Computer Host LAN v0.5.1-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.1-beta.1) and install the driver from the verified [ARoedl SmartThings Edge Drivers invitation](https://bestow-regional.api.smartthings.com/invite/1J2Qy7ZkxL20). A second SmartThings account has installed the driver through this channel. Additional Windows 11 validation, particularly WOL, recovery and additional hardware, remains a beta test objective. The historical Linux v0.3.1 material lives in `docs/history/v0.3.1-beta.1/`. Existing Linux Host LAN devices remain on the separate legacy project.
