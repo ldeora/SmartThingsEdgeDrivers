@@ -44,9 +44,14 @@ class LuaTelemetryTests(unittest.TestCase):
             cap('oceancircle09600.computerDiskUsage',{'diskUsage'})
             cap('oceancircle09600.computerUptime',{'uptimeMinutes','uptimeText'})
             cap('oceancircle09600.linuxLoad',{'loadOne','loadFive','loadFifteen'})
-            capabilities.temperatureMeasurement={temperature=function(value)
-              return {capability='temperatureMeasurement',attribute='temperature',value=value}
-            end}
+            capabilities.temperatureMeasurement={
+              temperature=function(value)
+                return {capability='temperatureMeasurement',attribute='temperature',value=value}
+              end,
+              temperatureRange=function(value)
+                return {capability='temperatureMeasurement',attribute='temperatureRange',value=value}
+              end,
+            }
             package.loaded['st.capabilities']=capabilities
             local T=require 'computerhost.telemetry'
             local fields={}
@@ -72,12 +77,18 @@ class LuaTelemetryTests(unittest.TestCase):
               load_1m=0.55,load_5m=0.70,load_15m=0.81,
               uptime_seconds=2*86400+3*3600+4*60+59,
             })
-            assert(#device.events==11)
+            assert(#device.events==12)
+            assert(device.events[2].attribute=='temperatureRange') -- metadata first
+            assert(device.events[3].attribute=='temperature') -- normal reading unchanged
             local seen={}
             for _,event in ipairs(device.events) do
               seen[(event.capability or '')..'.'..(event.attribute or '')]=event
             end
             assert(seen['temperatureMeasurement.temperature'].value.value==48.6)
+            local range=seen['temperatureMeasurement.temperatureRange'].value
+            assert(range.value.minimum==-40 and range.value.maximum==150)
+            assert(range.unit=='C')
+            assert(fields.computerhost_cpu_temperature_range_sent==true)
             assert(seen['oceancircle09600.computerCpuUsage.cpuUsage'].value==17.4)
             assert(seen['oceancircle09600.computerMemoryUsage.memoryUsage'].value==32.1)
             assert(seen['oceancircle09600.computerMemoryUsage.memoryTotalGiB'].value==32.0)
@@ -127,6 +138,30 @@ class LuaTelemetryTests(unittest.TestCase):
             T.metrics(device,{memory_total_bytes=64*1024*1024*1024})
             assert(#device.events==count+1)
             assert(device.events[#device.events].value==64.0)
+
+            -- A transient missing range attribute must not interrupt readings.
+            -- On a later poll, retry metadata without duplicating temperature.
+            fields.computerhost_cpu_temperature_range_sent=nil
+            local standard=capabilities.temperatureMeasurement
+            local range_constructor=standard.temperatureRange
+            standard.temperatureRange=nil
+            local before_retry=#device.events
+            T.metrics(device,{cpu_temperature_c=68.0})
+            assert(#device.events==before_retry+1)
+            assert(device.events[#device.events].attribute=='temperature')
+            assert(fields.computerhost_cpu_temperature_range_sent==nil)
+            standard.temperatureRange=range_constructor
+            T.metrics(device,{cpu_temperature_c=68.0})
+            assert(#device.events==before_retry+2)
+            assert(device.events[#device.events].attribute=='temperatureRange')
+            assert(fields.computerhost_cpu_temperature_range_sent==true)
+
+            -- Without a CPU-temperature value there is no range event.
+            fields.computerhost_cpu_temperature_range_sent=nil
+            local without_temperature=#device.events
+            T.metrics(device,{cpu_usage_percent=50.0})
+            assert(#device.events==without_temperature+1) -- CPU usage only
+            assert(fields.computerhost_cpu_temperature_range_sent==nil)
         ''' % (repr(str(ROOT)), repr(str(ROOT)))
 
         state = lib.luaL_newstate()
