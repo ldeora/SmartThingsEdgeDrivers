@@ -4,7 +4,7 @@ Companion to **Computer Host LAN v0.5.1-beta.1**, sharing protocol v2 and `_comp
 
 ## Verified versus not verified
 
-The source **compiles and runs** in GitHub Actions on Windows Server 2025 (x64 .NET 10). Contract tests, HMAC/replay protection, Win32 metrics, HTTP smoke, self-contained publishing, LocalService installation, protected state and PowerShell 5.1 opt-in/opt-out passed: [CI run](https://github.com/ldeora/SmartThingsEdgeDrivers/actions/runs/43827358333). ARM64 builds cross-publish but have not been executed. **No physical Windows 11 SmartThings hub pairing, native DNS-SD interoperability or real power-cycle test has yet passed.**
+The source **compiles and runs** in GitHub Actions on Windows Server 2025 (x64 .NET 10). Contract tests, HMAC/replay protection, Win32 metrics, HTTP smoke, self-contained publishing, LocalService installation, protected state and PowerShell 5.1 opt-in/opt-out passed: [CI run](https://github.com/ldeora/SmartThingsEdgeDrivers/actions/runs/43827358333). ARM64 builds cross-publish but have not been executed. **Early real Windows 11 feedback:** one volunteer has reported successful installation and basic SmartThings operation, plus Suspend, Reboot, and Shutdown (Off). The volunteer has not yet tested WOL; full per-metric validation and reproducibility across other Windows systems remain outstanding. See the [compatibility evidence](../docs/beta/COMPATIBILITY-STATUS.md).
 
 ## Build
 
@@ -36,7 +36,7 @@ Omit `-HubIPv4` to allow `LocalSubnet` on a Private Windows firewall profile. Th
 
 After SmartThings discovery and telemetry succeed, save all open work and ensure physical recovery is possible. Run the installer again with `-EnablePower`, read the 64-hex token **privately** from `%ProgramData%\ComputerHostAgent\control-token`, and enter it into the SmartThings `controlKey` preference with `allowPowerCommands` enabled. Never post the key, HMAC signatures, IP/MAC or raw logs publicly.
 
-The Windows native operations are **best-effort** and hardware-dependent: reboot first, suspend/WOL second, shutdown/WOL last. A 202 response means accepted for scheduling, not confirmed completion. Windows S0/S3/S4/S5 support, Fast Startup and WOL depend on policy, NIC and firmware.
+The Windows native operations are **best-effort** and hardware-dependent: reboot first, suspend/WOL second, shutdown/WOL last. A first Windows 11 volunteer confirms reboot, suspend and shutdown on their hardware; Windows WOL is still awaiting real-hardware validation. A 202 response means accepted for scheduling, not confirmed completion. Windows S0/S3/S4/S5 support, Fast Startup and WOL depend on policy, NIC and firmware.
 
 Reinstall **without** `-EnablePower` to disable remote power. Uninstall with `.\scripts\Uninstall-WindowsAgent.ps1`; add `-PurgeState` **only** to intentionally remove persistent identity and key. No binary is signed. The [unsigned beta package](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.1-beta.1) and verified [SmartThings channel invitation](https://bestow-regional.api.smartthings.com/invite/1J2Qy7ZkxL20) are the entry points for testers.
 
