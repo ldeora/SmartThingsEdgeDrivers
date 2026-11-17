@@ -17,7 +17,7 @@ if ($sessionId -le 0 -or -not [Environment]::UserInteractive) {
 
 if (-not $Execute) {
     Write-Host "PASS: running under $user in interactive session $sessionId. No lock was requested."
-    exit 0
+    return
 }
 
 # Use the documented Win32 API rather than rundll32.exe (which expects a
