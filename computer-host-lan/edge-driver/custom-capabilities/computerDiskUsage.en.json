@@ -7,6 +7,12 @@
     },
     "diskTotalGiB": {
       "label": "Total filesystem capacity"
+    },
+    "diskUsedGiB": {
+      "label": "Used filesystem space"
+    },
+    "diskAvailableGiB": {
+      "label": "Available filesystem space"
     }
   }
 }

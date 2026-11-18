@@ -42,6 +42,13 @@ class StateTests(unittest.TestCase):
     def test_metrics_parsing(self):
         self.assertEqual(agent.parse_cpu_stat("cpu 10 1 2 20 3 0 0 0 0 0\n"), (36, 23))
         self.assertEqual(agent.memory_metrics("MemTotal: 1000 kB\nMemAvailable: 200 kB\n"), (1024000, 80.0))
+        self.assertEqual(agent.memory_details("MemTotal: 1000 kB\nMemAvailable: 200 kB\n"),
+                         (1024000, 80.0, 819200, 204800))
+        self.assertEqual(agent.memory_details("MemTotal: 1000 kB\nMemFree: 10 kB\nMemAvailable: 800 kB\n"),
+                         (1024000, 20.0, 204800, 819200))
+        self.assertEqual(agent.memory_details("MemTotal: 1000 kB\nMemAvailable: 1100 kB\n"),
+                         (None, None, None, None))
+        self.assertEqual(agent.memory_details("MemTotal: 1000 kB\n"), (None, None, None, None))
         self.assertIsNone(agent.parse_cpu_stat("bad"))
         self.assertEqual(agent.network_details(None)["wol_mac"], None)
         sample = agent.MetricsSampler(None).sample()
@@ -61,6 +68,38 @@ class StateTests(unittest.TestCase):
             self.assertEqual(agent.disk_metrics("/"), (None, None))
         with mock.patch.object(agent.os, "statvfs", return_value=mock.Mock(f_blocks=0, f_frsize=4096, f_bavail=0)):
             self.assertEqual(agent.disk_metrics("/"), (None, None))
+
+    def test_exact_filesystem_used_available_and_reserved_blocks(self):
+        # Existing 50% is total minus available; used blocks are only 40%.
+        fake = mock.Mock(f_blocks=1000, f_bfree=600, f_bavail=500, f_frsize=1024)
+        with mock.patch.object(agent.os, "statvfs", return_value=fake):
+            self.assertEqual(agent.disk_details("/"), (50.0, 1024000, 409600, 512000))
+            self.assertEqual(agent.disk_metrics("/"), (50.0, 1024000))
+            sample = agent.MetricsSampler(None).sample()
+            self.assertEqual(sample["disk_root_used_bytes"], 409600)
+            self.assertEqual(sample["disk_root_available_bytes"], 512000)
+            self.assertEqual(sample["disk_root_usage_percent"], 50.0)
+        with mock.patch.object(agent.os, "statvfs", return_value=mock.Mock(
+                f_blocks=1000, f_bfree=0, f_bavail=0, f_frsize=1024)):
+            self.assertEqual(agent.disk_details("/"), (100.0, 1024000, 1024000, 0))
+        with mock.patch.object(agent.os, "statvfs", return_value=mock.Mock(
+                f_blocks=1000, f_bfree=1100, f_bavail=500, f_frsize=1024)):
+            self.assertEqual(agent.disk_details("/"), (50.0, 1024000, None, 512000))
+        with mock.patch.object(agent.os, "statvfs", side_effect=OSError):
+            self.assertEqual(agent.disk_details("/"), (None, None, None, None))
+
+    def test_memory_sample_has_real_used_and_available_bytes(self):
+        original = agent.read_first
+        def sample_meminfo(path):
+            if path == "/proc/meminfo":
+                return "MemTotal: 1024 kB\nMemFree: 12 kB\nMemAvailable: 768 kB\n"
+            return original(path)
+        with mock.patch.object(agent, "read_first", side_effect=sample_meminfo):
+            metrics = agent.MetricsSampler(None).sample()
+            self.assertEqual(metrics["memory_total_bytes"], 1048576)
+            self.assertEqual(metrics["memory_used_bytes"], 262144)
+            self.assertEqual(metrics["memory_available_bytes"], 786432)
+            self.assertEqual(metrics["memory_usage_percent"], 25.0)
 
     def test_route_can_appear_after_service_start(self):
         """Agent must not permanently cache a missing default route."""

@@ -64,8 +64,12 @@ public sealed class WindowsMetrics
         var mem = new MemoryStatus { Length = (uint)Marshal.SizeOf<MemoryStatus>() };
         if (!GlobalMemoryStatusEx(ref mem))
             throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error(), "GlobalMemoryStatusEx failed");
+        var memoryAvailableBytes = Math.Min(mem.AvailPhys, mem.TotalPhys);
+        var memoryUsedBytes = mem.TotalPhys - memoryAvailableBytes;
         double? disk = null;
         long? diskTotalBytes = null;
+        long? diskUsedBytes = null;
+        long? diskAvailableBytes = null;
         try
         {
             var windowsPath = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
@@ -76,8 +80,18 @@ public sealed class WindowsMetrics
                 if (drive.IsReady && drive.TotalSize > 0)
                 {
                     var totalBytes = drive.TotalSize;
-                    disk = Math.Round(100.0 * (totalBytes - drive.AvailableFreeSpace) / totalBytes, 1);
-                    diskTotalBytes = totalBytes;
+                    var availableBytes = drive.AvailableFreeSpace;
+                    var freeBytes = drive.TotalFreeSpace;
+                    if (availableBytes >= 0 && availableBytes <= totalBytes &&
+                        freeBytes >= 0 && freeBytes <= totalBytes)
+                    {
+                        // Keep the original percent. Quotas may make AvailableFreeSpace
+                        // smaller than TotalFreeSpace; these are distinct measurements.
+                        disk = Math.Round(100.0 * (totalBytes - availableBytes) / totalBytes, 1);
+                        diskTotalBytes = totalBytes;
+                        diskUsedBytes = totalBytes - freeBytes;
+                        diskAvailableBytes = availableBytes;
+                    }
                 }
             }
         }
@@ -92,10 +106,14 @@ public sealed class WindowsMetrics
             platform = AgentContract.Platform,
             id,
             cpu_usage_percent = cpu,
-            memory_usage_percent = Math.Round(100.0 * (mem.TotalPhys - mem.AvailPhys) / Math.Max(1.0, mem.TotalPhys), 1),
+            memory_usage_percent = Math.Round(100.0 * memoryUsedBytes / Math.Max(1.0, mem.TotalPhys), 1),
             memory_total_bytes = mem.TotalPhys,
+            memory_used_bytes = memoryUsedBytes,
+            memory_available_bytes = memoryAvailableBytes,
             disk_root_usage_percent = disk,
             disk_root_total_bytes = diskTotalBytes,
+            disk_root_used_bytes = diskUsedBytes,
+            disk_root_available_bytes = diskAvailableBytes,
             cpu_temperature_c = (double?)null,
             cpu_temperature_label = (string?)null,
             uptime_seconds = Math.Round(GetTickCount64() / 1000.0, 1),

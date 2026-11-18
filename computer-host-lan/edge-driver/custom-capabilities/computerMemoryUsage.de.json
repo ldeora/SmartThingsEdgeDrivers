@@ -7,6 +7,12 @@
     },
     "memoryTotalGiB": {
       "label": "Installierter RAM"
+    },
+    "memoryUsedGiB": {
+      "label": "RAM belegt"
+    },
+    "memoryAvailableGiB": {
+      "label": "RAM verfügbar"
     }
   }
 }

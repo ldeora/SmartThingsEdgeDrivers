@@ -7,6 +7,12 @@
     },
     "diskTotalGiB": {
       "label": "Dateisystemgröße"
+    },
+    "diskUsedGiB": {
+      "label": "Dateisystem belegt"
+    },
+    "diskAvailableGiB": {
+      "label": "Dateisystem verfügbar"
     }
   }
 }

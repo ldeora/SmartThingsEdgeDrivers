@@ -123,43 +123,67 @@ def parse_cpu_stat(raw: str | None) -> tuple[int, int] | None:
     return sum(vals), idle
 
 
-def memory_metrics(raw: str | None) -> tuple[int | None, float | None]:
+def memory_details(raw: str | None) -> tuple[int | None, float | None, int | None, int | None]:
+    """Physical RAM total/percent/used/available, using MemAvailable.
+
+    MemFree excludes reclaimable cache; MemAvailable estimates allocatable
+    RAM without swapping. Keep current utilization-percent semantics.
+    """
     vals = {}
     if raw:
         for line in raw.splitlines():
             if ":" in line:
-                k, v = line.split(":", 1)
+                key, value = line.split(":", 1)
                 try:
-                    vals[k] = int(v.split()[0]) * 1024
+                    vals[key] = int(value.split()[0]) * 1024
                 except (ValueError, IndexError):
                     continue
     total = vals.get("MemTotal")
-    free = vals.get("MemAvailable")
-    if not total or free is None:
-        return None, None
-    return total, round(100 * (total - free) / total, 1)
+    available = vals.get("MemAvailable")
+    if not total or available is None or not 0 <= available <= total:
+        return None, None, None, None
+    used = total - available
+    return total, round(100 * used / total, 1), used, available
+
+
+def memory_metrics(raw: str | None) -> tuple[int | None, float | None]:
+    """Backward-compatible total and percentage helper."""
+    total, percent, _, _ = memory_details(raw)
+    return total, percent
+
+
+def disk_details(path: str = "/") -> tuple[float | None, int | None, int | None, int | None]:
+    """Existing usage percent, filesystem size, used and available bytes.
+
+    f_bfree is actual free space; f_bavail excludes reserved blocks. Used
+    plus available can therefore be less than total (as with df and quotas).
+    Existing percentage stays (total - available) / total, unchanged.
+    """
+    try:
+        stat = os.statvfs(path)
+        total = stat.f_blocks * stat.f_frsize
+        available = stat.f_bavail * stat.f_frsize
+        if total <= 0 or not 0 <= available <= total:
+            return None, None, None, None
+        percent = round(100 * (total - available) / total, 1)
+        free_blocks = getattr(stat, "f_bfree", None)
+        if not isinstance(free_blocks, int) or not 0 <= free_blocks <= stat.f_blocks:
+            # Preserve existing values if used-block accounting is unavailable.
+            return percent, total, None, available
+        used = (stat.f_blocks - free_blocks) * stat.f_frsize
+        return percent, total, used, available
+    except OSError:
+        return None, None, None, None
 
 
 def disk_metrics(path: str = "/") -> tuple[float | None, int | None]:
-    """Return root filesystem usage and logical total capacity from one statvfs call.
-
-    f_blocks includes the total filesystem blocks; f_bavail measures space
-    available to unprivileged users, preserving existing usage semantics.
-    """
-    try:
-        s = os.statvfs(path)
-        total = s.f_blocks * s.f_frsize
-        if total <= 0:
-            return None, None
-        available = s.f_bavail * s.f_frsize
-        used_percent = round(100 * (total - available) / total, 1)
-        return used_percent, total
-    except OSError:
-        return None, None
+    """Backward-compatible percentage and total helper."""
+    percent, total, _, _ = disk_details(path)
+    return percent, total
 
 
 def disk_used_percent(path: str = "/") -> float | None:
-    """Backwards-compatible percentage helper."""
+    """Backward-compatible percentage helper."""
     return disk_metrics(path)[0]
 
 
@@ -280,8 +304,8 @@ class MetricsSampler:
             idle = now[1] - previous[1]
             if total > 0:
                 cpu_percent = round(100 * max(0, min(1, (total - idle) / total)), 1)
-        total_mem, memory_percent = memory_metrics(read_first("/proc/meminfo"))
-        disk_percent, disk_total = disk_metrics()
+        total_mem, memory_percent, memory_used, memory_available = memory_details(read_first("/proc/meminfo"))
+        disk_percent, disk_total, disk_used, disk_available = disk_details()
         temp, temp_label = choose_temperature(self.temperature_path)
         try:
             loads = [round(x, 2) for x in os.getloadavg()]
@@ -291,10 +315,14 @@ class MetricsSampler:
             "cpu_usage_percent": cpu_percent,
             "memory_usage_percent": memory_percent,
             "memory_total_bytes": total_mem,
+            "memory_used_bytes": memory_used,
+            "memory_available_bytes": memory_available,
             "cpu_temperature_c": temp,
             "cpu_temperature_label": temp_label,
             "disk_root_usage_percent": disk_percent,
             "disk_root_total_bytes": disk_total,
+            "disk_root_used_bytes": disk_used,
+            "disk_root_available_bytes": disk_available,
             "load_1m": loads[0], "load_5m": loads[1], "load_15m": loads[2],
             "uptime_seconds": uptime_seconds(),
             "boot_id": boot_id(),
