@@ -15,6 +15,13 @@
       "state": {
         "label": "{{diskUsage.value}} %"
       }
+    },
+    {
+      "label": "{{i18n.attributes.diskTotalGiB.label}}",
+      "displayType": "state",
+      "state": {
+        "label": "{{diskTotalGiB.value}} GiB"
+      }
     }
   ],
   "automation": {
