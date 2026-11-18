@@ -22,6 +22,20 @@
       "state": {
         "label": "{{memoryTotalGiB.value}} GiB"
       }
+    },
+    {
+      "label": "{{i18n.attributes.memoryUsedGiB.label}}",
+      "displayType": "state",
+      "state": {
+        "label": "{{memoryUsedGiB.value}} GiB"
+      }
+    },
+    {
+      "label": "{{i18n.attributes.memoryAvailableGiB.label}}",
+      "displayType": "state",
+      "state": {
+        "label": "{{memoryAvailableGiB.value}} GiB"
+      }
     }
   ],
   "automation": {

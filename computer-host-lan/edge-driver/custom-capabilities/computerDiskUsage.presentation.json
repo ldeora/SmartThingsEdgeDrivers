@@ -22,6 +22,20 @@
       "state": {
         "label": "{{diskTotalGiB.value}} GiB"
       }
+    },
+    {
+      "label": "{{i18n.attributes.diskUsedGiB.label}}",
+      "displayType": "state",
+      "state": {
+        "label": "{{diskUsedGiB.value}} GiB"
+      }
+    },
+    {
+      "label": "{{i18n.attributes.diskAvailableGiB.label}}",
+      "displayType": "state",
+      "state": {
+        "label": "{{diskAvailableGiB.value}} GiB"
+      }
     }
   ],
   "automation": {
