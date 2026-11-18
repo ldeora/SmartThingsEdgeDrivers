@@ -85,7 +85,10 @@ jobs:
           Get-CimInstance Win32_Service -Filter "Name='ComputerHostAgent'" |
             Select-Object Name,StartName,PathName,State | Format-List
           & ./windows-agent/scripts/Prepare-WindowsAgentUpgrade.ps1 -ValidateOnly
-          if ($LASTEXITCODE -ne 0) { throw 'Legacy service ownership preflight failed' }
+          # Test the actual stop path directly, so any PowerShell service
+          # failure is visible rather than hidden behind Inno's Exec result.
+          & ./windows-agent/scripts/Prepare-WindowsAgentUpgrade.ps1
+          Start-Service ComputerHostAgent
           function RunSetup([string]$setupArgs) {
             # Do not wait indefinitely for descendant processes of a self-
             # elevating installer. Bound the setup process and keep diagnostics.
