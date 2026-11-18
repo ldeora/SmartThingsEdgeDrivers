@@ -146,6 +146,11 @@ function M.metrics(device,metrics)
   changed("disk_root_usage_percent",metrics.disk_root_usage_percent,0.5,function(value)
     return emit(device,"disk","diskUsage",value,true)
   end,0,100)
+  -- Additive metric: old agents that omit disk_root_total_bytes remain supported.
+  changed("disk_root_total_gib",finite_number(metrics.disk_root_total_bytes)
+      and metrics.disk_root_total_bytes/1073741824 or nil,0.1,function(value)
+    return emit(device,"disk","diskTotalGiB",math.floor(value*10+0.5)/10,true)
+  end,0,1000000000)
 
   changed("load_1m",metrics.load_1m,0.05,function(value)
     return emit(device,"load","loadOne",value,true)
