@@ -6,7 +6,7 @@
     <Nullable>enable</Nullable>
     <AssemblyName>ComputerHost.WindowsAgent</AssemblyName>
     <RootNamespace>ComputerHost.WindowsAgent</RootNamespace>
-    <Version>0.2.1-beta.1</Version>
+    <Version>0.2.2-beta.1</Version>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <InvariantGlobalization>false</InvariantGlobalization>
   </PropertyGroup>

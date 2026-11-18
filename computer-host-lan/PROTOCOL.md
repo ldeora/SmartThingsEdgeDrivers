@@ -1,6 +1,6 @@
 # Computer Host Agent protocol v2 (development draft)
 
-**Applies to:** Linux agent and generic SmartThings Edge Driver v0.4.1-beta.1. Protocol v2 is unchanged.
+**Applies to:** Linux agent and generic SmartThings Edge Driver v0.4.2-beta.1. Protocol v2 is unchanged.
 **Not backward compatible with protocol v1.** All endpoints are under `/v2/`.
 The v0.3.1 contract is archived in `docs/history/v0.3.1-beta.1/PROTOCOL.md`.
 
@@ -42,7 +42,7 @@ The Edge Driver retains the original state inference model.
 ```json
 {
   "protocol": "computer-host-agent", "api_version": 2,
-  "agent_version": "0.4.0-dev.1", "platform": "linux",
+  "agent_version": "0.4.2-beta.1", "platform": "linux",
   "id": "0b5553a0-9b6b-4ef7-83d8-fbe3c913719d",
   "hostname": "workstation", "os": "Linux",
   "features": ["health", "metrics", "wol-metadata", "power-control"],
@@ -66,7 +66,7 @@ The Edge Driver retains the original state inference model.
 
 ### `/v2/metrics` field names
 
-| Field | Meaning | Linux | Planned Windows |
+| Field | Meaning | Linux | Windows |
 |---|---|---|---|
 | `cpu_usage_percent` | Total CPU utilization, percent | Yes | Yes |
 | `memory_usage_percent` | Memory utilization, percent | Yes | Yes |

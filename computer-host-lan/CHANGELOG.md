@@ -1,12 +1,21 @@
 # Computer Host LAN — change log
 
-## v0.5.2-beta.1 (2026-11-18) — filesystem-capacity beta update (candidate)
+## v0.5.3-beta.1 (2026-11-18) — four-value resource telemetry (candidate)
+
+- PR #15 adds exact RAM used/available and root/system filesystem allocated/available byte metrics on Linux and Windows; existing percent/total readings remain unchanged.
+- SmartThings `computerMemoryUsage` and `computerDiskUsage` now display Usage %, Total GiB, Used GiB, Available GiB with English/German translations and responsive app layout.
+- Linux Gentoo hydra + real hub validation passed 2026-11-18; all eight readings populated, existing events/automations retained. A transient memory-translation HTTP 422 succeeded after retry.
+- Windows agent measurements tested in CI; Windows 11 hardware validation of new values remains a beta objective. No protocol, discovery, identity or power-control changes.
+- Linux and Edge Driver v0.4.2-beta.1, Windows agent v0.2.2-beta.1; preserved v0.5.2-beta.1 as published baseline.
+
+
+## v0.5.2-beta.1 (2026-11-18) — filesystem-capacity beta update (published)
 
 - PR #13 adds `disk_root_total_bytes` for Linux root and Windows system volume, mapped to a new SmartThings `diskTotalGiB` readout alongside disk usage %.
 - Additional field is optional and protocol v2 is unchanged. Existing UUIDs, keys, discovery, power behavior and device profiles remain compatible.
 - Verified on real SmartThings hub with Gentoo Linux after a hub reboot refreshed the updated custom capability; Windows implementation passed CI, but Windows 11 hardware capacity remains an important beta test.
 - Versioned next-beta candidate: Linux agent and Edge Driver v0.4.1-beta.1, Windows agent v0.2.1-beta.1.
-- **Not yet a published GitHub Release or channel rollout**. Preserve v0.5.1-beta.1 artifacts unchanged for rollback.
+- Published GitHub prerelease and assigned matching driver to the existing channel on 2026-11-18; v0.5.1-beta.1 assets are preserved.
 
 
 ## v0.5.1-beta.1 (2026-11-16) — public-beta release candidate

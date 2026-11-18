@@ -1,6 +1,6 @@
-# Native Windows Host Agent — v0.2.1-beta.1
+# Native Windows Host Agent — v0.2.2-beta.1
 
-Companion to **Computer Host LAN v0.5.2-beta.1**, sharing protocol v2 and `_computerhost._tcp` discovery with the Linux agent.
+Companion to **Computer Host LAN v0.5.3-beta.1**, sharing protocol v2 and `_computerhost._tcp` discovery with the Linux agent.
 
 ## Verified versus not verified
 
@@ -38,10 +38,10 @@ After SmartThings discovery and telemetry succeed, save all open work and ensure
 
 The Windows native operations are **best-effort** and hardware-dependent: reboot first, suspend/WOL second, shutdown/WOL last. A first Windows 11 volunteer confirms reboot, suspend and shutdown on their hardware; Windows WOL is still awaiting real-hardware validation. A 202 response means accepted for scheduling, not confirmed completion. Windows S0/S3/S4/S5 support, Fast Startup and WOL depend on policy, NIC and firmware.
 
-Reinstall **without** `-EnablePower` to disable remote power. Uninstall with `.\scripts\Uninstall-WindowsAgent.ps1`; add `-PurgeState` **only** to intentionally remove persistent identity and key. No binary is signed. The [unsigned beta package](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.2-beta.1) and verified [SmartThings channel invitation](https://bestow-regional.api.smartthings.com/invite/1J2Qy7ZkxL20) are the entry points for testers.
+Reinstall **without** `-EnablePower` to disable remote power. Uninstall with `.\scripts\Uninstall-WindowsAgent.ps1`; add `-PurgeState` **only** to intentionally remove persistent identity and key. No binary is signed. The [unsigned beta package](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.3-beta.1) and verified [SmartThings channel invitation](https://bestow-regional.api.smartthings.com/invite/1J2Qy7ZkxL20) are the entry points for testers.
 
 See [platform installation](../INSTALLATION.md), [tester checklist](docs/HARDWARE-TEST-MATRIX.md) and [security/privacy](../docs/beta/SECURITY-AND-PRIVACY.md).
 
 ## Upgrading an existing beta
 
-Extract the new package into a fresh folder and rerun the included installer in elevated PowerShell. Persistent identity and the control key are preserved in `%ProgramData%\\ComputerHostAgent`. **Important:** `-EnablePower` must be provided *again* during an upgrade if you intend to keep remote power actions enabled; without it, power is intentionally disabled. Do not use `-PurgeState` for an upgrade. Check `/v2/metrics` for `disk_root_total_bytes` and verify the new GiB reading in SmartThings.
+Extract the new package into a fresh folder and rerun the included installer in elevated PowerShell. Persistent identity and the control key are preserved in `%ProgramData%\\ComputerHostAgent`. **Important:** `-EnablePower` must be provided *again* during an upgrade if you intend to keep remote power actions enabled; without it, power is intentionally disabled. Do not use `-PurgeState` for an upgrade. Check `/v2/metrics` for both memory byte fields (`memory_used_bytes`, `memory_available_bytes`) and filesystem byte fields (`disk_root_used_bytes`, `disk_root_available_bytes`), then verify **Used GiB** and **Available GiB** alongside usage % and total GiB for both cards in SmartThings. Linux reference hardware passed these new values; Windows 11 hardware confirmation is requested.

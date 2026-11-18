@@ -1,7 +1,11 @@
 # Four readouts for RAM and filesystem — staged beta experiment
 
-**Status:** Feature branch only; do not change the live SmartThings custom
-capabilities, public channel or published `v0.5.2-beta.1` release yet.
+**Status (2026-11-18):** PR #15 merged into `main`. On real Gentoo
+`hydra` and a SmartThings hub, all eight values appeared in the German
+app and `devices:status`, with consistent `/v2/metrics` payloads.
+A memory translation upsert briefly returned HTTP 422 immediately after the
+schema update; retry succeeded. Public `v0.5.2-beta.1` remains the rollback.
+Stage the next `v0.5.3-beta.1` release from a final verified commit.
 
 ## Display and accounting
 
@@ -45,17 +49,12 @@ smartthings capabilities:translations:upsert oceancircle09600.computerDiskUsage 
 smartthings capabilities:presentation:update oceancircle09600.computerDiskUsage -i custom-capabilities/computerDiskUsage.presentation.json
 ```
 
-3. Install the experimental Edge driver to a **private test hub**, and update
-   a test Linux agent in place. Check its `/v2/metrics` raw byte counts and
-   compare the app readouts with OS measurements, including btrfs/reserved
-   block cases. Run the Windows CI and request Windows 11 hardware feedback.
+3. **Completed on Linux test hub:** four values per card rendered in the SmartThings app with German labels. Verified raw bytes and capability events. Linux CI, Windows Server CI and unsigned release-candidate assembly for PR #15 passed. **Still needed:** Windows 11 hardware feedback for the newly added values and preservation of upgrade state.
 4. If new capability attributes are missing in SmartThings, verify the
    account-level schema, agent fields and driver version first. When
    `diskTotalGiB` was introduced, a normal **hub reboot** refreshed stale
    hub capability metadata. Avoid deleting and re-pairing a working device.
-5. Only after hub and Windows validation, prepare a separately numbered
-   beta release with new versioned assets and deliberate channel rollout.
-   Preserve the published v0.5.2-beta.1 tag/assets for rollback.
+5. Publish the separately numbered beta using **verified same-commit** Linux, Windows x64 and documentation ZIPs. This remains a beta: Windows 11 hardware measurements require testers. Update the existing Computer Host LAN channel driver, preserving its driver ID. Preserve the published v0.5.2-beta.1 tag/assets for rollback.
 
 ## Required regression checks
 

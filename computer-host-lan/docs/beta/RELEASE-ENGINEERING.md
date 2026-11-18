@@ -1,6 +1,10 @@
-## Next beta candidate v0.5.2-beta.1 (2026-11-18)
+## Next beta candidate v0.5.3-beta.1 (2026-11-18)
 
-Tag planned: `computer-host-lan-v0.5.2-beta.1`. New prerelease only—leave published v0.5.1-beta.1 assets and tag untouched. After preparing the release version, run the Linux, Windows and release candidate workflows on the **same final main commit**. Collect three ZIPs from `computer-host-lan-complete-unsigned-beta-candidate` CI artifact, verify internal and unified SHA-256, check source `release.json`, Windows `BUILD-INFO.json`, and the final SHA. Publish the new GitHub Release with these three ZIPs and `SHA256SUMS.txt`, as a prerelease; install the new Edge driver into the **existing channel**, preserving driver ID and device profiles. Only then post `UPDATE-v0.5.2-beta.1-COMMENT.md` in the SmartThings Community beta thread. This repository's CI does NOT publish GitHub releases or push drivers to the SmartThings channel.
+**Tag:** `computer-host-lan-v0.5.3-beta.1`. **Source:** merged PR #15 followed by the release-version PR. The publisher validated all four RAM and filesystem readings on real Linux/hub hardware. The existing `oceancircle09600.computerMemoryUsage` / `computerDiskUsage` capability schemas, localizations and presentations were updated and confirmed, so testers must not create them.
+
+Do not replace or delete [v0.5.2-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.2-beta.1) assets. Verify GitHub Actions Linux, Windows and unsigned candidate packaging at the **final `main` commit**, then download artifact `computer-host-lan-complete-unsigned-beta-candidate`, verify all three ZIPs and the manifest, confirm source `release.json` and Windows `BUILD-INFO.json` embed the same final SHA and correct versions. Publish new **prerelease** with ZIPs + `SHA256SUMS.txt`, then package/assign the new Edge driver to the **existing shared channel** preserving driver ID. Announce only after both are ready with `docs/beta/UPDATE-v0.5.3-beta.1-COMMENT.md`.
+
+CI does **not** publish GitHub releases or change SmartThings channels. Windows executable remains unsigned and Windows 11 hardware measurement validation is a beta test objective.
 
 ---
 
