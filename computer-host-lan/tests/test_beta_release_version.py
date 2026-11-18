@@ -8,10 +8,10 @@ ROOT = Path(__file__).resolve().parents[1]
 class BetaReleaseVersionTests(unittest.TestCase):
     def test_beta_version_and_internal_versions(self):
         manifest = json.loads((ROOT / "release.json").read_text(encoding="utf-8"))
-        self.assertEqual(manifest["integration"], "0.5.1-beta.1")
-        self.assertEqual(manifest["agent"], "0.4.0-dev.1")
-        self.assertEqual(manifest["edge_driver"], "0.4.0-dev.1")
-        self.assertEqual(manifest["windows_agent"], "0.2.0-alpha.1")
+        self.assertEqual(manifest["integration"], "0.5.2-beta.1")
+        self.assertEqual(manifest["agent"], "0.4.1-beta.1")
+        self.assertEqual(manifest["edge_driver"], "0.4.1-beta.1")
+        self.assertEqual(manifest["windows_agent"], "0.2.1-beta.1")
         self.assertEqual(manifest["agent_protocol"], 2)
         self.assertEqual(manifest["power_control_default"], "disabled")
 

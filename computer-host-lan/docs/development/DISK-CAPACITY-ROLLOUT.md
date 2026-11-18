@@ -1,6 +1,6 @@
 # Adding total root/system filesystem capacity (GiB) — staged rollout
 
-**Status:** Proposed, not yet deployed to the public channel or SmartThings capability registry. Implemented on the feature branch and subject to real-hub verification. No device migration or power-control protocol change.
+**Status (2026-11-18):** PR #13 merged; account-level capability definition already updated, and Linux test hub reported `diskTotalGiB = 431.8` after hub reboot. Not yet rolled out as a new public GitHub prerelease / channel driver. No migration or protocol change.
 
 ## Display
 
@@ -14,7 +14,7 @@ Old agents that do not report the capacity continue working; the driver simply o
 
 Updating Lua or installing a new Edge Driver **does not** update an account-level capability. Updating an already registered capability ID under `oceancircle09600` affects all devices that use that ID, not only the test hub. Confirm the capability is owned by this account, review its *current live* schema/presentation/translations and check for other consumers **before** applying the change. Do not delete and re-create it. The new attribute is additive; the old `diskUsage` schema and routines must remain untouched.
 
-### Controlled test after merging the PR
+### Controlled testing and rollout
 
 1. Before any cloud mutation, capture the existing live `oceancircle09600.computerDiskUsage` capability definition, presentation and translations as a rollback/reference. Compare with the repository versions. Do **not** overwrite unrelated live changes.
 2. From the full integration source directory, update **only the disk capability**, in order (commands below are for an authorized namespace owner; they are not run automatically):
@@ -44,3 +44,7 @@ If an account-level schema update is rejected or a presentation behaves unexpect
 - A missing or temporarily unavailable new attribute must not prevent existing telemetry or poison the emission cache. Retry on the next poll, as already done for `memoryTotalGiB`.
 - Other Linux and Windows features, power authentication, wake, mDNS, profiles, security permissions and HTTP routes are untouched.
 - This display is informational. A filesystem can be full without an equivalent raw disk failure; the total capacity isn't necessarily equal to the sum of all disks on the host.
+
+## SmartThings hub registry synchronization — real test (2026-11-18)
+
+On Gentoo `hydra`, the agent and Edge driver reported a correct 431.8 GiB value. The cloud API initially returned `null` despite the updated capability schema and a logcat emission. Restarting the SmartThings hub resolved it. If other testers experience this, check the local `disk_root_total_bytes` value and the installed Edge driver version, then try a normal hub reboot before deleting/re-pairing a device. This is one observed recovery, not a guarantee.

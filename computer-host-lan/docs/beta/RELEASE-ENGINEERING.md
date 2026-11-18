@@ -1,3 +1,9 @@
+## Next beta candidate v0.5.2-beta.1 (2026-11-18)
+
+Tag planned: `computer-host-lan-v0.5.2-beta.1`. New prerelease only—leave published v0.5.1-beta.1 assets and tag untouched. After preparing the release version, run the Linux, Windows and release candidate workflows on the **same final main commit**. Collect three ZIPs from `computer-host-lan-complete-unsigned-beta-candidate` CI artifact, verify internal and unified SHA-256, check source `release.json`, Windows `BUILD-INFO.json`, and the final SHA. Publish the new GitHub Release with these three ZIPs and `SHA256SUMS.txt`, as a prerelease; install the new Edge driver into the **existing channel**, preserving driver ID and device profiles. Only then post `UPDATE-v0.5.2-beta.1-COMMENT.md` in the SmartThings Community beta thread. This repository's CI does NOT publish GitHub releases or push drivers to the SmartThings channel.
+
+---
+
 # Computer Host LAN — public beta release engineering
 
 **Version:** v0.5.1-beta.1 · **Tag:** `computer-host-lan-v0.5.1-beta.1`.
