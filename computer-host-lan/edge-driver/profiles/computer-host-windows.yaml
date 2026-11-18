@@ -47,7 +47,7 @@ preferences:
   definition:
     minimum: 10
     maximum: 300
-    default: 30
+    default: 20
 - name: telemetryInterval
   title: Telemetry polling (seconds)
   description: Interval for CPU, memory, system drive and uptime polling.
