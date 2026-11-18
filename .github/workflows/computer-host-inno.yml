@@ -1,0 +1,107 @@
+name: Computer Host LAN Windows graphical installer (prototype, not published)
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'computer-host-lan/windows-agent/**'
+      - '.github/workflows/computer-host-inno.yml'
+  pull_request:
+    paths:
+      - 'computer-host-lan/windows-agent/**'
+      - '.github/workflows/computer-host-inno.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  inno-windows-x64:
+    runs-on: windows-2025
+    defaults:
+      run:
+        working-directory: computer-host-lan
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+      - name: Publish agent and hub discovery executables
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & ./windows-agent/scripts/Publish-WindowsAgent.ps1 -Runtime win-x64
+          if ($LASTEXITCODE -ne 0) { throw 'Agent publish failed' }
+          dotnet publish windows-agent/HubDiscovery/ComputerHost.HubDiscovery.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=none -o windows-agent/publish/hub-discovery
+          if ($LASTEXITCODE -ne 0) { throw 'Discovery helper publish failed' }
+          & ./windows-agent/publish/hub-discovery/ComputerHost.HubDiscovery.exe --self-test
+          if ($LASTEXITCODE -ne 0) { throw 'Hub candidate validation self-test failed' }
+      - name: Install Inno Setup 7 for compiler
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $winget = Get-Command winget.exe -ErrorAction SilentlyContinue
+          if (-not $winget) { throw 'WinGet unavailable on this Windows runner; set up an approved Inno Setup 7 compiler before building' }
+          winget install -e --id JRSoftware.InnoSetup.7 --source winget --accept-package-agreements --accept-source-agreements --silent --disable-interactivity
+          if ($LASTEXITCODE -ne 0) { throw 'Inno Setup 7 installation failed' }
+          $iscc = Join-Path $env:ProgramFiles 'Inno Setup 7/ISCC.exe'
+          if (-not (Test-Path -LiteralPath $iscc)) { throw "Inno Setup 7 compiler not found: $iscc" }
+          "INNO_ISCC=$iscc" >> $env:GITHUB_ENV
+      - name: Compile graphical setup
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Push-Location windows-agent/installer
+          try {
+            & $env:INNO_ISCC ComputerHostLAN.iss
+            if ($LASTEXITCODE -ne 0) { throw 'ISCC compilation failed' }
+          } finally { Pop-Location }
+          $setup = Get-ChildItem windows-agent/installer/output -Filter '*setup.exe' -File | Select-Object -First 1
+          if (-not $setup) { throw 'No setup EXE generated' }
+          Write-Host "Generated setup: $($setup.Name)"
+      - name: Exercise PowerShell-to-Setup migration, silent upgrade, uninstall and clean install
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $setup = (Get-ChildItem windows-agent/installer/output -Filter '*setup.exe' -File | Select-Object -First 1).FullName
+          $hub = '192.0.2.20'
+          $originalPath = Join-Path $env:ProgramData 'ComputerHostAgent'
+          # Simulate an existing v0.5.x ZIP-installed Windows agent with opt-in power.
+          & ./windows-agent/scripts/Install-WindowsAgent.ps1 -PublishedDirectory (Resolve-Path windows-agent/publish/win-x64).Path -HubIPv4 $hub -EnablePower
+          if ($LASTEXITCODE -ne 0) { throw 'Legacy ZIP script install failed' }
+          $old = Invoke-RestMethod http://127.0.0.1:8765/v2/info
+          if (-not ($old.power_actions -contains 'reboot')) { throw 'Legacy setup power not enabled' }
+          $key = Join-Path $originalPath 'control-token'
+          $oldKeyHash = (Get-FileHash $key -Algorithm SHA256).Hash
+          function RunSetup([string]$args) {
+            $p = Start-Process -FilePath $setup -ArgumentList $args -Wait -PassThru
+            if ($p.ExitCode -ne 0) { throw "Inno Setup failed: $($p.ExitCode)" }
+          }
+          RunSetup "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /HUBIP=$hub /ENABLEPOWER=1"
+          Start-Sleep -Seconds 2
+          $migrated = Invoke-RestMethod http://127.0.0.1:8765/v2/info
+          if ($migrated.id -ne $old.id) { throw 'Migration changed installation UUID' }
+          if ((Get-FileHash $key -Algorithm SHA256).Hash -ne $oldKeyHash) { throw 'Migration changed control key' }
+          if (-not ($migrated.power_actions -contains 'reboot')) { throw 'Migration lost power setting' }
+          # Next upgrade must retain power without asking to re-enable it.
+          RunSetup "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /HUBIP=$hub"
+          Start-Sleep -Seconds 2
+          $upgraded = Invoke-RestMethod http://127.0.0.1:8765/v2/info
+          if ($upgraded.id -ne $old.id) { throw 'Upgrade changed UUID' }
+          if (-not ($upgraded.power_actions -contains 'reboot')) { throw 'Upgrade lost power preference' }
+          $uninstaller = Join-Path (Join-Path $env:ProgramFiles 'Computer Host Agent') 'unins000.exe'
+          if (-not (Test-Path $uninstaller)) { throw 'Inno uninstall entry missing' }
+          $p = Start-Process -FilePath $uninstaller -ArgumentList '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART' -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "Inno uninstall failed: $($p.ExitCode)" }
+          if (Get-Service ComputerHostAgent -ErrorAction SilentlyContinue) { throw 'Uninstall left agent service installed' }
+          if (Get-NetFirewallRule -Name 'ComputerHostAgent-TCP8765' -ErrorAction SilentlyContinue) { throw 'Uninstall left firewall rule installed' }
+          if ((Get-FileHash $key -Algorithm SHA256).Hash -ne $oldKeyHash) { throw 'Uninstall removed/rotated persistent key' }
+          RunSetup "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /HUBIP=$hub /ENABLEPOWER=0"
+          Start-Sleep -Seconds 2
+          $fresh = Invoke-RestMethod http://127.0.0.1:8765/v2/info
+          if (-not $fresh -or $fresh.power_actions.Count -ne 0) { throw 'Fresh monitoring-only install unexpectedly allows power' }
+          Write-Host 'PASS ZIP migration, identity/key persistence, power retention, uninstall and monitoring-only setup'
+      - name: Upload unsigned installer prototype (not a public release)
+        uses: actions/upload-artifact@v7
+        with:
+          name: computer-host-lan-inno-setup-x64-prototype
+          path: computer-host-lan/windows-agent/installer/output/*setup.exe
+          retention-days: 7
+          if-no-files-found: error
