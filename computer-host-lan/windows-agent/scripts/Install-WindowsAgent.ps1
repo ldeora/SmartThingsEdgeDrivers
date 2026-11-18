@@ -5,6 +5,7 @@ param(
   [string]$PublishedDirectory = (Join-Path (Split-Path $PSScriptRoot -Parent) 'publish/win-x64'),
   [switch]$SkipFirewall,
   [switch]$EnablePower,
+  [switch]$UseExistingFiles,
   [string]$HubIPv4 = ''
 )
 $ErrorActionPreference = 'Stop'
@@ -47,8 +48,19 @@ if ($PSCmdlet.ShouldProcess($service, ('Install service; power enabled: ' + [boo
     }
     if ($existing.Status -ne 'Stopped') { Stop-Service -Name $service -ErrorAction Stop }
   }
-  New-Item -ItemType Directory -Path $programs -Force | Out-Null
-  Copy-Item -Path (Join-Path $PublishedDirectory '*') -Destination $programs -Force -ErrorAction Stop
+  if ($UseExistingFiles) {
+    # Inno Setup owns the payload files and stops the service before
+    # installing them. Never copy files over themselves.
+    if (-not [string]::Equals(
+        [IO.Path]::GetFullPath($PublishedDirectory).TrimEnd('\'),
+        [IO.Path]::GetFullPath($programs).TrimEnd('\'),
+        [StringComparison]::OrdinalIgnoreCase)) {
+      throw '-UseExistingFiles requires PublishedDirectory to be the Program Files install directory.'
+    }
+  } else {
+    New-Item -ItemType Directory -Path $programs -Force | Out-Null
+    Copy-Item -Path (Join-Path $PublishedDirectory '*') -Destination $programs -Force -ErrorAction Stop
+  }
   # A service upgrade never enables power by accident. -EnablePower must be explicit.
   $configPath = Join-Path $programs 'appsettings.json'
   if (-not (Test-Path -LiteralPath $configPath)) { throw "Missing $configPath" }

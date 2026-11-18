@@ -1,6 +1,6 @@
 # Stop and delete only the ComputerHostAgent service. Preserve state unless explicitly purged.
 [CmdletBinding(SupportsShouldProcess=$true)]
-param([switch]$PurgeState)
+param([switch]$PurgeState, [switch]$KeepProgramFiles)
 $ErrorActionPreference = 'Stop'
 $service = 'ComputerHostAgent'
 $programs = Join-Path $env:ProgramFiles 'Computer Host Agent'
@@ -15,7 +15,9 @@ if ($PSCmdlet.ShouldProcess($service, 'Stop and remove Computer Host Agent servi
     if ($LASTEXITCODE -ne 0) { throw 'sc.exe delete failed' }
   }
   Get-NetFirewallRule -Name 'ComputerHostAgent-TCP8765' -ErrorAction SilentlyContinue | Remove-NetFirewallRule
-  if (Test-Path -LiteralPath $programs) { Remove-Item -LiteralPath $programs -Recurse -Force }
+  if (-not $KeepProgramFiles -and (Test-Path -LiteralPath $programs)) {
+    Remove-Item -LiteralPath $programs -Recurse -Force
+  }
   if ($PurgeState -and (Test-Path -LiteralPath $state)) { Remove-Item -LiteralPath $state -Recurse -Force }
   Write-Host ('Removed service and executable. Persistent identity ' + $(if ($PurgeState) { 'purged' } else { 'preserved' }))
 }
