@@ -80,7 +80,7 @@ internal static class Program
             // Hardware may not advertise, or multicast may be filtered by VLANs.
             var hosts = await ZeroconfResolver.ResolveAsync(Service, TimeSpan.FromSeconds(4),
                 retries: 1, retryDelayMilliseconds: 500);
-            var lines = Format(hosts.Select(host => (host.IPAddress, host.DisplayName)));
+            var lines = Format(hosts.Select(host => ((string?)host.IPAddress, (string?)host.DisplayName)));
             await File.WriteAllLinesAsync(output, lines, new UTF8Encoding(false));
             Console.WriteLine("Found " + lines.Length + " SmartThings hub candidate(s).");
             return 0;
