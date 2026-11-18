@@ -81,12 +81,13 @@ end;
 
 function WasPowerEnabled: Boolean;
 var
+  RawConfig: AnsiString;
   Config: String;
 begin
   Result := False;
-  if LoadStringFromFile(ExpandConstant('{app}\appsettings.json'), Config) then
+  if LoadStringFromFile(ExpandConstant('{app}\appsettings.json'), RawConfig) then
   begin
-    Config := LowerCase(Config);
+    Config := LowerCase(String(RawConfig));
     StringChangeEx(Config, ' ', '', True);
     StringChangeEx(Config, #13, '', True);
     StringChangeEx(Config, #10, '', True);
