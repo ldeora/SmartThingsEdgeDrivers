@@ -1,6 +1,14 @@
-# Next candidate: Computer Host LAN v0.5.2-beta.1 — not yet published
+# Next candidate: Computer Host LAN v0.5.3-beta.1 — preparing publication
 
-PR #13 merged 2026-11-18. Linux real-hub test confirmed `diskTotalGiB = 431.8` after restarting the hub, which refreshed the custom capability. Source versions prepared: Linux agent and Edge Driver v0.4.1-beta.1, Windows agent v0.2.1-beta.1. Windows new disk total has CI coverage but still requires Windows 11 hardware beta feedback. Publish only after final main-commit CI and release assets verification; the prior v0.5.1-beta.1 is intact.
+PR #15 merged 2026-11-18. Real Gentoo Linux `hydra` + SmartThings hub confirmed eight RAM/root filesystem readings in the German app and `devices:status`. The new agent fields are present in `/v2/metrics`; account-level custom-capability schema/translations/presentations have already been updated by the owner. One German translation upsert initially returned HTTP 422 but succeeded on retry. No device re-pairing was required.
+
+**Version plan:** Linux agent and Edge Driver 0.4.2-beta.1; Windows agent 0.2.2-beta.1; protocol v2 unchanged. Windows Server CI passed PR #15 including new Windows metrics and service tests, but Windows 11 hardware confirmation of the new four values is still needed. Publish only after final release-commit CI and SHA-256 verification; update the **existing** SmartThings channel with the same driver ID. The prior [v0.5.2-beta.1 GitHub prerelease](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.2-beta.1) stays available for rollback, with no replacement of old assets.
+
+---
+
+# Previous public beta: v0.5.2-beta.1 (2026-11-18)
+
+Integration 0.5.2-beta.1, Linux agent/Edge Driver 0.4.1-beta.1 and Windows agent 0.2.1-beta.1 were released with total root/system filesystem capacity in GiB. New channel driver was assigned and GitHub release published on 2026-11-18.
 
 ---
 

@@ -1,6 +1,14 @@
-# Next beta candidate v0.5.2-beta.1 — publisher checklist
+# Next beta v0.5.3-beta.1 — publisher checklist
 
-PR #13 merged and new disk capacity confirmed on Linux after hub reboot. New verified GitHub prerelease ZIPs, checksums and updated Computer Host LAN channel driver still need to be published. Preserve v0.5.1-beta.1 and its assets as rollback. Windows 11 disk capacity and identity/power preservation need volunteer confirmation. See `docs/beta/RELEASE-NOTES-v0.5.2-beta.1.md` and `docs/beta/UPDATE-v0.5.2-beta.1-COMMENT.md`.
+PR #15 is merged; on 2026-11-18 the publisher tested four values for RAM and filesystem on actual Gentoo Linux `hydra` + SmartThings hub, including English/German capability schema and app presentation. New optional v2 fields introduce no identity, power or profile changes. Linux/Edge 0.4.2-beta.1; Windows 0.2.2-beta.1. Windows 11 real-hardware testing of new measurements is the remaining beta objective.
+
+1. Confirm final `main` SHA and green Linux, Windows and release-candidate GitHub Actions runs for that exact SHA.
+2. Download the final `computer-host-lan-complete-unsigned-beta-candidate` artifact; verify the three ZIPs against SHA256SUMS, source release manifest and Windows BUILD-INFO commit/version.
+3. Publish [v0.5.3-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.3-beta.1) as a **new GitHub prerelease** with the three ZIPs and `SHA256SUMS.txt`; preserve v0.5.2-beta.1 tag/assets for rollback.
+4. Package and assign the updated Computer Host LAN Edge driver to the **existing** channel, keeping driver ID `2ab3db0e-3b78-499e-bc3b-bcfa7f62b9f7`. Do not install unrelated drivers.
+5. Only after both distributions are ready, post `docs/beta/UPDATE-v0.5.3-beta.1-COMMENT.md` to the existing SmartThings Community beta thread.
+
+No release or channel deployment is performed by CI. 
 
 ---
 
