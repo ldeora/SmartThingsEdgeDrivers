@@ -85,7 +85,7 @@ var
   Config: String;
 begin
   Result := False;
-  if LoadStringFromFile(ExpandConstant('{app}\appsettings.json'), RawConfig) then
+  if LoadStringFromFile(ExpandConstant('{autopf}\Computer Host Agent\appsettings.json'), RawConfig) then
   begin
     Config := LowerCase(String(RawConfig));
     StringChangeEx(Config, ' ', '', True);

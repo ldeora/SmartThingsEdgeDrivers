@@ -81,12 +81,12 @@ jobs:
           if (-not ($old.power_actions -contains 'reboot')) { throw 'Legacy setup power not enabled' }
           $key = Join-Path $originalPath 'control-token'
           $oldKeyHash = (Get-FileHash $key -Algorithm SHA256).Hash
-          function RunSetup([string]$args) {
+          function RunSetup([string]$setupArgs) {
             # Do not wait indefinitely for descendant processes of a self-
             # elevating installer. Bound the setup process and keep diagnostics.
             $log = Join-Path $env:RUNNER_TEMP 'computerhost-setup.log'
-            Write-Host "Running setup with silent arguments: $args"
-            $p = Start-Process -FilePath $setup -ArgumentList ($args + ' /LOG="' + $log + '"') -PassThru
+            Write-Host "Running setup with silent arguments: $setupArgs"
+            $p = Start-Process -FilePath $setup -ArgumentList ($setupArgs + ' /LOG="' + $log + '"') -PassThru
             try {
               if (-not $p.WaitForExit(120000)) {
                 Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
