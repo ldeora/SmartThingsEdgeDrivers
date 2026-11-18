@@ -81,6 +81,11 @@ jobs:
           if (-not ($old.power_actions -contains 'reboot')) { throw 'Legacy setup power not enabled' }
           $key = Join-Path $originalPath 'control-token'
           $oldKeyHash = (Get-FileHash $key -Algorithm SHA256).Hash
+          Write-Host 'Validating existing ZIP-installed service before migration'
+          Get-CimInstance Win32_Service -Filter "Name='ComputerHostAgent'" |
+            Select-Object Name,StartName,PathName,State | Format-List
+          & ./windows-agent/scripts/Prepare-WindowsAgentUpgrade.ps1 -ValidateOnly
+          if ($LASTEXITCODE -ne 0) { throw 'Legacy service ownership preflight failed' }
           function RunSetup([string]$setupArgs) {
             # Do not wait indefinitely for descendant processes of a self-
             # elevating installer. Bound the setup process and keep diagnostics.
