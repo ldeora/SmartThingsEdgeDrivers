@@ -65,6 +65,7 @@ public sealed class WindowsMetrics
         if (!GlobalMemoryStatusEx(ref mem))
             throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error(), "GlobalMemoryStatusEx failed");
         double? disk = null;
+        long? diskTotalBytes = null;
         try
         {
             var windowsPath = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
@@ -73,7 +74,11 @@ public sealed class WindowsMetrics
             {
                 var drive = new DriveInfo(root);
                 if (drive.IsReady && drive.TotalSize > 0)
-                    disk = Math.Round(100.0 * (drive.TotalSize - drive.AvailableFreeSpace) / drive.TotalSize, 1);
+                {
+                    var totalBytes = drive.TotalSize;
+                    disk = Math.Round(100.0 * (totalBytes - drive.AvailableFreeSpace) / totalBytes, 1);
+                    diskTotalBytes = totalBytes;
+                }
             }
         }
         catch (IOException) { /* Unknown metric is not zero. */ }
@@ -90,6 +95,7 @@ public sealed class WindowsMetrics
             memory_usage_percent = Math.Round(100.0 * (mem.TotalPhys - mem.AvailPhys) / Math.Max(1.0, mem.TotalPhys), 1),
             memory_total_bytes = mem.TotalPhys,
             disk_root_usage_percent = disk,
+            disk_root_total_bytes = diskTotalBytes,
             cpu_temperature_c = (double?)null,
             cpu_temperature_label = (string?)null,
             uptime_seconds = Math.Round(GetTickCount64() / 1000.0, 1),

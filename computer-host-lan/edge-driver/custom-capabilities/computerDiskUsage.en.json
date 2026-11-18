@@ -4,6 +4,9 @@
   "attributes": {
     "diskUsage": {
       "label": "Disk usage"
+    },
+    "diskTotalGiB": {
+      "label": "Total filesystem capacity"
     }
   }
 }

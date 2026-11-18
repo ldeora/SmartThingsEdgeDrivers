@@ -140,14 +140,27 @@ def memory_metrics(raw: str | None) -> tuple[int | None, float | None]:
     return total, round(100 * (total - free) / total, 1)
 
 
-def disk_used_percent(path: str = "/") -> float | None:
+def disk_metrics(path: str = "/") -> tuple[float | None, int | None]:
+    """Return root filesystem usage and logical total capacity from one statvfs call.
+
+    f_blocks includes the total filesystem blocks; f_bavail measures space
+    available to unprivileged users, preserving existing usage semantics.
+    """
     try:
         s = os.statvfs(path)
         total = s.f_blocks * s.f_frsize
+        if total <= 0:
+            return None, None
         available = s.f_bavail * s.f_frsize
-        return round(100 * (total - available) / total, 1) if total else None
+        used_percent = round(100 * (total - available) / total, 1)
+        return used_percent, total
     except OSError:
-        return None
+        return None, None
+
+
+def disk_used_percent(path: str = "/") -> float | None:
+    """Backwards-compatible percentage helper."""
+    return disk_metrics(path)[0]
 
 
 def choose_temperature(override: str | None = None) -> tuple[float | None, str | None]:
@@ -268,6 +281,7 @@ class MetricsSampler:
             if total > 0:
                 cpu_percent = round(100 * max(0, min(1, (total - idle) / total)), 1)
         total_mem, memory_percent = memory_metrics(read_first("/proc/meminfo"))
+        disk_percent, disk_total = disk_metrics()
         temp, temp_label = choose_temperature(self.temperature_path)
         try:
             loads = [round(x, 2) for x in os.getloadavg()]
@@ -279,7 +293,8 @@ class MetricsSampler:
             "memory_total_bytes": total_mem,
             "cpu_temperature_c": temp,
             "cpu_temperature_label": temp_label,
-            "disk_root_usage_percent": disk_used_percent(),
+            "disk_root_usage_percent": disk_percent,
+            "disk_root_total_bytes": disk_total,
             "load_1m": loads[0], "load_5m": loads[1], "load_15m": loads[2],
             "uptime_seconds": uptime_seconds(),
             "boot_id": boot_id(),

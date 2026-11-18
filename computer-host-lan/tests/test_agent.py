@@ -49,6 +49,19 @@ class StateTests(unittest.TestCase):
         self.assertIn("memory_usage_percent", sample)
         self.assertIn("uptime_seconds", sample)
 
+    def test_root_filesystem_capacity_and_missing_volume(self):
+        fake = mock.Mock(f_blocks=1024, f_frsize=4096, f_bavail=256)
+        with mock.patch.object(agent.os, "statvfs", return_value=fake):
+            self.assertEqual(agent.disk_metrics("/"), (75.0, 4194304))
+            self.assertEqual(agent.disk_used_percent("/"), 75.0)
+            sample = agent.MetricsSampler(None).sample()
+            self.assertEqual(sample["disk_root_usage_percent"], 75.0)
+            self.assertEqual(sample["disk_root_total_bytes"], 4194304)
+        with mock.patch.object(agent.os, "statvfs", side_effect=OSError):
+            self.assertEqual(agent.disk_metrics("/"), (None, None))
+        with mock.patch.object(agent.os, "statvfs", return_value=mock.Mock(f_blocks=0, f_frsize=4096, f_bavail=0)):
+            self.assertEqual(agent.disk_metrics("/"), (None, None))
+
     def test_route_can_appear_after_service_start(self):
         """Agent must not permanently cache a missing default route."""
         state = agent.AgentState("22222222-2222-4222-8222-222222222222",

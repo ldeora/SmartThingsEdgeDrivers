@@ -4,6 +4,9 @@
   "attributes": {
     "diskUsage": {
       "label": "Speicherbelegung"
+    },
+    "diskTotalGiB": {
+      "label": "Dateisystemgröße"
     }
   }
 }

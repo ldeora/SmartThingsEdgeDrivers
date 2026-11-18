@@ -71,7 +71,8 @@ The Edge Driver retains the original state inference model.
 | `cpu_usage_percent` | Total CPU utilization, percent | Yes | Yes |
 | `memory_usage_percent` | Memory utilization, percent | Yes | Yes |
 | `memory_total_bytes` | Installed RAM | Yes | Yes |
-| `disk_root_usage_percent` | System/root filesystem utilization | Yes | Define system-drive mapping |
+| `disk_root_usage_percent` | System/root filesystem utilization | Yes | System drive |
+| `disk_root_total_bytes` | Total capacity of the same root/system filesystem in bytes (optional; null if unavailable) | Yes | System drive |
 | `uptime_seconds` | System/kernel uptime | Yes | Test Fast Startup semantics |
 | `boot_id` | Identifies a real boot session | Yes | Requires Windows boot-session implementation |
 | `cpu_temperature_c` | Sensor temperature or `null` | If available | Optional; no universal API |
@@ -81,6 +82,14 @@ The Edge Driver retains the original state inference model.
 Missing measurements may be JSON `null`. The Edge Driver skips unavailable
 numeric data; it does not substitute zero. The first CPU utilization reading
 may be null because it requires sampling a delta.
+
+`disk_root_total_bytes` is an **additive, optional** v2 metrics field. Old
+agents may omit it; old drivers ignore it. It is measured for the same root
+filesystem (Linux `/`) or system volume (Windows) as
+`disk_root_usage_percent`. Linux uses `statvfs` filesystem capacity, not
+sum of physical disks or a drive vendor's advertised capacity. The Edge
+Driver converts bytes into GiB (2^30 bytes) for display. No device discovery,
+identity, authentication or command semantics change.
 
 ## Authentication
 
