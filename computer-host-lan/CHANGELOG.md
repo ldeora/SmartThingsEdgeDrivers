@@ -1,5 +1,14 @@
 # Computer Host LAN — change log
 
+## v0.5.2-beta.1 (2026-11-18) — filesystem-capacity beta update (candidate)
+
+- PR #13 adds `disk_root_total_bytes` for Linux root and Windows system volume, mapped to a new SmartThings `diskTotalGiB` readout alongside disk usage %.
+- Additional field is optional and protocol v2 is unchanged. Existing UUIDs, keys, discovery, power behavior and device profiles remain compatible.
+- Verified on real SmartThings hub with Gentoo Linux after a hub reboot refreshed the updated custom capability; Windows implementation passed CI, but Windows 11 hardware capacity remains an important beta test.
+- Versioned next-beta candidate: Linux agent and Edge Driver v0.4.1-beta.1, Windows agent v0.2.1-beta.1.
+- **Not yet a published GitHub Release or channel rollout**. Preserve v0.5.1-beta.1 artifacts unchanged for rollback.
+
+
 ## v0.5.1-beta.1 (2026-11-16) — public-beta release candidate
 
 - Cross-platform Computer Host LAN integration packaged for volunteer testing with an independently versioned protocol-v2 Linux agent, shared Edge Driver and native Windows Host Agent.

@@ -1,6 +1,6 @@
 # Computer Host LAN — volunteer beta quick start
 
-**Public beta v0.5.1-beta.1:** Download the host agent from the [official GitHub prerelease](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.1-beta.1) and install the Edge Driver through the [verified SmartThings channel invitation](https://bestow-regional.api.smartthings.com/invite/1J2Qy7ZkxL20). A Windows 11 public-beta volunteer has now reported successful installation and basic SmartThings operation plus Suspend, Reboot, and Shutdown (Off); WOL and further platform coverage still need testers. Do not follow old `Linux Host LAN` beta guides for this project; those use protocol v1.
+**Public beta v0.5.2-beta.1:** Download the host agent from the [official GitHub prerelease](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.2-beta.1) and install the Edge Driver through the [verified SmartThings channel invitation](https://bestow-regional.api.smartthings.com/invite/1J2Qy7ZkxL20). A Windows 11 public-beta volunteer has now reported successful installation and basic SmartThings operation plus Suspend, Reboot, and Shutdown (Off); WOL and further platform coverage still need testers. Do not follow old `Linux Host LAN` beta guides for this project; those use protocol v1.
 
 ## Requirements
 
@@ -8,7 +8,7 @@ A LAN-capable SmartThings hub, private trusted LAN with UDP5353/mDNS (for discov
 
 ## 1. Download and verify
 
-Obtain the matching host installer from the [permanent v0.5.1-beta.1 GitHub prerelease](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.1-beta.1) (not a temporary Actions artifact), verify its SHA-256 file and extract it locally. Windows x64 ZIP contains `publish/win-x64/`, `scripts/`, `docs/` and license. Linux source installer is separate. Both require the same `Computer Host LAN` Edge Driver.
+Obtain the matching host installer from the [permanent v0.5.2-beta.1 GitHub prerelease](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.2-beta.1) (not a temporary Actions artifact), verify its SHA-256 file and extract it locally. Windows x64 ZIP contains `publish/win-x64/`, `scripts/`, `docs/` and license. Linux source installer is separate. Both require the same `Computer Host LAN` Edge Driver.
 
 ## 2. Install monitoring only
 
@@ -38,6 +38,10 @@ avahi-browse -rt _computerhost._tcp
 Open the [ARoedl SmartThings Edge Drivers invitation](https://bestow-regional.api.smartthings.com/invite/1J2Qy7ZkxL20), sign in, accept, enroll your hub, install **Computer Host LAN** under **Available Drivers**, then use **Scan nearby**. The host is discovered as Linux or Windows using `_computerhost._tcp`. Verify switch ON, host status, CPU%, RAM%, disk and uptime. Linux adds CPU temperature (when available) and load averages; Windows does not.
 
 If discovery fails, report network profile, multicast reachability and HTTP response (redact IP/MAC/UUID). Do **not** turn off the system firewall globally. The `hostOverride` preference does not perform initial pairing.
+
+## Upgrading an existing beta installation
+
+Keep the existing SmartThings computer device and preserve the host agent's identity; do not uninstall or purge state. Extract the new package into a fresh directory and rerun its installer. Linux: `sudo ./scripts/install-agent.sh` preserves existing power-control opt-in. Windows: reinstall with `-HubIPv4` and **include `-EnablePower` if it was enabled previously**; otherwise Windows intentionally disables remote power. Verify `/v2/metrics` now includes `disk_root_total_bytes`, and the SmartThings detail view shows **Total filesystem capacity**. A normal hub reboot resolved stale capability metadata on the publisher's test hub without re-pairing.
 
 ## 4. Recovery then optional power
 

@@ -1,3 +1,9 @@
+# Next beta candidate v0.5.2-beta.1 — publisher checklist
+
+PR #13 merged and new disk capacity confirmed on Linux after hub reboot. New verified GitHub prerelease ZIPs, checksums and updated Computer Host LAN channel driver still need to be published. Preserve v0.5.1-beta.1 and its assets as rollback. Windows 11 disk capacity and identity/power preservation need volunteer confirmation. See `docs/beta/RELEASE-NOTES-v0.5.2-beta.1.md` and `docs/beta/UPDATE-v0.5.2-beta.1-COMMENT.md`.
+
+---
+
 # Computer Host LAN — v0.5.1-beta.1 release brief
 
 **Scope:** First community public beta of the independent protocol-v2 Computer Host LAN integration for Linux and Windows. The existing Linux Host LAN project is preserved.

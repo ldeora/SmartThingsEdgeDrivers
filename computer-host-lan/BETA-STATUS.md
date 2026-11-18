@@ -1,3 +1,9 @@
+# Next candidate: Computer Host LAN v0.5.2-beta.1 — not yet published
+
+PR #13 merged 2026-11-18. Linux real-hub test confirmed `diskTotalGiB = 431.8` after restarting the hub, which refreshed the custom capability. Source versions prepared: Linux agent and Edge Driver v0.4.1-beta.1, Windows agent v0.2.1-beta.1. Windows new disk total has CI coverage but still requires Windows 11 hardware beta feedback. Publish only after final main-commit CI and release assets verification; the prior v0.5.1-beta.1 is intact.
+
+---
+
 # Computer Host LAN — public beta v0.5.1-beta.1
 
 **Integration:** 0.5.1-beta.1. Linux agent and Edge Driver: 0.4.0-dev.1. Windows agent: 0.2.0-alpha.1. Protocol: v2.

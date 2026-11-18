@@ -1,6 +1,6 @@
 # Computer Host LAN — SmartThings for Linux and Windows
 
-**Public beta: v0.5.1-beta.1** · Shared SmartThings Edge Driver v0.4.0-dev.1 · Linux agent v0.4.0-dev.1 · Windows agent v0.2.0-alpha.1 · Protocol v2.
+**Public beta: v0.5.2-beta.1** · Shared SmartThings Edge Driver v0.4.1-beta.1 · Linux agent v0.4.1-beta.1 · Windows agent v0.2.1-beta.1 · Protocol v2.
 
 Computer Host LAN is a **separate** project from [Linux Host LAN](../linux-host-lan/). It uses the `_computerhost._tcp` discovery service and `/v2` HTTP API. **Do not pair a protocol-v1 Linux Host LAN agent with this driver.**
 
@@ -27,4 +27,6 @@ Windows system metrics include CPU, RAM, system-drive usage and uptime. CPU temp
 - [Security limitations](docs/beta/SECURITY-AND-PRIVACY.md)
 - [Release gates](docs/beta/PUBLICATION-GATES.md)
 
-**Get the beta:** Download [Computer Host LAN v0.5.1-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.1-beta.1) and install the driver from the verified [ARoedl SmartThings Edge Drivers invitation](https://bestow-regional.api.smartthings.com/invite/1J2Qy7ZkxL20). A second SmartThings account has installed the driver through this channel. Additional Windows 11 validation, particularly WOL, recovery and additional hardware, remains a beta test objective. The historical Linux v0.3.1 material lives in `docs/history/v0.3.1-beta.1/`. Existing Linux Host LAN devices remain on the separate legacy project.
+**Next release candidate:** v0.5.2-beta.1 is being prepared. Continue to use the published v0.5.1-beta.1 assets until the new prerelease and matching channel driver are available.
+
+**Get the beta:** Download [Computer Host LAN v0.5.2-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.2-beta.1) and install the driver from the verified [ARoedl SmartThings Edge Drivers invitation](https://bestow-regional.api.smartthings.com/invite/1J2Qy7ZkxL20). A second SmartThings account has installed the driver through this channel. Additional Windows 11 validation, particularly WOL, recovery and additional hardware, remains a beta test objective. The historical Linux v0.3.1 material lives in `docs/history/v0.3.1-beta.1/`. Existing Linux Host LAN devices remain on the separate legacy project.

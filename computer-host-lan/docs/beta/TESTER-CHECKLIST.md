@@ -12,6 +12,8 @@
 - [ ] M06: Computer is discovered through `_computerhost._tcp` by the hub on a trusted LAN.
 - [ ] M07: SmartThings device is unique, correct Linux/Windows profile, usable app presentation.
 - [ ] M08: CPU, RAM, disk, uptime, status and switch update; missing optional sensors do not break other metrics.
+- [ ] M08a: New `/v2/metrics` includes a positive `disk_root_total_bytes`, and SmartThings shows a plausible `diskTotalGiB` for that exact root/system volume; record if a hub restart was needed.
+- [ ] M08b: In-place upgrade retains the same SmartThings device, agent installation ID and control key; Linux preserves power opt-in, Windows requires explicit `-EnablePower` to preserve it.
 - [ ] M09: Stop only agent; app reports unavailable, without claiming confirmed physical power-off.
 - [ ] M10: Restart agent; existing device recovers without losing identity.
 - [ ] M11: Restart host; service starts automatically, boot ID rotates and uptime resets.

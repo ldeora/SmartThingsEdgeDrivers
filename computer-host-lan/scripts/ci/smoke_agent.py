@@ -51,7 +51,7 @@ def main() -> int:
             _, metrics = request_json(base, "/v2/metrics")
             assert info["protocol"] == "computer-host-agent"
             assert info["api_version"] == 2
-            assert info["agent_version"] == "0.4.0-dev.1"
+            assert info["agent_version"] == json.loads((ROOT / "release.json").read_text(encoding="utf-8"))["agent"]
             assert info["platform"] == "linux"
             assert health["platform"] == "linux" and metrics["platform"] == "linux"
             assert info["power_actions"] == []

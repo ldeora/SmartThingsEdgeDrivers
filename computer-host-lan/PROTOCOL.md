@@ -1,6 +1,6 @@
 # Computer Host Agent protocol v2 (development draft)
 
-**Applies to:** Linux agent and generic SmartThings Edge Driver v0.4.0-dev.1.
+**Applies to:** Linux agent and generic SmartThings Edge Driver v0.4.1-beta.1. Protocol v2 is unchanged.
 **Not backward compatible with protocol v1.** All endpoints are under `/v2/`.
 The v0.3.1 contract is archived in `docs/history/v0.3.1-beta.1/PROTOCOL.md`.
 
