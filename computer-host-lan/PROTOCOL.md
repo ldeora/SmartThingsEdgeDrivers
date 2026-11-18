@@ -71,8 +71,12 @@ The Edge Driver retains the original state inference model.
 | `cpu_usage_percent` | Total CPU utilization, percent | Yes | Yes |
 | `memory_usage_percent` | Memory utilization, percent | Yes | Yes |
 | `memory_total_bytes` | Installed RAM | Yes | Yes |
+| `memory_used_bytes` | Physical RAM used; total minus available (optional) | Yes | Yes |
+| `memory_available_bytes` | Physical RAM available to programs (optional) | MemAvailable | AvailPhys |
 | `disk_root_usage_percent` | System/root filesystem utilization | Yes | System drive |
 | `disk_root_total_bytes` | Total capacity of the same root/system filesystem in bytes (optional; null if unavailable) | Yes | System drive |
+| `disk_root_used_bytes` | Allocated blocks/space on root/system volume (optional) | f_blocks minus f_bfree | TotalSize minus TotalFreeSpace |
+| `disk_root_available_bytes` | Available bytes on same filesystem/volume (optional) | f_bavail | AvailableFreeSpace |
 | `uptime_seconds` | System/kernel uptime | Yes | Test Fast Startup semantics |
 | `boot_id` | Identifies a real boot session | Yes | Requires Windows boot-session implementation |
 | `cpu_temperature_c` | Sensor temperature or `null` | If available | Optional; no universal API |
@@ -90,6 +94,32 @@ filesystem (Linux `/`) or system volume (Windows) as
 sum of physical disks or a drive vendor's advertised capacity. The Edge
 Driver converts bytes into GiB (2^30 bytes) for display. No device discovery,
 identity, authentication or command semantics change.
+
+### Optional used and available byte counts (four-value beta experiment)
+
+The four additional v2 metrics `memory_used_bytes`,
+`memory_available_bytes`, `disk_root_used_bytes` and
+`disk_root_available_bytes` are **optional**. Older protocol-v2 agents
+continue working without them. The Edge driver converts valid byte counts
+into GiB rounded to one decimal; missing and invalid values are not invented.
+
+For RAM, Linux `MemAvailable` and Windows `GlobalMemoryStatusEx.AvailPhys`
+are used, with used = total − available. Linux `MemFree` is not equivalent
+to available RAM because reclaimable page cache is excluded.
+
+Filesystem used bytes are actual allocated blocks (`f_blocks - f_bfree` on
+Linux and `TotalSize - TotalFreeSpace` on Windows), while available bytes
+are those accessible to the process (`f_bavail` or
+`AvailableFreeSpace`). Reserved blocks, btrfs accounting and quotas may
+mean **Used + Available ≠ Total**. Existing disk percentage remains
+`(Total - Available) / Total`, and may therefore differ from
+`Used / Total`. Do not silently change its established automation semantics.
+
+The additional four read-only SmartThings custom attributes are part of the
+**existing** memory and disk capabilities; updating the Edge driver ZIP alone
+does not update account-level schemas/translations/presentations. Follow the
+staged rollout in `docs/development/FOUR-METRICS-ROLLOUT.md`. The public
+v0.5.2-beta.1 release and channel remain untouched during development.
 
 ## Authentication
 
