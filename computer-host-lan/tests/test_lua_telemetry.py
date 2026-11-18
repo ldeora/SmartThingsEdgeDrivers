@@ -41,7 +41,7 @@ class LuaTelemetryTests(unittest.TestCase):
             cap('oceancircle09600.computerHostStatus',{'status'})
             cap('oceancircle09600.computerCpuUsage',{'cpuUsage'})
             cap('oceancircle09600.computerMemoryUsage',{'memoryUsage','memoryTotalGiB'})
-            cap('oceancircle09600.computerDiskUsage',{'diskUsage'})
+            cap('oceancircle09600.computerDiskUsage',{'diskUsage','diskTotalGiB'})
             cap('oceancircle09600.computerUptime',{'uptimeMinutes','uptimeText'})
             cap('oceancircle09600.linuxLoad',{'loadOne','loadFive','loadFifteen'})
             capabilities.temperatureMeasurement={
@@ -74,10 +74,11 @@ class LuaTelemetryTests(unittest.TestCase):
               memory_usage_percent=32.1,
               memory_total_bytes=32*1024*1024*1024,
               disk_root_usage_percent=63.0,
+              disk_root_total_bytes=500*1024*1024*1024,
               load_1m=0.55,load_5m=0.70,load_15m=0.81,
               uptime_seconds=2*86400+3*3600+4*60+59,
             })
-            assert(#device.events==12)
+            assert(#device.events==13)
             assert(device.events[2].attribute=='temperatureRange') -- metadata first
             assert(device.events[3].attribute=='temperature') -- normal reading unchanged
             local seen={}
@@ -93,6 +94,8 @@ class LuaTelemetryTests(unittest.TestCase):
             assert(seen['oceancircle09600.computerMemoryUsage.memoryUsage'].value==32.1)
             assert(seen['oceancircle09600.computerMemoryUsage.memoryTotalGiB'].value==32.0)
             assert(seen['oceancircle09600.computerDiskUsage.diskUsage'].value==63.0)
+            assert(seen['oceancircle09600.computerDiskUsage.diskTotalGiB'].value==500.0)
+            assert(seen['oceancircle09600.computerDiskUsage.diskTotalGiB'].metadata.visibility.displayed==false)
             assert(seen['oceancircle09600.linuxLoad.loadOne'].value==0.55)
             assert(seen['oceancircle09600.linuxLoad.loadFive'].value==0.70)
             assert(seen['oceancircle09600.linuxLoad.loadFifteen'].value==0.81)
@@ -138,6 +141,24 @@ class LuaTelemetryTests(unittest.TestCase):
             T.metrics(device,{memory_total_bytes=64*1024*1024*1024})
             assert(#device.events==count+1)
             assert(device.events[#device.events].value==64.0)
+
+            -- If the capacity capability is not ready yet, retry an unchanged
+            -- volume size on the next poll without affecting disk percentage.
+            local disk=capabilities['oceancircle09600.computerDiskUsage']
+            local old_disk_total=disk.diskTotalGiB
+            disk.diskTotalGiB=nil
+            local disk_before=#device.events
+            T.metrics(device,{disk_root_total_bytes=750*1024*1024*1024})
+            assert(#device.events==disk_before)
+            disk.diskTotalGiB=old_disk_total
+            T.metrics(device,{disk_root_total_bytes=750*1024*1024*1024})
+            assert(#device.events==disk_before+1)
+            assert(device.events[#device.events].value==750.0)
+            -- Existing agents without the optional disk_total field must work.
+            local legacy_before=#device.events
+            T.metrics(device,{disk_root_usage_percent=42.0})
+            assert(#device.events==legacy_before+1)
+            assert(device.events[#device.events].attribute=='diskUsage')
 
             -- A transient missing range attribute must not interrupt readings.
             -- On a later poll, retry metadata without duplicating temperature.
