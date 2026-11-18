@@ -97,6 +97,16 @@ smartthings devices:status <device-id>
 Custom capability definitions and presentations are account-level SmartThings
 resources. They are not local files that the Edge hub imports from the driver ZIP.
 
+## Additive disk capacity attribute (post-beta)
+
+The proposed `diskTotalGiB` field is an **account-level capability schema change**
+to the existing `oceancircle09600.computerDiskUsage` capability. Do not assume
+that packaging the Edge Driver or running `publish-presentations.sh` applies
+the schema. Review and follow the staged registration, translation, presentation
+and agent rollout in [DISK-CAPACITY-ROLLOUT.md](../../docs/development/DISK-CAPACITY-ROLLOUT.md).
+Do **not** run `capabilities:create` again or update the public channel
+before verifying the live schema and presentation on the test hub.
+
 ## Development v0.4.0: Create new generic capabilities, then update presentations
 
 If all six capabilities already exist in `oceancircle09600`, DO NOT run
