@@ -73,6 +73,8 @@ if (OperatingSystem.IsWindows())
     using var doc = JsonDocument.Parse(json);
     var root = doc.RootElement;
     Assert(root.GetProperty("memory_total_bytes").GetUInt64() > 0, "Win32 physical RAM metrics");
+    Assert(root.GetProperty("disk_root_total_bytes").GetInt64() > 0, "Windows system drive total bytes");
+    Assert(root.GetProperty("disk_root_usage_percent").GetDouble() >= 0, "Windows system drive usage percentage");
     Assert(root.GetProperty("uptime_seconds").GetDouble() >= 0, "Windows uptime metrics");
     Assert(root.GetProperty("cpu_temperature_c").ValueKind == JsonValueKind.Null, "no fabricated CPU temperature");
     Assert(!root.TryGetProperty("load_1m", out _), "no fabricated Linux load on Windows");
