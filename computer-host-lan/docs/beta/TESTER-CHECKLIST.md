@@ -13,6 +13,7 @@
 - [ ] M07: SmartThings device is unique, correct Linux/Windows profile, usable app presentation.
 - [ ] M08: CPU, RAM, disk, uptime, status and switch update; missing optional sensors do not break other metrics.
 - [ ] M08a: New `/v2/metrics` includes a positive `disk_root_total_bytes`, and SmartThings shows a plausible `diskTotalGiB` for that exact root/system volume; record if a hub restart was needed.
+- [ ] M08c: On RAM **and** root/system filesystem cards, confirm Usage %, Total GiB, Used GiB and Available GiB. Check raw `memory_used_bytes`, `memory_available_bytes`, `disk_root_used_bytes`, `disk_root_available_bytes` against OS readings. Used + Available need not equal Total on reserved-block/quota-restricted filesystems; do not treat that as an automatic failure. Record localized label/layout issues.
 - [ ] M08b: In-place upgrade retains the same SmartThings device, agent installation ID and control key; Linux preserves power opt-in, Windows requires explicit `-EnablePower` to preserve it.
 - [ ] M09: Stop only agent; app reports unavailable, without claiming confirmed physical power-off.
 - [ ] M10: Restart agent; existing device recovers without losing identity.
