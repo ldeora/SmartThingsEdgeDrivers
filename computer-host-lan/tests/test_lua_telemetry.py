@@ -40,8 +40,8 @@ class LuaTelemetryTests(unittest.TestCase):
             end
             cap('oceancircle09600.computerHostStatus',{'status'})
             cap('oceancircle09600.computerCpuUsage',{'cpuUsage'})
-            cap('oceancircle09600.computerMemoryUsage',{'memoryUsage','memoryTotalGiB'})
-            cap('oceancircle09600.computerDiskUsage',{'diskUsage','diskTotalGiB'})
+            cap('oceancircle09600.computerMemoryUsage',{'memoryUsage','memoryTotalGiB','memoryUsedGiB','memoryAvailableGiB'})
+            cap('oceancircle09600.computerDiskUsage',{'diskUsage','diskTotalGiB','diskUsedGiB','diskAvailableGiB'})
             cap('oceancircle09600.computerUptime',{'uptimeMinutes','uptimeText'})
             cap('oceancircle09600.linuxLoad',{'loadOne','loadFive','loadFifteen'})
             capabilities.temperatureMeasurement={
@@ -73,12 +73,16 @@ class LuaTelemetryTests(unittest.TestCase):
               cpu_usage_percent=17.4,
               memory_usage_percent=32.1,
               memory_total_bytes=32*1024*1024*1024,
+              memory_used_bytes=10*1024*1024*1024,
+              memory_available_bytes=22*1024*1024*1024,
               disk_root_usage_percent=63.0,
               disk_root_total_bytes=500*1024*1024*1024,
+              disk_root_used_bytes=310*1024*1024*1024,
+              disk_root_available_bytes=185*1024*1024*1024,
               load_1m=0.55,load_5m=0.70,load_15m=0.81,
               uptime_seconds=2*86400+3*3600+4*60+59,
             })
-            assert(#device.events==13)
+            assert(#device.events==17)
             assert(device.events[2].attribute=='temperatureRange') -- metadata first
             assert(device.events[3].attribute=='temperature') -- normal reading unchanged
             local seen={}
@@ -93,9 +97,15 @@ class LuaTelemetryTests(unittest.TestCase):
             assert(seen['oceancircle09600.computerCpuUsage.cpuUsage'].value==17.4)
             assert(seen['oceancircle09600.computerMemoryUsage.memoryUsage'].value==32.1)
             assert(seen['oceancircle09600.computerMemoryUsage.memoryTotalGiB'].value==32.0)
+            assert(seen['oceancircle09600.computerMemoryUsage.memoryUsedGiB'].value==10.0)
+            assert(seen['oceancircle09600.computerMemoryUsage.memoryAvailableGiB'].value==22.0)
             assert(seen['oceancircle09600.computerDiskUsage.diskUsage'].value==63.0)
             assert(seen['oceancircle09600.computerDiskUsage.diskTotalGiB'].value==500.0)
+            assert(seen['oceancircle09600.computerDiskUsage.diskUsedGiB'].value==310.0)
+            assert(seen['oceancircle09600.computerDiskUsage.diskAvailableGiB'].value==185.0)
             assert(seen['oceancircle09600.computerDiskUsage.diskTotalGiB'].metadata.visibility.displayed==false)
+            assert(seen['oceancircle09600.computerDiskUsage.diskAvailableGiB'].metadata.visibility.displayed==false)
+            assert(seen['oceancircle09600.computerMemoryUsage.memoryUsedGiB'].metadata.visibility.displayed==false)
             assert(seen['oceancircle09600.linuxLoad.loadOne'].value==0.55)
             assert(seen['oceancircle09600.linuxLoad.loadFive'].value==0.70)
             assert(seen['oceancircle09600.linuxLoad.loadFifteen'].value==0.81)
@@ -154,6 +164,21 @@ class LuaTelemetryTests(unittest.TestCase):
             T.metrics(device,{disk_root_total_bytes=750*1024*1024*1024})
             assert(#device.events==disk_before+1)
             assert(device.events[#device.events].value==750.0)
+            -- A temporarily unavailable new attribute must retry unchanged
+            -- data; zero available GiB is valid for a full filesystem.
+            local old_available=disk.diskAvailableGiB
+            disk.diskAvailableGiB=nil
+            local count_before=#device.events
+            T.metrics(device,{disk_root_available_bytes=0})
+            assert(#device.events==count_before)
+            disk.diskAvailableGiB=old_available
+            T.metrics(device,{disk_root_available_bytes=0})
+            assert(#device.events==count_before+1)
+            assert(device.events[#device.events].attribute=='diskAvailableGiB')
+            assert(device.events[#device.events].value==0)
+            local invalid_count=#device.events
+            T.metrics(device,{disk_root_used_bytes=-1,memory_available_bytes=-1})
+            assert(#device.events==invalid_count)
             -- Existing agents without the optional disk_total field must work.
             local legacy_before=#device.events
             T.metrics(device,{disk_root_usage_percent=42.0})

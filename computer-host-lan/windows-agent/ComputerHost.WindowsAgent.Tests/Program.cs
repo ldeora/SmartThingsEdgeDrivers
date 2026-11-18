@@ -72,8 +72,21 @@ if (OperatingSystem.IsWindows())
     var json = JsonSerializer.Serialize(metrics.Read(Guid.NewGuid().ToString(), Guid.NewGuid().ToString()));
     using var doc = JsonDocument.Parse(json);
     var root = doc.RootElement;
-    Assert(root.GetProperty("memory_total_bytes").GetUInt64() > 0, "Win32 physical RAM metrics");
-    Assert(root.GetProperty("disk_root_total_bytes").GetInt64() > 0, "Windows system drive total bytes");
+    var memoryTotal = root.GetProperty("memory_total_bytes").GetUInt64();
+    var memoryUsed = root.GetProperty("memory_used_bytes").GetUInt64();
+    var memoryAvailable = root.GetProperty("memory_available_bytes").GetUInt64();
+    Assert(memoryTotal > 0, "Win32 physical RAM metrics");
+    Assert(memoryUsed <= memoryTotal && memoryAvailable <= memoryTotal &&
+           memoryTotal - memoryAvailable == memoryUsed,
+           "Physical RAM accounting uses available memory");
+    var driveTotal = root.GetProperty("disk_root_total_bytes").GetInt64();
+    var driveUsed = root.GetProperty("disk_root_used_bytes").GetInt64();
+    var driveAvailable = root.GetProperty("disk_root_available_bytes").GetInt64();
+    Assert(driveTotal > 0, "Windows system drive total bytes");
+    // Disk quotas mean used + available need not equal TotalSize.
+    Assert(driveUsed >= 0 && driveUsed <= driveTotal &&
+           driveAvailable >= 0 && driveAvailable <= driveTotal,
+           "Windows system drive allocated and available bytes");
     Assert(root.GetProperty("disk_root_usage_percent").GetDouble() >= 0, "Windows system drive usage percentage");
     Assert(root.GetProperty("uptime_seconds").GetDouble() >= 0, "Windows uptime metrics");
     Assert(root.GetProperty("cpu_temperature_c").ValueKind == JsonValueKind.Null, "no fabricated CPU temperature");

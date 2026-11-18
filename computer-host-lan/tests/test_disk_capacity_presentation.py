@@ -23,7 +23,8 @@ class DiskCapacityPresentationTests(unittest.TestCase):
     def test_presentation_has_both_values_and_unmodified_percent_automation(self):
         p = json.loads((CAP / "computerDiskUsage.presentation.json").read_text())
         labels = [v["state"]["label"] for v in p["detailView"]]
-        self.assertEqual(labels, ["{{diskUsage.value}} %", "{{diskTotalGiB.value}} GiB"])
+        self.assertEqual(labels, ["{{diskUsage.value}} %", "{{diskTotalGiB.value}} GiB",
+                                  "{{diskUsedGiB.value}} GiB", "{{diskAvailableGiB.value}} GiB"])
         self.assertEqual(p["automation"]["conditions"][0]["numberField"]["value"], "diskUsage.value")
         self.assertEqual(p["automation"]["conditions"][0]["numberField"]["range"], [0, 100])
         for lang in ("en", "de"):

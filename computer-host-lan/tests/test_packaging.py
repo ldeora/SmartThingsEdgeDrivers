@@ -57,7 +57,7 @@ class StaticChecks(unittest.TestCase):
         self.assertEqual(uptime['name'],'Computer Uptime')
         self.assertEqual(set(uptime['attributes']),{'uptimeMinutes','uptimeText'})
         memory=json.loads((ROOT/'edge-driver/custom-capabilities/computerMemoryUsage.json').read_text())
-        self.assertEqual(set(memory['attributes']),{'memoryUsage','memoryTotalGiB'})
+        self.assertEqual(set(memory['attributes']),{'memoryUsage','memoryTotalGiB','memoryUsedGiB','memoryAvailableGiB'})
         disk=json.loads((ROOT/'edge-driver/custom-capabilities/computerDiskUsage.json').read_text())
         self.assertEqual(disk['name'],'Computer Disk Usage')
         for definition_path in (ROOT/'edge-driver/custom-capabilities').glob('*.json'):
