@@ -82,9 +82,24 @@ jobs:
           $key = Join-Path $originalPath 'control-token'
           $oldKeyHash = (Get-FileHash $key -Algorithm SHA256).Hash
           function RunSetup([string]$args) {
-            $p = Start-Process -FilePath $setup -ArgumentList $args -Wait -PassThru
-            if ($p.ExitCode -ne 0) { throw "Inno Setup failed: $($p.ExitCode)" }
+            # Do not wait indefinitely for descendant processes of a self-
+            # elevating installer. Bound the setup process and keep diagnostics.
+            $log = Join-Path $env:RUNNER_TEMP 'computerhost-setup.log'
+            Write-Host "Running setup with silent arguments: $args"
+            $p = Start-Process -FilePath $setup -ArgumentList ($args + ' /LOG="' + $log + '"') -PassThru
+            try {
+              if (-not $p.WaitForExit(120000)) {
+                Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+                if (Test-Path $log) { Get-Content -LiteralPath $log -Tail 35 }
+                throw 'Inno Setup timed out after 120 seconds'
+              }
+              if ($p.ExitCode -ne 0) {
+                if (Test-Path $log) { Get-Content -LiteralPath $log -Tail 35 }
+                throw "Inno Setup failed: $($p.ExitCode)"
+              }
+            } finally { $p.Dispose() }
           }
+          Write-Host 'TEST: ZIP-to-Setup migration'
           RunSetup "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /HUBIP=$hub /ENABLEPOWER=1"
           Start-Sleep -Seconds 2
           $migrated = Invoke-RestMethod http://127.0.0.1:8765/v2/info
@@ -92,11 +107,13 @@ jobs:
           if ((Get-FileHash $key -Algorithm SHA256).Hash -ne $oldKeyHash) { throw 'Migration changed control key' }
           if (-not ($migrated.power_actions -contains 'reboot')) { throw 'Migration lost power setting' }
           # Next upgrade must retain power without asking to re-enable it.
+          Write-Host 'TEST: preserve power setting during a subsequent silent upgrade'
           RunSetup "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /HUBIP=$hub"
           Start-Sleep -Seconds 2
           $upgraded = Invoke-RestMethod http://127.0.0.1:8765/v2/info
           if ($upgraded.id -ne $old.id) { throw 'Upgrade changed UUID' }
           if (-not ($upgraded.power_actions -contains 'reboot')) { throw 'Upgrade lost power preference' }
+          Write-Host 'TEST: uninstall removes service/firewall but retains state'
           $uninstaller = Join-Path (Join-Path $env:ProgramFiles 'Computer Host Agent') 'unins000.exe'
           if (-not (Test-Path $uninstaller)) { throw 'Inno uninstall entry missing' }
           $p = Start-Process -FilePath $uninstaller -ArgumentList '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART' -Wait -PassThru
@@ -104,6 +121,7 @@ jobs:
           if (Get-Service ComputerHostAgent -ErrorAction SilentlyContinue) { throw 'Uninstall left agent service installed' }
           if (Get-NetFirewallRule -Name 'ComputerHostAgent-TCP8765' -ErrorAction SilentlyContinue) { throw 'Uninstall left firewall rule installed' }
           if ((Get-FileHash $key -Algorithm SHA256).Hash -ne $oldKeyHash) { throw 'Uninstall removed/rotated persistent key' }
+          Write-Host 'TEST: reinstall with monitoring-only power defaults'
           RunSetup "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /HUBIP=$hub /ENABLEPOWER=0"
           Start-Sleep -Seconds 2
           $fresh = Invoke-RestMethod http://127.0.0.1:8765/v2/info

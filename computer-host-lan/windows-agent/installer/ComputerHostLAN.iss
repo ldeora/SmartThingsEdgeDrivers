@@ -125,7 +125,8 @@ begin
       Address := Copy(Lines[I], 1, Sep - 1);
       if IsValidIPv4(Address) then
       begin
-        HubSelect.Items.Add(Address);
+        HubSelect.Items.Add(Address + ' (' +
+          Copy(Lines[I], Sep + 1, Length(Lines[I]) - Sep) + ')');
         Count := Count + 1;
       end;
     end;
@@ -208,9 +209,20 @@ begin
     SearchForHubs(nil);
 end;
 
+function SelectedHubIP: String;
+var
+  Selected: String;
+  CutAt: Integer;
+begin
+  Selected := Trim(HubSelect.Text);
+  CutAt := Pos(' (', Selected);
+  if CutAt > 0 then Selected := Copy(Selected, 1, CutAt - 1);
+  Result := Selected;
+end;
+
 function ValidConfiguration: Boolean;
 begin
-  Result := LocalSubnetCheck.Checked or IsValidIPv4(Trim(HubSelect.Text));
+  Result := LocalSubnetCheck.Checked or IsValidIPv4(SelectedHubIP());
 end;
 
 function NextButtonClick(CurPageID: Integer): Boolean;
@@ -254,7 +266,7 @@ begin
     ExpandConstant('{app}\Installer\Install-WindowsAgent.ps1') +
     '" -PublishedDirectory "' + ExpandConstant('{app}') + '" -UseExistingFiles';
   if not LocalSubnetCheck.Checked then
-    Params := Params + ' -HubIPv4 ' + Trim(HubSelect.Text);
+    Params := Params + ' -HubIPv4 ' + SelectedHubIP();
   if PowerCheck.Checked then Params := Params + ' -EnablePower';
   if not Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
     Params, '', SW_HIDE, ewWaitUntilTerminated, ExitCode) or (ExitCode <> 0) then
