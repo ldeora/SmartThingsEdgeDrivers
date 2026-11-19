@@ -54,13 +54,13 @@ const
   WM_COPY = $0301;
 
 var
-  HubPage, PowerPage, ConnectPage: TWizardPage;
+  HubPage, PowerPage, ConnectPage, KeyPage: TWizardPage;
   HubSelect: TNewComboBox;
   HubStatus, LocalHelp: TNewStaticText;
   LocalSubnetCheck: TNewCheckBox;
   AdvancedButton: TNewButton;
   PowerCheck: TNewCheckBox;
-  AgentStatus, DriverHint, DeviceHint, KeyHint, CopyStatus: TNewStaticText;
+  AgentStatus, DriverHint, DeviceHint, LinkCopyStatus, KeyHint, KeySetupHint, CopyStatus: TNewStaticText;
   OpenChannelButton, CopyLinkButton, ShowKeyButton, CopyKeyButton: TNewButton;
   LinkEdit, KeyEdit: TNewEdit;
   Searched, InstallFailed, AgentHealthy: Boolean;
@@ -222,7 +222,7 @@ procedure CopyLink(Sender: TObject);
 begin
   LinkEdit.SelectAll;
   SendMessage(LinkEdit.Handle, WM_COPY, 0, 0);
-  CopyStatus.Caption := 'Invitation link copied.';
+  LinkCopyStatus.Caption := 'Invitation link copied.';
 end;
 
 procedure ShowOrHideKey(Sender: TObject);
@@ -295,25 +295,26 @@ begin
   else
     AgentStatus.Caption := 'The agent is installed but is not responding yet. Check the service or try the setup guide.';
 
-  KeyHint.Visible := PowerCheck.Checked;
+  LinkCopyStatus.Caption := 'You can reopen these instructions later from the Start Menu.';
+end;
+
+procedure ShowPrivateKeyPage;
+begin
   KeyEdit.Visible := False;
   ShowKeyButton.Visible := False;
   CopyKeyButton.Visible := False;
-  if PowerCheck.Checked then
+  if LoadPrivateKey then
   begin
-    if LoadPrivateKey then
-    begin
-      KeyHint.Caption := 'Power control is enabled. Copy this private key to the SmartThings device settings:';
-      KeyEdit.Visible := True;
-      ShowKeyButton.Visible := True;
-      CopyKeyButton.Visible := True;
-      KeyEdit.PasswordChar := '*';
-      ShowKeyButton.Caption := 'Show key';
-    end
-    else
-      KeyHint.Caption := 'Power control is enabled, but its key could not be read. See the setup guide.';
-  end;
-  CopyStatus.Caption := 'Keep the authentication key private. Do not post it in a forum.';
+    KeyHint.Caption := 'Your private authentication key:';
+    KeyEdit.Visible := True;
+    ShowKeyButton.Visible := True;
+    CopyKeyButton.Visible := True;
+    KeyEdit.PasswordChar := '*';
+    ShowKeyButton.Caption := 'Show key';
+  end
+  else
+    KeyHint.Caption := 'The power-control key could not be retrieved. See the setup guide.';
+  CopyStatus.Caption := 'Keep this key private. Never share it in logs or forum posts.';
 end;
 
 procedure InitializeWizard;
@@ -452,44 +453,69 @@ begin
   DeviceHint.WordWrap := True;
   DeviceHint.Caption := '2. In the SmartThings app choose Add device > Scan nearby. Existing users can keep their device.';
 
-  KeyHint := TNewStaticText.Create(ConnectPage);
-  KeyHint.Parent := ConnectPage.Surface;
-  KeyHint.Top := DeviceHint.Top + DeviceHint.Height + ScaleY(4);
-  KeyHint.Width := ConnectPage.SurfaceWidth;
+  LinkCopyStatus := TNewStaticText.Create(ConnectPage);
+  LinkCopyStatus.Parent := ConnectPage.Surface;
+  LinkCopyStatus.Top := DeviceHint.Top + DeviceHint.Height + ScaleY(8);
+  LinkCopyStatus.Width := ConnectPage.SurfaceWidth;
+  LinkCopyStatus.AutoSize := False;
+  LinkCopyStatus.WordWrap := True;
+  LinkCopyStatus.Height := ScaleY(42);
+  LinkCopyStatus.Caption := 'You can reopen these instructions later from the Start Menu.';
+
+  // Power users get an additional post-install page. Monitoring-only users
+  // never see a blank key page; this keeps the default setup compact.
+  KeyPage := CreateCustomPage(ConnectPage.ID, 'Power control key',
+    'Copy the private key into your SmartThings device settings');
+
+  KeyHint := TNewStaticText.Create(KeyPage);
+  KeyHint.Parent := KeyPage.Surface;
+  KeyHint.Top := ScaleY(6);
+  KeyHint.Width := KeyPage.SurfaceWidth;
   KeyHint.AutoSize := False;
   KeyHint.WordWrap := True;
-  KeyHint.Height := ScaleY(31);
+  KeyHint.Height := ScaleY(36);
+  KeyHint.Caption := 'Your private authentication key:';
 
-  KeyEdit := TNewEdit.Create(ConnectPage);
-  KeyEdit.Parent := ConnectPage.Surface;
-  KeyEdit.Top := KeyHint.Top + KeyHint.Height + ScaleY(3);
-  KeyEdit.Width := ConnectPage.SurfaceWidth;
+  KeyEdit := TNewEdit.Create(KeyPage);
+  KeyEdit.Parent := KeyPage.Surface;
+  KeyEdit.Top := KeyHint.Top + KeyHint.Height + ScaleY(5);
+  KeyEdit.Width := KeyPage.SurfaceWidth;
   KeyEdit.ReadOnly := True;
   KeyEdit.PasswordChar := '*';
 
-  ShowKeyButton := TNewButton.Create(ConnectPage);
-  ShowKeyButton.Parent := ConnectPage.Surface;
-  ShowKeyButton.Top := KeyEdit.Top + KeyEdit.Height + ScaleY(5);
+  ShowKeyButton := TNewButton.Create(KeyPage);
+  ShowKeyButton.Parent := KeyPage.Surface;
+  ShowKeyButton.Top := KeyEdit.Top + KeyEdit.Height + ScaleY(8);
   ShowKeyButton.Caption := 'Show key';
-  ShowKeyButton.Width := ScaleX(110);
+  ShowKeyButton.Width := ScaleX(120);
   ShowKeyButton.OnClick := @ShowOrHideKey;
 
-  CopyKeyButton := TNewButton.Create(ConnectPage);
-  CopyKeyButton.Parent := ConnectPage.Surface;
+  CopyKeyButton := TNewButton.Create(KeyPage);
+  CopyKeyButton.Parent := KeyPage.Surface;
   CopyKeyButton.Top := ShowKeyButton.Top;
   CopyKeyButton.Left := ShowKeyButton.Width + ScaleX(8);
   CopyKeyButton.Caption := 'Copy authentication key';
-  CopyKeyButton.Width := ScaleX(190);
+  CopyKeyButton.Width := ScaleX(192);
   CopyKeyButton.OnClick := @CopySecretKey;
 
-  CopyStatus := TNewStaticText.Create(ConnectPage);
-  CopyStatus.Parent := ConnectPage.Surface;
-  CopyStatus.Width := ConnectPage.SurfaceWidth;
-  CopyStatus.Top := CopyKeyButton.Top + CopyKeyButton.Height + ScaleY(4);
+  KeySetupHint := TNewStaticText.Create(KeyPage);
+  KeySetupHint.Parent := KeyPage.Surface;
+  KeySetupHint.Top := CopyKeyButton.Top + CopyKeyButton.Height + ScaleY(13);
+  KeySetupHint.Width := KeyPage.SurfaceWidth;
+  KeySetupHint.AutoSize := False;
+  KeySetupHint.WordWrap := True;
+  KeySetupHint.Height := ScaleY(53);
+  KeySetupHint.Caption :=
+    'Open the computer device settings in SmartThings, enable shutdown/reboot/suspend, and paste this key into Power control key (64 hex chars).';
+
+  CopyStatus := TNewStaticText.Create(KeyPage);
+  CopyStatus.Parent := KeyPage.Surface;
+  CopyStatus.Width := KeyPage.SurfaceWidth;
+  CopyStatus.Top := KeySetupHint.Top + KeySetupHint.Height + ScaleY(12);
   CopyStatus.AutoSize := False;
   CopyStatus.WordWrap := True;
   CopyStatus.Height := ScaleY(33);
-  CopyStatus.Caption := '';
+  CopyStatus.Caption := 'Keep this key private. Never share it in logs or forum posts.';
 
   SilentHub := ExpandConstant('{param:HUBIP|}');
   if SilentHub <> '' then HubSelect.Text := SilentHub;
@@ -510,6 +536,8 @@ begin
     SearchForHubs(nil);
   if (CurPageID = ConnectPage.ID) and not WizardSilent and not InstallFailed then
     ShowConnectionPage;
+  if (CurPageID = KeyPage.ID) and not WizardSilent and not InstallFailed then
+    ShowPrivateKeyPage;
   if CurPageID = wpFinished then
   begin
     if InstallFailed then
@@ -520,10 +548,20 @@ begin
     else
     begin
       WizardForm.FinishedHeadingLabel.Caption := 'Computer Host LAN is installed';
-      WizardForm.FinishedLabel.Caption :=
-        'The Computer Host Agent has been installed. See Connect to SmartThings for instructions, or open the installed Setup Guide from the Start Menu.';
+      if AgentHealthy then
+        WizardForm.FinishedLabel.Caption :=
+          'Computer Host Agent is running and responding. You can open the Connect to SmartThings guide again from the Start Menu.'
+      else
+        WizardForm.FinishedLabel.Caption :=
+          'The Windows service was installed but is not responding yet. Check its status and use the Start Menu setup guide to continue.';
     end;
   end;
+end;
+
+function ShouldSkipPage(PageID: Integer): Boolean;
+begin
+  Result := (PageID = KeyPage.ID) and
+    (not PowerCheck.Checked or InstallFailed or WizardSilent);
 end;
 
 function SelectedHubIP: String;

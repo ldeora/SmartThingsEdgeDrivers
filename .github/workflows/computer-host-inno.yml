@@ -40,6 +40,7 @@ jobs:
           $iss = Get-Content windows-agent/installer/ComputerHostLAN.iss -Raw
           $mustContain = @(
             'Connect to SmartThings', 'CreateCustomPage(wpInstalling',
+            'KeyPage := CreateCustomPage', 'ShouldSkipPage(PageID: Integer)',
             'Power management', 'Allow connections from devices on my local network',
             'Advanced options', 'Show key', 'Copy authentication key',
             'ValidControlKey', 'Scan nearby', 'ShellExecAsOriginalUser',

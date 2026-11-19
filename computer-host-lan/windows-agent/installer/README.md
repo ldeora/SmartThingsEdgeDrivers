@@ -39,10 +39,10 @@ new installations start with monitoring only. On successful installation,
 the **Connect to SmartThings** page confirms the local agent health and
 provides an **Open driver channel** button, a copyable invitation link,
 and instructions to add the computer through SmartThings > Add device >
-Scan nearby. If power is enabled, Setup reads (without logging) the existing
-or newly generated 64-hex control key, displays it masked by default and
-allows revealing or copying it on explicit request. On a monitoring-only
-installation, the private key controls are not shown. Clipboard copying is
+Scan nearby. If power is enabled, an additional **Power control key**
+page reads (without logging) the existing or newly generated 64-hex control
+key, displays it masked by default, and allows revealing or copying it on
+explicit request. A monitoring-only installation skips this page entirely. Clipboard copying is
 opt-in, never automatic. A Start Menu link opens the installed
 Docs/CONNECT-TO-SMARTTHINGS.html guide for later reference; it contains no
 private key.
