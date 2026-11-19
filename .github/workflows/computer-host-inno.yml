@@ -107,6 +107,25 @@ jobs:
             } catch { Start-Sleep -Milliseconds 250 }
           }
           if (-not $ready) { throw 'Service did not become ready before Setup migration' }
+          function WaitAgentReady([string]$stage) {
+            for ($attempt = 0; $attempt -lt 70; $attempt++) {
+              try {
+                $info = Invoke-RestMethod http://127.0.0.1:8765/v2/info -TimeoutSec 2
+                if ($info -and $info.protocol -eq 'computer-host-agent' -and $info.id) {
+                  Write-Host "PASS agent healthy after $stage"
+                  return $info
+                }
+              } catch { }
+              Start-Sleep -Milliseconds 400
+            }
+            Get-Service ComputerHostAgent -ErrorAction SilentlyContinue |
+              Format-List Name,Status,StartType | Out-Host
+            Get-CimInstance Win32_Service -Filter "Name='ComputerHostAgent'" |
+              Select-Object Name,StartName,PathName,State,ExitCode | Format-List | Out-Host
+            $log = Join-Path $env:RUNNER_TEMP 'computerhost-setup.log'
+            if (Test-Path $log) { Get-Content -LiteralPath $log -Tail 45 }
+            throw "Agent did not serve /v2/info after $stage"
+          }
           function RunSetup([string]$setupArgs) {
             # Do not wait indefinitely for descendant processes of a self-
             # elevating installer. Bound the setup process and keep diagnostics.
@@ -123,20 +142,22 @@ jobs:
                 if (Test-Path $log) { Get-Content -LiteralPath $log -Tail 35 }
                 throw "Inno Setup failed: $($p.ExitCode)"
               }
+              if (Test-Path $log) {
+                $tail = Get-Content -LiteralPath $log -Tail 12
+                Write-Host "Inno Setup completed: $($tail[-1])"
+              }
             } finally { $p.Dispose() }
           }
           Write-Host 'TEST: ZIP-to-Setup migration'
           RunSetup "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /HUBIP=$hub /ENABLEPOWER=1"
-          Start-Sleep -Seconds 2
-          $migrated = Invoke-RestMethod http://127.0.0.1:8765/v2/info
+          $migrated = WaitAgentReady 'ZIP-to-Setup migration'
           if ($migrated.id -ne $old.id) { throw 'Migration changed installation UUID' }
           if ((Get-FileHash $key -Algorithm SHA256).Hash -ne $oldKeyHash) { throw 'Migration changed control key' }
           if (-not ($migrated.power_actions -contains 'reboot')) { throw 'Migration lost power setting' }
           # Next upgrade must retain power without asking to re-enable it.
           Write-Host 'TEST: preserve power setting during a subsequent silent upgrade'
           RunSetup "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /HUBIP=$hub"
-          Start-Sleep -Seconds 2
-          $upgraded = Invoke-RestMethod http://127.0.0.1:8765/v2/info
+          $upgraded = WaitAgentReady 'silent Setup-to-Setup upgrade'
           if ($upgraded.id -ne $old.id) { throw 'Upgrade changed UUID' }
           if (-not ($upgraded.power_actions -contains 'reboot')) { throw 'Upgrade lost power preference' }
           Write-Host 'TEST: uninstall removes service/firewall but retains state'
@@ -147,12 +168,29 @@ jobs:
           if (Get-Service ComputerHostAgent -ErrorAction SilentlyContinue) { throw 'Uninstall left agent service installed' }
           if (Get-NetFirewallRule -Name 'ComputerHostAgent-TCP8765' -ErrorAction SilentlyContinue) { throw 'Uninstall left firewall rule installed' }
           if ((Get-FileHash $key -Algorithm SHA256).Hash -ne $oldKeyHash) { throw 'Uninstall removed/rotated persistent key' }
-          Write-Host 'TEST: reinstall with monitoring-only power defaults'
+          Write-Host 'TEST: reinstallation with saved state and explicitly disabled power'
           RunSetup "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /HUBIP=$hub /ENABLEPOWER=0"
-          Start-Sleep -Seconds 2
-          $fresh = Invoke-RestMethod http://127.0.0.1:8765/v2/info
-          if (-not $fresh -or $fresh.power_actions.Count -ne 0) { throw 'Fresh monitoring-only install unexpectedly allows power' }
-          Write-Host 'PASS ZIP migration, identity/key persistence, power retention, uninstall and monitoring-only setup'
+          $reinstalled = WaitAgentReady 'state-preserving reinstall with power opt-out'
+          if ($reinstalled.id -ne $old.id) { throw 'Reinstall changed UUID despite retained state' }
+          if ($reinstalled.power_actions.Count -ne 0) { throw 'Explicit power opt-out failed' }
+          if ((Get-FileHash $key -Algorithm SHA256).Hash -ne $oldKeyHash) { throw 'Opt-out rotated key' }
+
+          Write-Host 'TEST: genuine clean installation with no saved state and LocalSubnet firewall'
+          $uninstaller = Join-Path (Join-Path $env:ProgramFiles 'Computer Host Agent') 'unins000.exe'
+          $p = Start-Process -FilePath $uninstaller -ArgumentList '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART' -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "Uninstall before clean-install test failed: $($p.ExitCode)" }
+          if (Get-Service ComputerHostAgent -ErrorAction SilentlyContinue) { throw 'Uninstall left service behind' }
+          # CI-only reset: users' normal uninstall MUST leave ProgramData untouched.
+          if (Test-Path $originalPath) { Remove-Item -LiteralPath $originalPath -Recurse -Force }
+          RunSetup "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /LOCALSUBNET=1"
+          $clean = WaitAgentReady 'genuine new installation'
+          if ($clean.id -eq $old.id) { throw 'Clean install reused deleted installation UUID' }
+          if ($clean.power_actions.Count -ne 0) { throw 'Clean install enabled power by default' }
+          if (Test-Path $key) { throw 'Clean monitoring-only install created a privileged token' }
+          $rule = Get-NetFirewallRule -Name 'ComputerHostAgent-TCP8765' -ErrorAction Stop
+          $addresses = @($rule | Get-NetFirewallAddressFilter | Select-Object -ExpandProperty RemoteAddress)
+          if ($addresses -notcontains 'LocalSubnet') { throw "LocalSubnet fallback not configured: $($addresses -join ',')" }
+          Write-Host 'PASS real clean install, LocalSubnet, ZIP migration, UUID/key retention, upgrades, uninstall and opt-out'
       - name: Upload unsigned installer prototype (not a public release)
         uses: actions/upload-artifact@v7
         with:
