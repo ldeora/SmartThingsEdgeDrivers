@@ -19,7 +19,7 @@ class PublicBetaPublicationTests(unittest.TestCase):
     def test_release_link_in_distribution_docs(self):
         for file in (BASE / "README.md", BASE / "INSTALLATION.md",
                      BASE / "docs/beta/START-HERE.md",
-                     BASE / "docs/beta/RELEASE-NOTES-v0.5.3-beta.1.md"):
+                     BASE / f"docs/beta/RELEASE-NOTES-v{VERSION}.md"):
             self.assertIn(RELEASE, file.read_text(encoding="utf-8"), str(file))
     def test_release_stage_never_enables_power(self):
         config = json.loads((BASE / "release.json").read_text())
