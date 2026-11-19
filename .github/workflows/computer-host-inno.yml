@@ -108,9 +108,9 @@ jobs:
           }
           if (-not $ready) { throw 'Service did not become ready before Setup migration' }
           function WaitAgentReady([string]$stage) {
-            for ($attempt = 0; $attempt -lt 70; $attempt++) {
+            for ($attempt = 0; $attempt -lt 35; $attempt++) {
               try {
-                $info = Invoke-RestMethod http://127.0.0.1:8765/v2/info -TimeoutSec 2
+                $info = Invoke-RestMethod http://127.0.0.1:8765/v2/info -TimeoutSec 1
                 if ($info -and $info.protocol -eq 'computer-host-agent' -and $info.id) {
                   Write-Host "PASS agent healthy after $stage"
                   return $info
@@ -123,7 +123,20 @@ jobs:
             Get-CimInstance Win32_Service -Filter "Name='ComputerHostAgent'" |
               Select-Object Name,StartName,PathName,State,ExitCode | Format-List | Out-Host
             $log = Join-Path $env:RUNNER_TEMP 'computerhost-setup.log'
-            if (Test-Path $log) { Get-Content -LiteralPath $log -Tail 45 }
+            if (Test-Path $log) { Get-Content -LiteralPath $log -Tail 80 }
+            # Diagnose runtime/startup failures; a successful Setup process exit
+            # does not guarantee the Windows Service remained alive.
+            foreach ($logName in @('Application', 'System')) {
+              Get-WinEvent -FilterHashtable @{
+                LogName=$logName; StartTime=(Get-Date).AddMinutes(-8)
+              } -MaxEvents 200 -ErrorAction SilentlyContinue |
+                Where-Object {
+                  $_.ProviderName -match 'Service Control Manager|\.NET Runtime|Application Error' -or
+                  $_.Message -match 'ComputerHostAgent|ComputerHost.WindowsAgent'
+                } |
+                Select-Object -First 16 TimeCreated,ProviderName,Id,Message |
+                Format-List | Out-Host
+            }
             throw "Agent did not serve /v2/info after $stage"
           }
           function RunSetup([string]$setupArgs) {
@@ -143,8 +156,8 @@ jobs:
                 throw "Inno Setup failed: $($p.ExitCode)"
               }
               if (Test-Path $log) {
-                $tail = Get-Content -LiteralPath $log -Tail 12
-                Write-Host "Inno Setup completed: $($tail[-1])"
+                Write-Host 'Inno Setup last operations:'
+                Get-Content -LiteralPath $log -Tail 40
               }
             } finally { $p.Dispose() }
           }
