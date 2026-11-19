@@ -8,7 +8,15 @@ try {
   $serviceName = 'ComputerHostAgent'
   $service = Get-CimInstance Win32_Service -Filter "Name='$serviceName'" -ErrorAction Stop
   if (-not $service) { return }
-  $installedPath = Join-Path (Join-Path $env:ProgramFiles 'Computer Host Agent') 'ComputerHost.WindowsAgent.exe'
+  # Inno Setup invokes Windows PowerShell from a 32-bit bootstrapper on some
+  # systems. ProgramFiles in that process may mean Program Files (x86).
+  # ProgramW6432 always identifies the 64-bit installation root on x64.
+  $programRoot = if ([Environment]::Is64BitOperatingSystem -and $env:ProgramW6432) {
+    $env:ProgramW6432
+  } else {
+    $env:ProgramFiles
+  }
+  $installedPath = Join-Path (Join-Path $programRoot 'Computer Host Agent') 'ComputerHost.WindowsAgent.exe'
   if ($service.StartName -ne 'NT AUTHORITY\LocalService') {
       throw 'Existing service is not owned by the expected LocalService account; refusing to replace.'
   }

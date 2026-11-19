@@ -85,6 +85,13 @@ jobs:
           Get-CimInstance Win32_Service -Filter "Name='ComputerHostAgent'" |
             Select-Object Name,StartName,PathName,State | Format-List
           & ./windows-agent/scripts/Prepare-WindowsAgentUpgrade.ps1 -ValidateOnly
+          # Reproduce the 32-bit PowerShell context used by the graphical
+          # bootstrapper, without allowing it to silently point at Program Files (x86).
+          $ps32 = Join-Path $env:WINDIR 'SysWOW64/WindowsPowerShell/v1.0/powershell.exe'
+          if (Test-Path $ps32) {
+            & $ps32 -NoProfile -NonInteractive -ExecutionPolicy Bypass -File ./windows-agent/scripts/Prepare-WindowsAgentUpgrade.ps1 -ValidateOnly
+            if ($LASTEXITCODE -ne 0) { throw '32-bit preflight refused the genuine ComputerHostAgent service' }
+          }
           # Test the actual stop path directly, so any PowerShell service
           # failure is visible rather than hidden behind Inno's Exec result.
           & ./windows-agent/scripts/Prepare-WindowsAgentUpgrade.ps1

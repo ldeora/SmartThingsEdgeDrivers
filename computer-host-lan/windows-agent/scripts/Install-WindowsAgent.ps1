@@ -10,7 +10,15 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 $service = 'ComputerHostAgent'
-$programs = Join-Path $env:ProgramFiles 'Computer Host Agent'
+# Inno Setup invokes Windows PowerShell from a 32-bit bootstrapper on some
+# systems. ProgramFiles in that process may mean Program Files (x86).
+# ProgramW6432 always identifies the 64-bit installation root on x64.
+$programRoot = if ([Environment]::Is64BitOperatingSystem -and $env:ProgramW6432) {
+  $env:ProgramW6432
+} else {
+  $env:ProgramFiles
+}
+$programs = Join-Path $programRoot 'Computer Host Agent'
 $state = Join-Path $env:ProgramData 'ComputerHostAgent'
 $exe = Join-Path $programs 'ComputerHost.WindowsAgent.exe'
 $source = Join-Path $PublishedDirectory 'ComputerHost.WindowsAgent.exe'
