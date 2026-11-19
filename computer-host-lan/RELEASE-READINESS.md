@@ -1,18 +1,17 @@
-# Computer Host LAN — beta release readiness
+# Computer Host LAN — v0.5.4-beta.1 release readiness
 
 | Item | Status |
 | --- | --- |
-| Separate protocol-v2 project; legacy Linux Host LAN preserved | PASS |
-| Gentoo + real SmartThings hub | PASS (hardware tested) |
-| Windows x64 compile, HTTP/HMAC tests and LocalService install | PASS (CI only) |
-| Windows 11 real SmartThings discovery and WOL | **Open — beta purpose** |
-| Linux distro CI | PASS (source/container, not physical hardware) |
-| Versioned release packaging and checksums | PASS at `eb277dde`; rerun at final documentation commit |
-| GitHub Release | Draft created with four assets; publication pending |
-| [SmartThings shared channel](https://bestow-regional.api.smartthings.com/invite/1J2Qy7ZkxL20) | Confirmed; another account installed Computer Host LAN |
-| Windows app profile / full LAN device discovery | Unverified, tester target |
-| Copyright/third-party provenance | Owner sign-off required |
+| PR #17 guided Windows x64 Setup.exe and Inno wizard merged | PASS — `06cf471ffb18` |
+| Windows Server 2025 GUI, clipboard, script-to-Setup migration, upgrade and guarded uninstall | PASS — run 44515639490 |
+| Windows 11 physical Setup.exe and real SmartThings hub discovery | Open — beta testing objective |
+| Windows PowerShell ZIP retained as a fallback | Implemented; new release candidate must confirm packaging |
+| Linux/Edge driver unchanged and protocol v2 compatible | Planned; verify final release candidate |
+| Four release assets including Setup.exe and unified SHA256SUMS | Candidate workflow prepared; verify successful CI |
+| GitHub v0.5.4-beta.1 prerelease | Not published; owner publication step required |
+| SmartThings existing driver/channel | Existing published channel retained; no redeployment necessary |
+| Redistribution/provenance (Inno Setup, Zeroconf, .NET) | Publisher sign-off required |
+| Unsigned Windows binary, trusted LAN, opt-in power warnings | Disclosed |
 
-**Immediate publication sequence:** merge the final documentation update; verify all three CI workflows on the resulting `main` commit; replace four draft release assets and notes from that commit; publish the GitHub prerelease; verify public downloads; then publish the SmartThings Community invitation.
+Only publish a new versioned prerelease once all release-candidate tests pass on the exact `main` commit; preserve v0.5.3-beta.1 for rollback. No stable-release claims for Windows 11 multi-hub, GUI display scaling, S0/S3/S4/S5 WOL or heterogeneous networks.
 
-The Windows ZIP is **unsigned**; monitor on a trusted Private LAN only (no HTTP TLS or port forwarding). Power commands stay off by default, and S0/S3/S4/S5 wake is hardware-dependent. The existing `linux-host-lan/` project is not changed or superseded.
