@@ -1,4 +1,6 @@
-# Native Windows Host Agent — v0.2.3-beta.1 (published v0.5.4-beta.1 integration)
+# Native Windows Host Agent — v0.2.4-beta.1 (proposed v0.5.5-beta.1 integration)
+
+**Not yet published:** the public beta remains v0.5.4-beta.1. This source tree is the v0.5.5 stabilization candidate; see [candidate release notes](../docs/beta/RELEASE-NOTES-v0.5.5-beta.1.md).
 
 Companion to **Computer Host LAN v0.5.4-beta.1**, sharing protocol v2 and `_computerhost._tcp` discovery with the Linux agent.
 
@@ -50,4 +52,4 @@ See [platform installation](../INSTALLATION.md), [tester checklist](docs/HARDWAR
 
 **Preferred:** Run the newer Setup.exe over the existing agent; it preserves previous power opt-in without repeating a command-line flag. **Fallback:** Extract the new package into a fresh folder and rerun the included installer in elevated PowerShell. Persistent identity and the control key are preserved in `%ProgramData%\\ComputerHostAgent`. **Important:** `-EnablePower` must be provided *again* during an upgrade if you intend to keep remote power actions enabled; without it, power is intentionally disabled. Do not use `-PurgeState` for an upgrade. Check `/v2/metrics` for both memory byte fields (`memory_used_bytes`, `memory_available_bytes`) and filesystem byte fields (`disk_root_used_bytes`, `disk_root_available_bytes`), then verify **Used GiB** and **Available GiB** alongside usage % and total GiB for both cards in SmartThings. Linux reference hardware passed these new values; Windows 11 hardware confirmation is requested.
 
-**Unreleased stabilization:** PR #19 extends the graphical upgrader with a protected application/firewall snapshot and failure recovery, and corrects version reporting, custom port/configuration retention and authentication-key ACLs. None of these new changes are included in the published v0.5.4-beta.1 executable. See [release readiness](../RELEASE-READINESS.md) and [third-party notices](../docs/beta/THIRD-PARTY-NOTICES.md).
+**Merged stabilization (packaged in the proposed v0.5.5 beta):** PR #19 extends the graphical upgrader with a protected application/firewall snapshot and failure recovery, and corrects version reporting, custom port/configuration retention and authentication-key ACLs. These changes are not present in the existing published v0.5.4-beta.1 executable; they will be distributed only after v0.5.5-beta.1 is published. See [release readiness](../RELEASE-READINESS.md) and [third-party notices](../docs/beta/THIRD-PARTY-NOTICES.md).

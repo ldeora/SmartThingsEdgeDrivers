@@ -22,6 +22,16 @@
 - [ ] M13: Uninstall removes service and application-owned firewall rule; state retained unless purge requested.
 - [ ] M14: Diagnostics are readable and manually reviewed for identifiers before sharing.
 
+## v0.5.5-beta.1 stabilization validation (when published)
+
+- [ ] S01: Upgrade from the published v0.5.4-beta.1 Setup.exe to v0.5.5 using the wizard, not a ZIP extracted into Program Files. Existing SmartThings device, installation ID, control key, settings and optional power enablement remain unchanged.
+- [ ] S02: On Windows, run `Get-Service ComputerHostAgent`, `/v2/info` and `/v2/metrics`; verify `agent_version=0.2.4-beta.1`, monitoring values and no duplicate SmartThings device.
+- [ ] S03: Stop/restart the Windows service; verify SmartThings goes unreachable then recovers. Normal upgrades remove the temporary rollback snapshot after success. Do not simulate power loss unless prepared for physical recovery.
+- [ ] S04: If using a nondefault HTTP port, confirm configuration, matching firewall port and sanitized diagnostics continue working after upgrade.
+- [ ] S05: On Gentoo or another Linux systemd host, verify `agent_version=0.4.3-beta.1` and unchanged UUID/key, telemetry, driver discovery and normal service behavior.
+- [ ] S06: After **publisher** updates the existing SmartThings channel, confirm driver v0.4.3-beta.1, readable Wake/Restart/Sleep component labels, unchanged automations and quick suspend/recovery state transitions.
+- [ ] S07: Record failures and Windows Setup log after **manual redaction**; never share control tokens. Mark untested WOL/power states explicitly.
+
 ## Windows guided Setup.exe beta test cases (Windows 11 x64)
 
 - [ ] W01: Welcome screen visibly renders; all Next/Back/Cancel buttons and hub address input are accessible at the current Windows display scaling.
