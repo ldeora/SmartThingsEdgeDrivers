@@ -89,6 +89,17 @@ jobs:
           # failure is visible rather than hidden behind Inno's Exec result.
           & ./windows-agent/scripts/Prepare-WindowsAgentUpgrade.ps1
           Start-Service ComputerHostAgent
+          (Get-Service ComputerHostAgent).WaitForStatus(
+            [System.ServiceProcess.ServiceControllerStatus]::Running,
+            [TimeSpan]::FromSeconds(40))
+          $ready = $false
+          for ($attempt = 0; $attempt -lt 40; $attempt++) {
+            try {
+              $health = Invoke-RestMethod http://127.0.0.1:8765/v2/health -TimeoutSec 2
+              if ($health.status -eq 'running') { $ready = $true; break }
+            } catch { Start-Sleep -Milliseconds 250 }
+          }
+          if (-not $ready) { throw 'Service did not become ready before Setup migration' }
           function RunSetup([string]$setupArgs) {
             # Do not wait indefinitely for descendant processes of a self-
             # elevating installer. Bound the setup process and keep diagnostics.

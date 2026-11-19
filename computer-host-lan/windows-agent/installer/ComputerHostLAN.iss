@@ -239,7 +239,8 @@ end;
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
   ExitCode: Integer;
-  Params: String;
+  Params, DiagnosticFile: String;
+  Details: AnsiString;
 begin
   Result := '';
   if not ValidConfiguration() then
@@ -248,12 +249,22 @@ begin
     Exit;
   end;
   ExtractTemporaryFile('Prepare-WindowsAgentUpgrade.ps1');
+  DiagnosticFile := ExpandConstant('{tmp}\computerhost-preparation-error.txt');
+  DeleteFile(DiagnosticFile);
   Params := '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' +
-    ExpandConstant('{tmp}\Prepare-WindowsAgentUpgrade.ps1') + '"';
+    ExpandConstant('{tmp}\Prepare-WindowsAgentUpgrade.ps1') + '" -DiagnosticPath "' +
+    DiagnosticFile + '"';
   if not Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
     Params, '', SW_HIDE, ewWaitUntilTerminated, ExitCode) or (ExitCode <> 0) then
+  begin
     Result := 'Unable to stop or validate the existing Computer Host Agent service. ' +
-      'No application files were replaced. Review the installation log.';
+      'No application files were replaced.';
+    if LoadStringFromFile(DiagnosticFile, Details) then
+    begin
+      Log(String(Details));
+      Result := Result + ' ' + String(Details);
+    end;
+  end;
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
