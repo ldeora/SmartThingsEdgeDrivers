@@ -1,5 +1,14 @@
 # Computer Host LAN — change log
 
+## v0.5.4-beta.1 (2026-11-19) — native Windows guided installer (candidate)
+
+- PR #17 merged into `main`; Windows x64 Inno Setup 7 wizard is now the recommended beta installer, with the original ZIP/PowerShell route retained.
+- Wizard includes mDNS hub discovery and editable IPv4 selection, retry and explicit Private LocalSubnet firewall fallback, a separate opt-in power page, SmartThings channel onboarding, masked/copyable private key and safe Installed apps uninstall.
+- Existing ZIP/PowerShell installations can migrate directly to Setup, preserving UUID, token, customized appsettings and power preference. Normal uninstall retains ProgramData. The PowerShell fallback still requires `-EnablePower` on each upgrade.
+- Windows Server 2025 GUI, clipboard, migration, upgrade, service-ownership safety and uninstall passed CI ([run 44515639490](https://github.com/ldeora/SmartThingsEdgeDrivers/actions/runs/44515639490)). Real Windows 11 discovery/interaction and WOL require public-beta hardware tests.
+- Linux agent and Edge driver stay at v0.4.2-beta.1. Windows agent v0.2.3-beta.1; protocol v2 unchanged. Release workflow now prepares both the standalone Setup.exe and existing Windows ZIP with checksums.
+
+
 ## v0.5.3-beta.1 (2026-11-18) — four-value resource telemetry (candidate)
 
 - PR #15 adds exact RAM used/available and root/system filesystem allocated/available byte metrics on Linux and Windows; existing percent/total readings remain unchanged.
