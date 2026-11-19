@@ -330,8 +330,9 @@ try {
             ClickWizardButton $window.Handle 'Copy authentication key'
             WaitForClipboard $key 'authentication key copying'
             $key = $null
-            ClickWizardButton $window.Handle 'Finish'
-            }
+            ClickWizardButton $window.Handle 'Next'
+            WaitForWizardText $window.Handle 'Computer Host LAN is installed' 'completed installer page'
+        }
         ClickWizardButton $window.Handle 'Finish'
         if ($MonitoringOnly) {
             $info = Invoke-RestMethod http://127.0.0.1:8765/v2/info
