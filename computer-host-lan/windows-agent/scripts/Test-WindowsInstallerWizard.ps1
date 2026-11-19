@@ -249,7 +249,16 @@ try {
         }
         ClickWizardButton $window.Handle 'Advanced options'
         $subnet = VisibleControls $window.Handle | Where-Object {
-            $_.Class -match 'CheckBox' -and $_.Text -match '^Allow connections from devices on my local network    CaptureWizardPage $window ('02-hub' + $modeSuffix)
+            $_.Class -match 'CheckBox' -and $_.Text -match '^Allow connections from devices on my local network$'
+        } | Select-Object -First 1
+        if (-not $subnet) { throw 'Local-network fallback checkbox is not visible' }
+        [ComputerHostWizardProbe]::Click($subnet.Handle)
+        if (-not [ComputerHostWizardProbe]::IsChecked($subnet.Handle)) {
+            throw 'Local-network firewall checkbox did not become checked'
+        }
+        Write-Host 'PASS user explicitly enabled local-network firewall fallback without knowing a hub IP'
+    }
+    CaptureWizardPage $window ('02-hub' + $modeSuffix)
     $rescan = $children | Where-Object { $_.Visible -and $_.Text -match 'Search again' } | Select-Object -First 1
     if (-not $rescan) { throw 'Search again button not visible' }
     Write-Host 'PASS Search again button visible'
