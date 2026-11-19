@@ -14,7 +14,12 @@ class BetaReleaseVersionTests(unittest.TestCase):
         self.assertRegex(manifest["windows_agent"], r"^\d+\.\d+\.\d+-beta\.\d+$")
         self.assertEqual(manifest["release_stage"], f"beta-candidate-v{manifest['integration']}")
         self.assertIn(f'<Version>{manifest["windows_agent"]}</Version>', (ROOT / 'windows-agent/ComputerHost.WindowsAgent/ComputerHost.WindowsAgent.csproj').read_text())
+        self.assertIn(f'AgentVersion = "{manifest["windows_agent"]}"', (ROOT / 'windows-agent/ComputerHost.WindowsAgent/AgentContract.cs').read_text())
+        self.assertIn(f'VERSION = "{manifest["agent"]}"', (ROOT / 'agent/linux_host_agent.py').read_text())
+        self.assertIn(f'DRIVER_VERSION = "{manifest["edge_driver"]}"', (ROOT / 'edge-driver/src/computerhost/constants.lua').read_text())
         self.assertIn(f'#define IntegrationVersion "{manifest["integration"]}"', (ROOT / 'windows-agent/installer/ComputerHostLAN.iss').read_text())
+        self.assertIn('"SmartThings-ComputerHost/"..C.DRIVER_VERSION', (ROOT / 'edge-driver/src/computerhost/api.lua').read_text())
+        self.assertIn('server_version = "LinuxHostAgent/" + VERSION', (ROOT / 'agent/linux_host_agent.py').read_text())
         self.assertEqual(manifest["agent_protocol"], 2)
         self.assertEqual(manifest["power_control_default"], "disabled")
 

@@ -1,4 +1,7 @@
 name: Computer Host LAN release candidate (unsigned, not published)
+concurrency:
+  group: computer-host-${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
 on:
   push:
     branches: [main]

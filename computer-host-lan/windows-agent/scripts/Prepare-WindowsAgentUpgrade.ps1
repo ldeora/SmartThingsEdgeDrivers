@@ -33,7 +33,34 @@ try {
           [System.ServiceProcess.ServiceControllerStatus]::Stopped,
           [TimeSpan]::FromSeconds(40))
   }
-  
+  # Preserve the previous working installation if file replacement or service
+  # configuration fails. Snapshot resides beside the app in admin-only Program
+  # Files, not in a world-writable temporary directory.
+  $programs = Join-Path $programRoot 'Computer Host Agent'
+  $backup = $programs + '.upgrade-rollback'
+  if (Test-Path -LiteralPath $backup) {
+    throw 'Previous rollback snapshot still exists; inspect or restore it before another upgrade.'
+  }
+  if (-not (Test-Path -LiteralPath $installedPath -PathType Leaf)) {
+    throw 'Existing service binary is missing; refusing an unsafe upgrade.'
+  }
+  Copy-Item -LiteralPath $programs -Destination $backup -Recurse -Force -ErrorAction Stop
+  try {
+    $rule = Get-NetFirewallRule -Name 'ComputerHostAgent-TCP8765' -ErrorAction SilentlyContinue
+    $saved = @{ Present = [bool]$rule }
+    if ($rule) {
+      $address = $rule | Get-NetFirewallAddressFilter
+      $ports = $rule | Get-NetFirewallPortFilter
+      $saved.RemoteAddress = @($address.RemoteAddress)
+      $saved.LocalPort = @($ports.LocalPort)
+      $saved.Profile = [string]$rule.Profile
+    }
+    [IO.File]::WriteAllText((Join-Path $backup 'firewall-rollback.json'),
+      ($saved | ConvertTo-Json -Depth 5), [Text.Encoding]::UTF8)
+  } catch {
+    Remove-Item -LiteralPath $backup -Recurse -Force -ErrorAction SilentlyContinue
+    throw
+  }
 } catch {
   # Only service-management details, no authentication data or UUIDs.
   if ($DiagnosticPath) {

@@ -1,6 +1,6 @@
-# Computer Host Agent protocol v2 (development draft)
+# Computer Host Agent protocol v2 (current public beta)
 
-**Applies to:** Linux agent and generic SmartThings Edge Driver v0.4.2-beta.1. Protocol v2 is unchanged.
+**Applies to:** Linux agent and generic SmartThings Edge Driver v0.4.2-beta.1, and Windows agent v0.2.3-beta.1 in the published v0.5.4-beta.1 integration. Protocol v2 is unchanged.
 **Not backward compatible with protocol v1.** All endpoints are under `/v2/`.
 The v0.3.1 contract is archived in `docs/history/v0.3.1-beta.1/PROTOCOL.md`.
 
@@ -15,8 +15,8 @@ The v0.3.1 contract is archived in `docs/history/v0.3.1-beta.1/PROTOCOL.md`.
 * The Edge Driver validates protocol, version, platform and UUID and checks
   UUID again before saving metadata, reporting telemetry or sending power.
 * `platform` is the operating-system family, not the firmware power state.
-  The current implementation advertises only `linux`; the Windows prototype
-  must implement the same contract without using Linux system APIs.
+  Both `linux` and `windows` are implemented and must follow the same wire
+  contract; Windows-specific metrics and power API calls remain platform-specific.
 * Network candidates must be verified by querying `/v2/info`; unsolicited
   mDNS advertisements alone are not sufficient to associate a device.
 * Identifier prefix: `computer-host:<lowercase UUID>`; previous identities
@@ -118,8 +118,8 @@ mean **Used + Available ≠ Total**. Existing disk percentage remains
 The additional four read-only SmartThings custom attributes are part of the
 **existing** memory and disk capabilities; updating the Edge driver ZIP alone
 does not update account-level schemas/translations/presentations. Follow the
-staged rollout in `docs/development/FOUR-METRICS-ROLLOUT.md`. The public
-v0.5.2-beta.1 release and channel remain untouched during development.
+staged rollout in `docs/development/FOUR-METRICS-ROLLOUT.md`. The public v0.5.4-beta.1 release remains untouched by the unreleased
+stabilization branch; the established SmartThings channel is unchanged.
 
 ## Authentication
 
@@ -148,9 +148,8 @@ and provisioning UX are investigated.
 * `computer-host-windows`: generic capabilities only; no Linux load averages.
 * `computer-host`: standard-capability fallback.
 * Switch OFF currently means authenticated **shutdown**. This is appropriate
-  for verified Linux behavior. The Windows agent must not claim wake-from-
-  shutdown works universally; configurable sleep/shutdown behavior is a
-  future Windows-specific implementation task.
+  for verified Linux behavior. The Windows agent does not claim wake-from-shutdown works universally;
+  successful WOL depends on NIC, firmware and Windows S0/S3/S4/S5 behavior.
 
 The monitoring intervals, power-state inference, WOL metadata persistence,
 identity checks, failure handling, and security limits are inherited from
@@ -171,3 +170,7 @@ The Windows agent advertises a best-effort wired Ethernet MAC and subnet
 broadcast if detected. This is **not** evidence that Wake-on-LAN works on any
 particular device or power state. WOL must be tested on real hardware.
 Windows power and WOL are disabled by default on fresh installations.
+
+## Release consistency
+
+Release engineering verifies the component-version constants against `release.json` and reads the running Windows agent's `/v2/info.agent_version` in native Windows CI. A reported runtime version mismatch is a release defect, even when protocol v2 is compatible. Existing beta devices retain their UUID and profile component IDs across version updates.

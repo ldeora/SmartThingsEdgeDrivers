@@ -1,6 +1,6 @@
 # Windows graphical installer (Inno Setup 7) — public-beta installation method
 
-The graphical Windows x64 Setup.exe becomes the **recommended** installation and upgrade method in Computer Host LAN v0.5.4-beta.1, after that prerelease is published. Its [permanent release asset](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.4-beta.1) is separate from the existing supported PowerShell ZIP, which remains a fallback for troubleshooting. Both are unsigned; verify SHA-256 before running. Actual Windows 11 hub discovery and hardware behavior remain beta test objectives. The native Windows Server 2025 CI has verified complete graphical navigation, clipboard copying, service upgrades, uninstall safety and ZIP migration.
+The graphical Windows x64 Setup.exe is the **recommended** installation and upgrade method in the published Computer Host LAN v0.5.4-beta.1 prerelease. Its [permanent release asset](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.4-beta.1) is separate from the existing supported PowerShell ZIP, which remains a fallback for troubleshooting. Both are unsigned; verify SHA-256 before running. A Windows 11 Pro volunteer has now reported real GUI installation and upgrade with accurate monitoring; broader hub-discovery topologies and hardware wake remain beta objectives. The native Windows Server 2025 CI has verified complete graphical navigation, clipboard copying, service upgrades, uninstall safety and ZIP migration.
 
 ## SmartThings hub selection
 
@@ -63,3 +63,9 @@ Run from `computer-host-lan/windows-agent/installer`. The CI job builds and
 executes the discovery helper's self-test before invoking Inno Setup 7. A
 GitHub Windows runner **cannot** confirm discovery of a real SmartThings hub.
 Real Windows 11 beta testing remains an objective while Setup.exe is distributed in the public beta; stable-release certification is not implied.
+
+## Unreleased upgrade recovery improvements (PR #19)
+
+The stabilization branch stages the previously installed application and its managed firewall configuration in an admin-protected sibling of the Program Files installation directory, before Inno replaces any files. On a detected post-install failure, a guarded helper restores the original application/configuration, firewall scope and stopped service. On success the snapshot is deleted. A CI failure-injection scenario checks recovery. This is an improvement over v0.5.4-beta.1 and is **not** a retroactive fix to its published Setup.exe. The helper must not touch the UUID or HMAC key in ProgramData. A canceled/aborted installation after preflight also attempts recovery, but power loss and unexpected Windows termination still require manual repair testing.
+
+The enhanced installer reads a customized agent listener port for its local health check, and the PowerShell installer uses that same port for the Private-profile firewall rule. Both installation methods retain the previous settings; script-based upgrades still require an explicit `-EnablePower`. Dependency licensing is recorded in [third-party notices](../../docs/beta/THIRD-PARTY-NOTICES.md).

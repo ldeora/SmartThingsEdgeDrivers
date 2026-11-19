@@ -137,7 +137,9 @@ poll=function(driver,device,reason)
         tostring(device.label),failed_polls))
     end
     local action=pending(device)
-    local status,confirmed=State.success(action,boot_changed)
+    local raw_pending_at=device:get_field(C.FIELD_PENDING_AT)
+    local action_age=action and math.max(0,os.time()-(tonumber(raw_pending_at) or os.time())) or 0
+    local status,confirmed=State.success(action,boot_changed,failed_polls,action_age)
     host_status(device,status)
     if confirmed then clear_pending(device) end
     -- Edge get_field() may return zero values when an unset field is queried.

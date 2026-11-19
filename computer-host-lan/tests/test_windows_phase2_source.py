@@ -25,6 +25,9 @@ class WindowsPhase2SourceTests(unittest.TestCase):
         linux=yaml.safe_load((ROOT/'edge-driver/profiles/computer-host-linux.yaml').read_text())
         self.assertEqual([x['id'] for x in windows['components']],['main','wake','reboot','suspend'])
         self.assertEqual([x['id'] for x in linux['components']],['main','wake','reboot','suspend'])
+        for profile in (linux, windows):
+            self.assertEqual({c['id']: c['label'] for c in profile['components']},
+                             {'main':'Computer', 'wake':'Wake', 'reboot':'Restart', 'suspend':'Sleep'})
         excluded={'controlKey','allowPowerCommands','wolPort','wolMacOverride','wolBroadcastOverride'}
         self.assertTrue(excluded.issubset(x['name'] for x in windows['preferences']))
 

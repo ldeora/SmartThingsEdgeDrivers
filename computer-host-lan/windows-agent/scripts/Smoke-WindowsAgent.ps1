@@ -33,6 +33,8 @@ try {
     $health = Invoke-RestMethod -Uri "$base/v2/health" -TimeoutSec 3
     $metrics = Invoke-RestMethod -Uri "$base/v2/metrics" -TimeoutSec 3
     if ($info.platform -ne 'windows' -or $info.api_version -ne 2) { throw 'Incorrect info envelope' }
+    $release = Get-Content -LiteralPath (Join-Path (Get-Location) 'release.json') -Raw | ConvertFrom-Json
+    if ($info.agent_version -ne $release.windows_agent) { throw 'Runtime agent version differs from release.json' }
     if ($health.id -ne $info.id -or $metrics.id -ne $info.id) { throw 'Identity mismatch' }
     if ($info.power_actions.Count -ne 0) { throw 'Power enabled without opt-in' }
     if ($health.status -ne 'running' -or $health.uptime_seconds -le 0) { throw 'Health invalid' }

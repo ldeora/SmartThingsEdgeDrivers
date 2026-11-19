@@ -1,12 +1,26 @@
-# Next candidate: Computer Host LAN v0.5.4-beta.1 — Windows guided installer
+# Computer Host LAN — current public beta and stabilization status (2026-11-19)
 
-The existing public release is **v0.5.3-beta.1**. PR #17 (merge commit `06cf471ffb18`) adds the Inno Setup 7 Windows x64 wizard to `main`. Windows Server 2025 CI has passed native wizard interactions, opt-in and key copy, ZIP-to-Setup migration, upgrades, guarded service removal, uninstall and preserved identity/configuration. This is sufficient to include Setup.exe as an **unsigned beta download**; it is not evidence of physical Windows 11 hub interoperability.
+**Current public download:** [v0.5.4-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.4-beta.1), published November 19 from commit `f19c114b1cca7dcb87b5774eff7602e70184047c`.
+The Linux agent and Edge Driver remain v0.4.2-beta.1; Windows agent
+v0.2.3-beta.1; protocol v2 and the existing shared SmartThings channel are
+unchanged. Both Windows Setup.exe and ZIP/PowerShell remain supported.
 
-The planned **v0.5.4-beta.1** release makes Setup.exe the default Windows installation and upgrade method and keeps the existing Windows ZIP/PowerShell script method available. Fresh installs start in monitoring-only mode, while guided upgrades preserve previous optional power enablement. Manual script upgrades still require `-EnablePower`. Linux and the Edge Driver remain at v0.4.2-beta.1; the Windows agent moves to v0.2.3-beta.1; protocol v2 and the existing shared SmartThings channel stay unchanged.
+**Hardware confirmation:** A Windows 11 Pro volunteer has now reported
+successful installation and upgrade through the actual graphical wizard,
+accurate CPU/RAM/disk monitoring, and provided a SmartThings screenshot.
+The previous Windows volunteer's report confirmed suspend, reboot and
+shutdown actions. This is valuable real-hardware evidence, not complete
+coverage of WOL, every firmware or network recovery scenario.
 
-**Required before publication:** merge the release packaging/documentation follow-up PR with successful CI; verify the exact `main` commit's release-candidate bundle includes Linux ZIP, Windows ZIP, docs ZIP, Windows Setup.exe and `SHA256SUMS.txt`; confirm component versions and SHA-256 checksums; review third-party redistribution licenses and signing/safety wording; publish a **new prerelease** `computer-host-lan-v0.5.4-beta.1`; verify permanent public downloads. Preserve v0.5.3-beta.1 unchanged.
+**Next work:** [draft PR #19](https://github.com/ldeora/SmartThingsEdgeDrivers/pull/19)
+addresses version reporting, Windows upgrade recovery, configuration/custom
+port persistence, authentication-key ACLs, Edge power-state edge cases,
+regression tests and documentation. No PR changes are in the published beta.
+The first stable release candidate is gated by
+[release readiness](RELEASE-READINESS.md), including actual Windows hardware
+retests and publisher licensing/provenance sign-off. Preserve the published
+v0.5.4-beta.1 assets for rollback.
 
-**Open beta test requests:** real Windows 11 hub mDNS discovery (zero, one and multiple hubs), manual IPv4, local-network fallback, GUI at different scaling, migration of real previous-beta hosts, app pairing, monitoring, recovery and WOL. These are not stable-release blockers, but results must be explicitly described.
 
 ---
 

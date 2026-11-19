@@ -28,14 +28,24 @@ function M.failure(action,kind,failed_polls,host_failures,threshold,assume_off)
   return "unknown",nil,false
 end
 
--- A reboot is confirmed only by a different Linux kernel boot_id.
-function M.success(action,boot_changed)
+-- Reboot completion requires a different kernel boot_id. For suspend, a
+-- recoverable connectivity gap is enough to recognize a quick resume, while
+-- a continuously responding agent is no longer 'suspending' after 30s.
+-- The same conservative timeout clears a cancelled Windows shutdown after
+-- 60s if its agent never went away (202 only means accepted).
+function M.success(action,boot_changed,failed_polls,elapsed_seconds)
   if action=="wake" then return "running",true end
   if action=="reboot" then
     return boot_changed and "running" or "rebooting",boot_changed==true
   end
-  if action=="shutdown" then return "stopping",false end
-  if action=="suspend" then return "suspending",false end
+  if action=="shutdown" then
+    if (elapsed_seconds or 0)>=60 then return "running",true end
+    return "stopping",false
+  end
+  if action=="suspend" then
+    if (failed_polls or 0)>0 or (elapsed_seconds or 0)>=30 then return "running",true end
+    return "suspending",false
+  end
   return "running",false
 end
 

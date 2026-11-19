@@ -1,4 +1,7 @@
 name: Computer Host LAN Windows graphical installer (beta validation)
+concurrency:
+  group: computer-host-${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
 on:
   push:
     branches: [main]
@@ -174,6 +177,20 @@ jobs:
           # Test the actual stop path directly, so any PowerShell service
           # failure is visible rather than hidden behind Inno's Exec result.
           & ./windows-agent/scripts/Prepare-WindowsAgentUpgrade.ps1
+          # The preflight snapshot must recover the old service when a
+          # subsequent installation phase unexpectedly changes settings.
+          $snapshot = Join-Path $env:ProgramFiles 'Computer Host Agent.upgrade-rollback'
+          if (-not (Test-Path -LiteralPath $snapshot)) { throw 'Upgrade snapshot missing' }
+          $originalConfigHash = (Get-FileHash $configPath -Algorithm SHA256).Hash
+          Set-Content -LiteralPath $configPath -Value 'test replacement config'
+          & ./windows-agent/scripts/Restore-WindowsAgentUpgrade.ps1 -Mode Restore
+          if ($LASTEXITCODE -ne 0) { throw 'Rollback script failed' }
+          if ((Get-FileHash $configPath -Algorithm SHA256).Hash -ne $originalConfigHash) {
+            throw 'Upgrade rollback failed to restore configuration'
+          }
+          if (Test-Path -LiteralPath $snapshot) { throw 'Rollback snapshot was not removed' }
+          if ((Get-Service ComputerHostAgent).Status -ne 'Running') { throw 'Rollback failed to restart service' }
+          Write-Host 'PASS failed-upgrade recovery restored previous settings/service'
           Start-Service ComputerHostAgent
           (Get-Service ComputerHostAgent).WaitForStatus(
             [System.ServiceProcess.ServiceControllerStatus]::Running,
@@ -254,6 +271,8 @@ jobs:
           if (-not ($migrated.power_actions -contains 'reboot')) { throw 'Migration lost power setting' }
           $guide = Join-Path $env:ProgramFiles 'Computer Host Agent/Docs/CONNECT-TO-SMARTTHINGS.html'
           if (-not (Test-Path $guide)) { throw 'Onboarding guide not installed' }
+          $notices = Join-Path $env:ProgramFiles 'Computer Host Agent/Docs/THIRD-PARTY-NOTICES.md'
+          if (-not (Test-Path $notices)) { throw 'Third-party notice missing from installed application' }
           $guideText = Get-Content -LiteralPath $guide -Raw
           if ($guideText -notmatch 'Scan nearby' -or $guideText -notmatch '1J2Qy7ZkxL20' -or $guideText -notmatch 'Power control key') { throw 'Onboarding guide instructions incomplete' }
           if ($guideText -match [regex]::Escape((Get-Content -LiteralPath $key -Raw).Trim())) { throw 'Private control token leaked to installed guide' }
