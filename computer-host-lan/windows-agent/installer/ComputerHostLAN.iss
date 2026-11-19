@@ -703,6 +703,36 @@ begin
   if InstallFailed then Result := 17 else Result := 0;
 end;
 
+// Inno's [UninstallRun] action cannot veto tracked file removal when a
+// service-cleanup script refuses a hijacked service. Validate ownership
+// BEFORE starting Uninstall so executable files are never removed while
+// an unexpected service with our name is still registered.
+function InitializeUninstall: Boolean;
+var
+  ScriptPath, Params: String;
+  ExitCode: Integer;
+begin
+  Result := False;
+  ScriptPath := ExpandConstant('{app}\Installer\Uninstall-WindowsAgent.ps1');
+  if FileExists(ScriptPath) then
+  begin
+    Params := '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' +
+      ScriptPath + '" -ValidateOnly';
+    if ExecWithNativeSysDir(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
+      Params, '', SW_HIDE, ewWaitUntilTerminated, ExitCode) and (ExitCode = 0) then
+      Result := True;
+  end;
+  if not Result then
+  begin
+    Log('Uninstall blocked: ComputerHostAgent service ownership validation failed or cleanup script is missing.');
+    if not UninstallSilent then
+      MsgBox('Computer Host LAN cannot safely uninstall because the service ' +
+        'does not match this installation, or its cleanup script is missing. ' +
+        'No files have been removed. See the setup documentation.',
+        mbError, MB_OK);
+  end;
+end;
+
 procedure DeinitializeSetup;
 begin
   // Do not leave the key in a UI field after the wizard closes.

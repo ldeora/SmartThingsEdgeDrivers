@@ -1,6 +1,6 @@
 # Stop and delete only the ComputerHostAgent service. Preserve state unless explicitly purged.
 [CmdletBinding(SupportsShouldProcess=$true)]
-param([switch]$PurgeState, [switch]$KeepProgramFiles)
+param([switch]$PurgeState, [switch]$KeepProgramFiles, [switch]$ValidateOnly)
 $ErrorActionPreference = 'Stop'
 $service = 'ComputerHostAgent'
 # Inno Setup invokes Windows PowerShell from a 32-bit bootstrapper on some
@@ -15,9 +15,8 @@ $programs = Join-Path $programRoot 'Computer Host Agent'
 $state = Join-Path $env:ProgramData 'ComputerHostAgent'
 $principal = [Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsIdentity]::GetCurrent())
 if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { throw 'Run PowerShell as Administrator.' }
-if ($PSCmdlet.ShouldProcess($service, 'Stop and remove Computer Host Agent service')) {
-  $existing = Get-Service -Name $service -ErrorAction SilentlyContinue
-  if ($existing) {
+$existing = Get-Service -Name $service -ErrorAction SilentlyContinue
+if ($existing) {
     # Mirror the upgrade preflight: never delete an unrelated Windows service
     # merely because it happens to use the same service name.
     $installedService = Get-CimInstance Win32_Service -Filter "Name='$service'" -ErrorAction Stop
@@ -28,6 +27,13 @@ if ($PSCmdlet.ShouldProcess($service, 'Stop and remove Computer Host Agent servi
           $expectedPath, [StringComparison]::OrdinalIgnoreCase)) {
       throw 'ComputerHostAgent service account or binary path does not match this agent; refusing to uninstall an unrelated service.'
     }
+  }
+if ($ValidateOnly) {
+  Write-Host 'PASS ComputerHostAgent ownership pre-uninstall validation'
+  return
+}
+if ($PSCmdlet.ShouldProcess($service, 'Stop and remove Computer Host Agent service')) {
+  if ($existing) {
     if ($existing.Status -ne 'Stopped') {
       Stop-Service -Name $service -ErrorAction Stop
       (Get-Service -Name $service -ErrorAction Stop).WaitForStatus(
