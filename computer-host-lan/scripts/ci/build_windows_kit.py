@@ -23,6 +23,7 @@ DOCUMENTS = {
     "docs/TEST-CHECKLIST.md": ROOT / "docs/beta/TESTER-CHECKLIST.md",
     "docs/FEEDBACK-AND-SUPPORT.md": ROOT / "docs/beta/FEEDBACK-AND-SUPPORT.md",
     "docs/SECURITY-AND-PRIVACY.md": ROOT / "docs/beta/SECURITY-AND-PRIVACY.md",
+    "docs/THIRD-PARTY-NOTICES.md": ROOT / "docs/beta/THIRD-PARTY-NOTICES.md",
     "docs/HARDWARE-TEST-MATRIX.md": ROOT / "windows-agent/docs/HARDWARE-TEST-MATRIX.md",
 }
 DISALLOWED_PARTS = {"control-token", "installation-id", "boot-session.json", "appsettings.Development.json"}
