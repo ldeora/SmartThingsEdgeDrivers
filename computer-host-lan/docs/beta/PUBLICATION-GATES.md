@@ -1,26 +1,25 @@
-# Computer Host LAN — public beta publication gates
+# Computer Host LAN — v0.5.4-beta.1 publication gates
 
-This beta is specifically intended to recruit Windows 11 and additional Linux hardware testers. Physical Windows WOL, suspend and full shutdown are **not** prerequisites for the first public testing announcement.
+This is a public beta, not a stable Windows certification. Real Windows 11 hub discovery and WOL are beta testing goals, not reasons to withhold the graphical installer once the current source and packaging CI are green.
 
 ## Completed
-- [x] Separate protocol-v2 Computer Host LAN Edge Driver and agents; original Linux Host LAN unchanged.
-- [x] Linux real-hardware reference and Windows x64 compile, HTTP/HMAC, Windows Service install and power opt-in/out tests.
-- [x] Linux distro CI and Windows ARM64 cross-publish clearly distinguished from hardware validation.
-- [x] Source license file present (Apache-2.0); final third-party provenance still requires owner approval.
-- [x] Project/packaging/beta-version PRs merged into `main` (#3, #4, #5).
-- [x] Versioned ZIP archives and checksums built and verified from CI; Windows package verified after extraction under Windows PowerShell 5.1.
-- [x] Verified existing [ARoedl SmartThings Edge Drivers channel](https://bestow-regional.api.smartthings.com/invite/1J2Qy7ZkxL20), assigned Computer Host LAN driver, and successful installation from a separate account.
-- [x] GitHub issue template, privacy guidance, hardware checklist, release notes and Community announcement prepared.
-- [x] Disclose unsigned Windows executable, unencrypted trusted-LAN-only HTTP, default-disabled power and uncertain Windows sleep/WOL.
 
-## Still required to publish
-- [ ] Merge final documentation PR and check all three workflows on its merge commit.
-- [ ] Refresh the existing GitHub draft-release ZIPs and notes from that exact merge commit; verify hashes and source commit.
-- [ ] Publisher confirms copyright, third-party attribution and terms for redistributed binaries.
-- [ ] Publish the [v0.5.1-beta.1 prerelease](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.1-beta.1) and verify public asset downloads/checksums.
-- [ ] Post the Community announcement with the permanent release URL and verified SmartThings invitation.
+- [x] PR #17 merged; Inno Setup 7 graphical wizard and underlying Windows scripts are in `main`.
+- [x] Native Windows Server 2025 GUI/clipboard, hub address field, key handling, monitoring-only and power-enabled wizard navigation passed CI.
+- [x] PowerShell ZIP-to-Setup migration, upgrades, preserved identity/key/configuration/power preference and guarded uninstalls passed CI.
+- [x] Windows ZIP/PowerShell installation remains available as a fallback.
+- [x] Existing SmartThings driver/channel and tested Linux behavior remain unchanged.
 
-## After publication: volunteer tests
-Windows 11 hub discovery/native DNS-SD, profile and telemetry, S0/S3/S4/S5, Fast Startup, suspend/reboot/shutdown and Wake-on-LAN; wider Linux distributions and hardware. Native MSI, DEB/RPM, code signing, auto-updates and ARM64 hardware support can follow later.
+## Before publication of v0.5.4-beta.1
 
-Source evidence: [release CI on `main`](https://github.com/ldeora/SmartThingsEdgeDrivers/actions/runs/43839028249), original merge commit `eb277dde`. Revalidate from the final documentation merge commit.
+- [ ] Merge the v0.5.4-beta.1 packaging/docs PR after Windows Inno, Windows agent, Linux and unified release-candidate checks succeed.
+- [ ] Fetch the exact final `main` commit's release-candidate asset set; verify 3 ZIPs, one Setup.exe and `SHA256SUMS.txt`.
+- [ ] Verify standalone Setup.exe version against `release.json`, ZIP BUILD-INFO.json and full checksums.
+- [ ] Approve redistribution of Inno Setup / Zeroconf / .NET and confirm unsigned SmartScreen and trusted-LAN warnings.
+- [ ] Publish a new GitHub **prerelease** `computer-host-lan-v0.5.4-beta.1`, preserving the old v0.5.3-beta.1 files.
+- [ ] Verify all public release links/hashes and post the short Windows installer beta update in the existing Community thread.
+
+## After publication: testing
+
+Solicit Windows 11 hardware results for physical hubs (none/one/multiple), mDNS restricted LANs, manual IPv4, LocalSubnet, scaling, migration, service recovery, metrics, suspend/reboot/shutdown and WOL. Explicitly distinguish Windows Server CI from real Windows 11 compatibility tests.
+
