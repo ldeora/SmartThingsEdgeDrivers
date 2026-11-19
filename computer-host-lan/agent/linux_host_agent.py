@@ -30,7 +30,7 @@ import time
 import uuid
 
 PROTOCOL = "computer-host-agent"
-VERSION = "0.4.2-beta.1"
+VERSION = "0.4.3-beta.1"
 API_VERSION = 2
 ALLOWED_ACTIONS = frozenset(("shutdown", "reboot", "suspend"))
 MAX_REPLY_BYTES = 32 * 1024
