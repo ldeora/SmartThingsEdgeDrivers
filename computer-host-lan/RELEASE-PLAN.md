@@ -1,3 +1,9 @@
+> **Historical v0.5.1-beta.1 plan.** This document is archived for
+> provenance; its unchecked boxes are not current publication tasks.
+> The current published release is
+> [v0.5.4-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.4-beta.1).
+> For future release gates see [RELEASE-READINESS.md](RELEASE-READINESS.md).
+
 # Computer Host LAN — v0.5.1-beta.1 distribution plan
 
 ## Completed
