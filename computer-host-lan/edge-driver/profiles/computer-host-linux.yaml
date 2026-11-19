@@ -2,6 +2,7 @@
 name: computer-host-linux
 components:
 - id: main
+  label: Computer
   capabilities:
   - id: switch
     version: 1
@@ -24,18 +25,21 @@ components:
   categories:
   - name: Switch
 - id: wake
+  label: Wake
   capabilities:
   - id: momentary
     version: 1
   categories:
   - name: Switch
 - id: reboot
+  label: Restart
   capabilities:
   - id: momentary
     version: 1
   categories:
   - name: Switch
 - id: suspend
+  label: Sleep
   capabilities:
   - id: momentary
     version: 1
