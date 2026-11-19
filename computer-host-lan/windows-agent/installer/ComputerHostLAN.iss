@@ -49,6 +49,7 @@ var
   LocalSubnetCheck: TNewCheckBox;
   PowerCheck: TNewCheckBox;
   Searched: Boolean;
+  InstallFailed: Boolean;
 
 function IsValidIPv4(const Address: String): Boolean;
 var
@@ -269,18 +270,40 @@ end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
 var
-  Params: String;
+  Params, DiagnosticFile, FailureMessage: String;
   ExitCode: Integer;
+  Details: AnsiString;
 begin
   if CurStep <> ssPostInstall then Exit;
+  DiagnosticFile := ExpandConstant('{tmp}\computerhost-service-installation.txt');
+  DeleteFile(DiagnosticFile);
   Params := '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' +
     ExpandConstant('{app}\Installer\Install-WindowsAgent.ps1') +
-    '" -PublishedDirectory "' + ExpandConstant('{app}') + '" -UseExistingFiles';
+    '" -PublishedDirectory "' + ExpandConstant('{app}') +
+    '" -UseExistingFiles -DiagnosticPath "' + DiagnosticFile + '"';
   if not LocalSubnetCheck.Checked then
     Params := Params + ' -HubIPv4 ' + SelectedHubIP();
   if PowerCheck.Checked then Params := Params + ' -EnablePower';
   if not Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
     Params, '', SW_HIDE, ewWaitUntilTerminated, ExitCode) or (ExitCode <> 0) then
-    RaiseException('Computer Host Agent service installation failed. ' +
-      'The setup log contains details; run the supplied installation script for diagnosis.');
+  begin
+    InstallFailed := True;
+    FailureMessage := 'Computer Host Agent service installation failed. ' +
+      'Review the setup log and rerun installation after checking the service.';
+    if LoadStringFromFile(DiagnosticFile, Details) then
+    begin
+      Log(String(Details));
+      FailureMessage := FailureMessage + ' ' + String(Details);
+    end;
+    Log(FailureMessage);
+    if not WizardSilent then
+      MsgBox(FailureMessage, mbError, MB_OK);
+  end;
+end;
+
+function GetCustomSetupExitCode: Integer;
+begin
+  // Inno may treat a CurStepChanged exception as a dialog rather than a
+  // failed process. Explicitly report nonzero for unsuccessful service setup.
+  if InstallFailed then Result := 17 else Result := 0;
 end;
