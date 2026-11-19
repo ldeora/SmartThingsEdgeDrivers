@@ -13,6 +13,9 @@ DefaultDirName={autopf}\Computer Host Agent
 DisableDirPage=yes
 DisableProgramGroupPage=yes
 PrivilegesRequired=admin
+; Inno Setup 7 builds a native x64 installer, avoiding WOW64 PowerShell module
+; and Program Files redirection during service and firewall management.
+SetupArchitecture=x64
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 WizardStyle=modern
@@ -36,7 +39,7 @@ Source: "..\publish\hub-discovery\ComputerHost.HubDiscovery.exe"; Flags: dontcop
 [UninstallRun]
 ; Remove only our service and firewall; Inno removes tracked files. State
 ; intentionally survives uninstall in ProgramData for a later reinstallation.
-Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -NonInteractive -ExecutionPolicy Bypass -File ""{app}\Installer\Uninstall-WindowsAgent.ps1"" -KeepProgramFiles"; Flags: runhidden waituntilterminated
+Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -NonInteractive -ExecutionPolicy Bypass -File ""{app}\Installer\Uninstall-WindowsAgent.ps1"" -KeepProgramFiles"; Flags: runhidden waituntilterminated 64bit; RunOnceId: ComputerHostAgentServiceCleanup
 
 [Run]
 Filename: "https://bestow-regional.api.smartthings.com/invite/1J2Qy7ZkxL20"; Description: "Open the SmartThings driver invitation"; Flags: shellexec postinstall skipifsilent unchecked
@@ -255,7 +258,7 @@ begin
   Params := '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' +
     ExpandConstant('{tmp}\Prepare-WindowsAgentUpgrade.ps1') + '" -DiagnosticPath "' +
     DiagnosticFile + '"';
-  if not Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
+  if not ExecWithNativeSysDir(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
     Params, '', SW_HIDE, ewWaitUntilTerminated, ExitCode) or (ExitCode <> 0) then
   begin
     Result := 'Unable to stop or validate the existing Computer Host Agent service. ' +
@@ -284,7 +287,7 @@ begin
   if not LocalSubnetCheck.Checked then
     Params := Params + ' -HubIPv4 ' + SelectedHubIP();
   if PowerCheck.Checked then Params := Params + ' -EnablePower';
-  if not Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
+  if not ExecWithNativeSysDir(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
     Params, '', SW_HIDE, ewWaitUntilTerminated, ExitCode) or (ExitCode <> 0) then
   begin
     InstallFailed := True;
