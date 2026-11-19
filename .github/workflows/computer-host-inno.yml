@@ -297,6 +297,13 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $setup = (Get-ChildItem windows-agent/installer/output -Filter '*setup.exe' -File | Select-Object -First 1).FullName
           & ./windows-agent/scripts/Test-WindowsInstallerWizard.ps1 -SetupExecutable $setup -FullInstall
+      - name: Exercise graphical monitoring-only mode and explicit local-network fallback
+        shell: pwsh
+        timeout-minutes: 5
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $setup = (Get-ChildItem windows-agent/installer/output -Filter '*setup.exe' -File | Select-Object -First 1).FullName
+          & ./windows-agent/scripts/Test-WindowsInstallerWizard.ps1 -SetupExecutable $setup -FullInstall -MonitoringOnly -SubnetFallback
       - name: Upload non-secret wizard screenshots
         if: always()
         uses: actions/upload-artifact@v7

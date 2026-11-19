@@ -4,7 +4,9 @@
 # Never prints the authentication key or stores it in logs.
 [CmdletBinding()]
 param([Parameter(Mandatory)][string]$SetupExecutable,
-      [switch]$FullInstall)
+      [switch]$FullInstall,
+      [switch]$MonitoringOnly,
+      [switch]$SubnetFallback)
 $ErrorActionPreference = 'Stop'
 
 Add-Type -TypeDefinition @'
@@ -69,6 +71,7 @@ public static class ComputerHostWizardProbe {
         return r.ToArray();
     }
     public static void Click(IntPtr hwnd) { SendMessage(hwnd, 0x00F5, IntPtr.Zero, IntPtr.Zero); }
+    public static bool IsChecked(IntPtr hwnd) { return SendMessage(hwnd, 0x00F0, IntPtr.Zero, IntPtr.Zero).ToInt64() == 1; }
     public static string TextOf(IntPtr hwnd) {
         var text = new StringBuilder(512);
         GetWindowText(hwnd, text, text.Capacity);
@@ -155,7 +158,10 @@ function WaitForClipboard([string]$expected, [string]$stage) {
 $proc = $null
 $window = $null
 try {
-    $args = if ($FullInstall) { '/HUBIP=192.0.2.20 /ENABLEPOWER=1' } else { '' }
+    $args = if ($FullInstall) {
+        if ($MonitoringOnly) { '/ENABLEPOWER=0' } else { '/HUBIP=192.0.2.20 /ENABLEPOWER=1' }
+    } else { '' }
+    $modeSuffix = if ($MonitoringOnly) { '-monitoring-only' } else { '-power-enabled' }
     $proc = Start-Process -FilePath $setup -ArgumentList $args -PassThru
     for ($attempt = 0; $attempt -lt 70; $attempt++) {
         $window = [ComputerHostWizardProbe]::Windows() |
@@ -177,7 +183,7 @@ try {
         throw 'Welcome heading not visible; DisableWelcomePage=no should be effective.'
     }
     Write-Host 'PASS Welcome screen heading is visible'
-    CaptureWizardPage $window '01-welcome'
+    CaptureWizardPage $window ('01-welcome' + $modeSuffix)
 
     $next = $children | Where-Object {
         $_.Visible -and $_.Class -match 'Button' -and $_.Text -match 'Next'
@@ -237,7 +243,13 @@ try {
     if ($before -eq $after) { throw 'Advanced options did not toggle the local-network fallback' }
     ClickWizardButton $window.Handle 'Advanced options'
     Write-Host 'PASS Advanced options shows/hides the local-network firewall fallback'
-    CaptureWizardPage $window '02-hub'
+    if ($SubnetFallback) {
+        if (-not [ComputerHostWizardProbe]::SetWindowText($input.Handle, '')) {
+            throw 'Could not clear manual hub address to test LocalSubnet fallback'
+        }
+        ClickWizardButton $window.Handle 'Advanced options'
+        $subnet = VisibleControls $window.Handle | Where-Object {
+            $_.Class -match 'CheckBox' -and $_.Text -match '^Allow connections from devices on my local network    CaptureWizardPage $window ('02-hub' + $modeSuffix)
     $rescan = $children | Where-Object { $_.Visible -and $_.Text -match 'Search again' } | Select-Object -First 1
     if (-not $rescan) { throw 'Search again button not visible' }
     Write-Host 'PASS Search again button visible'
@@ -250,7 +262,10 @@ try {
             Select-Object -First 1
         if (-not $cb) { throw 'Power-management checkbox is not visible' }
         Write-Host 'PASS power-management checkbox visible'
-        CaptureWizardPage $window '03-power'
+        $powerEnabled = [ComputerHostWizardProbe]::IsChecked($cb.Handle)
+        if ($MonitoringOnly -and $powerEnabled) { throw 'Monitoring-only interactive install unexpectedly prechecked power' }
+        if (-not $MonitoringOnly -and -not $powerEnabled) { throw 'Power-enabled interactive install did not precheck power' }
+        CaptureWizardPage $window ('03-power' + $modeSuffix)
 
         ClickWizardButton $window.Handle 'Next'
         WaitForWizardText $window.Handle 'Ready to Install' 'confirmation page'
@@ -261,7 +276,125 @@ try {
             $_.Text -match 'Computer Host Agent is running and responding'
         })
         if ($status.Count -eq 0) { throw 'Connect page does not confirm the agent is healthy' }
-        CaptureWizardPage $window '04-connect'
+        CaptureWizardPage $window ('04-connect' + $modeSuffix)
+
+        ClickWizardButton $window.Handle 'Copy invitation link'
+        WaitForClipboard 'https://bestow-regional.api.smartthings.com/invite/1J2Qy7ZkxL20' 'channel link copying'
+        ClickWizardButton $window.Handle 'Next'
+        if ($MonitoringOnly) {
+            WaitForWizardText $window.Handle 'Computer Host LAN is installed' 'monitoring-only skips private key page'
+            if (@(VisibleControls $window.Handle | Where-Object {
+                $_.Text -match 'Copy authentication key|Your private authentication key'
+            }).Count -gt 0) { throw 'Monitoring-only wizard exposed a private-key page' }
+            Write-Host 'PASS monitoring-only wizard skips authentication key page'
+        } else {
+            WaitForWizardText $window.Handle 'Your private authentication key' 'post-install authentication page'
+            $keyEdit = VisibleControls $window.Handle | Where-Object {
+                $_.Class -match 'Edit' -and $_.Width -ge 100
+            } | Select-Object -First 1
+            if (-not $keyEdit) { throw 'Authentication key edit field missing' }
+            $initialMask = [ComputerHostWizardProbe]::PasswordMask($keyEdit.Handle)
+            Write-Host "Authentication key field mask character code: $initialMask"
+            if ($initialMask -eq 0) {
+                throw 'Authentication key is not masked by default'
+            }
+            Write-Host 'PASS private key is masked by default'
+            ClickWizardButton $window.Handle 'Show key'
+            # Inno's TNewEdit may recreate its native HWND when PasswordChar
+            # changes; always inspect the CURRENT visible edit rather than
+            # retaining a handle from before the property setter ran.
+            $keyEditAfterShow = VisibleControls $window.Handle | Where-Object {
+                $_.Class -match 'Edit' -and $_.Width -ge 100
+            } | Select-Object -First 1
+            if (-not $keyEditAfterShow) { throw 'Key edit missing after Show key' }
+            $shownMask = [ComputerHostWizardProbe]::PasswordMask($keyEditAfterShow.Handle)
+            Write-Host "Mask code after Show: $shownMask"
+            if ($shownMask -ne 0) {
+                throw 'Show key did not reveal the field'
+            }
+            ClickWizardButton $window.Handle 'Hide key'
+            $keyEditAfterHide = VisibleControls $window.Handle | Where-Object {
+                $_.Class -match 'Edit' -and $_.Width -ge 100
+            } | Select-Object -First 1
+            if (-not $keyEditAfterHide) { throw 'Key edit missing after Hide key' }
+            $restoredMask = [ComputerHostWizardProbe]::PasswordMask($keyEditAfterHide.Handle)
+            Write-Host "Mask code after Hide: $restoredMask"
+            if ($restoredMask -eq 0) {
+                throw 'Hide key did not restore password masking'
+            }
+            Write-Host 'PASS Show/Hide authentication key toggle'
+            $keyPath = Join-Path $env:ProgramData 'ComputerHostAgent/control-token'
+            if (-not (Test-Path -LiteralPath $keyPath)) { throw 'Power key was not generated' }
+            $key = (Get-Content -LiteralPath $keyPath -Raw).Trim()
+            if ($key -cnotmatch '^[a-f0-9]{64}$') { throw 'Invalid key format (value withheld)' }
+            ClickWizardButton $window.Handle 'Copy authentication key'
+            WaitForClipboard $key 'authentication key copying'
+            $key = $null
+            ClickWizardButton $window.Handle 'Finish'
+            }
+        ClickWizardButton $window.Handle 'Finish'
+        if ($MonitoringOnly) {
+            $info = Invoke-RestMethod http://127.0.0.1:8765/v2/info
+            if ($info.power_actions.Count -ne 0) { throw 'Monitoring-only GUI install left privileged commands enabled' }
+            if ($SubnetFallback) {
+                $addresses = @((Get-NetFirewallRule -Name 'ComputerHostAgent-TCP8765' |
+                    Get-NetFirewallAddressFilter).RemoteAddress)
+                if ($addresses -notcontains 'LocalSubnet') {
+                    throw 'Graphical LocalSubnet fallback did not configure firewall'
+                }
+            }
+            Write-Host 'PASS graphical monitoring-only setup, no key page and LocalSubnet firewall'
+        }
+        Write-Host 'PASS complete native Windows GUI installation and onboarding workflow'
+    }
+} finally {
+    if ($window) {
+        $processId = [ComputerHostWizardProbe]::ProcessId($window.Handle)
+        $candidate = Get-Process -Id $processId -ErrorAction SilentlyContinue
+        if ($candidate -and $candidate.Path -and
+            ($candidate.Path -ieq $setup -or $candidate.ProcessName -like '*setup*')) {
+            Stop-Process -Id $processId -Force -ErrorAction SilentlyContinue
+        }
+    }
+    if ($proc) {
+        Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+        $proc.Dispose()
+    }
+}
+
+        } | Select-Object -First 1
+        if (-not $subnet) { throw 'Local-network fallback checkbox is not visible' }
+        [ComputerHostWizardProbe]::Click($subnet.Handle)
+        if (-not [ComputerHostWizardProbe]::IsChecked($subnet.Handle)) {
+            throw 'Local-network firewall checkbox did not become checked'
+        }
+        Write-Host 'PASS user explicitly enabled local-network firewall fallback without knowing a hub IP'
+    }
+    CaptureWizardPage $window ('02-hub' + $modeSuffix)
+    $rescan = $children | Where-Object { $_.Visible -and $_.Text -match 'Search again' } | Select-Object -First 1
+    if (-not $rescan) { throw 'Search again button not visible' }
+    Write-Host 'PASS Search again button visible'
+    Write-Host 'PASS graphical Welcome and hub selector smoke test'
+    if ($FullInstall) {
+        ClickWizardButton $window.Handle 'Next'
+        WaitForWizardText $window.Handle 'Enable authenticated shutdown, reboot and suspend' 'power-management page'
+        $cb = VisibleControls $window.Handle |
+            Where-Object { $_.Class -match 'CheckBox' -and $_.Text -match 'Enable authenticated shutdown' } |
+            Select-Object -First 1
+        if (-not $cb) { throw 'Power-management checkbox is not visible' }
+        Write-Host 'PASS power-management checkbox visible'
+        CaptureWizardPage $window ('03-power' + $modeSuffix)
+
+        ClickWizardButton $window.Handle 'Next'
+        WaitForWizardText $window.Handle 'Ready to Install' 'confirmation page'
+        ClickWizardButton $window.Handle 'Install'
+        WaitForWizardText $window.Handle 'Open driver channel' 'post-install SmartThings connection page' 240
+        WaitForWizardText $window.Handle 'Scan nearby' 'SmartThings device discovery guidance'
+        $status = @(VisibleControls $window.Handle | Where-Object {
+            $_.Text -match 'Computer Host Agent is running and responding'
+        })
+        if ($status.Count -eq 0) { throw 'Connect page does not confirm the agent is healthy' }
+        CaptureWizardPage $window ('04-connect' + $modeSuffix)
 
         ClickWizardButton $window.Handle 'Copy invitation link'
         WaitForClipboard 'https://bestow-regional.api.smartthings.com/invite/1J2Qy7ZkxL20' 'channel link copying'
