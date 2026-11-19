@@ -14,7 +14,7 @@ local function request_json(host,port,path,method,headers)
   local response_code
   local url=string.format("http://%s:%d%s",U.host_for_url(clean_host),clean_port,path)
   local request_headers={
-    ["Accept"]="application/json", ["User-Agent"]="SmartThings-ComputerHost/0.4.0-dev.1",
+    ["Accept"]="application/json", ["User-Agent"]="SmartThings-ComputerHost/"..C.DRIVER_VERSION,
     ["Connection"]="close"
   }
   for k,v in pairs(headers or {}) do request_headers[k]=v end

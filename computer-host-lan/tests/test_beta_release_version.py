@@ -18,6 +18,8 @@ class BetaReleaseVersionTests(unittest.TestCase):
         self.assertIn(f'VERSION = "{manifest["agent"]}"', (ROOT / 'agent/linux_host_agent.py').read_text())
         self.assertIn(f'DRIVER_VERSION = "{manifest["edge_driver"]}"', (ROOT / 'edge-driver/src/computerhost/constants.lua').read_text())
         self.assertIn(f'#define IntegrationVersion "{manifest["integration"]}"', (ROOT / 'windows-agent/installer/ComputerHostLAN.iss').read_text())
+        self.assertIn('"SmartThings-ComputerHost/"..C.DRIVER_VERSION', (ROOT / 'edge-driver/src/computerhost/api.lua').read_text())
+        self.assertIn('server_version = "LinuxHostAgent/" + VERSION', (ROOT / 'agent/linux_host_agent.py').read_text())
         self.assertEqual(manifest["agent_protocol"], 2)
         self.assertEqual(manifest["power_control_default"], "disabled")
 

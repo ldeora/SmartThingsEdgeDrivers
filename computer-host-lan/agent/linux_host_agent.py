@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Linux Host Agent 0.3.0: bounded read-mostly HTTP endpoint for SmartThings.
+"""Linux Host Agent: bounded read-mostly HTTP endpoint for SmartThings.
 
 Power control is opt-in, HMAC authenticated with one-time 30-second nonces, and
 forwarded to a separate, restricted root-side Unix socket helper. The listener
@@ -509,7 +509,7 @@ class AgentState:
 
 def make_handler(state: AgentState):
     class Handler(BaseHTTPRequestHandler):
-        server_version = "LinuxHostAgent/0.3.0"
+        server_version = "LinuxHostAgent/" + VERSION
         sys_version = ""
 
         def setup(self):
