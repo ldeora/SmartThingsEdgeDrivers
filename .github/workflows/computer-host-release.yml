@@ -5,6 +5,7 @@ on:
     paths:
       - 'computer-host-lan/**'
       - '.github/workflows/computer-host-release.yml'
+      - '.github/workflows/computer-host-inno.yml'
   pull_request:
     paths:
       - 'computer-host-lan/**'
@@ -53,6 +54,57 @@ jobs:
       - name: Run safe HTTP smoke without sending power commands
         shell: pwsh
         run: ./windows-agent/scripts/Smoke-WindowsAgent.ps1 -Executable "${{ github.workspace }}/computer-host-lan/windows-agent/publish/win-x64/ComputerHost.WindowsAgent.exe"
+      - name: Publish and self-test SmartThings hub discovery helper for Setup
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          dotnet publish windows-agent/HubDiscovery/ComputerHost.HubDiscovery.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=none -o windows-agent/publish/hub-discovery
+          if ($LASTEXITCODE -ne 0) { throw 'Hub discovery helper publish failed' }
+          & ./windows-agent/publish/hub-discovery/ComputerHost.HubDiscovery.exe --self-test
+          if ($LASTEXITCODE -ne 0) { throw 'Hub discovery candidate self-tests failed' }
+      - name: Install Inno Setup 7 for beta setup build
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if (-not (Get-Command winget.exe -ErrorAction SilentlyContinue)) { throw 'WinGet unavailable: cannot build Windows Setup.exe' }
+          winget install -e --id JRSoftware.InnoSetup.7 --source winget --accept-package-agreements --accept-source-agreements --silent --disable-interactivity
+          if ($LASTEXITCODE -ne 0) { throw 'Inno Setup 7 compiler installation failed' }
+          $locations = @(
+            (Join-Path $env:LOCALAPPDATA 'Programs/Inno Setup 7/ISCC.exe'),
+            (Join-Path $env:ProgramFiles 'Inno Setup 7/ISCC.exe'),
+            (Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 7/ISCC.exe')
+          )
+          $iscc = $locations | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+          if (-not $iscc) {
+            $iscc = Get-ChildItem -Path (Join-Path $env:LOCALAPPDATA 'Programs'),$env:ProgramFiles -Filter ISCC.exe -File -Recurse -ErrorAction SilentlyContinue |
+              Where-Object { $_.FullName -like '*Inno Setup 7*' } |
+              Select-Object -First 1 -ExpandProperty FullName
+          }
+          if (-not $iscc) { throw 'Inno Setup 7 compiler missing after installation' }
+          "INNO_ISCC=$iscc" >> $env:GITHUB_ENV
+      - name: Compile version-matched unsigned beta Setup.exe
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $release = Get-Content release.json -Raw | ConvertFrom-Json
+          $iss = Get-Content windows-agent/installer/ComputerHostLAN.iss -Raw
+          if (-not $iss.Contains('#define IntegrationVersion "' + $release.integration + '"')) {
+            throw 'Inno Setup installer version differs from release.json'
+          }
+          Push-Location windows-agent/installer
+          try {
+            & $env:INNO_ISCC ComputerHostLAN.iss
+            if ($LASTEXITCODE -ne 0) { throw 'ISCC compilation failed' }
+          } finally { Pop-Location }
+          $setupName = "computer-host-lan-v$($release.integration)-windows-x64-unsigned-setup.exe"
+          $setup = Join-Path (Get-Location) "windows-agent/installer/output/$setupName"
+          if (-not (Test-Path -LiteralPath $setup)) { throw "Expected Setup.exe missing: $setupName" }
+          $out = Join-Path $env:RUNNER_TEMP 'computer-host-windows'
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          Copy-Item -LiteralPath $setup -Destination (Join-Path $out $setupName)
+          $hash = (Get-FileHash -LiteralPath (Join-Path $out $setupName) -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  $setupName" | Set-Content -LiteralPath (Join-Path $out "$setupName.sha256") -Encoding ascii
+          Write-Host "PASS release-matched unsigned setup: $setupName, SHA256=$hash"
       - name: Build and verify Windows x64 kit and SHA-256 manifest
         shell: pwsh
         run: |
@@ -102,17 +154,19 @@ jobs:
           set -euo pipefail
           cd "$RUNNER_TEMP/computer-host-release"
           test "$(find . -maxdepth 1 -name '*.zip' | wc -l)" -eq 3
+          test "$(find . -maxdepth 1 -name '*setup.exe' | wc -l)" -eq 1
           sha256sum -c ./*.zip.sha256
+          sha256sum -c ./*.exe.sha256
           sha256sum -c ./computer-host-lan-v*-SHA256SUMS.txt
-          sha256sum -- *.zip > SHA256SUMS.txt
+          sha256sum -- *.zip *setup.exe > SHA256SUMS.txt
           sha256sum -c SHA256SUMS.txt
           printf '%s\n' \
             "Computer Host LAN unsigned development candidate" \
             "Commit: $GITHUB_SHA" \
-            "Not a published GitHub release; SmartThings beta invitation pending." \
-            "Windows 11 physical mDNS/power/WOL tests remain outstanding." \
+            "Unsigned beta candidate, not a published GitHub release; channel remains unchanged." \
+            "Windows Setup GUI passes separate native Windows CI; real Windows 11 hub/mDNS/WOL tests remain beta objectives." \
             > RELEASE-CANDIDATE-NOTICE.txt
-          ls -lh *.zip SHA256SUMS.txt
+          ls -lh *.zip *setup.exe SHA256SUMS.txt
       - name: Upload one complete unsigned beta-candidate set
         uses: actions/upload-artifact@v7
         with:

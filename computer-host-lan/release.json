@@ -1,9 +1,9 @@
 {
-  "integration": "0.5.3-beta.1",
+  "integration": "0.5.4-beta.1",
   "agent": "0.4.2-beta.1",
   "edge_driver": "0.4.2-beta.1",
   "agent_protocol": 2,
-  "release_stage": "beta-candidate-v0.5.3-beta.1",
+  "release_stage": "beta-candidate-v0.5.4-beta.1",
   "hardware_validated": [
     "Linux Gentoo hydra / SmartThings hub: protocol v2 discovery, telemetry, service-interruption recovery, reboot, suspend/WOL and full shutdown/WOL (2026-11-16)",
     "Linux Gentoo hydra / SmartThings hub: diskTotalGiB 431.8 accepted after hub reboot following account-level capability update (2026-11-18)",
@@ -14,14 +14,15 @@
     "Windows Server 2025 x64 .NET 10 build, HMAC/protocol tests, HTTP smoke, LocalService installation, PowerShell 5.1 opt-in/opt-out: run 43827358333",
     "Windows ARM64 cross-publish: build only, no ARM64 execution",
     "PR #13: Linux, Windows and unsigned release candidate checks passed on 2026-11-18; new candidate requires checks at its final commit",
-    "PR #15 Linux Python 3.10–3.14 / distro smoke, Windows x64 service/power contract, ARM64 cross-build, unsigned release-candidate workflows all passed (2026-11-18); final v0.5.3-beta.1 packaging requires new commit CI"
+    "PR #15 Linux Python 3.10–3.14 / distro smoke, Windows x64 service/power contract, ARM64 cross-build, unsigned release-candidate workflows all passed (2026-11-18); final v0.5.3-beta.1 packaging requires new commit CI",
+    "PR #17 merged Windows Inno Setup 7 guided installer at 06cf471ffb18; full native GUI/clipboard, ZIP-to-Setup migration, service safety, upgrade and uninstall passed on Windows Server 2025 in run 44515639490; physical Windows 11 pairing still a beta test"
   ],
   "managed_state": "/var/lib/linux-host-agent",
   "windows_managed_state": "%ProgramData%/ComputerHostAgent",
   "power_control_default": "disabled",
   "redistribution_license": "Apache-2.0",
   "linux_reference_baseline": "Linux protocol-v2 hardware baseline verified on hydra; added disk capacity confirmed after SmartThings hub reboot (2026-11-18)",
-  "windows_agent": "0.2.2-beta.1",
+  "windows_agent": "0.2.3-beta.1",
   "windows_power_control": "opt-in best effort, hardware/firmware WOL unvalidated",
   "smartthings_beta_channel": {
     "name": "ARoedl SmartThings Edge Drivers",
@@ -30,5 +31,5 @@
     "invitation_url": "https://bestow-regional.api.smartthings.com/invite/1J2Qy7ZkxL20",
     "external_installation_confirmed": true
   },
-  "github_prerelease": "https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.3-beta.1"
+  "github_prerelease": "https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.4-beta.1"
 }

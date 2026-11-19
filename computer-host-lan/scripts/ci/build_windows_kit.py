@@ -69,7 +69,7 @@ def build(published: Path, output_dir: Path, runtime: str, commit: str) -> Path:
 Integration {version} · Windows agent {agent_version} · {runtime}
 Source commit: {commit}
 
-**Unsigned public-beta test package. Verify its origin against the official GitHub prerelease before installation.**
+**Unsigned PowerShell installation fallback. For a new Windows x64 installation prefer the graphical Setup.exe provided as a separate asset in this same GitHub beta release. Verify both downloads against SHA256SUMS.txt.**
 No Windows 11 SmartThings hardware discovery, shutdown or WOL claim has been
 verified yet. Physical recovery is required for power testing.
 Use only on a trusted PRIVATE LAN; never forward TCP 8765 to the Internet.

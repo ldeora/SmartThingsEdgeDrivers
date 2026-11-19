@@ -1,10 +1,11 @@
-name: Computer Host LAN Windows graphical installer (prototype, not published)
+name: Computer Host LAN Windows graphical installer (beta validation)
 on:
   push:
     branches: [main]
     paths:
       - 'computer-host-lan/windows-agent/**'
       - '.github/workflows/computer-host-inno.yml'
+      - 'computer-host-lan/release.json'
   pull_request:
     paths:
       - 'computer-host-lan/windows-agent/**'
@@ -375,10 +376,10 @@ jobs:
           path: ${{ runner.temp }}/computer-host-wizard-screens/*.png
           retention-days: 7
           if-no-files-found: warn
-      - name: Upload unsigned installer prototype (not a public release)
+      - name: Upload unsigned beta installer candidate
         uses: actions/upload-artifact@v7
         with:
-          name: computer-host-lan-inno-setup-x64-prototype
+          name: computer-host-lan-inno-setup-x64-beta-candidate
           path: computer-host-lan/windows-agent/installer/output/*setup.exe
           retention-days: 7
           if-no-files-found: error
