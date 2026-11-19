@@ -10,6 +10,7 @@ AppPublisher=Computer Host LAN (SmartThings Community)
 AppPublisherURL=https://github.com/ldeora/SmartThingsEdgeDrivers
 AppSupportURL=https://github.com/ldeora/SmartThingsEdgeDrivers/issues
 DefaultDirName={autopf}\Computer Host Agent
+DisableWelcomePage=no
 DisableDirPage=yes
 DisableProgramGroupPage=yes
 PrivilegesRequired=admin
@@ -333,15 +334,19 @@ begin
   HubSelect.Parent := HubPage.Surface;
   HubSelect.Left := 0;
   HubSelect.Top := LabelText.Top + LabelText.Height + ScaleY(6);
-  HubSelect.Width := ScaleX(292);
+  // Size relative to the actual wizard surface. Fixed widths previously
+  // risked clipping the address field on compact/scaled displays or Wine.
+  HubSelect.Width := HubPage.SurfaceWidth - ScaleX(126);
+  HubSelect.Height := ScaleY(23);
   HubSelect.Style := csDropDown;
 
   SearchButton := TNewButton.Create(HubPage);
   SearchButton.Parent := HubPage.Surface;
   SearchButton.Caption := 'Search again';
   SearchButton.Left := HubSelect.Width + ScaleX(8);
-  SearchButton.Top := HubSelect.Top - ScaleY(1);
+  SearchButton.Top := HubSelect.Top;
   SearchButton.Width := HubPage.SurfaceWidth - SearchButton.Left;
+  SearchButton.Height := ScaleY(23);
   SearchButton.OnClick := @SearchForHubs;
 
   HubStatus := TNewStaticText.Create(HubPage);
@@ -356,13 +361,15 @@ begin
   AdvancedButton := TNewButton.Create(HubPage);
   AdvancedButton.Parent := HubPage.Surface;
   AdvancedButton.Top := HubStatus.Top + HubStatus.Height + ScaleY(5);
-  AdvancedButton.Width := ScaleX(134);
+  AdvancedButton.Width := ScaleX(154);
+  AdvancedButton.Height := ScaleY(24);
   AdvancedButton.OnClick := @ToggleAdvanced;
 
   LocalSubnetCheck := TNewCheckBox.Create(HubPage);
   LocalSubnetCheck.Parent := HubPage.Surface;
   LocalSubnetCheck.Top := AdvancedButton.Top + AdvancedButton.Height + ScaleY(10);
   LocalSubnetCheck.Width := HubPage.SurfaceWidth;
+  LocalSubnetCheck.Height := ScaleY(22);
   LocalSubnetCheck.Caption := 'Allow connections from devices on my local network';
   LocalSubnetCheck.Checked := False;
   LocalSubnetCheck.OnClick := @ChangeSubnetScope;
@@ -390,6 +397,7 @@ begin
   PowerCheck.Parent := PowerPage.Surface;
   PowerCheck.Top := PowerText.Top + PowerText.Height + ScaleY(16);
   PowerCheck.Width := PowerPage.SurfaceWidth;
+  PowerCheck.Height := ScaleY(22);
   PowerCheck.Caption := 'Enable authenticated shutdown, reboot and suspend';
   PowerCheck.Checked := WasPowerEnabled();
 
@@ -416,7 +424,8 @@ begin
   OpenChannelButton.Parent := ConnectPage.Surface;
   OpenChannelButton.Caption := 'Open driver channel';
   OpenChannelButton.Top := AgentStatus.Top + AgentStatus.Height + ScaleY(4);
-  OpenChannelButton.Width := ScaleX(175);
+  OpenChannelButton.Width := ScaleX(168);
+  OpenChannelButton.Height := ScaleY(25);
   OpenChannelButton.OnClick := @OpenChannel;
 
   CopyLinkButton := TNewButton.Create(ConnectPage);
@@ -424,7 +433,8 @@ begin
   CopyLinkButton.Caption := 'Copy invitation link';
   CopyLinkButton.Left := OpenChannelButton.Width + ScaleX(8);
   CopyLinkButton.Top := OpenChannelButton.Top;
-  CopyLinkButton.Width := ScaleX(154);
+  CopyLinkButton.Width := ConnectPage.SurfaceWidth - CopyLinkButton.Left;
+  CopyLinkButton.Height := ScaleY(25);
   CopyLinkButton.OnClick := @CopyLink;
 
   LinkEdit := TNewEdit.Create(ConnectPage);
@@ -432,6 +442,7 @@ begin
   LinkEdit.Left := 0;
   LinkEdit.Width := ConnectPage.SurfaceWidth;
   LinkEdit.Top := OpenChannelButton.Top + OpenChannelButton.Height + ScaleY(5);
+  LinkEdit.Height := ScaleY(23);
   LinkEdit.ReadOnly := True;
   LinkEdit.Text := ChannelURL;
 
@@ -480,6 +491,7 @@ begin
   KeyEdit.Parent := KeyPage.Surface;
   KeyEdit.Top := KeyHint.Top + KeyHint.Height + ScaleY(5);
   KeyEdit.Width := KeyPage.SurfaceWidth;
+  KeyEdit.Height := ScaleY(23);
   KeyEdit.ReadOnly := True;
   KeyEdit.PasswordChar := '*';
 
@@ -488,6 +500,7 @@ begin
   ShowKeyButton.Top := KeyEdit.Top + KeyEdit.Height + ScaleY(8);
   ShowKeyButton.Caption := 'Show key';
   ShowKeyButton.Width := ScaleX(120);
+  ShowKeyButton.Height := ScaleY(25);
   ShowKeyButton.OnClick := @ShowOrHideKey;
 
   CopyKeyButton := TNewButton.Create(KeyPage);
@@ -495,7 +508,8 @@ begin
   CopyKeyButton.Top := ShowKeyButton.Top;
   CopyKeyButton.Left := ShowKeyButton.Width + ScaleX(8);
   CopyKeyButton.Caption := 'Copy authentication key';
-  CopyKeyButton.Width := ScaleX(192);
+  CopyKeyButton.Width := KeyPage.SurfaceWidth - CopyKeyButton.Left;
+  CopyKeyButton.Height := ScaleY(25);
   CopyKeyButton.OnClick := @CopySecretKey;
 
   KeySetupHint := TNewStaticText.Create(KeyPage);
