@@ -43,7 +43,7 @@ The Windows executable is self-contained and unsigned; verify checksums and expe
 
 **Linux:** Extract the matching release source ZIP, run `./scripts/preflight.sh` and `./scripts/install-agent.sh --dry-run`, then upgrade with `sudo ./scripts/install-agent.sh`. It preserves persistent identity and existing power-helper opt-in; validate `/v2/info` and `/v2/metrics`. Protocol v2 compatibility with older agents is maintained.
 
-**SmartThings Edge driver:** This beta **does contain driver changes**. The publisher must package and assign the v0.4.3-beta.1 driver to the **existing** SmartThings channel, preserving its driver ID and registered custom-capability schema. Testers should update the driver through the existing channel, not create a duplicate device. No automatic channel deployment occurs as part of GitHub CI.
+**SmartThings Edge driver:** This beta **does contain driver changes**. The [verified SmartThings Edge channel](https://bestow-regional.api.smartthings.com/invite/1J2Qy7ZkxL20) remains the installation route. The publisher must package and assign the v0.4.3-beta.1 driver to the **existing** SmartThings channel, preserving its driver ID and registered custom-capability schema. Testers should update the driver through the existing channel, not create a duplicate device. No automatic channel deployment occurs as part of GitHub CI.
 
 ## Verification and limitations
 
