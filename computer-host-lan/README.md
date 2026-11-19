@@ -1,6 +1,6 @@
 # Computer Host LAN — SmartThings for Linux and Windows
 
-**Next beta: v0.5.3-beta.1** · SmartThings Edge Driver v0.4.2-beta.1 · Linux agent v0.4.2-beta.1 · Windows agent v0.2.2-beta.1 · Protocol v2 unchanged.
+**Next beta candidate: v0.5.4-beta.1** · SmartThings Edge Driver v0.4.2-beta.1 · Linux agent v0.4.2-beta.1 · Windows agent v0.2.3-beta.1 · Protocol v2 unchanged.
 
 Computer Host LAN is a **separate** project from [Linux Host LAN](../linux-host-lan/). It uses the `_computerhost._tcp` discovery service and `/v2` HTTP API. **Do not pair a protocol-v1 Linux Host LAN agent with this driver.**
 
@@ -27,6 +27,6 @@ Windows system metrics include CPU, RAM, system-drive usage and uptime. Both age
 - [Security limitations](docs/beta/SECURITY-AND-PRIVACY.md)
 - [Release gates](docs/beta/PUBLICATION-GATES.md)
 
-**Release transition:** v0.5.3-beta.1 is prepared from the merged four-metrics work. Until the matching GitHub prerelease and channel driver are published, keep using the [published v0.5.2-beta.1 assets](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.2-beta.1). The new version is an in-place update, not a new SmartThings device.
+**Release plan:** v0.5.4-beta.1 brings the graphical Windows Setup.exe into the public beta as the recommended Windows installation and upgrade method; the existing ZIP/PowerShell route remains supported. See [installation](INSTALLATION.md) and [Setup details](windows-agent/installer/README.md). Linux and the SmartThings Edge driver are unchanged from v0.5.3-beta.1, and existing devices do not need re-pairing.
 
-**Get the beta:** Download [Computer Host LAN v0.5.3-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.3-beta.1) and install the driver from the verified [ARoedl SmartThings Edge Drivers invitation](https://bestow-regional.api.smartthings.com/invite/1J2Qy7ZkxL20). A second SmartThings account has installed the driver through this channel. Additional Windows 11 validation, particularly WOL, recovery and additional hardware, remains a beta test objective. The historical Linux v0.3.1 material lives in `docs/history/v0.3.1-beta.1/`. Existing Linux Host LAN devices remain on the separate legacy project.
+**Current public download:** [v0.5.3-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.3-beta.1); the [v0.5.4-beta.1 release](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.4-beta.1) is available only after its prerelease is published. The [SmartThings driver channel](https://bestow-regional.api.smartthings.com/invite/1J2Qy7ZkxL20) is unchanged. Windows 11 hub discovery, network edge cases and WOL remain beta test objectives.

@@ -1,8 +1,6 @@
-# Windows graphical installer (Inno Setup 7) — development
+# Windows graphical installer (Inno Setup 7) — public-beta installation method
 
-The graphical installer is **not** the currently published Windows ZIP. It is a
-separate beta experiment until real Windows 11 fresh-install, ZIP-to-Setup
-migration, upgrade, uninstall and multi-hub discovery are tested.
+The graphical Windows x64 Setup.exe becomes the **recommended** installation and upgrade method in Computer Host LAN v0.5.4-beta.1, after that prerelease is published. Its [permanent release asset](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.4-beta.1) is separate from the existing supported PowerShell ZIP, which remains a fallback for troubleshooting. Both are unsigned; verify SHA-256 before running. Actual Windows 11 hub discovery and hardware behavior remain beta test objectives. The native Windows Server 2025 CI has verified complete graphical navigation, clipboard copying, service upgrades, uninstall safety and ZIP migration.
 
 ## SmartThings hub selection
 
@@ -51,7 +49,7 @@ The uninstall path uses the existing PowerShell uninstaller with
 `-KeepProgramFiles`, allowing Inno to remove tracked files while preserving
 persistent UUID/control key in ProgramData. The legacy script itself remains
 supported. No global execution-policy changes, firmware changes or dynamic
-port forwarding. No automatic release, signing or channel update.
+port forwarding. No automatic release, signing or channel update. Release publication remains a separate approved step.
 
 ## Building on Windows
 
@@ -64,4 +62,4 @@ iscc.exe .\ComputerHostLAN.iss
 Run from `computer-host-lan/windows-agent/installer`. The CI job builds and
 executes the discovery helper's self-test before invoking Inno Setup 7. A
 GitHub Windows runner **cannot** confirm discovery of a real SmartThings hub.
-Real Windows 11 beta testing is required before any public Setup.exe release.
+Real Windows 11 beta testing remains an objective while Setup.exe is distributed in the public beta; stable-release certification is not implied.

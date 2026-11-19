@@ -1,4 +1,4 @@
-# Computer Host LAN — compatibility evidence (updated 2026-11-17)
+# Computer Host LAN — compatibility evidence (updated 2026-11-19)
 
 | Platform | Evidence | Outstanding |
 | --- | --- | --- |
@@ -6,8 +6,8 @@
 | Debian 12/13 | Python/unit and installer-source smoke **CI passed in containers** | Real systemd PID1, Avahi, hardware WOL |
 | Ubuntu 24.04/26.04 | Python/unit and installer-source smoke **CI passed in containers** | Full systemd/network manager integration, hardware WOL |
 | Fedora 43/44 | Python/unit and installer-source smoke **CI passed in containers** | SELinux enforcing, firewalld, actual hardware |
-| Windows Server 2025 x64 | .NET 10 compile/run, metrics/API/HMAC tests, `LocalService` install/upgrade/opt-in/out on CI runner **passed** | Physical power transitions, SmartThings LAN/mDNS on hardware, Windows desktop sleep policy |
-| Windows 11 x64 (first public-beta volunteer) | **Tester-reported real hardware success:** installation and basic SmartThings use; 64-character key entered via Android keyboard clipboard; authenticated Suspend, Reboot, and Shutdown (Switch Off) successfully executed | Windows WOL, detailed telemetry checks, service outage/recovery, upgrade/rollback, different NICs/hardware |
+| Windows Server 2025 x64 | Agent and native Inno Setup 7 GUI tests passed (Welcome, hub field, optional key copy, ZIP migration, upgrade, uninstall safety); service/HMAC/metrics CI passed ([GUI CI](https://github.com/ldeora/SmartThingsEdgeDrivers/actions/runs/44515639490)) | Physical SmartThings LAN/mDNS, Windows 11 graphical testing, WOL and desktop sleep behavior |
+| Windows 11 x64 (first public-beta volunteer) | **Previous ZIP/PowerShell tester-reported success, not new GUI validation:** installation and basic SmartThings use; 64-character key entered via Android keyboard clipboard; authenticated Suspend, Reboot, and Shutdown (Switch Off) successfully executed | Windows WOL, detailed telemetry checks, service outage/recovery, upgrade/rollback, different NICs/hardware |
 | Windows ARM64 | Cross-publish passed | Execution, installer, mDNS, power, hardware WOL |
 | Other Linux, Windows variants | Not validated | Must not be advertised as verified |
 

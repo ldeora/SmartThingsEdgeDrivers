@@ -1,16 +1,18 @@
-# Next beta v0.5.3-beta.1 — publisher checklist
+# Computer Host LAN v0.5.4-beta.1 — release and publication checklist
 
-PR #15 is merged; on 2026-11-18 the publisher tested four values for RAM and filesystem on actual Gentoo Linux `hydra` + SmartThings hub, including English/German capability schema and app presentation. New optional v2 fields introduce no identity, power or profile changes. Linux/Edge 0.4.2-beta.1; Windows 0.2.2-beta.1. Windows 11 real-hardware testing of new measurements is the remaining beta objective.
+**Goal:** Make the unsigned graphical Windows x64 Setup.exe the preferred public-beta installation and upgrade method, keeping Windows ZIP/PowerShell as a supported fallback. The Linux agent and Edge driver stay at v0.4.2-beta.1; Windows agent becomes v0.2.3-beta.1; protocol v2 unchanged.
 
-1. Confirm final `main` SHA and green Linux, Windows and release-candidate GitHub Actions runs for that exact SHA.
-2. Download the final `computer-host-lan-complete-unsigned-beta-candidate` artifact; verify the three ZIPs against SHA256SUMS, source release manifest and Windows BUILD-INFO commit/version.
-3. Publish [v0.5.3-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.3-beta.1) as a **new GitHub prerelease** with the three ZIPs and `SHA256SUMS.txt`; preserve v0.5.2-beta.1 tag/assets for rollback.
-4. Package and assign the updated Computer Host LAN Edge driver to the **existing** channel, keeping driver ID `2ab3db0e-3b78-499e-bc3b-bcfa7f62b9f7`. Do not install unrelated drivers.
-5. Only after both distributions are ready, post `docs/beta/UPDATE-v0.5.3-beta.1-COMMENT.md` to the existing SmartThings Community beta thread.
+1. Confirm PR #17 merge `06cf471ffb18` and merge the release follow-up only after its Windows Inno GUI, Windows runtime, Linux tests and unsigned release-candidate CI pass.
+2. Identify the exact final `main` commit. Download the **computer-host-lan-complete-unsigned-beta-candidate** CI artifact for that SHA. Confirm exactly **four deliverables**: `computer-host-lan-v0.5.4-beta.1-windows-x64-unsigned-setup.exe`, `computer-host-lan-v0.5.4-beta.1-windows-x64-unsigned.zip`, `computer-host-lan-v0.5.4-beta.1-source.zip`, `computer-host-lan-v0.5.4-beta.1-documentation.zip`, plus `SHA256SUMS.txt`. Check all hashes, version metadata, source commit and Windows ZIP internal manifest.
+3. Review redistribution/provenance of Inno Setup 7, Zeroconf 3.7.16, bundled .NET 10 runtime and other third-party dependencies; confirm the unsigned/SmartScreen and trusted-LAN disclosure.
+4. Publish a **new GitHub prerelease** `computer-host-lan-v0.5.4-beta.1` with the four files and `SHA256SUMS.txt`; do not replace v0.5.3-beta.1 files. Test all public download URLs and hashes after publication.
+5. The Computer Host LAN Edge driver is **unchanged**; do not unnecessarily repackage/reassign the existing SmartThings driver or change channel ID `7a23289c-d1f8-42cc-ba10-4ffd219b89bb`. The verified invitation remains https://bestow-regional.api.smartthings.com/invite/1J2Qy7ZkxL20.
+6. Once the release exists, post `docs/beta/UPDATE-v0.5.4-beta.1-COMMENT.md` to the existing [SmartThings Community beta thread](https://community.smartthings.com/t/st-edge-computer-host-lan-bring-windows-and-linux-computers-into-smartthings-public-beta/312605) and link the new [installation guide](INSTALLATION.md).
 
-No release or channel deployment is performed by CI. 
+**Do not publish before verifying release CI:** Windows Server 2025 wizard tests are strong evidence, but not physical Windows 11 hub tests. The public beta is intended to collect the remaining data. There is no automatic signing, release publication or channel update in CI.
 
 ---
+
 
 # Computer Host LAN — v0.5.1-beta.1 release brief
 

@@ -1,7 +1,7 @@
-; Computer Host LAN — experimental Windows graphical installer.
+; Computer Host LAN — unsigned Windows beta graphical installer.
 ; Reuses the existing ZIP installer scripts; never modifies ProgramData state.
-; Build only in CI until Windows 11 upgrade/migration hardware feedback passes.
-#define IntegrationVersion "0.5.3-beta.1"
+; Native Windows CI tested. Real Windows 11 hub discovery remains beta scope.
+#define IntegrationVersion "0.5.4-beta.1"
 [Setup]
 AppId={{B7B83C5C-78B1-4F5F-9BDF-4D5B9D07C12B}
 AppName=Computer Host LAN - Windows Agent

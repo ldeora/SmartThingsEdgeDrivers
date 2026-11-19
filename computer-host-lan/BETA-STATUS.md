@@ -1,3 +1,15 @@
+# Next candidate: Computer Host LAN v0.5.4-beta.1 — Windows guided installer
+
+The existing public release is **v0.5.3-beta.1**. PR #17 (merge commit `06cf471ffb18`) adds the Inno Setup 7 Windows x64 wizard to `main`. Windows Server 2025 CI has passed native wizard interactions, opt-in and key copy, ZIP-to-Setup migration, upgrades, guarded service removal, uninstall and preserved identity/configuration. This is sufficient to include Setup.exe as an **unsigned beta download**; it is not evidence of physical Windows 11 hub interoperability.
+
+The planned **v0.5.4-beta.1** release makes Setup.exe the default Windows installation and upgrade method and keeps the existing Windows ZIP/PowerShell script method available. Fresh installs start in monitoring-only mode, while guided upgrades preserve previous optional power enablement. Manual script upgrades still require `-EnablePower`. Linux and the Edge Driver remain at v0.4.2-beta.1; the Windows agent moves to v0.2.3-beta.1; protocol v2 and the existing shared SmartThings channel stay unchanged.
+
+**Required before publication:** merge the release packaging/documentation follow-up PR with successful CI; verify the exact `main` commit's release-candidate bundle includes Linux ZIP, Windows ZIP, docs ZIP, Windows Setup.exe and `SHA256SUMS.txt`; confirm component versions and SHA-256 checksums; review third-party redistribution licenses and signing/safety wording; publish a **new prerelease** `computer-host-lan-v0.5.4-beta.1`; verify permanent public downloads. Preserve v0.5.3-beta.1 unchanged.
+
+**Open beta test requests:** real Windows 11 hub mDNS discovery (zero, one and multiple hubs), manual IPv4, local-network fallback, GUI at different scaling, migration of real previous-beta hosts, app pairing, monitoring, recovery and WOL. These are not stable-release blockers, but results must be explicitly described.
+
+---
+
 # Next candidate: Computer Host LAN v0.5.3-beta.1 — preparing publication
 
 PR #15 merged 2026-11-18. Real Gentoo Linux `hydra` + SmartThings hub confirmed eight RAM/root filesystem readings in the German app and `devices:status`. The new agent fields are present in `/v2/metrics`; account-level custom-capability schema/translations/presentations have already been updated by the owner. One German translation upsert initially returned HTTP 422 but succeeded on retry. No device re-pairing was required.

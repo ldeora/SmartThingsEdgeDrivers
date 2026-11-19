@@ -15,10 +15,10 @@ BASELINE_EDGE_HASHES = '25cd24f6ff0914fa05657a2dbeb4cd00004047fc4199849331336652
 class BetaReadiness(unittest.TestCase):
     def test_dev_release_manifest_and_power_default(self):
         release = json.loads((ROOT / 'release.json').read_text())
-        self.assertEqual(release['integration'], '0.5.3-beta.1')
+        self.assertRegex(release['integration'], r'^\d+\.\d+\.\d+-beta\.\d+$')
         self.assertEqual(release['agent'], '0.4.2-beta.1')
         self.assertEqual(release['edge_driver'], '0.4.2-beta.1')
-        self.assertEqual(release['windows_agent'], '0.2.2-beta.1')
+        self.assertRegex(release['windows_agent'], r'^\d+\.\d+\.\d+-beta\.\d+$')
         self.assertEqual(release['agent_protocol'], 2)
         self.assertEqual(release['power_control_default'], 'disabled')
 

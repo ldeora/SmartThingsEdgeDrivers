@@ -1,6 +1,6 @@
-# Native Windows Host Agent — v0.2.2-beta.1
+# Native Windows Host Agent — v0.2.3-beta.1 (v0.5.4-beta.1 integration candidate)
 
-Companion to **Computer Host LAN v0.5.3-beta.1**, sharing protocol v2 and `_computerhost._tcp` discovery with the Linux agent.
+Companion to **Computer Host LAN v0.5.4-beta.1**, sharing protocol v2 and `_computerhost._tcp` discovery with the Linux agent.
 
 ## Verified versus not verified
 
@@ -17,7 +17,11 @@ dotnet run --project .\ComputerHost.WindowsAgent.Tests\ComputerHost.WindowsAgent
 
 Builds use .NET 10. Published x64 binaries are self-contained, so ordinary testers do not need the SDK. The smoke test disables mDNS and never sends valid power commands.
 
-## Install (Windows 11 x64, elevated PowerShell)
+## Recommended: graphical Windows Setup.exe (x64)
+
+From the versioned v0.5.4-beta.1 GitHub prerelease (once published), download and verify the unsigned `computer-host-lan-v0.5.4-beta.1-windows-x64-unsigned-setup.exe`. Run as administrator and choose the discovered or manually entered hub IPv4, optional power management, and SmartThings onboarding. The installer preserves existing UUID, key, configuration and power preference during ZIP-to-Setup migrations and Setup upgrades. To uninstall, use Windows **Installed apps**; persistent ProgramData state is retained. See [full instructions](../INSTALLATION.md). The currently published v0.5.3-beta.1 Windows ZIP remains available until the new release is published. Real Windows 11 multi-hub discovery and hardware behavior are beta test objectives.
+
+## Fallback: ZIP and elevated PowerShell
 
 From the extracted Windows kit (PowerShell as Administrator), replace the example with your hub's IP:
 
@@ -30,7 +34,7 @@ Invoke-RestMethod http://127.0.0.1:8765/v2/info
 .\scripts\Get-WolDiagnostics.ps1
 ```
 
-Omit `-HubIPv4` to allow `LocalSubnet` on a Private Windows firewall profile. The installer **does not** configure Windows mDNS/UDP5353, firmware WOL or sleep policies. The service runs as `NT AUTHORITY\LocalService`, persists identity under `%ProgramData%\ComputerHostAgent` and does not enable power on a fresh install or ordinary reinstall.
+Omit `-HubIPv4` to allow `LocalSubnet` on a Private Windows firewall profile. The PowerShell script **does not** configure Windows mDNS/UDP5353, firmware WOL or sleep policies. The service runs as `NT AUTHORITY\LocalService`, persists identity under `%ProgramData%\ComputerHostAgent` and does not enable power on a fresh install or ordinary reinstall.
 
 ## Optional power management
 
@@ -38,10 +42,10 @@ After SmartThings discovery and telemetry succeed, save all open work and ensure
 
 The Windows native operations are **best-effort** and hardware-dependent: reboot first, suspend/WOL second, shutdown/WOL last. A first Windows 11 volunteer confirms reboot, suspend and shutdown on their hardware; Windows WOL is still awaiting real-hardware validation. A 202 response means accepted for scheduling, not confirmed completion. Windows S0/S3/S4/S5 support, Fast Startup and WOL depend on policy, NIC and firmware.
 
-Reinstall **without** `-EnablePower` to disable remote power. Uninstall with `.\scripts\Uninstall-WindowsAgent.ps1`; add `-PurgeState` **only** to intentionally remove persistent identity and key. No binary is signed. The [unsigned beta package](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.3-beta.1) and verified [SmartThings channel invitation](https://bestow-regional.api.smartthings.com/invite/1J2Qy7ZkxL20) are the entry points for testers.
+Reinstall **without** `-EnablePower` to disable remote power. Uninstall with `.\scripts\Uninstall-WindowsAgent.ps1`; add `-PurgeState` **only** to intentionally remove persistent identity and key. No binary is signed. The [currently published beta package](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.3-beta.1) and verified [SmartThings channel invitation](https://bestow-regional.api.smartthings.com/invite/1J2Qy7ZkxL20) are the entry points for testers.
 
 See [platform installation](../INSTALLATION.md), [tester checklist](docs/HARDWARE-TEST-MATRIX.md) and [security/privacy](../docs/beta/SECURITY-AND-PRIVACY.md).
 
 ## Upgrading an existing beta
 
-Extract the new package into a fresh folder and rerun the included installer in elevated PowerShell. Persistent identity and the control key are preserved in `%ProgramData%\\ComputerHostAgent`. **Important:** `-EnablePower` must be provided *again* during an upgrade if you intend to keep remote power actions enabled; without it, power is intentionally disabled. Do not use `-PurgeState` for an upgrade. Check `/v2/metrics` for both memory byte fields (`memory_used_bytes`, `memory_available_bytes`) and filesystem byte fields (`disk_root_used_bytes`, `disk_root_available_bytes`), then verify **Used GiB** and **Available GiB** alongside usage % and total GiB for both cards in SmartThings. Linux reference hardware passed these new values; Windows 11 hardware confirmation is requested.
+**Preferred:** Run the newer Setup.exe over the existing agent; it preserves previous power opt-in without repeating a command-line flag. **Fallback:** Extract the new package into a fresh folder and rerun the included installer in elevated PowerShell. Persistent identity and the control key are preserved in `%ProgramData%\\ComputerHostAgent`. **Important:** `-EnablePower` must be provided *again* during an upgrade if you intend to keep remote power actions enabled; without it, power is intentionally disabled. Do not use `-PurgeState` for an upgrade. Check `/v2/metrics` for both memory byte fields (`memory_used_bytes`, `memory_available_bytes`) and filesystem byte fields (`disk_root_used_bytes`, `disk_root_available_bytes`), then verify **Used GiB** and **Available GiB** alongside usage % and total GiB for both cards in SmartThings. Linux reference hardware passed these new values; Windows 11 hardware confirmation is requested.

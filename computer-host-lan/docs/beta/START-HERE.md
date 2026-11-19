@@ -1,6 +1,6 @@
 # Computer Host LAN — volunteer beta quick start
 
-**Public beta v0.5.3-beta.1:** Download the host agent from the [official GitHub prerelease](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.3-beta.1) and install the Edge Driver through the [verified SmartThings channel invitation](https://bestow-regional.api.smartthings.com/invite/1J2Qy7ZkxL20). A Windows 11 public-beta volunteer has now reported successful installation and basic SmartThings operation plus Suspend, Reboot, and Shutdown (Off); WOL and further platform coverage still need testers. Do not follow old `Linux Host LAN` beta guides for this project; those use protocol v1.
+**Current public beta v0.5.3-beta.1; next candidate v0.5.4-beta.1:** Download the host agent from the [official GitHub prerelease](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.3-beta.1) and install the Edge Driver through the [verified SmartThings channel invitation](https://bestow-regional.api.smartthings.com/invite/1J2Qy7ZkxL20). A Windows 11 public-beta volunteer has now reported successful installation and basic SmartThings operation plus Suspend, Reboot, and Shutdown (Off); WOL and further platform coverage still need testers. Do not follow old `Linux Host LAN` beta guides for this project; those use protocol v1.
 
 ## Requirements
 
@@ -8,22 +8,13 @@ A LAN-capable SmartThings hub, private trusted LAN with UDP5353/mDNS (for discov
 
 ## 1. Download and verify
 
-Obtain the matching host installer from the [permanent v0.5.3-beta.1 GitHub prerelease](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.3-beta.1) (not a temporary Actions artifact), verify its SHA-256 file and extract it locally. Windows x64 ZIP contains `publish/win-x64/`, `scripts/`, `docs/` and license. Linux source installer is separate. Both require the same `Computer Host LAN` Edge Driver.
+For Windows 11 x64, prefer the **unsigned graphical Setup.exe** from the [v0.5.4-beta.1 release](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.4-beta.1) once it is published. Verify the SHA-256 using `SHA256SUMS.txt`. For Linux, download the versioned source ZIP. Windows ZIP/PowerShell installation continues as a fallback, not a deprecated method. Before v0.5.4 is published, use [v0.5.3-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.3-beta.1).
 
 ## 2. Install monitoring only
 
-**Windows:** open PowerShell **as Administrator** in the extracted folder, substituting your real hub IP for the example:
+**Windows:** Run the Setup.exe as Administrator, confirm a discovered SmartThings hub or enter its actual IPv4 address, and leave **Power management** disabled for your first test. If mDNS is blocked, use the manual IP field or the explicit local-network firewall scope option. After installation, the wizard shows **Connect to SmartThings**, and the guide is available later from the Start Menu. See [Windows Setup and PowerShell fallback](../../INSTALLATION.md). Existing ZIP installations can be upgraded directly by Setup without losing identity, key or power preference.
 
-```powershell
-$hubIPv4 = '192.168.1.20'  # example only
-.\scripts\Verify-Package.ps1
-.\scripts\Install-WindowsAgent.ps1 -WhatIf
-.\scripts\Install-WindowsAgent.ps1 -HubIPv4 $hubIPv4
-Get-Service ComputerHostAgent
-Invoke-RestMethod http://127.0.0.1:8765/v2/info
-```
-
-**Linux (systemd):** from the source root.
+**Linux (systemd):** From the extracted source directory:
 
 ```sh
 ./scripts/preflight.sh
@@ -33,6 +24,7 @@ curl -fsS http://127.0.0.1:8765/v2/info
 avahi-browse -rt _computerhost._tcp
 ```
 
+
 ## 3. Install SmartThings driver and pair
 
 Open the [ARoedl SmartThings Edge Drivers invitation](https://bestow-regional.api.smartthings.com/invite/1J2Qy7ZkxL20), sign in, accept, enroll your hub, install **Computer Host LAN** under **Available Drivers**, then use **Scan nearby**. The host is discovered as Linux or Windows using `_computerhost._tcp`. Verify switch ON, host status, CPU%, RAM usage/total/used/available, root/system filesystem usage/total/used/available and uptime. Linux adds CPU temperature (when available) and load averages; Windows does not.
@@ -41,7 +33,7 @@ If discovery fails, report network profile, multicast reachability and HTTP resp
 
 ## Upgrading an existing beta installation
 
-Keep the existing SmartThings computer device and preserve the host agent's identity; do not uninstall or purge state. Extract the new package into a fresh directory and rerun its installer. Linux: `sudo ./scripts/install-agent.sh` preserves existing power-control opt-in. Windows: reinstall with `-HubIPv4` and **include `-EnablePower` if it was enabled previously**; otherwise Windows intentionally disables remote power. Verify `/v2/metrics` now includes `memory_used_bytes`, `memory_available_bytes`, `disk_root_used_bytes` and `disk_root_available_bytes` and that both SmartThings **Memory** and **Root filesystem** sections show usage %, total GiB, used GiB and available GiB. A normal hub reboot resolved stale capability metadata on the publisher's test hub without re-pairing.
+Keep the existing SmartThings computer device and preserve the host agent's identity; do not uninstall or purge state. For Windows, run the new Setup.exe directly over the installed beta; Setup retains the prior power choice, UUID, token and configuration. The script-based ZIP remains available if Setup fails. Linux: `sudo ./scripts/install-agent.sh` preserves existing power-control opt-in. Windows **PowerShell fallback only**: reinstall with `-HubIPv4` and **include `-EnablePower` if previously enabled**; unlike Setup.exe, the script otherwise disables power commands. Verify `/v2/metrics` now includes `memory_used_bytes`, `memory_available_bytes`, `disk_root_used_bytes` and `disk_root_available_bytes` and that both SmartThings **Memory** and **Root filesystem** sections show usage %, total GiB, used GiB and available GiB. A normal hub reboot resolved stale capability metadata on the publisher's test hub without re-pairing.
 
 ## 4. Recovery then optional power
 
@@ -51,4 +43,4 @@ Stop/start the agent service and verify SmartThings recovers without creating du
 
 Use [the structured checklist](TESTER-CHECKLIST.md), then share [sanitized feedback](FEEDBACK-AND-SUPPORT.md). Windows collector: `.\scripts\Collect-WindowsDiagnostics.ps1`. Linux report: `./scripts/beta-report.sh`. Review output manually; never publish a control token, host UUID, IP or MAC.
 
-Windows removal: `.\scripts\Uninstall-WindowsAgent.ps1`; Linux removal: `sudo ./scripts/uninstall-agent.sh --confirm`. Both preserve selected state by default; intentional purges must be explicitly requested.
+Windows graphical-install removal: Windows **Installed apps**; ZIP/PowerShell removal: `.\scripts\Uninstall-WindowsAgent.ps1`; Linux removal: `sudo ./scripts/uninstall-agent.sh --confirm`. Both preserve selected state by default; intentional purges must be explicitly requested.
