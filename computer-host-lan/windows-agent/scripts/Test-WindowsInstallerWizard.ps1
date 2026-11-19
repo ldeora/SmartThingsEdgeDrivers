@@ -33,6 +33,7 @@ public static class ComputerHostWizardProbe {
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetClassName(IntPtr h, StringBuilder text, int max);
     [DllImport("user32.dll")] private static extern bool GetWindowRect(IntPtr h, out RECT rect);
     [DllImport("user32.dll")] private static extern bool IsWindowVisible(IntPtr h);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern bool SetWindowText(IntPtr h, string value);
     [DllImport("user32.dll")] private static extern IntPtr SendMessage(IntPtr h, uint m, IntPtr w, IntPtr l);
     [DllImport("user32.dll", SetLastError=true)] private static extern bool OpenClipboard(IntPtr h);
     [DllImport("user32.dll")] private static extern bool CloseClipboard();
@@ -68,6 +69,11 @@ public static class ComputerHostWizardProbe {
         return r.ToArray();
     }
     public static void Click(IntPtr hwnd) { SendMessage(hwnd, 0x00F5, IntPtr.Zero, IntPtr.Zero); }
+    public static string TextOf(IntPtr hwnd) {
+        var text = new StringBuilder(512);
+        GetWindowText(hwnd, text, text.Capacity);
+        return text.ToString();
+    }
     public static int PasswordMask(IntPtr hwnd) {
         return (int)SendMessage(hwnd, 0x00D2, IntPtr.Zero, IntPtr.Zero).ToInt64();
     }
@@ -116,6 +122,28 @@ function WaitForWizardText([IntPtr]$handle, [string]$pattern, [string]$stage, [i
     $c | ForEach-Object { Write-Host "$_" }
     throw "Wizard did not show $stage"
 }
+function CaptureWizardPage([ComputerHostWizardProbe+Item]$window, [string]$name) {
+    # Capture ONLY non-secret pages, never the authentication key UI.
+    try {
+        Add-Type -AssemblyName System.Drawing
+        $folder = Join-Path $env:RUNNER_TEMP 'computer-host-wizard-screens'
+        New-Item -ItemType Directory -Path $folder -Force | Out-Null
+        $bitmap = [System.Drawing.Bitmap]::new($window.Width, $window.Height)
+        $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+        try {
+            $graphics.CopyFromScreen($window.Left, $window.Top, 0, 0,
+                [System.Drawing.Size]::new($window.Width, $window.Height))
+            $bitmap.Save((Join-Path $folder ($name + '.png')),
+                [System.Drawing.Imaging.ImageFormat]::Png)
+            Write-Host "Captured safe UI screenshot: $name"
+        } finally {
+            $graphics.Dispose()
+            $bitmap.Dispose()
+        }
+    } catch {
+        Write-Warning "Screen capture unavailable: $($_.Exception.GetType().Name)"
+    }
+}
 function WaitForClipboard([string]$expected, [string]$stage) {
     for ($attempt = 0; $attempt -lt 16; $attempt++) {
         $actual = [ComputerHostWizardProbe]::ClipboardText()
@@ -149,6 +177,7 @@ try {
         throw 'Welcome heading not visible; DisableWelcomePage=no should be effective.'
     }
     Write-Host 'PASS Welcome screen heading is visible'
+    CaptureWizardPage $window '01-welcome'
 
     $next = $children | Where-Object {
         $_.Visible -and $_.Class -match 'Button' -and $_.Text -match 'Next'
@@ -188,6 +217,27 @@ try {
         throw "Hub IPv4 input falls outside the Setup window: $input"
     }
     Write-Host "PASS visible, on-screen, editable hub address selector: $input"
+    if (-not [ComputerHostWizardProbe]::SetWindowText($input.Handle, '192.0.2.20')) {
+        throw 'Hub IPv4 selector refused manual text entry'
+    }
+    if ([ComputerHostWizardProbe]::TextOf($input.Handle) -ne '192.0.2.20') {
+        throw 'Hub IPv4 selector did not retain manually entered address'
+    }
+    Write-Host 'PASS manual hub-IP entry accepts and displays IPv4 text'
+    $advanced = FindVisibleButton $window.Handle 'Advanced options'
+    if (-not $advanced) { throw 'Advanced options button missing' }
+    $before = @(VisibleControls $window.Handle | Where-Object {
+        $_.Text -match '^Allow connections from devices on my local network$'
+    }).Count -gt 0
+    ClickWizardButton $window.Handle 'Advanced options'
+    Start-Sleep -Milliseconds 150
+    $after = @(VisibleControls $window.Handle | Where-Object {
+        $_.Text -match '^Allow connections from devices on my local network$'
+    }).Count -gt 0
+    if ($before -eq $after) { throw 'Advanced options did not toggle the local-network fallback' }
+    ClickWizardButton $window.Handle 'Advanced options'
+    Write-Host 'PASS Advanced options shows/hides the local-network firewall fallback'
+    CaptureWizardPage $window '02-hub'
     $rescan = $children | Where-Object { $_.Visible -and $_.Text -match 'Search again' } | Select-Object -First 1
     if (-not $rescan) { throw 'Search again button not visible' }
     Write-Host 'PASS Search again button visible'
@@ -200,6 +250,7 @@ try {
             Select-Object -First 1
         if (-not $cb) { throw 'Power-management checkbox is not visible' }
         Write-Host 'PASS power-management checkbox visible'
+        CaptureWizardPage $window '03-power'
 
         ClickWizardButton $window.Handle 'Next'
         WaitForWizardText $window.Handle 'Ready to Install' 'confirmation page'
@@ -210,6 +261,7 @@ try {
             $_.Text -match 'Computer Host Agent is running and responding'
         })
         if ($status.Count -eq 0) { throw 'Connect page does not confirm the agent is healthy' }
+        CaptureWizardPage $window '04-connect'
 
         ClickWizardButton $window.Handle 'Copy invitation link'
         WaitForClipboard 'https://bestow-regional.api.smartthings.com/invite/1J2Qy7ZkxL20' 'channel link copying'

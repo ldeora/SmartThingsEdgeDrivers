@@ -269,6 +269,14 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $setup = (Get-ChildItem windows-agent/installer/output -Filter '*setup.exe' -File | Select-Object -First 1).FullName
           & ./windows-agent/scripts/Test-WindowsInstallerWizard.ps1 -SetupExecutable $setup -FullInstall
+      - name: Upload non-secret wizard screenshots
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: computer-host-lan-wizard-windows-gui-evidence
+          path: ${{ runner.temp }}/computer-host-wizard-screens/*.png
+          retention-days: 7
+          if-no-files-found: warn
       - name: Upload unsigned installer prototype (not a public release)
         uses: actions/upload-artifact@v7
         with:
