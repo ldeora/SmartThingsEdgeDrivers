@@ -1,4 +1,7 @@
 name: Computer Host Linux reference verification
+concurrency:
+  group: computer-host-${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
 on:
   push:
     paths:

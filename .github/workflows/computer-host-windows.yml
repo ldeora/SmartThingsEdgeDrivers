@@ -1,4 +1,7 @@
 name: Computer Host Windows agent (build, power-contract tests and smoke)
+concurrency:
+  group: computer-host-${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
 on:
   push:
     paths:
