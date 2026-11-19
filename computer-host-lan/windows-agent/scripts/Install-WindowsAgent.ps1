@@ -47,7 +47,16 @@ try {
         $identity, 'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow')
       $acl.AddAccessRule($rule)
     }
-    Set-Acl -LiteralPath $state -AclObject $acl
+    # Windows PowerShell 5.1 provides DirectoryInfo.SetAccessControl via
+    # .NET Framework without loading Microsoft.PowerShell.Security.
+    # Inno's service child process can have restricted module auto-loading.
+    # PowerShell 7 uses the equivalent Set-Acl cmdlet under .NET 10.
+    if ($PSVersionTable.PSVersion.Major -le 5) {
+      $directory = New-Object System.IO.DirectoryInfo($state)
+      $directory.SetAccessControl($acl)
+    } else {
+      Set-Acl -LiteralPath $state -AclObject $acl
+    }
   
     $existing = Get-Service -Name $service -ErrorAction SilentlyContinue
     if ($existing) {
