@@ -10,8 +10,11 @@ The wizard searches for the DNS-SD/mDNS service `_smartthings._tcp.local.`
 using a standalone .NET 10 Zeroconf helper (NuGet package Zeroconf 3.7.16).
 One response pre-fills the hub address; multiple responses are displayed in a
 selector. A **Search again** button retries discovery. Users can always enter
-an IPv4 address manually; if nothing is found, a clearly labeled **LocalSubnet**
-firewall fallback is available for private LANs. It never assumes that the
+an IPv4 address manually; if nothing is found, the installer exposes the
+explicit **Allow connections from devices on my local network** fallback.
+When discovery succeeds, that option stays under **Advanced options**.
+Its implementation still uses the firewall LocalSubnet scope on Private
+networks only; it is never selected silently. It never assumes that the
 computer's default gateway is a SmartThings hub.
 
 Hub discovery requires local multicast (UDP 5353) and may not work across
@@ -31,8 +34,18 @@ firewall rule `ComputerHostAgent-TCP8765` and state
 ZIP/PowerShell installations at the same path and adopts them without
 purging the UUID, boot session or HMAC key. It stops the service before file
 replacement, performs an account/path ownership check, and reuses service
-registration. Prior power opt-in defaults to its current value in the
-wizard; on new installs it is off. The checkbox is explicit and visible.
+registration. The separate power-management page preserves the prior opt-in by default;
+new installations start with monitoring only. On successful installation,
+the **Connect to SmartThings** page confirms the local agent health and
+provides an **Open driver channel** button, a copyable invitation link,
+and instructions to add the computer through SmartThings > Add device >
+Scan nearby. If power is enabled, Setup reads (without logging) the existing
+or newly generated 64-hex control key, displays it masked by default and
+allows revealing or copying it on explicit request. On a monitoring-only
+installation, the private key controls are not shown. Clipboard copying is
+opt-in, never automatic. A Start Menu link opens the installed
+Docs/CONNECT-TO-SMARTTHINGS.html guide for later reference; it contains no
+private key.
 
 The uninstall path uses the existing PowerShell uninstaller with
 `-KeepProgramFiles`, allowing Inno to remove tracked files while preserving

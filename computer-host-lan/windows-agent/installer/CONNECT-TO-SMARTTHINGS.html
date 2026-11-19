@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Connect Computer Host LAN to SmartThings</title>
+<style>body{font:1.05rem/1.65 system-ui,-apple-system,Segoe UI,sans-serif;max-width:48rem;margin:2rem auto;padding:0 1.2rem;color:#202124}h1,h2{line-height:1.25}a{color:#145dbf}code{background:#f2f4f7;padding:.15em .3em;border-radius:4px}aside{background:#eef5ff;border-left:4px solid #2476ce;padding:.8rem 1.2rem}</style></head>
+<body>
+<h1>Connect Computer Host LAN to SmartThings</h1>
+<p>The Windows agent runs as a background service on your computer. The separate SmartThings Edge driver runs on your hub. You need both.</p>
+<h2>1. Install the SmartThings Edge driver</h2>
+<p><a href="https://bestow-regional.api.smartthings.com/invite/1J2Qy7ZkxL20">Open the Computer Host LAN driver channel invitation</a>. Sign in with your Samsung account, accept the invitation, enroll your hub if required, then install <strong>Computer Host LAN</strong> under <strong>Available Drivers</strong>. If you already installed the driver, you can skip this step.</p>
+<h2>2. Add your computer in SmartThings</h2>
+<p>On your phone, open SmartThings and select <strong>Add device &rarr; Scan nearby</strong>. Select the detected Computer Host LAN device. If upgrading, keep your existing SmartThings device; there is no need to remove or re-pair it.</p>
+<h2>3. Optional power control</h2>
+<p>If you enabled <strong>shutdown, reboot and suspend</strong> in the Windows installer, the setup wizard offers a masked authentication key and a <strong>Copy authentication key</strong> button. In the new SmartThings computer device, open device settings, enable the shutdown/reboot/suspend preference and paste the key into <strong>Power control key (64 hex chars)</strong>.</p>
+<p>If you have already closed Setup, an administrator can retrieve the existing key from <code>%ProgramData%\ComputerHostAgent\control-token</code>. Never share this key in forum posts or diagnostics. Reinstalling should not generate a new key for an existing agent.</p>
+<aside><strong>Local network troubleshooting:</strong> The hub and computer must be reachable on a trusted LAN. Automatic discovery uses multicast DNS-SD. If detection fails, the installer also offers manual IPv4 selection, or under Advanced options an explicit local-network firewall fallback. The fallback changes firewall scope; it does not fix blocked multicast or VLAN routing.</aside>
+<h2>Help and feedback</h2>
+<p>See the <a href="https://github.com/ldeora/SmartThingsEdgeDrivers/tree/main/computer-host-lan">project documentation</a> or the <a href="https://community.smartthings.com/t/st-edge-computer-host-lan-bring-windows-and-linux-computers-into-smartthings-public-beta/312605">SmartThings Community beta thread</a>. The agent remains compatible with the existing ZIP/PowerShell installation.</p>
+</body></html>

@@ -33,6 +33,28 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Discovery helper publish failed' }
           & ./windows-agent/publish/hub-discovery/ComputerHost.HubDiscovery.exe --self-test
           if ($LASTEXITCODE -ne 0) { throw 'Hub candidate validation self-test failed' }
+      - name: Check the wizard onboarding and secret-handling contract
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $iss = Get-Content windows-agent/installer/ComputerHostLAN.iss -Raw
+          $mustContain = @(
+            'Connect to SmartThings', 'CreateCustomPage(wpInstalling',
+            'Power management', 'Allow connections from devices on my local network',
+            'Advanced options', 'Show key', 'Copy authentication key',
+            'ValidControlKey', 'Scan nearby', 'ShellExecAsOriginalUser',
+            'KeyEdit.PasswordChar', 'SetAdvancedVisible(False)',
+            'if PowerCheck.Checked then', 'GetCustomSetupExitCode'
+          )
+          foreach ($item in $mustContain) {
+            if (-not $iss.Contains($item)) { throw "Wizard contract missing: $item" }
+          }
+          if ($iss -match 'Log\s*\(\s*(KeyEdit|Token|Contents)') { throw 'Potential key logging detected' }
+          $html = Get-Content windows-agent/installer/CONNECT-TO-SMARTTHINGS.html -Raw
+          if ($html -notmatch 'Scan nearby' -or $html -notmatch 'Power control key') {
+            throw 'Missing setup instructions'
+          }
+          Write-Host 'PASS wizard layout, dedicated power/connect pages, masked-key controls and onboarding guide'
       - name: Install Inno Setup 7 for compiler
         shell: pwsh
         run: |
@@ -167,6 +189,14 @@ jobs:
           if ($migrated.id -ne $old.id) { throw 'Migration changed installation UUID' }
           if ((Get-FileHash $key -Algorithm SHA256).Hash -ne $oldKeyHash) { throw 'Migration changed control key' }
           if (-not ($migrated.power_actions -contains 'reboot')) { throw 'Migration lost power setting' }
+          $guide = Join-Path $env:ProgramFiles 'Computer Host Agent/Docs/CONNECT-TO-SMARTTHINGS.html'
+          if (-not (Test-Path $guide)) { throw 'Onboarding guide not installed' }
+          $guideText = Get-Content -LiteralPath $guide -Raw
+          if ($guideText -notmatch 'Scan nearby' -or $guideText -notmatch '1J2Qy7ZkxL20' -or $guideText -notmatch 'Power control key') { throw 'Onboarding guide instructions incomplete' }
+          if ($guideText -match [regex]::Escape((Get-Content -LiteralPath $key -Raw).Trim())) { throw 'Private control token leaked to installed guide' }
+          $shortcut = Join-Path $env:ProgramData 'Microsoft/Windows/Start Menu/Programs/Computer Host LAN/Connect to SmartThings.lnk'
+          if (-not (Test-Path $shortcut)) { throw 'Start Menu onboarding shortcut missing' }
+          Write-Host 'PASS installed onboarding guide and Start Menu shortcut'
           # Next upgrade must retain power without asking to re-enable it.
           Write-Host 'TEST: preserve power setting during a subsequent silent upgrade'
           RunSetup "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /HUBIP=$hub"
@@ -180,6 +210,8 @@ jobs:
           if ($p.ExitCode -ne 0) { throw "Inno uninstall failed: $($p.ExitCode)" }
           if (Get-Service ComputerHostAgent -ErrorAction SilentlyContinue) { throw 'Uninstall left agent service installed' }
           if (Get-NetFirewallRule -Name 'ComputerHostAgent-TCP8765' -ErrorAction SilentlyContinue) { throw 'Uninstall left firewall rule installed' }
+          if (Test-Path $guide) { throw 'Uninstall left installed onboarding guide' }
+          if (Test-Path $shortcut) { throw 'Uninstall left Start Menu onboarding shortcut' }
           if ((Get-FileHash $key -Algorithm SHA256).Hash -ne $oldKeyHash) { throw 'Uninstall removed/rotated persistent key' }
           Write-Host 'TEST: reinstallation with saved state and explicitly disabled power'
           RunSetup "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /HUBIP=$hub /ENABLEPOWER=0"
