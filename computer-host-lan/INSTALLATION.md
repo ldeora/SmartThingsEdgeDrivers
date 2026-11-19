@@ -1,6 +1,6 @@
 # Computer Host LAN — installation (protocol v2)
 
-**Current public beta:** v0.5.3-beta.1. **Next candidate:** v0.5.4-beta.1 introduces the recommended Windows graphical Setup.exe alongside the supported ZIP/PowerShell fallback. Install the Edge driver separately using the [verified SmartThings channel](https://bestow-regional.api.smartthings.com/invite/1J2Qy7ZkxL20).
+**Current public beta:** v0.5.4-beta.1 introduces the recommended Windows graphical Setup.exe alongside the supported ZIP/PowerShell fallback. Install the Edge driver separately using the [verified SmartThings channel](https://bestow-regional.api.smartthings.com/invite/1J2Qy7ZkxL20).
 
 ## Before installation
 
@@ -8,13 +8,13 @@ Use a trusted private LAN and a SmartThings hub that supports LAN Edge drivers. 
 
 ## Windows 11 x64 — recommended graphical installer
 
-The **Windows x64 Setup.exe** is the recommended method beginning with the planned [v0.5.4-beta.1 release](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.4-beta.1). Until that release is published, v0.5.3-beta.1 remains current. Download `computer-host-lan-v0.5.4-beta.1-windows-x64-unsigned-setup.exe` and verify its SHA-256 using `SHA256SUMS.txt`. The installer is unsigned and needs administrator rights, but no separate .NET SDK.
+The **Windows x64 Setup.exe** is the recommended method beginning with the published [v0.5.4-beta.1 release](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.4-beta.1). Download `computer-host-lan-v0.5.4-beta.1-windows-x64-unsigned-setup.exe` and verify its SHA-256 using `SHA256SUMS.txt`. The installer is unsigned and needs administrator rights, but no separate .NET SDK.
 
 1. Run Setup.exe. On the **SmartThings hub** page, select a discovered hub, retry **Search again**, or enter the hub's IPv4 manually. When discovery fails, the explicit **Allow connections from devices on my local network** option configures a Private-only LocalSubnet firewall rule; when discovery works, find this choice under **Advanced options**. It does not repair blocked mDNS between networks.
 2. Choose whether to enable optional **Power management**. A new installation defaults to monitoring only. A Setup upgrade or conversion from the existing ZIP/PowerShell installation retains the previous power preference unless you change it.
 3. On **Connect to SmartThings**, follow the [driver channel invitation](https://bestow-regional.api.smartthings.com/invite/1J2Qy7ZkxL20): sign in, enroll your hub if needed, install **Computer Host LAN** under **Available Drivers**, then use **Add device → Scan nearby** in SmartThings. These instructions remain accessible from the Start Menu.
 4. If power was enabled, the optional **Power control key** page offers Show/Hide and Copy. Enter that private 64-character key in the SmartThings device's `controlKey` setting, and enable `allowPowerCommands`. Keep it confidential.
-5. Verify the service using `Get-Service ComputerHostAgent` and check `http://127.0.0.1:8765/v2/metrics`. Test reboot/suspend/shutdown only with saved work and physical recovery available.
+5. Verify the service using `Get-Service ComputerHostAgent` and check `http://127.0.0.1:8765/v2/metrics` (replace 8765 if you configured another port). Test reboot/suspend/shutdown only with saved work and physical recovery available.
 
 **Upgrading:** Launch the new Setup.exe over the existing ZIP- or Setup-installed agent. Do not first uninstall, delete the SmartThings device or purge `%ProgramData%\ComputerHostAgent`. Inno Setup preserves the installation ID, control token, custom `appsettings.json` and previous power selection. Normal removal through Windows **Installed apps** removes the service, application files and firewall rule, but intentionally retains ProgramData state. Windows ARM64 is not supported by this x64 installer.
 
@@ -62,3 +62,9 @@ A GitHub Actions artifact is temporary and is **not** a permanent published prer
 **Linux:** The Linux agent and Edge driver remain at v0.4.2-beta.1, so Linux users do not need an agent or driver upgrade just for this Windows-installer release. As always, `./scripts/preflight.sh` and `sudo ./scripts/install-agent.sh` remain available if reinstalling. The four RAM and filesystem measurements added in v0.5.3 remain unchanged.
 
 **Release verification:** Download only from the published, versioned GitHub prerelease and compare SHA-256 checksums. Temporary GitHub Actions artifacts are development candidates, not permanent releases.
+
+## Stabilization before the first stable release
+
+[PR #19](https://github.com/ldeora/SmartThingsEdgeDrivers/pull/19) adds safeguards for the Windows graphical upgrade failure path, existing authentication-key ACLs, runtime-version checks, and preservation of PowerShell-upgraded custom settings/ports. These changes are **not part of the published v0.5.4-beta.1 release** until merged and explicitly released. Do not install PR build artifacts on production computers. A failed upgrade must be treated as a support event; never delete the persistent UUID or secret to make it disappear.
+
+Third-party components and redistribution: [notices](docs/beta/THIRD-PARTY-NOTICES.md). The clipboard can retain explicitly copied power-control keys through clipboard history or synchronization depending on Windows settings; clear that history and avoid sharing the key.
