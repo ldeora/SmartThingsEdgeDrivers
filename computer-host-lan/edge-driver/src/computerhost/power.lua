@@ -30,7 +30,7 @@ function M.wake(device)
     end
   end
   if not U.valid_wol_mac(mac) then
-    return false,"WOL MAC unavailable: reconnect the running Linux agent or configure WOL MAC override"
+    return false,"WOL MAC unavailable: reconnect the running computer agent or configure WOL MAC override"
   end
   local broadcast=U.wol_broadcast(device)
   local ok,err=WOL.send(mac,broadcast,U.wol_port(device))
@@ -40,7 +40,7 @@ function M.wake(device)
   end
   device:set_field(C.FIELD_PENDING_ACTION,"wake",{persist=true})
   device:set_field(C.FIELD_PENDING_AT,os.time(),{persist=true})
-  log.info(string.format("Computer Host magic packet sent (MAC %s, broadcast %s)",tostring(mac),tostring(broadcast)))
+  log.info("Computer Host magic packet sent (network identifiers omitted)")
   return true
 end
 function M.action(device,action)
