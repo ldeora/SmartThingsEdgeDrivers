@@ -117,7 +117,7 @@ jobs:
           if (-not $zip) { throw 'No Windows ZIP was produced' }
           $sha = (Get-FileHash -LiteralPath $zip.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
           Get-ChildItem -LiteralPath $out -File | Select-Object Name,Length | Format-Table
-          $checksumFile = Get-ChildItem -LiteralPath $out -File -Filter '*.sha256' | Select-Object -First 1
+          $checksumFile = Get-Item -LiteralPath ($zip.FullName + '.sha256') -ErrorAction SilentlyContinue
           if (-not $checksumFile) { throw 'Packaging step did not produce an external .sha256 file' }
           $expected = (Get-Content -LiteralPath $checksumFile.FullName -Raw).Split(' ')[0].Trim()
           if ($sha -ne $expected) { throw 'Outer Windows ZIP checksum mismatch' }
