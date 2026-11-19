@@ -26,6 +26,23 @@ jobs:
         run: dotnet build windows-agent/ComputerHost.WindowsAgent/ComputerHost.WindowsAgent.csproj -c Release
       - name: Contract and Win32 telemetry tests
         run: dotnet run --project windows-agent/ComputerHost.WindowsAgent.Tests/ComputerHost.WindowsAgent.Tests.csproj -c Release
+      - name: Syntax-check optional session-lock research scripts (never execute them)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          foreach ($file in @(
+            'windows-agent/experiments/session-lock/Invoke-LocalSessionLock.ps1',
+            'windows-agent/experiments/session-lock/Test-InteractiveLockTask.ps1'
+          )) {
+            $issues = $null
+            $tokens = $null
+            [System.Management.Automation.Language.Parser]::ParseFile(
+              (Resolve-Path $file).Path, [ref]$tokens, [ref]$issues) | Out-Null
+            if (@($issues).Count -gt 0) {
+              throw "PowerShell parse errors in $file : $($issues | Out-String)"
+            }
+            Write-Host "PASS PowerShell syntax: $file (not executed)"
+          }
       - name: Publish self-contained Windows x64 executable
         shell: pwsh
         run: ./windows-agent/scripts/Publish-WindowsAgent.ps1 -Runtime win-x64
