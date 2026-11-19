@@ -77,6 +77,28 @@ jobs:
             if ($LASTEXITCODE -ne 0) { throw 'Windows PowerShell 5.1 power-disable upgrade failed' }
             $infoOff = Invoke-RestMethod 'http://127.0.0.1:8765/v2/info' -TimeoutSec 3
             if (@($infoOff.power_actions).Count -ne 0) { throw 'Power remained enabled after opt-out' }
+            # Reuse the legacy ZIP/PowerShell path to verify custom settings survive
+            # an upgrade, and the firewall listens on the actual configured port.
+            $appConfig = Join-Path $env:ProgramFiles 'Computer Host Agent/appsettings.json'
+            $config = Get-Content -LiteralPath $appConfig -Raw | ConvertFrom-Json
+            $config.HostAgent.Port = 18766
+            $config.HostAgent.DiscoveryEnabled = $false
+            $config | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $appConfig -Encoding utf8
+            & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $install -PublishedDirectory $publish -HubIPv4 '192.0.2.20'
+            if ($LASTEXITCODE -ne 0) { throw 'Windows PowerShell custom-port upgrade failed' }
+            $kept = Get-Content -LiteralPath $appConfig -Raw | ConvertFrom-Json
+            if ($kept.HostAgent.Port -ne 18766 -or $kept.HostAgent.DiscoveryEnabled -ne $false) {
+              throw 'PowerShell upgrade lost custom configuration'
+            }
+            $ports = @((Get-NetFirewallRule -Name 'ComputerHostAgent-TCP8765' | Get-NetFirewallPortFilter).LocalPort)
+            if ($ports -notcontains '18766') { throw 'Firewall did not follow configured HTTP port' }
+            $customInfo = Invoke-RestMethod http://127.0.0.1:18766/v2/info -TimeoutSec 3
+            if ($customInfo.platform -ne 'windows') { throw 'Custom-port HTTP agent unavailable' }
+            $tokenAcl = Get-Acl -LiteralPath $secretPath
+            if (-not $tokenAcl.AreAccessRulesProtected -or @($tokenAcl.Access).Count -lt 3) {
+              throw 'Existing authentication-token ACL was not restricted on upgrade'
+            }
+            Write-Host 'PASS Windows PowerShell config preservation, custom-port firewall and token ACL'
             Write-Host 'PASS Windows PowerShell 5.1 install, secure token, opt-in and power opt-out'
           } finally {
             & $uninstall -PurgeState
