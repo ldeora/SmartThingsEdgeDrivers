@@ -268,6 +268,8 @@ jobs:
           if (-not ($migrated.power_actions -contains 'reboot')) { throw 'Migration lost power setting' }
           $guide = Join-Path $env:ProgramFiles 'Computer Host Agent/Docs/CONNECT-TO-SMARTTHINGS.html'
           if (-not (Test-Path $guide)) { throw 'Onboarding guide not installed' }
+          $notices = Join-Path $env:ProgramFiles 'Computer Host Agent/Docs/THIRD-PARTY-NOTICES.md'
+          if (-not (Test-Path $notices)) { throw 'Third-party notice missing from installed application' }
           $guideText = Get-Content -LiteralPath $guide -Raw
           if ($guideText -notmatch 'Scan nearby' -or $guideText -notmatch '1J2Qy7ZkxL20' -or $guideText -notmatch 'Power control key') { throw 'Onboarding guide instructions incomplete' }
           if ($guideText -match [regex]::Escape((Get-Content -LiteralPath $key -Raw).Trim())) { throw 'Private control token leaked to installed guide' }
