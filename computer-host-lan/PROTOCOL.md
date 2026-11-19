@@ -1,6 +1,6 @@
 # Computer Host Agent protocol v2 (current public beta)
 
-**Applies to:** Linux agent and generic SmartThings Edge Driver v0.4.2-beta.1, and Windows agent v0.2.3-beta.1 in the published v0.5.4-beta.1 integration. Protocol v2 is unchanged.
+**Applies to:** published v0.5.4-beta.1 (Linux agent / Edge driver v0.4.2-beta.1; Windows agent v0.2.3-beta.1), and upcoming v0.5.5-beta.1 (Linux/Edge v0.4.3-beta.1; Windows v0.2.4-beta.1). The v2 wire contract, discovery namespace and installation identity format are unchanged.
 **Not backward compatible with protocol v1.** All endpoints are under `/v2/`.
 The v0.3.1 contract is archived in `docs/history/v0.3.1-beta.1/PROTOCOL.md`.
 
@@ -19,8 +19,8 @@ The v0.3.1 contract is archived in `docs/history/v0.3.1-beta.1/PROTOCOL.md`.
   contract; Windows-specific metrics and power API calls remain platform-specific.
 * Network candidates must be verified by querying `/v2/info`; unsolicited
   mDNS advertisements alone are not sufficient to associate a device.
-* Identifier prefix: `computer-host:<lowercase UUID>`; previous identities
-  are not migrated in this developer release.
+* Identifier prefix: `computer-host:<lowercase UUID>`; v0.5.5 upgrades preserve the same identity
+  and SmartThings device; protocol-v1 identities remain separate.
 
 ## HTTP routes
 
@@ -42,7 +42,7 @@ The Edge Driver retains the original state inference model.
 ```json
 {
   "protocol": "computer-host-agent", "api_version": 2,
-  "agent_version": "0.4.2-beta.1", "platform": "linux",
+  "agent_version": "0.4.3-beta.1", "platform": "linux",
   "id": "0b5553a0-9b6b-4ef7-83d8-fbe3c913719d",
   "hostname": "workstation", "os": "Linux",
   "features": ["health", "metrics", "wol-metadata", "power-control"],

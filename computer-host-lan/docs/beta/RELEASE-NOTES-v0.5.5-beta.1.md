@@ -1,9 +1,7 @@
 # Computer Host LAN v0.5.5-beta.1 — stabilization and upgrade reliability
 
-**Status: release candidate in preparation — NOT YET PUBLISHED.**
-This is the first beta containing the hardening changes merged in [PR #19](https://github.com/ldeora/SmartThingsEdgeDrivers/pull/19).
-The currently downloadable version remains [v0.5.4-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.4-beta.1) until the new release is separately published.
-No stable-release certification is implied.
+This beta contains the hardening changes merged in [PR #19](https://github.com/ldeora/SmartThingsEdgeDrivers/pull/19).
+The previous [v0.5.4-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.4-beta.1) remains available for rollback. No stable-release certification is implied.
 
 ## Component versions
 
@@ -23,9 +21,9 @@ No stable-release certification is implied.
 - **More accurate SmartThings status:** Quickly resumed machines and canceled shutdowns no longer leave prolonged stale transitional states. Human-readable component labels make Wake, Restart and Sleep easier to identify. Existing component IDs and device identities are retained.
 - **Version and packaging consistency:** Native Windows smoke checks the real `/v2/info.agent_version`; source tests compare agent/driver/installer versions with `release.json`. Windows ZIP and Setup include third-party provenance notices.
 
-## Getting this beta after publication
+## Download this beta
 
-Planned GitHub prerelease: [Computer Host LAN v0.5.5-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.5-beta.1) (**link will work only after publication**).
+GitHub prerelease: [Computer Host LAN v0.5.5-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.5-beta.1). Verify that the release and its attached checksums are published before downloading.
 
 Expected assets:
 
@@ -41,15 +39,15 @@ The Windows executable is self-contained and unsigned; verify checksums and expe
 
 ## Upgrade instructions
 
-**Windows:** On a physically accessible test computer, download and checksum-verify the new Setup.exe after publication; run it over the existing installation **without uninstalling or deleting the SmartThings device**. Preserve `%ProgramData%\ComputerHostAgent` and its identity/token. Check `Get-Service ComputerHostAgent`, `/v2/info` and telemetry; exercise restart and recovery. The new GUI preserves power-management opt-in; the PowerShell fallback requires `-EnablePower` again. Full instructions: [INSTALLATION.md](../../INSTALLATION.md).
+**Windows:** On a physically accessible test computer, download and checksum-verify the release Setup.exe; run it over the existing installation **without uninstalling or deleting the SmartThings device**. Preserve `%ProgramData%\ComputerHostAgent` and its identity/token. Check `Get-Service ComputerHostAgent`, `/v2/info` and telemetry; exercise restart and recovery. The new GUI preserves power-management opt-in; the PowerShell fallback requires `-EnablePower` again. Full instructions: [INSTALLATION.md](../../INSTALLATION.md).
 
-**Linux:** After a new release is available, extract the matching source ZIP, run `./scripts/preflight.sh` and `./scripts/install-agent.sh --dry-run`, then upgrade with `sudo ./scripts/install-agent.sh`. It preserves persistent identity and existing power-helper opt-in; validate `/v2/info` and `/v2/metrics`. Protocol v2 compatibility with older agents is maintained.
+**Linux:** Extract the matching release source ZIP, run `./scripts/preflight.sh` and `./scripts/install-agent.sh --dry-run`, then upgrade with `sudo ./scripts/install-agent.sh`. It preserves persistent identity and existing power-helper opt-in; validate `/v2/info` and `/v2/metrics`. Protocol v2 compatibility with older agents is maintained.
 
 **SmartThings Edge driver:** This beta **does contain driver changes**. The publisher must package and assign the v0.4.3-beta.1 driver to the **existing** SmartThings channel, preserving its driver ID and registered custom-capability schema. Testers should update the driver through the existing channel, not create a duplicate device. No automatic channel deployment occurs as part of GitHub CI.
 
 ## Verification and limitations
 
-PR #19 and the post-merge `main` commit `0978dd75557ce8b3b38693cdf740aaa2585ab0fa` passed four Windows GUI, Windows agent, Linux and packaging CI workflows. The **v0.5.5-beta.1 versioned candidate must pass fresh tests on its own final source commit** before publication.
+PR #19 and the post-merge `main` commit `0978dd75557ce8b3b38693cdf740aaa2585ab0fa` passed four Windows GUI, Windows agent, Linux and packaging CI workflows. The **versioned v0.5.5-beta.1 build requires passing tests on its own final source commit** before publication.
 
 A Windows 11 Pro volunteer reported successful GUI installation, upgrade and accurate CPU/RAM/disk figures for **v0.5.4-beta.1**. This does *not* verify the new 0.5.5 rollback changes on physical hardware. Windows Wake-on-LAN remains dependent on firmware, NIC and sleep state. The read-only HTTP telemetry endpoint is not TLS-encrypted; use only a trusted private LAN and never forward the agent's listener port to the internet.
 
