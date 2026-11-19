@@ -31,7 +31,10 @@ ChangesEnvironment=no
 
 [Files]
 ; Inno owns Program Files; the PowerShell script reuses already-installed files.
-Source: "..\publish\win-x64\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+; Preserve existing host-side settings on ZIP-to-Setup and Setup-to-Setup upgrades.
+; The PowerShell service installer updates only EnablePowerControl after copy.
+Source: "..\publish\win-x64\*"; DestDir: "{app}"; Excludes: "appsettings.json"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\publish\win-x64\appsettings.json"; DestDir: "{app}"; Flags: onlyifdoesntexist
 Source: "..\scripts\Install-WindowsAgent.ps1"; DestDir: "{app}\Installer"; Flags: ignoreversion
 Source: "..\scripts\Uninstall-WindowsAgent.ps1"; DestDir: "{app}\Installer"; Flags: ignoreversion
 Source: "..\scripts\Prepare-WindowsAgentUpgrade.ps1"; Flags: dontcopy

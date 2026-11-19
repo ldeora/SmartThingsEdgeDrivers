@@ -111,6 +111,13 @@ jobs:
           if (-not ($old.power_actions -contains 'reboot')) { throw 'Legacy setup power not enabled' }
           $key = Join-Path $originalPath 'control-token'
           $oldKeyHash = (Get-FileHash $key -Algorithm SHA256).Hash
+          # Emulate customization of the ZIP-installed agent. Setup must not
+          # clobber unrelated settings when installing its default JSON.
+          $configPath = Join-Path $env:ProgramFiles 'Computer Host Agent/appsettings.json'
+          $custom = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json
+          $custom.HostAgent.DiscoveryEnabled = $false
+          $custom.HostAgent.DiscoveryInterfaceIndex = 17
+          $custom | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $configPath -Encoding utf8
           Write-Host 'Validating existing ZIP-installed service before migration'
           Get-CimInstance Win32_Service -Filter "Name='ComputerHostAgent'" |
             Select-Object Name,StartName,PathName,State | Format-List
@@ -196,6 +203,12 @@ jobs:
           $migrated = WaitAgentReady 'ZIP-to-Setup migration'
           if ($migrated.id -ne $old.id) { throw 'Migration changed installation UUID' }
           if ((Get-FileHash $key -Algorithm SHA256).Hash -ne $oldKeyHash) { throw 'Migration changed control key' }
+          $keptConfig = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json
+          if ($keptConfig.HostAgent.DiscoveryEnabled -ne $false -or
+              $keptConfig.HostAgent.DiscoveryInterfaceIndex -ne 17) {
+            throw 'Migration overwrote existing agent configuration'
+          }
+          Write-Host 'PASS customized appsettings.json preserved during ZIP-to-Setup migration'
           if (-not ($migrated.power_actions -contains 'reboot')) { throw 'Migration lost power setting' }
           $guide = Join-Path $env:ProgramFiles 'Computer Host Agent/Docs/CONNECT-TO-SMARTTHINGS.html'
           if (-not (Test-Path $guide)) { throw 'Onboarding guide not installed' }
@@ -210,6 +223,11 @@ jobs:
           RunSetup "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /HUBIP=$hub"
           $upgraded = WaitAgentReady 'silent Setup-to-Setup upgrade'
           if ($upgraded.id -ne $old.id) { throw 'Upgrade changed UUID' }
+          $keptConfig = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json
+          if ($keptConfig.HostAgent.DiscoveryEnabled -ne $false -or
+              $keptConfig.HostAgent.DiscoveryInterfaceIndex -ne 17) {
+            throw 'Setup-to-Setup upgrade overwrote existing configuration'
+          }
           if (-not ($upgraded.power_actions -contains 'reboot')) { throw 'Upgrade lost power preference' }
           Write-Host 'TEST: uninstall removes service/firewall but retains state'
           $uninstaller = Join-Path (Join-Path $env:ProgramFiles 'Computer Host Agent') 'unins000.exe'

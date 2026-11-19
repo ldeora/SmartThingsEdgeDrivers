@@ -32,7 +32,7 @@ an entry in Windows Installed apps. Service name `ComputerHostAgent`,
 firewall rule `ComputerHostAgent-TCP8765` and state
 `%ProgramData%\ComputerHostAgent` are unchanged. The installer recognizes
 ZIP/PowerShell installations at the same path and adopts them without
-purging the UUID, boot session or HMAC key. It stops the service before file
+purging the UUID, boot session or HMAC key. Existing `appsettings.json` is also preserved during Inno upgrades instead of being silently replaced with the package default; the selected `EnablePowerControl` setting is then applied by the existing service installer. It stops the service before file
 replacement, performs an account/path ownership check, and reuses service
 registration. The separate power-management page preserves the prior opt-in by default;
 new installations start with monitoring only. On successful installation,
