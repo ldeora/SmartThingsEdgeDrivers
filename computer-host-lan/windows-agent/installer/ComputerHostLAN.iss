@@ -41,6 +41,7 @@ Source: "..\scripts\Prepare-WindowsAgentUpgrade.ps1"; Flags: dontcopy
 Source: "..\scripts\Restore-WindowsAgentUpgrade.ps1"; Flags: dontcopy
 Source: "..\publish\hub-discovery\ComputerHost.HubDiscovery.exe"; Flags: dontcopy
 Source: "CONNECT-TO-SMARTTHINGS.html"; DestDir: "{app}\Docs"; Flags: ignoreversion
+Source: "..\..\docs\beta\THIRD-PARTY-NOTICES.md"; DestDir: "{app}\Docs"; Flags: ignoreversion
 
 [Icons]
 Name: "{autoprograms}\Computer Host LAN\Connect to SmartThings"; Filename: "{app}\Docs\CONNECT-TO-SMARTTHINGS.html"
