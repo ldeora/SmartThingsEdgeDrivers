@@ -247,10 +247,17 @@ try {
         if (-not [ComputerHostWizardProbe]::SetWindowText($input.Handle, '')) {
             throw 'Could not clear manual hub address to test LocalSubnet fallback'
         }
-        ClickWizardButton $window.Handle 'Advanced options'
+        # Discovery failure expands Advanced options automatically, whereas
+        # successful discovery initially collapses it. Do not toggle blindly.
         $subnet = VisibleControls $window.Handle | Where-Object {
-            $_.Class -match 'CheckBox' -and $_.Text -match '^Allow connections from devices on my local network$'
+            $_.Text -match '^Allow connections from devices on my local network$'
         } | Select-Object -First 1
+        if (-not $subnet) {
+            ClickWizardButton $window.Handle 'Advanced options'
+            $subnet = VisibleControls $window.Handle | Where-Object {
+                $_.Text -match '^Allow connections from devices on my local network$'
+            } | Select-Object -First 1
+        }
         if (-not $subnet) { throw 'Local-network fallback checkbox is not visible' }
         [ComputerHostWizardProbe]::Click($subnet.Handle)
         if (-not [ComputerHostWizardProbe]::IsChecked($subnet.Handle)) {
