@@ -1,21 +1,18 @@
-# Computer Host LAN — v0.5.4-beta.1 publication and next-stage gates
+# Computer Host LAN — v0.5.5-beta.1 candidate publication gates
 
-**Already published:** GitHub prerelease
-[Computer Host LAN v0.5.4-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.4-beta.1),
-2026-11-19, from commit `f19c114b1cca7dcb87b5774eff7602e70184047c`.
-Four complete workflows passed; the publisher verified the release SHA-256
-manifest and published the three ZIPs, unsigned Setup.exe and SHA256SUMS.txt.
+The **published** baseline is still [v0.5.4-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.4-beta.1). [PR #19](https://github.com/ldeora/SmartThingsEdgeDrivers/pull/19) was merged into `main` as `0978dd75557ce8b3b38693cdf740aaa2585ab0fa` and all four workflows passed on that commit. Those fixes are *not* present in published 0.5.4 binaries.
 
-**New field evidence (2026-11-19):** Windows 11 Pro tester reports successful
-native Setup installation and GUI upgrade, with accurate SmartThings metrics.
-This supersedes the statement that the GUI was tested only on Windows Server.
+The candidate is **v0.5.5-beta.1** (Linux/Edge 0.4.3-beta.1, Windows 0.2.4-beta.1, protocol v2). The target [GitHub tag](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.5-beta.1) is **not yet published**. The existing SmartThings channel is unchanged until an explicit new driver assignment.
 
-**Stabilization now in progress:** [draft PR #19](https://github.com/ldeora/SmartThingsEdgeDrivers/pull/19).
-Its source must not be mistaken for the released beta. The first stable
-candidate has separate CI, Windows hardware, licensing and security gates.
-See [release readiness](../../RELEASE-READINESS.md) for the actionable list.
+## Publication checklist
 
-The v0.5.3 and v0.5.4 release assets, existing SmartThings channel and
-unchanged protocol-v2 device identities are preserved. Publishing an RC
-requires fresh package checksums and an explicit owner decision; CI never
-silently creates a GitHub release or updates the SmartThings channel.
+- [ ] Merge versioned candidate sources and documentation after passing Linux, Windows agent, native Inno GUI and complete release-packaging CI.
+- [ ] Use the **final merged `main` commit** and its release-candidate workflow, not preliminary PR assets. Verify 3 ZIPs, Windows Setup.exe and unified `SHA256SUMS.txt`, including `BUILD-INFO.json` source commit and runtime versions.
+- [ ] Confirm rollback testing (including ZIP→Setup) and unchanged UUID, token, profile component IDs and protocol; document any hardware-limited behavior.
+- [ ] Confirm third-party provenance/redistribution notices, unsigned SmartScreen wording and trusted-LAN restriction. Stable-release signing and full copyright sign-off are distinct, still-open gates.
+- [ ] Publish an **additional** GitHub prerelease, targeting the candidate merged commit, without overwriting or retagging 0.5.4 or earlier versions.
+- [ ] **Because the Edge driver changed**, package and assign Edge Driver 0.4.3-beta.1 to the existing SmartThings channel; do not create a replacement channel/driver identity.
+- [ ] Verify published asset hashes, SmartThings app telemetry/profile after updating the driver and safely upgrade Windows 11/Gentoo test devices.
+- [ ] Then publish the prepared Community update; retain v0.5.4 for rollback.
+
+No workflow automatically publishes a release or deploys a SmartThings driver. Full first-stable-release gates are tracked in [RELEASE-READINESS.md](../../RELEASE-READINESS.md).

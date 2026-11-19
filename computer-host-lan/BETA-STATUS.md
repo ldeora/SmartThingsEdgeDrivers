@@ -1,4 +1,10 @@
-# Computer Host LAN — current public beta and stabilization status (2026-11-19)
+# Computer Host LAN — next beta candidate v0.5.5-beta.1 (2026-11-19)
+
+**Candidate awaiting publication:** integration v0.5.5-beta.1 (Linux agent / Edge driver v0.4.3-beta.1; Windows agent v0.2.4-beta.1), based on merged PR #19 and new versioning PR. The source code includes the new safeguards, but no v0.5.5 files are yet published. Candidate notes: [v0.5.5-beta.1](docs/beta/RELEASE-NOTES-v0.5.5-beta.1.md). Protocol v2, installation UUIDs, control keys and the existing channel remain compatible.
+
+**Publishing gate:** merge and rerun all four CI workflows at the final commit, verify asset hashes and source metadata, confirm the Edge driver is packaged and assigned to the existing SmartThings channel, and separately publish a new GitHub prerelease before inviting testers to upgrade. Do not modify older release assets. Third-party licensing and signing require publisher review before stable v1.0.
+
+## Published baseline: v0.5.4-beta.1
 
 **Current public download:** [v0.5.4-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.4-beta.1), published November 19 from commit `f19c114b1cca7dcb87b5774eff7602e70184047c`.
 The Linux agent and Edge Driver remain v0.4.2-beta.1; Windows agent
@@ -12,10 +18,7 @@ The previous Windows volunteer's report confirmed suspend, reboot and
 shutdown actions. This is valuable real-hardware evidence, not complete
 coverage of WOL, every firmware or network recovery scenario.
 
-**Next work:** [draft PR #19](https://github.com/ldeora/SmartThingsEdgeDrivers/pull/19)
-addresses version reporting, Windows upgrade recovery, configuration/custom
-port persistence, authentication-key ACLs, Edge power-state edge cases,
-regression tests and documentation. No PR changes are in the published beta.
+**Stabilization merged:** [PR #19](https://github.com/ldeora/SmartThingsEdgeDrivers/pull/19) now resides in `main` (`0978dd75557ce8b3b38693cdf740aaa2585ab0fa`), with all four workflows passing. Its changes are **not** in the published v0.5.4-beta.1 binaries. They will first be distributed in the separately published v0.5.5-beta.1.
 The first stable release candidate is gated by
 [release readiness](RELEASE-READINESS.md), including actual Windows hardware
 retests and publisher licensing/provenance sign-off. Preserve the published
