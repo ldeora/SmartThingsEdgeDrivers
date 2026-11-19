@@ -226,12 +226,25 @@ try {
         }
         Write-Host 'PASS private key is masked by default'
         ClickWizardButton $window.Handle 'Show key'
-        if ([ComputerHostWizardProbe]::PasswordMask($keyEdit.Handle) -ne 0) {
+        # Inno's TNewEdit may recreate its native HWND when PasswordChar
+        # changes; always inspect the CURRENT visible edit rather than
+        # retaining a handle from before the property setter ran.
+        $keyEditAfterShow = VisibleControls $window.Handle | Where-Object {
+            $_.Class -match 'Edit' -and $_.Width -ge 100
+        } | Select-Object -First 1
+        if (-not $keyEditAfterShow) { throw 'Key edit missing after Show key' }
+        $shownMask = [ComputerHostWizardProbe]::PasswordMask($keyEditAfterShow.Handle)
+        Write-Host "Mask code after Show: $shownMask"
+        if ($shownMask -ne 0) {
             throw 'Show key did not reveal the field'
         }
         ClickWizardButton $window.Handle 'Hide key'
-        $restoredMask = [ComputerHostWizardProbe]::PasswordMask($keyEdit.Handle)
-        Write-Host "Authentication key field restored mask code: $restoredMask"
+        $keyEditAfterHide = VisibleControls $window.Handle | Where-Object {
+            $_.Class -match 'Edit' -and $_.Width -ge 100
+        } | Select-Object -First 1
+        if (-not $keyEditAfterHide) { throw 'Key edit missing after Hide key' }
+        $restoredMask = [ComputerHostWizardProbe]::PasswordMask($keyEditAfterHide.Handle)
+        Write-Host "Mask code after Hide: $restoredMask"
         if ($restoredMask -eq 0) {
             throw 'Hide key did not restore password masking'
         }
