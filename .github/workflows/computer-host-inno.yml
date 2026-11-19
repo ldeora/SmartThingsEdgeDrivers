@@ -244,6 +244,13 @@ jobs:
           $addresses = @($rule | Get-NetFirewallAddressFilter | Select-Object -ExpandProperty RemoteAddress)
           if ($addresses -notcontains 'LocalSubnet') { throw "LocalSubnet fallback not configured: $($addresses -join ',')" }
           Write-Host 'PASS real clean install, LocalSubnet, ZIP migration, UUID/key retention, upgrades, uninstall and opt-out'
+      - name: Exercise complete interactive wizard and key-copy workflow
+        shell: pwsh
+        timeout-minutes: 5
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $setup = (Get-ChildItem windows-agent/installer/output -Filter '*setup.exe' -File | Select-Object -First 1).FullName
+          & ./windows-agent/scripts/Test-WindowsInstallerWizard.ps1 -SetupExecutable $setup -FullInstall
       - name: Upload unsigned installer prototype (not a public release)
         uses: actions/upload-artifact@v7
         with:
