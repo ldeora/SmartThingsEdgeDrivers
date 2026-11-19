@@ -435,7 +435,7 @@ begin
   PowerText.Height := ScaleY(55);
   PowerText.WordWrap := True;
   PowerText.AutoSize := False;
-  PowerText.Caption := 'On an upgrade, your previous choice is kept. If enabled, Setup will show a private authentication key on the SmartThings connection page after installation.';
+  PowerText.Caption := 'Upgrades keep your existing power-control setting. The key is available after installation.';
 
   // This page appears only after files and service installation are complete.
   ConnectPage := CreateCustomPage(wpInstalling, 'Connect to SmartThings', 'Complete setup in the SmartThings app');
@@ -559,7 +559,11 @@ begin
   CopyStatus.Caption := 'Keep this key private. Never share it in logs or forum posts.';
 
   SilentHub := ExpandConstant('{param:HUBIP|}');
-  if SilentHub <> '' then HubSelect.Text := SilentHub;
+  if SilentHub <> '' then
+  begin
+    HubSelect.Text := SilentHub;
+    HubStatus.Caption := 'Using the supplied hub IP address. You can change it if necessary.';
+  end;
   if ExpandConstant('{param:LOCALSUBNET|0}') = '1' then
   begin
     LocalSubnetCheck.Checked := True;
