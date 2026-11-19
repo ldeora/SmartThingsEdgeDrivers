@@ -90,6 +90,34 @@ jobs:
           $setup = Get-ChildItem windows-agent/installer/output -Filter '*setup.exe' -File | Select-Object -First 1
           if (-not $setup) { throw 'No setup EXE generated' }
           Write-Host "Generated setup: $($setup.Name)"
+      - name: Refuse to uninstall an unrelated same-name Windows service
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $serviceName = 'ComputerHostAgent'
+          if (Get-Service $serviceName -ErrorAction SilentlyContinue) {
+            throw 'CI test runner unexpectedly already has ComputerHostAgent'
+          }
+          $unrelatedExe = Join-Path $env:WINDIR 'System32/notepad.exe'
+          New-Service -Name $serviceName -BinaryPathName ('"' + $unrelatedExe + '"') -StartupType Manual | Out-Null
+          try {
+            $rejected = $false
+            try {
+              & ./windows-agent/scripts/Uninstall-WindowsAgent.ps1 -KeepProgramFiles
+            } catch {
+              if ($_.Exception.Message -match 'refusing to uninstall an unrelated service') {
+                $rejected = $true
+              } else { throw }
+            }
+            if (-not $rejected) { throw 'Uninstaller did not reject unrelated service' }
+            if (-not (Get-Service $serviceName -ErrorAction SilentlyContinue)) {
+              throw 'Uninstaller deleted the unrelated service'
+            }
+            Write-Host 'PASS unrelated named Windows Service preserved'
+          } finally {
+            & sc.exe delete $serviceName | Out-Null
+            if ($LASTEXITCODE -ne 0) { throw 'Could not clean up fake CI test service' }
+          }
       - name: Smoke-test interactive Welcome and hub-IP field
         shell: pwsh
         timeout-minutes: 3

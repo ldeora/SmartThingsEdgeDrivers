@@ -18,7 +18,22 @@ if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administra
 if ($PSCmdlet.ShouldProcess($service, 'Stop and remove Computer Host Agent service')) {
   $existing = Get-Service -Name $service -ErrorAction SilentlyContinue
   if ($existing) {
-    if ($existing.Status -ne 'Stopped') { Stop-Service -Name $service -ErrorAction Stop }
+    # Mirror the upgrade preflight: never delete an unrelated Windows service
+    # merely because it happens to use the same service name.
+    $installedService = Get-CimInstance Win32_Service -Filter "Name='$service'" -ErrorAction Stop
+    $expectedPath = Join-Path $programs 'ComputerHost.WindowsAgent.exe'
+    if (-not $installedService -or
+        $installedService.StartName -ne 'NT AUTHORITY\LocalService' -or
+        -not [string]::Equals($installedService.PathName.Trim().Trim('"'),
+          $expectedPath, [StringComparison]::OrdinalIgnoreCase)) {
+      throw 'ComputerHostAgent service account or binary path does not match this agent; refusing to uninstall an unrelated service.'
+    }
+    if ($existing.Status -ne 'Stopped') {
+      Stop-Service -Name $service -ErrorAction Stop
+      (Get-Service -Name $service -ErrorAction Stop).WaitForStatus(
+        [System.ServiceProcess.ServiceControllerStatus]::Stopped,
+        [TimeSpan]::FromSeconds(40))
+    }
     & sc.exe delete $service | Out-Host
     if ($LASTEXITCODE -ne 0) { throw 'sc.exe delete failed' }
   }
