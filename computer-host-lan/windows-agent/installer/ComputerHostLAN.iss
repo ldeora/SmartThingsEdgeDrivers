@@ -38,6 +38,7 @@ Source: "..\publish\win-x64\appsettings.json"; DestDir: "{app}"; Flags: onlyifdo
 Source: "..\scripts\Install-WindowsAgent.ps1"; DestDir: "{app}\Installer"; Flags: ignoreversion
 Source: "..\scripts\Uninstall-WindowsAgent.ps1"; DestDir: "{app}\Installer"; Flags: ignoreversion
 Source: "..\scripts\Prepare-WindowsAgentUpgrade.ps1"; Flags: dontcopy
+Source: "..\scripts\Restore-WindowsAgentUpgrade.ps1"; Flags: dontcopy
 Source: "..\publish\hub-discovery\ComputerHost.HubDiscovery.exe"; Flags: dontcopy
 Source: "CONNECT-TO-SMARTTHINGS.html"; DestDir: "{app}\Docs"; Flags: ignoreversion
 
@@ -69,7 +70,7 @@ var
   AgentStatus, DriverHint, DeviceHint, LinkCopyStatus, KeyHint, KeySetupHint, CopyStatus: TNewStaticText;
   OpenChannelButton, CopyLinkButton, ShowKeyButton, CopyKeyButton: TNewButton;
   LinkEdit, KeyEdit: TNewEdit;
-  Searched, InstallFailed, AgentHealthy: Boolean;
+  Searched, InstallFailed, AgentHealthy, UpgradePrepared, InstallCommitted: Boolean;
 
 function IsValidIPv4(const Address: String): Boolean;
 var
@@ -300,6 +301,51 @@ begin
   Result := True;
 end;
 
+// Match a customized HTTP port retained during upgrade; the installer
+// PowerShell script validates the same configured port before service start.
+function AgentPort: Integer;
+var
+  Raw: AnsiString;
+  Config, Value: String;
+  Position, I, Parsed: Integer;
+begin
+  Result := 8765;
+  if not LoadStringFromFile(ExpandConstant('{app}\appsettings.json'), Raw) then Exit;
+  Config := LowerCase(String(Raw));
+  StringChangeEx(Config, ' ', '', True);
+  StringChangeEx(Config, #13, '', True);
+  StringChangeEx(Config, #10, '', True);
+  StringChangeEx(Config, #9, '', True);
+  Position := Pos('"port":', Config);
+  if Position = 0 then Exit;
+  Position := Position + Length('"port":');
+  Value := '';
+  for I := Position to Length(Config) do
+  begin
+    if (Config[I] < '0') or (Config[I] > '9') then Break;
+    Value := Value + Config[I];
+  end;
+  Parsed := StrToIntDef(Value, 8765);
+  if (Parsed >= 1024) and (Parsed <= 65535) then Result := Parsed;
+end;
+
+// Restore original application files, firewall and service if the install
+// fails after the preflight snapshot. Commit removes the snapshot on success.
+function FinishUpgrade(const Mode: String): Boolean;
+var
+  ExitCode: Integer;
+  Params: String;
+begin
+  Result := True;
+  if not UpgradePrepared then Exit;
+  ExtractTemporaryFile('Restore-WindowsAgentUpgrade.ps1');
+  Params := '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' +
+    ExpandConstant('{tmp}\Restore-WindowsAgentUpgrade.ps1') + '" -Mode ' + Mode;
+  Result := ExecWithNativeSysDir(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
+    Params, '', SW_HIDE, ewWaitUntilTerminated, ExitCode) and (ExitCode = 0);
+  if not Result then Log('Upgrade ' + Mode + ' failed; inspect the admin-protected rollback snapshot.');
+end;
+
 procedure ShowConnectionPage;
 var
   ResultCode, I: Integer;
@@ -309,7 +355,7 @@ begin
   for I := 1 to 5 do
   begin
     if Exec(ExpandConstant('{sys}\curl.exe'),
-      '--fail --silent --output NUL --max-time 3 http://127.0.0.1:8765/v2/health',
+      '--fail --silent --output NUL --max-time 3 http://127.0.0.1:' + IntToStr(AgentPort()) + '/v2/health',
       '', SW_HIDE, ewWaitUntilTerminated, ResultCode) and (ResultCode = 0) then
     begin
       AgentHealthy := True;
@@ -664,7 +710,9 @@ begin
       Log(String(Details));
       Result := Result + ' ' + String(Details);
     end;
-  end;
+  end
+  else
+    UpgradePrepared := True;
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
@@ -695,6 +743,16 @@ begin
     end;
     Log(FailureMessage);
     if not WizardSilent then MsgBox(FailureMessage, mbError, MB_OK);
+    FinishUpgrade('Restore');
+  end
+  else
+  begin
+    if FinishUpgrade('Commit') then InstallCommitted := True
+    else
+    begin
+      InstallFailed := True;
+      FinishUpgrade('Restore');
+    end;
   end;
 end;
 
@@ -735,6 +793,8 @@ end;
 
 procedure DeinitializeSetup;
 begin
+  // Also cover a cancelled or interrupted upgrade before ssPostInstall.
+  if UpgradePrepared and not InstallCommitted then FinishUpgrade('Restore');
   // Do not leave the key in a UI field after the wizard closes.
   if KeyEdit <> nil then KeyEdit.Text := '';
 end;
