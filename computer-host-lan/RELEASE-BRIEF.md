@@ -1,3 +1,10 @@
+> **Historical publication brief.** The v0.5.4-beta.1 release was published on
+> 2026-11-19 from `f19c114b1cca7dcb87b5774eff7602e70184047c`.
+> The uncompleted instructions below describe its *former publication process*.
+> For the ongoing first stable-candidate work see [release readiness](RELEASE-READINESS.md)
+> and [draft PR #19](https://github.com/ldeora/SmartThingsEdgeDrivers/pull/19).
+> Do not follow these steps to re-publish an existing tag.
+
 # Computer Host LAN v0.5.4-beta.1 — release and publication checklist
 
 **Goal:** Make the unsigned graphical Windows x64 Setup.exe the preferred public-beta installation and upgrade method, keeping Windows ZIP/PowerShell as a supported fallback. The Linux agent and Edge driver stay at v0.4.2-beta.1; Windows agent becomes v0.2.3-beta.1; protocol v2 unchanged.
