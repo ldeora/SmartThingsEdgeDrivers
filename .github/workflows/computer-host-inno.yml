@@ -55,6 +55,19 @@ jobs:
           if ($html -notmatch 'Scan nearby' -or $html -notmatch 'Power control key') {
             throw 'Missing setup instructions'
           }
+          # Parse the entire PowerShell GUI test before invoking Inno or
+          # waiting for a Windows desktop. This catches syntax regressions early.
+          $parseTokens = $null
+          $parseErrors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path windows-agent/scripts/Test-WindowsInstallerWizard.ps1).Path,
+            [ref]$parseTokens, [ref]$parseErrors) | Out-Null
+          if ($parseErrors.Count -gt 0) {
+            foreach ($parseError in $parseErrors) {
+              Write-Error ("GUI test PowerShell syntax: " + $parseError.Message)
+            }
+            throw 'GUI test script does not parse'
+          }
           Write-Host 'PASS wizard layout, dedicated power/connect pages, masked-key controls and onboarding guide'
       - name: Install Inno Setup 7 for compiler
         shell: pwsh
