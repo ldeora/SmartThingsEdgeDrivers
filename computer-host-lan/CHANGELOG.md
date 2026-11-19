@@ -1,6 +1,6 @@
 # Computer Host LAN — change log
 
-## Unreleased — stabilization toward first stable candidate (PR #19)
+## v0.5.5-beta.1 (candidate, not yet published) — stabilization from merged PR #19
 
 - Correct Windows `/v2/info` runtime agent version and assert component versions against the release manifest.
 - Protect the existing authentication token ACL on upgrades; preserve customized Windows ZIP/PowerShell configuration and align firewall/installer diagnostics with the configured HTTP port.

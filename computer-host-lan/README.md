@@ -1,6 +1,6 @@
 # Computer Host LAN — SmartThings for Linux and Windows
 
-**Current published beta: v0.5.4-beta.1** · SmartThings Edge Driver v0.4.2-beta.1 · Linux agent v0.4.2-beta.1 · Windows agent v0.2.3-beta.1 · Protocol v2 unchanged.
+**Current published beta: v0.5.4-beta.1** (Linux/Edge v0.4.2-beta.1; Windows v0.2.3-beta.1). **Next beta candidate: v0.5.5-beta.1** (Linux/Edge v0.4.3-beta.1; Windows v0.2.4-beta.1). Protocol v2 unchanged; the new version is **not published yet**.
 
 Computer Host LAN is a **separate** project from [Linux Host LAN](../linux-host-lan/). It uses the `_computerhost._tcp` discovery service and `/v2` HTTP API. **Do not pair a protocol-v1 Linux Host LAN agent with this driver.**
 
@@ -29,4 +29,6 @@ Windows system metrics include CPU, RAM, system-drive usage and uptime. Both age
 
 **Release status:** Published v0.5.4-beta.1 brings the graphical Windows Setup.exe into the public beta as the recommended Windows installation and upgrade method; the existing ZIP/PowerShell route remains supported. See [installation](INSTALLATION.md) and [Setup details](windows-agent/installer/README.md). Linux and the SmartThings Edge driver are unchanged from v0.5.3-beta.1, and existing devices do not need re-pairing.
 
-**Current public download:** [v0.5.4-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.4-beta.1), published 2026-11-19. [v0.5.3-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.3-beta.1) remains available for rollback. The next stabilization work is tracked in [PR #19](https://github.com/ldeora/SmartThingsEdgeDrivers/pull/19), not yet released. The [SmartThings driver channel](https://bestow-regional.api.smartthings.com/invite/1J2Qy7ZkxL20) is unchanged. Windows 11 hub discovery, network edge cases and WOL remain beta test objectives.
+**Current public download:** [v0.5.4-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.4-beta.1), published 2026-11-19. [v0.5.3-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.3-beta.1) remains available for rollback. The stabilization work from [merged PR #19](https://github.com/ldeora/SmartThingsEdgeDrivers/pull/19) is now being versioned as [v0.5.5-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.5-beta.1), **a candidate link that will work only after publication**. The published v0.5.4-beta.1 binaries do not contain PR #19. The [SmartThings driver channel](https://bestow-regional.api.smartthings.com/invite/1J2Qy7ZkxL20) is unchanged. Windows 11 hub discovery, network edge cases and WOL remain beta test objectives.
+
+**Candidate upgrade details:** [v0.5.5-beta.1 release notes](docs/beta/RELEASE-NOTES-v0.5.5-beta.1.md). Do not substitute temporary Actions artifacts for a published release. The proposed release includes an updated Edge driver; the publisher must deploy it to the **existing** SmartThings channel after packaging, not create a duplicate device.

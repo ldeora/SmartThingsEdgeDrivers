@@ -1,13 +1,11 @@
-# Computer Host LAN — stabilization / first stable-release candidate
+# Computer Host LAN — v0.5.5-beta.1 stabilization and first stable-release candidate
 
 **Published baseline:** v0.5.4-beta.1, GitHub prerelease (2026-11-19), from
 `f19c114b1cca7dcb87b5774eff7602e70184047c`. All four release workflows
 passed; ZIPs, Windows Setup.exe and unified SHA256SUMS are published.
 Previous v0.5.3-beta.1 assets remain available.
 
-**Current work:** draft [PR #19](https://github.com/ldeora/SmartThingsEdgeDrivers/pull/19)
-on a dedicated branch. It has **not** been merged, deployed to a hub or
-released, and must not be represented as a stable build.
+**Stabilization implemented and merged:** [PR #19](https://github.com/ldeora/SmartThingsEdgeDrivers/pull/19), main commit `0978dd75557ce8b3b38693cdf740aaa2585ab0fa`, four workflows passed. **Next:** candidate v0.5.5-beta.1 with bumped components. This version has **not been published or deployed to a SmartThings channel**. It is not a stable build.
 
 ## Verified evidence
 
@@ -24,11 +22,12 @@ released, and must not be represented as a stable build.
 
 ## Must pass before v1.0.0-rc.1
 
-- [ ] All four CI workflows pass on **one exact PR head SHA** after code changes.
-- [ ] Windows custom-port/config preservation and authentication-token ACL
-      checks execute on a native runner (not merely source assertions).
-- [ ] Windows interrupted graphical upgrade restores previous service and
-      configuration. Test both explicit PowerShell error and premature abort.
+- [x] All four CI workflows passed on the merged PR #19 `main` SHA (`0978dd75557ce8b3b38693cdf740aaa2585ab0fa`).
+- [ ] All four CI workflows must also pass on **one exact v0.5.5-beta.1 candidate `main` SHA** after versioning and release docs.
+- [x] Windows custom-port/config preservation and authentication-token ACL checks executed on native Windows CI for PR #19.
+- [ ] Verify these checks again on the exact versioned beta candidate commit.
+- [x] CI simulated a detected upgrade failure and verified recovery of configuration and running service.
+- [ ] Physical interrupted/aborted Setup recovery remains to be verified, including unexpected termination.
 - [ ] Verify the Lua suspend/cancelled-shutdown regressions in CI and hub
       observations; no optimistic electrical power claims.
 - [ ] Test Windows 11 graphical install and upgrade on physical hardware again
@@ -49,3 +48,12 @@ released, and must not be represented as a stable build.
 Never silently install a draft PR onto a user's computer. Treat any remaining
 hardware-dependent limitation transparently instead of presenting it as a
 universal guarantee.
+
+## Beta publication (separate from stable v1.0 gates)
+
+- [ ] Merge v0.5.5-beta.1 release/version PR and confirm green CI on **final `main` commit**, not an earlier PR build.
+- [ ] Verify all four asset names, exact source SHA in Windows `BUILD-INFO.json`, self-reported component versions, and unified `SHA256SUMS.txt`.
+- [ ] Publish a **new prerelease** `computer-host-lan-v0.5.5-beta.1`; preserve v0.5.4 assets for rollback. Windows Setup and ZIP remain unsigned.
+- [ ] Repackage/assign Edge driver v0.4.3-beta.1 into the existing SmartThings channel, preserving driver ID, profiles and registered capability schemas; verify installed beta device.
+- [ ] Ask Windows 11 Pro tester to validate v0.5.4 → v0.5.5 graphical in-place upgrade, token/UUID/settings, metrics, service recovery, and errors; Linux Gentoo recheck.
+- [ ] Only after artifacts and driver are ready, announce the new beta in the Community thread. Stable-release signing and full copyright/legal review remain open.

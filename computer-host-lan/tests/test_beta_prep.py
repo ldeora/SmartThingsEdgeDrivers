@@ -16,8 +16,8 @@ class BetaReadiness(unittest.TestCase):
     def test_dev_release_manifest_and_power_default(self):
         release = json.loads((ROOT / 'release.json').read_text())
         self.assertRegex(release['integration'], r'^\d+\.\d+\.\d+-beta\.\d+$')
-        self.assertEqual(release['agent'], '0.4.2-beta.1')
-        self.assertEqual(release['edge_driver'], '0.4.2-beta.1')
+        self.assertRegex(release['agent'], r'^\d+\.\d+\.\d+-beta\.\d+$')
+        self.assertRegex(release['edge_driver'], r'^\d+\.\d+\.\d+-beta\.\d+$')
         self.assertRegex(release['windows_agent'], r'^\d+\.\d+\.\d+-beta\.\d+$')
         self.assertEqual(release['agent_protocol'], 2)
         self.assertEqual(release['power_control_default'], 'disabled')

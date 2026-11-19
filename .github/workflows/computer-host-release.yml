@@ -163,6 +163,10 @@ jobs:
           sha256sum -c ./computer-host-lan-v*-SHA256SUMS.txt
           sha256sum -- *.zip *setup.exe > SHA256SUMS.txt
           sha256sum -c SHA256SUMS.txt
+          python3 "$GITHUB_WORKSPACE/computer-host-lan/scripts/ci/verify_release_bundle.py" \
+            --directory "$PWD" \
+            --manifest "$GITHUB_WORKSPACE/computer-host-lan/release.json" \
+            --source-commit "$GITHUB_SHA"
           printf '%s\n' \
             "Computer Host LAN unsigned development candidate" \
             "Commit: $GITHUB_SHA" \

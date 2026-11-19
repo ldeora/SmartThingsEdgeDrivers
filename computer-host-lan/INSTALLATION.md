@@ -1,6 +1,6 @@
 # Computer Host LAN — installation (protocol v2)
 
-**Current public beta:** v0.5.4-beta.1 introduces the recommended Windows graphical Setup.exe alongside the supported ZIP/PowerShell fallback. Install the Edge driver separately using the [verified SmartThings channel](https://bestow-regional.api.smartthings.com/invite/1J2Qy7ZkxL20).
+**Current published beta:** v0.5.4-beta.1 introduces the recommended Windows graphical Setup.exe alongside the supported ZIP/PowerShell fallback. **Next candidate:** v0.5.5-beta.1 contains merged stabilization fixes but has not yet been released. Do not use its planned download link until the new GitHub prerelease is published. Install the Edge driver separately using the [verified SmartThings channel](https://bestow-regional.api.smartthings.com/invite/1J2Qy7ZkxL20).
 
 ## Before installation
 
@@ -65,6 +65,10 @@ A GitHub Actions artifact is temporary and is **not** a permanent published prer
 
 ## Stabilization before the first stable release
 
-[PR #19](https://github.com/ldeora/SmartThingsEdgeDrivers/pull/19) adds safeguards for the Windows graphical upgrade failure path, existing authentication-key ACLs, runtime-version checks, and preservation of PowerShell-upgraded custom settings/ports. These changes are **not part of the published v0.5.4-beta.1 release** until merged and explicitly released. Do not install PR build artifacts on production computers. A failed upgrade must be treated as a support event; never delete the persistent UUID or secret to make it disappear.
+[Merged PR #19](https://github.com/ldeora/SmartThingsEdgeDrivers/pull/19) adds safeguards for the Windows graphical upgrade failure path, existing authentication-key ACLs, runtime-version checks, and preservation of PowerShell-upgraded custom settings/ports. These changes are **not part of the published v0.5.4-beta.1 release**. They are included in the **planned v0.5.5-beta.1 candidate**, which must pass fresh CI and be explicitly published before installing. Do not install PR build artifacts on production computers. A failed upgrade must be treated as a support event; never delete the persistent UUID or secret to make it disappear.
 
 Third-party components and redistribution: [notices](docs/beta/THIRD-PARTY-NOTICES.md). The clipboard can retain explicitly copied power-control keys through clipboard history or synchronization depending on Windows settings; clear that history and avoid sharing the key.
+
+## Planned v0.5.5-beta.1 upgrade (only after publication)
+
+Review the [versioned release notes](docs/beta/RELEASE-NOTES-v0.5.5-beta.1.md). Download and verify the **new** Setup.exe and `SHA256SUMS.txt` from the [v0.5.5-beta.1 release page](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.5-beta.1) after publication. Run Setup over v0.5.4 without uninstalling and confirm that UUID, token, custom port/configuration and power preferences remain unchanged. The new installer adds rollback safeguards for detectable errors; test service interruption/recovery on a recoverable machine. Linux should install from the matching new source ZIP. The publisher must build and assign the **updated Edge driver v0.4.3-beta.1** to the existing channel. The current published beta and driver remain usable until then.
