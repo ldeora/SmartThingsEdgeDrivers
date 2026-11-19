@@ -1,5 +1,14 @@
 # Computer Host LAN — change log
 
+## Unreleased — stabilization toward first stable candidate (PR #19)
+
+- Correct Windows `/v2/info` runtime agent version and assert component versions against the release manifest.
+- Protect the existing authentication token ACL on upgrades; preserve customized Windows ZIP/PowerShell configuration and align firewall/installer diagnostics with the configured HTTP port.
+- Snapshot existing Windows application and firewall settings before graphical upgrades; restore service/configuration on detected failure, with regression coverage.
+- Clear stale suspend/cancelled-shutdown states when a host remains or becomes reachable, without claiming actual power completion.
+- Add source/CI checks, updated compatibility evidence and dependency/provenance notices. No protocol-v2 schema change and no alteration to published beta assets.
+
+
 ## v0.5.4-beta.1 (2026-11-19) — native Windows guided installer (candidate)
 
 - PR #17 merged into `main`; Windows x64 Inno Setup 7 wizard is now the recommended beta installer, with the original ZIP/PowerShell route retained.
