@@ -235,22 +235,7 @@ try {
         $keyPath = Join-Path $env:ProgramData 'ComputerHostAgent/control-token'
         if (-not (Test-Path -LiteralPath $keyPath)) { throw 'Power key was not generated' }
         $key = (Get-Content -LiteralPath $keyPath -Raw).Trim()
-        if ($key -cnotmatch '^[a-f0-9]{64}
-} finally {
-    if ($window) {
-        $processId = [ComputerHostWizardProbe]::ProcessId($window.Handle)
-        $candidate = Get-Process -Id $processId -ErrorAction SilentlyContinue
-        if ($candidate -and $candidate.Path -and
-            ($candidate.Path -ieq $setup -or $candidate.ProcessName -like '*setup*')) {
-            Stop-Process -Id $processId -Force -ErrorAction SilentlyContinue
-        }
-    }
-    if ($proc) {
-        Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
-        $proc.Dispose()
-    }
-}
-) { throw 'Invalid key format (value withheld)' }
+        if ($key -cnotmatch '^[a-f0-9]{64}$') { throw 'Invalid key format (value withheld)' }
         ClickWizardButton $window.Handle 'Copy authentication key'
         WaitForClipboard $key 'authentication key copying'
         $key = $null
