@@ -81,6 +81,20 @@ class BetaReadiness(unittest.TestCase):
         files = [p.relative_to(ROOT).as_posix() for p in ROOT.rglob('*') if p.is_file()]
         self.assertFalse(any(p.endswith('/control-token') or p.endswith('/installation-id') for p in files))
 
+    def test_wol_logs_do_not_expose_raw_mac_or_ip(self):
+        power = (ROOT / 'edge-driver/src/computerhost/power.lua').read_text()
+        discovery = (ROOT / 'edge-driver/src/computerhost/discovery.lua').read_text()
+        self.assertNotIn('MAC %s, broadcast %s', power)
+        self.assertNotIn('info.id,c.host,c.port', discovery)
+        self.assertNotIn('..new_mac)', discovery)
+
+    def test_windows_package_contains_dependency_notice(self):
+        source = (ROOT / 'scripts/ci/build_windows_kit.py').read_text()
+        setup = (ROOT / 'windows-agent/installer/ComputerHostLAN.iss').read_text()
+        self.assertIn('THIRD-PARTY-NOTICES.md', source)
+        self.assertIn('THIRD-PARTY-NOTICES.md', setup)
+        self.assertIn('Zeroconf', (ROOT / 'docs/beta/THIRD-PARTY-NOTICES.md').read_text())
+
 
 if __name__ == '__main__':
     unittest.main()
