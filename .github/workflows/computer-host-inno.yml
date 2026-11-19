@@ -1,0 +1,384 @@
+name: Computer Host LAN Windows graphical installer (prototype, not published)
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'computer-host-lan/windows-agent/**'
+      - '.github/workflows/computer-host-inno.yml'
+  pull_request:
+    paths:
+      - 'computer-host-lan/windows-agent/**'
+      - '.github/workflows/computer-host-inno.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  inno-windows-x64:
+    runs-on: windows-2025
+    defaults:
+      run:
+        working-directory: computer-host-lan
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+      - name: Publish agent and hub discovery executables
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & ./windows-agent/scripts/Publish-WindowsAgent.ps1 -Runtime win-x64
+          if ($LASTEXITCODE -ne 0) { throw 'Agent publish failed' }
+          dotnet publish windows-agent/HubDiscovery/ComputerHost.HubDiscovery.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=none -o windows-agent/publish/hub-discovery
+          if ($LASTEXITCODE -ne 0) { throw 'Discovery helper publish failed' }
+          & ./windows-agent/publish/hub-discovery/ComputerHost.HubDiscovery.exe --self-test
+          if ($LASTEXITCODE -ne 0) { throw 'Hub candidate validation self-test failed' }
+      - name: Check the wizard onboarding and secret-handling contract
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $iss = Get-Content windows-agent/installer/ComputerHostLAN.iss -Raw
+          $mustContain = @(
+            'Connect to SmartThings', 'CreateCustomPage(wpInstalling',
+            'KeyPage := CreateCustomPage', 'ShouldSkipPage(PageID: Integer)',
+            'Power management', 'Allow connections from devices on my local network',
+            'Advanced options', 'Show key', 'Copy authentication key',
+            'ValidControlKey', 'Scan nearby', 'ShellExecAsOriginalUser',
+            'KeyEdit.PasswordChar', 'SetAdvancedVisible(False)',
+            'if PowerCheck.Checked then', 'GetCustomSetupExitCode'
+          )
+          foreach ($item in $mustContain) {
+            if (-not $iss.Contains($item)) { throw "Wizard contract missing: $item" }
+          }
+          if ($iss -match 'Log\s*\(\s*(KeyEdit|Token|Contents)') { throw 'Potential key logging detected' }
+          $html = Get-Content windows-agent/installer/CONNECT-TO-SMARTTHINGS.html -Raw
+          if ($html -notmatch 'Scan nearby' -or $html -notmatch 'Power control key') {
+            throw 'Missing setup instructions'
+          }
+          # Parse the entire PowerShell GUI test before invoking Inno or
+          # waiting for a Windows desktop. This catches syntax regressions early.
+          $parseTokens = $null
+          $parseErrors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path windows-agent/scripts/Test-WindowsInstallerWizard.ps1).Path,
+            [ref]$parseTokens, [ref]$parseErrors) | Out-Null
+          if ($parseErrors.Count -gt 0) {
+            foreach ($parseError in $parseErrors) {
+              Write-Error ("GUI test PowerShell syntax: " + $parseError.Message)
+            }
+            throw 'GUI test script does not parse'
+          }
+          Write-Host 'PASS wizard layout, dedicated power/connect pages, masked-key controls and onboarding guide'
+      - name: Install Inno Setup 7 for compiler
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $winget = Get-Command winget.exe -ErrorAction SilentlyContinue
+          if (-not $winget) { throw 'WinGet unavailable on this Windows runner; set up an approved Inno Setup 7 compiler before building' }
+          winget install -e --id JRSoftware.InnoSetup.7 --source winget --accept-package-agreements --accept-source-agreements --silent --disable-interactivity
+          if ($LASTEXITCODE -ne 0) { throw 'Inno Setup 7 installation failed' }
+          $locations = @(
+            (Join-Path $env:LOCALAPPDATA 'Programs/Inno Setup 7/ISCC.exe'),
+            (Join-Path $env:ProgramFiles 'Inno Setup 7/ISCC.exe'),
+            (Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 7/ISCC.exe')
+          )
+          $iscc = $locations | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+          if (-not $iscc) {
+            $iscc = Get-ChildItem -Path (Join-Path $env:LOCALAPPDATA 'Programs'),$env:ProgramFiles -Filter ISCC.exe -File -Recurse -ErrorAction SilentlyContinue |
+              Where-Object { $_.FullName -like '*Inno Setup 7*' } |
+              Select-Object -First 1 -ExpandProperty FullName
+          }
+          if (-not $iscc) { throw 'Inno Setup 7 compiler not found in per-user or system installation directory' }
+          Write-Host "Using Inno Setup compiler: $iscc"
+          "INNO_ISCC=$iscc" >> $env:GITHUB_ENV
+      - name: Compile graphical setup
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Push-Location windows-agent/installer
+          try {
+            & $env:INNO_ISCC ComputerHostLAN.iss
+            if ($LASTEXITCODE -ne 0) { throw 'ISCC compilation failed' }
+          } finally { Pop-Location }
+          $setup = Get-ChildItem windows-agent/installer/output -Filter '*setup.exe' -File | Select-Object -First 1
+          if (-not $setup) { throw 'No setup EXE generated' }
+          Write-Host "Generated setup: $($setup.Name)"
+      - name: Refuse to uninstall an unrelated same-name Windows service
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $serviceName = 'ComputerHostAgent'
+          if (Get-Service $serviceName -ErrorAction SilentlyContinue) {
+            throw 'CI test runner unexpectedly already has ComputerHostAgent'
+          }
+          $unrelatedExe = Join-Path $env:WINDIR 'System32/notepad.exe'
+          New-Service -Name $serviceName -BinaryPathName ('"' + $unrelatedExe + '"') -StartupType Manual | Out-Null
+          try {
+            $rejected = $false
+            try {
+              & ./windows-agent/scripts/Uninstall-WindowsAgent.ps1 -KeepProgramFiles
+            } catch {
+              if ($_.Exception.Message -match 'refusing to uninstall an unrelated service') {
+                $rejected = $true
+              } else { throw }
+            }
+            if (-not $rejected) { throw 'Uninstaller did not reject unrelated service' }
+            if (-not (Get-Service $serviceName -ErrorAction SilentlyContinue)) {
+              throw 'Uninstaller deleted the unrelated service'
+            }
+            Write-Host 'PASS unrelated named Windows Service preserved'
+          } finally {
+            & sc.exe delete $serviceName | Out-Null
+            if ($LASTEXITCODE -ne 0) { throw 'Could not clean up fake CI test service' }
+          }
+      - name: Smoke-test interactive Welcome and hub-IP field
+        shell: pwsh
+        timeout-minutes: 3
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $setup = (Get-ChildItem windows-agent/installer/output -Filter '*setup.exe' -File | Select-Object -First 1).FullName
+          & ./windows-agent/scripts/Test-WindowsInstallerWizard.ps1 -SetupExecutable $setup
+      - name: Exercise PowerShell-to-Setup migration, silent upgrade, uninstall and clean install
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $setup = (Get-ChildItem windows-agent/installer/output -Filter '*setup.exe' -File | Select-Object -First 1).FullName
+          $hub = '192.0.2.20'
+          $originalPath = Join-Path $env:ProgramData 'ComputerHostAgent'
+          # Simulate an existing v0.5.x ZIP-installed Windows agent with opt-in power.
+          & ./windows-agent/scripts/Install-WindowsAgent.ps1 -PublishedDirectory (Resolve-Path windows-agent/publish/win-x64).Path -HubIPv4 $hub -EnablePower
+          if ($LASTEXITCODE -ne 0) { throw 'Legacy ZIP script install failed' }
+          $old = Invoke-RestMethod http://127.0.0.1:8765/v2/info
+          if (-not ($old.power_actions -contains 'reboot')) { throw 'Legacy setup power not enabled' }
+          $key = Join-Path $originalPath 'control-token'
+          $oldKeyHash = (Get-FileHash $key -Algorithm SHA256).Hash
+          # Emulate customization of the ZIP-installed agent. Setup must not
+          # clobber unrelated settings when installing its default JSON.
+          $configPath = Join-Path $env:ProgramFiles 'Computer Host Agent/appsettings.json'
+          $custom = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json
+          $custom.HostAgent.DiscoveryEnabled = $false
+          $custom.HostAgent.DiscoveryInterfaceIndex = 17
+          $custom | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $configPath -Encoding utf8
+          Write-Host 'Validating existing ZIP-installed service before migration'
+          Get-CimInstance Win32_Service -Filter "Name='ComputerHostAgent'" |
+            Select-Object Name,StartName,PathName,State | Format-List
+          & ./windows-agent/scripts/Prepare-WindowsAgentUpgrade.ps1 -ValidateOnly
+          # Reproduce the 32-bit PowerShell context used by the graphical
+          # bootstrapper, without allowing it to silently point at Program Files (x86).
+          $ps32 = Join-Path $env:WINDIR 'SysWOW64/WindowsPowerShell/v1.0/powershell.exe'
+          if (Test-Path $ps32) {
+            & $ps32 -NoProfile -NonInteractive -ExecutionPolicy Bypass -File ./windows-agent/scripts/Prepare-WindowsAgentUpgrade.ps1 -ValidateOnly
+            if ($LASTEXITCODE -ne 0) { throw '32-bit preflight refused the genuine ComputerHostAgent service' }
+          }
+          # Test the actual stop path directly, so any PowerShell service
+          # failure is visible rather than hidden behind Inno's Exec result.
+          & ./windows-agent/scripts/Prepare-WindowsAgentUpgrade.ps1
+          Start-Service ComputerHostAgent
+          (Get-Service ComputerHostAgent).WaitForStatus(
+            [System.ServiceProcess.ServiceControllerStatus]::Running,
+            [TimeSpan]::FromSeconds(40))
+          $ready = $false
+          for ($attempt = 0; $attempt -lt 40; $attempt++) {
+            try {
+              $health = Invoke-RestMethod http://127.0.0.1:8765/v2/health -TimeoutSec 2
+              if ($health.status -eq 'running') { $ready = $true; break }
+            } catch { Start-Sleep -Milliseconds 250 }
+          }
+          if (-not $ready) { throw 'Service did not become ready before Setup migration' }
+          function WaitAgentReady([string]$stage) {
+            for ($attempt = 0; $attempt -lt 35; $attempt++) {
+              try {
+                $info = Invoke-RestMethod http://127.0.0.1:8765/v2/info -TimeoutSec 1
+                if ($info -and $info.protocol -eq 'computer-host-agent' -and $info.id) {
+                  Write-Host "PASS agent healthy after $stage"
+                  return $info
+                }
+              } catch { }
+              Start-Sleep -Milliseconds 400
+            }
+            Get-Service ComputerHostAgent -ErrorAction SilentlyContinue |
+              Format-List Name,Status,StartType | Out-Host
+            Get-CimInstance Win32_Service -Filter "Name='ComputerHostAgent'" |
+              Select-Object Name,StartName,PathName,State,ExitCode | Format-List | Out-Host
+            $log = Join-Path $env:RUNNER_TEMP 'computerhost-setup.log'
+            if (Test-Path $log) { Get-Content -LiteralPath $log -Tail 80 }
+            # Diagnose runtime/startup failures; a successful Setup process exit
+            # does not guarantee the Windows Service remained alive.
+            foreach ($logName in @('Application', 'System')) {
+              Get-WinEvent -FilterHashtable @{
+                LogName=$logName; StartTime=(Get-Date).AddMinutes(-8)
+              } -MaxEvents 200 -ErrorAction SilentlyContinue |
+                Where-Object {
+                  $_.ProviderName -match 'Service Control Manager|\.NET Runtime|Application Error' -or
+                  $_.Message -match 'ComputerHostAgent|ComputerHost.WindowsAgent'
+                } |
+                Select-Object -First 16 TimeCreated,ProviderName,Id,Message |
+                Format-List | Out-Host
+            }
+            throw "Agent did not serve /v2/info after $stage"
+          }
+          function RunSetup([string]$setupArgs) {
+            # Do not wait indefinitely for descendant processes of a self-
+            # elevating installer. Bound the setup process and keep diagnostics.
+            $log = Join-Path $env:RUNNER_TEMP 'computerhost-setup.log'
+            Write-Host "Running setup with silent arguments: $setupArgs"
+            $p = Start-Process -FilePath $setup -ArgumentList ($setupArgs + ' /LOG="' + $log + '"') -PassThru
+            try {
+              if (-not $p.WaitForExit(120000)) {
+                Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+                if (Test-Path $log) { Get-Content -LiteralPath $log -Tail 35 }
+                throw 'Inno Setup timed out after 120 seconds'
+              }
+              if ($p.ExitCode -ne 0) {
+                if (Test-Path $log) { Get-Content -LiteralPath $log -Tail 35 }
+                throw "Inno Setup failed: $($p.ExitCode)"
+              }
+              if (Test-Path $log) {
+                Write-Host 'Inno Setup last operations:'
+                Get-Content -LiteralPath $log -Tail 40
+              }
+            } finally { $p.Dispose() }
+          }
+          Write-Host 'TEST: ZIP-to-Setup migration'
+          RunSetup "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /HUBIP=$hub /ENABLEPOWER=1"
+          $migrated = WaitAgentReady 'ZIP-to-Setup migration'
+          if ($migrated.id -ne $old.id) { throw 'Migration changed installation UUID' }
+          if ((Get-FileHash $key -Algorithm SHA256).Hash -ne $oldKeyHash) { throw 'Migration changed control key' }
+          $keptConfig = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json
+          if ($keptConfig.HostAgent.DiscoveryEnabled -ne $false -or
+              $keptConfig.HostAgent.DiscoveryInterfaceIndex -ne 17) {
+            throw 'Migration overwrote existing agent configuration'
+          }
+          Write-Host 'PASS customized appsettings.json preserved during ZIP-to-Setup migration'
+          if (-not ($migrated.power_actions -contains 'reboot')) { throw 'Migration lost power setting' }
+          $guide = Join-Path $env:ProgramFiles 'Computer Host Agent/Docs/CONNECT-TO-SMARTTHINGS.html'
+          if (-not (Test-Path $guide)) { throw 'Onboarding guide not installed' }
+          $guideText = Get-Content -LiteralPath $guide -Raw
+          if ($guideText -notmatch 'Scan nearby' -or $guideText -notmatch '1J2Qy7ZkxL20' -or $guideText -notmatch 'Power control key') { throw 'Onboarding guide instructions incomplete' }
+          if ($guideText -match [regex]::Escape((Get-Content -LiteralPath $key -Raw).Trim())) { throw 'Private control token leaked to installed guide' }
+          $shortcut = Join-Path $env:ProgramData 'Microsoft/Windows/Start Menu/Programs/Computer Host LAN/Connect to SmartThings.lnk'
+          if (-not (Test-Path $shortcut)) { throw 'Start Menu onboarding shortcut missing' }
+          Write-Host 'PASS installed onboarding guide and Start Menu shortcut'
+          # Next upgrade must retain power without asking to re-enable it.
+          Write-Host 'TEST: preserve power setting during a subsequent silent upgrade'
+          RunSetup "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /HUBIP=$hub"
+          $upgraded = WaitAgentReady 'silent Setup-to-Setup upgrade'
+          if ($upgraded.id -ne $old.id) { throw 'Upgrade changed UUID' }
+          $keptConfig = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json
+          if ($keptConfig.HostAgent.DiscoveryEnabled -ne $false -or
+              $keptConfig.HostAgent.DiscoveryInterfaceIndex -ne 17) {
+            throw 'Setup-to-Setup upgrade overwrote existing configuration'
+          }
+          if (-not ($upgraded.power_actions -contains 'reboot')) { throw 'Upgrade lost power preference' }
+          Write-Host 'TEST: uninstall removes service/firewall but retains state'
+          $uninstaller = Join-Path (Join-Path $env:ProgramFiles 'Computer Host Agent') 'unins000.exe'
+          if (-not (Test-Path $uninstaller)) { throw 'Inno uninstall entry missing' }
+          $p = Start-Process -FilePath $uninstaller -ArgumentList '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART' -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "Inno uninstall failed: $($p.ExitCode)" }
+          if (Get-Service ComputerHostAgent -ErrorAction SilentlyContinue) { throw 'Uninstall left agent service installed' }
+          if (Get-NetFirewallRule -Name 'ComputerHostAgent-TCP8765' -ErrorAction SilentlyContinue) { throw 'Uninstall left firewall rule installed' }
+          if (Test-Path $guide) { throw 'Uninstall left installed onboarding guide' }
+          if (Test-Path $shortcut) { throw 'Uninstall left Start Menu onboarding shortcut' }
+          if ((Get-FileHash $key -Algorithm SHA256).Hash -ne $oldKeyHash) { throw 'Uninstall removed/rotated persistent key' }
+          Write-Host 'TEST: reinstallation with saved state and explicitly disabled power'
+          RunSetup "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /HUBIP=$hub /ENABLEPOWER=0"
+          $reinstalled = WaitAgentReady 'state-preserving reinstall with power opt-out'
+          if ($reinstalled.id -ne $old.id) { throw 'Reinstall changed UUID despite retained state' }
+          if ($reinstalled.power_actions.Count -ne 0) { throw 'Explicit power opt-out failed' }
+          if ((Get-FileHash $key -Algorithm SHA256).Hash -ne $oldKeyHash) { throw 'Opt-out rotated key' }
+
+          Write-Host 'TEST: genuine clean installation with no saved state and LocalSubnet firewall'
+          $uninstaller = Join-Path (Join-Path $env:ProgramFiles 'Computer Host Agent') 'unins000.exe'
+          $p = Start-Process -FilePath $uninstaller -ArgumentList '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART' -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "Uninstall before clean-install test failed: $($p.ExitCode)" }
+          if (Get-Service ComputerHostAgent -ErrorAction SilentlyContinue) { throw 'Uninstall left service behind' }
+          # CI-only reset: users' normal uninstall MUST leave ProgramData untouched.
+          if (Test-Path $originalPath) { Remove-Item -LiteralPath $originalPath -Recurse -Force }
+          RunSetup "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /LOCALSUBNET=1"
+          $clean = WaitAgentReady 'genuine new installation'
+          if ($clean.id -eq $old.id) { throw 'Clean install reused deleted installation UUID' }
+          if ($clean.power_actions.Count -ne 0) { throw 'Clean install enabled power by default' }
+          if (Test-Path $key) { throw 'Clean monitoring-only install created a privileged token' }
+          $rule = Get-NetFirewallRule -Name 'ComputerHostAgent-TCP8765' -ErrorAction Stop
+          $addresses = @($rule | Get-NetFirewallAddressFilter | Select-Object -ExpandProperty RemoteAddress)
+          if ($addresses -notcontains 'LocalSubnet') { throw "LocalSubnet fallback not configured: $($addresses -join ',')" }
+          Write-Host 'PASS real clean install, LocalSubnet, ZIP migration, UUID/key retention, upgrades, uninstall and opt-out'
+      - name: Exercise complete interactive wizard and key-copy workflow
+        shell: pwsh
+        timeout-minutes: 5
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $setup = (Get-ChildItem windows-agent/installer/output -Filter '*setup.exe' -File | Select-Object -First 1).FullName
+          & ./windows-agent/scripts/Test-WindowsInstallerWizard.ps1 -SetupExecutable $setup -FullInstall
+      - name: Exercise graphical monitoring-only mode and explicit local-network fallback
+        shell: pwsh
+        timeout-minutes: 5
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $setup = (Get-ChildItem windows-agent/installer/output -Filter '*setup.exe' -File | Select-Object -First 1).FullName
+          & ./windows-agent/scripts/Test-WindowsInstallerWizard.ps1 -SetupExecutable $setup -FullInstall -MonitoringOnly -SubnetFallback
+      - name: Verify graphical uninstall aborts before removing files for an unrelated service
+        shell: pwsh
+        timeout-minutes: 4
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $serviceName = 'ComputerHostAgent'
+          $app = Join-Path $env:ProgramFiles 'Computer Host Agent'
+          $exe = Join-Path $app 'ComputerHost.WindowsAgent.exe'
+          $uninstaller = Join-Path $app 'unins000.exe'
+          if (-not (Test-Path $exe) -or -not (Test-Path $uninstaller)) {
+            throw 'Graphical setup did not leave an installed service and uninstaller'
+          }
+          $running = Get-Service $serviceName -ErrorAction Stop
+          if ($running.Status -ne 'Stopped') {
+            Stop-Service -Name $serviceName -ErrorAction Stop
+            (Get-Service -Name $serviceName).WaitForStatus(
+              [System.ServiceProcess.ServiceControllerStatus]::Stopped,
+              [TimeSpan]::FromSeconds(40))
+          }
+          & sc.exe delete $serviceName | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw 'Unable to remove original test service' }
+          for ($attempt = 0; $attempt -lt 40; $attempt++) {
+            if (-not (Get-Service $serviceName -ErrorAction SilentlyContinue)) { break }
+            Start-Sleep -Milliseconds 250
+          }
+          if (Get-Service $serviceName -ErrorAction SilentlyContinue) {
+            throw 'Old service still registered and cannot be replaced for regression test'
+          }
+          New-Service -Name $serviceName -BinaryPathName ('"' + (Join-Path $env:WINDIR 'System32/notepad.exe') + '"') -StartupType Manual | Out-Null
+          try {
+            $p = Start-Process -FilePath $uninstaller -ArgumentList '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART' -PassThru -Wait
+            if ($p.ExitCode -eq 0) { throw 'Inno uninstall returned success for mismatched service' }
+            if (-not (Test-Path $exe)) { throw 'Inno removed application files despite service ownership mismatch' }
+            if (-not (Get-Service $serviceName -ErrorAction SilentlyContinue)) {
+              throw 'Inno deleted unrelated service'
+            }
+            Write-Host 'PASS graphical pre-uninstall validation blocks deletion of files and unrelated service'
+          } finally {
+            & sc.exe delete $serviceName | Out-Null
+            if ($LASTEXITCODE -ne 0) { throw 'Unable to clean up unrelated test service' }
+          }
+          # With the unrelated service gone, ordinary Inno uninstall must
+          # succeed and remove our tracked files and firewall rule.
+          $p = Start-Process -FilePath $uninstaller -ArgumentList '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART' -PassThru -Wait
+          if ($p.ExitCode -ne 0) { throw 'Normal uninstall after ownership test failed' }
+          if (Test-Path $exe) { throw 'Uninstall left agent binary behind' }
+          if (Get-NetFirewallRule -Name 'ComputerHostAgent-TCP8765' -ErrorAction SilentlyContinue) {
+            throw 'Uninstall left firewall rule behind'
+          }
+          Write-Host 'PASS normal uninstall after guarded rejection'
+      - name: Upload non-secret wizard screenshots
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: computer-host-lan-wizard-windows-gui-evidence
+          path: ${{ runner.temp }}/computer-host-wizard-screens/*.png
+          retention-days: 7
+          if-no-files-found: warn
+      - name: Upload unsigned installer prototype (not a public release)
+        uses: actions/upload-artifact@v7
+        with:
+          name: computer-host-lan-inno-setup-x64-prototype
+          path: computer-host-lan/windows-agent/installer/output/*setup.exe
+          retention-days: 7
+          if-no-files-found: error
