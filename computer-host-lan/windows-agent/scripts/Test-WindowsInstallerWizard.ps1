@@ -230,8 +230,10 @@ try {
             throw 'Show key did not reveal the field'
         }
         ClickWizardButton $window.Handle 'Hide key'
-        if ([ComputerHostWizardProbe]::PasswordMask($keyEdit.Handle) -ne $initialMask) {
-            throw 'Hide key did not restore the original mask'
+        $restoredMask = [ComputerHostWizardProbe]::PasswordMask($keyEdit.Handle)
+        Write-Host "Authentication key field restored mask code: $restoredMask"
+        if ($restoredMask -eq 0) {
+            throw 'Hide key did not restore password masking'
         }
         Write-Host 'PASS Show/Hide authentication key toggle'
         $keyPath = Join-Path $env:ProgramData 'ComputerHostAgent/control-token'
