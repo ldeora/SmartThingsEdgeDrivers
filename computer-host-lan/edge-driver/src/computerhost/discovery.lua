@@ -71,7 +71,7 @@ function M.save_fields(device,host,port,id,name,info)
       local new_mac=info.wol_mac:lower()
       if device:get_field(C.FIELD_MAC)~=new_mac then
         device:set_field(C.FIELD_MAC,new_mac,{persist=true})
-        log.info("Computer Host WOL MAC saved for "..tostring(device.label or id or "device")..": "..new_mac)
+        log.info("Computer Host WOL MAC saved (address omitted)")
       end
     elseif info.wol_mac~=nil then
       log.warn("Computer Host agent reported invalid WOL MAC; ignoring it")
@@ -125,7 +125,7 @@ function M.process_candidate(driver,c)
       vendor_provided_label=label,external_id=info.id})
   end)
   if not ok then pending[dni]=nil; return nil,"device creation failed: "..tostring(creation_err) end
-  log.info(string.format("Requested Computer Host creation id=%s addr=%s:%d",info.id,c.host,c.port))
+  log.info("Requested Computer Host device creation after verified protocol/UUID")
   return nil,nil
 end
 function M.handle_discovery(driver,_,should_continue)
@@ -143,7 +143,7 @@ function M.rediscover(driver,device)
     local info=API.fetch_info(c.host,c.port)
     if info and info.id==wanted then
       M.save_fields(device,c.host,c.port,info.id,info.hostname,info)
-      log.info("Computer Host rediscovered at "..c.host..":"..c.port)
+      log.info("Computer Host agent rediscovered (network address omitted)")
       return true,nil
     end
   end
