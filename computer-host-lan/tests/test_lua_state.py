@@ -49,6 +49,20 @@ class StateReducerTests(unittest.TestCase):
             assert(a=='running' and b==true)
             a,b=S.success('wake',false)
             assert(a=='running' and b==true)
+            -- Suspend accepted but still running: keep transitional state.
+            a,b=S.success('suspend',false,0,10)
+            assert(a=='suspending' and b==false)
+            -- Short suspend/resume with one failed poll must clear pending.
+            a,b=S.success('suspend',false,1,10)
+            assert(a=='running' and b==true)
+            -- Unobserved/very brief sleep must not leave 180s stale state.
+            a,b=S.success('suspend',false,0,31)
+            assert(a=='running' and b==true)
+            -- A cancelled shutdown should recover to running after its grace.
+            a,b=S.success('shutdown',false,0,15)
+            assert(a=='stopping' and b==false)
+            a,b=S.success('shutdown',false,0,61)
+            assert(a=='running' and b==true)
         ''' % repr(str(ROOT))
         vm=lib.luaL_newstate()
         try:
