@@ -56,6 +56,8 @@ Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile
 const
   ChannelURL = 'https://bestow-regional.api.smartthings.com/invite/1J2Qy7ZkxL20';
   WM_COPY = $0301;
+  EM_SETPASSWORDCHAR = $00CC;
+  EM_GETPASSWORDCHAR = $00D2;
 
 var
   HubPage, PowerPage, ConnectPage, KeyPage: TWizardPage;
@@ -229,34 +231,55 @@ begin
   LinkCopyStatus.Caption := 'Invitation link copied.';
 end;
 
+// The native Win32 edit control may use a bullet for an ES_PASSWORD field
+// even when TNewEdit.PasswordChar reports '*'. Always ask the window itself
+// and explicitly set the native password mask on show, hide and copy.
+procedure SetNativeKeyMask(const Mask: Integer);
+begin
+  SendMessage(KeyEdit.Handle, EM_SETPASSWORDCHAR, Mask, 0);
+end;
+
 procedure ShowOrHideKey(Sender: TObject);
 begin
-  if KeyEdit.PasswordChar = '*' then
+  if SendMessage(KeyEdit.Handle, EM_GETPASSWORDCHAR, 0, 0) <> 0 then
   begin
     KeyEdit.PasswordChar := #0;
+    SetNativeKeyMask(0);
     ShowKeyButton.Caption := 'Hide key';
   end
   else
   begin
     KeyEdit.PasswordChar := '*';
+    SetNativeKeyMask(Ord('*'));
     ShowKeyButton.Caption := 'Show key';
   end;
 end;
 
 procedure CopySecretKey(Sender: TObject);
 var
-  PreviousMask: Char;
+  PreviousMask: Integer;
 begin
   if not ValidControlKey(KeyEdit.Text) then Exit;
-  // Windows password edits prohibit WM_COPY. Temporarily unmask the field
-  // only for this explicit user action, and immediately restore its state.
-  PreviousMask := KeyEdit.PasswordChar;
+  // Native password edit controls refuse WM_COPY when masking is active.
+  // Temporarily remove the mask only for an explicit user click, and
+  // reliably restore the exact previous native character even on failure.
+  PreviousMask := SendMessage(KeyEdit.Handle, EM_GETPASSWORDCHAR, 0, 0);
   try
     KeyEdit.PasswordChar := #0;
+    SetNativeKeyMask(0);
     KeyEdit.SelectAll;
     SendMessage(KeyEdit.Handle, WM_COPY, 0, 0);
   finally
-    KeyEdit.PasswordChar := PreviousMask;
+    if PreviousMask <> 0 then
+    begin
+      KeyEdit.PasswordChar := '*';
+      SetNativeKeyMask(PreviousMask);
+    end
+    else
+    begin
+      KeyEdit.PasswordChar := #0;
+      SetNativeKeyMask(0);
+    end;
   end;
   CopyStatus.Caption := 'Key copied. Paste it into your SmartThings device settings.';
 end;
@@ -314,6 +337,7 @@ begin
     ShowKeyButton.Visible := True;
     CopyKeyButton.Visible := True;
     KeyEdit.PasswordChar := '*';
+    SetNativeKeyMask(Ord('*'));
     ShowKeyButton.Caption := 'Show key';
   end
   else
