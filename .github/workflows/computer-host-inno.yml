@@ -90,6 +90,13 @@ jobs:
           $setup = Get-ChildItem windows-agent/installer/output -Filter '*setup.exe' -File | Select-Object -First 1
           if (-not $setup) { throw 'No setup EXE generated' }
           Write-Host "Generated setup: $($setup.Name)"
+      - name: Smoke-test interactive Welcome and hub-IP field
+        shell: pwsh
+        timeout-minutes: 3
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $setup = (Get-ChildItem windows-agent/installer/output -Filter '*setup.exe' -File | Select-Object -First 1).FullName
+          & ./windows-agent/scripts/Test-WindowsInstallerWizard.ps1 -SetupExecutable $setup
       - name: Exercise PowerShell-to-Setup migration, silent upgrade, uninstall and clean install
         shell: pwsh
         run: |
