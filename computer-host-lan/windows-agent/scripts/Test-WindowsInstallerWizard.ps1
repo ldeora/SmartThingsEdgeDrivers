@@ -219,7 +219,9 @@ try {
             $_.Class -match 'Edit' -and $_.Width -ge 100
         } | Select-Object -First 1
         if (-not $keyEdit) { throw 'Authentication key edit field missing' }
-        if ([ComputerHostWizardProbe]::PasswordMask($keyEdit.Handle) -ne [int][char]'*') {
+        $initialMask = [ComputerHostWizardProbe]::PasswordMask($keyEdit.Handle)
+        Write-Host "Authentication key field mask character code: $initialMask"
+        if ($initialMask -eq 0) {
             throw 'Authentication key is not masked by default'
         }
         Write-Host 'PASS private key is masked by default'
@@ -228,8 +230,8 @@ try {
             throw 'Show key did not reveal the field'
         }
         ClickWizardButton $window.Handle 'Hide key'
-        if ([ComputerHostWizardProbe]::PasswordMask($keyEdit.Handle) -ne [int][char]'*') {
-            throw 'Hide key did not restore masking'
+        if ([ComputerHostWizardProbe]::PasswordMask($keyEdit.Handle) -ne $initialMask) {
+            throw 'Hide key did not restore the original mask'
         }
         Write-Host 'PASS Show/Hide authentication key toggle'
         $keyPath = Join-Path $env:ProgramData 'ComputerHostAgent/control-token'
