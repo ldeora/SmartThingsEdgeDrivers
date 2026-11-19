@@ -67,6 +67,12 @@ try {
       }
       if ($existing.Status -ne 'Stopped') { Stop-Service -Name $service -ErrorAction Stop }
     }
+    $configPath = Join-Path $programs 'appsettings.json'
+    $preservedConfig = $null
+    if (-not $UseExistingFiles -and (Test-Path -LiteralPath $configPath)) {
+      # Keep customized settings across legacy PowerShell/ZIP upgrades.
+      $preservedConfig = [IO.File]::ReadAllBytes($configPath)
+    }
     if ($UseExistingFiles) {
       # Inno Setup owns the payload files and stops the service before
       # installing them. Never copy files over themselves.
@@ -79,9 +85,11 @@ try {
     } else {
       New-Item -ItemType Directory -Path $programs -Force | Out-Null
       Copy-Item -Path (Join-Path $PublishedDirectory '*') -Destination $programs -Force -ErrorAction Stop
+      if ($null -ne $preservedConfig) {
+        [IO.File]::WriteAllBytes($configPath, $preservedConfig)
+      }
     }
     # A service upgrade never enables power by accident. -EnablePower must be explicit.
-    $configPath = Join-Path $programs 'appsettings.json'
     if (-not (Test-Path -LiteralPath $configPath)) { throw "Missing $configPath" }
     $config = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json
     $config.HostAgent | Add-Member -NotePropertyName EnablePowerControl -NotePropertyValue ([bool]$EnablePower) -Force
@@ -112,13 +120,40 @@ try {
       & sc.exe failure $service 'reset=' '3600' 'actions=' 'restart/5000/restart/10000/none/0' | Out-Host
       if ($LASTEXITCODE -ne 0) { throw 'Unable to set service recovery' }
     }
+    # The firewall must match the actual HTTP listener, not just its default.
+    $listenPort = 8765
+    if ($null -ne $config.HostAgent.Port) {
+      $parsedPort = 0
+      if (-not [int]::TryParse([string]$config.HostAgent.Port, [ref]$parsedPort) -or
+          $parsedPort -lt 1024 -or $parsedPort -gt 65535) {
+        throw 'HostAgent:Port must be a valid TCP port (1024-65535).'
+      }
+      $listenPort = $parsedPort
+    }
     if (-not $SkipFirewall) {
       Get-NetFirewallRule -Name 'ComputerHostAgent-TCP8765' -ErrorAction SilentlyContinue | Remove-NetFirewallRule
       $remoteScope = if ($HubIPv4) { $HubIPv4 } else { 'LocalSubnet' }
       New-NetFirewallRule -Name 'ComputerHostAgent-TCP8765' -DisplayName 'Computer Host Agent (trusted LAN)' `
-        -Direction Inbound -Action Allow -Protocol TCP -LocalPort 8765 -Program $exe -Profile Private `
+        -Direction Inbound -Action Allow -Protocol TCP -LocalPort $listenPort -Program $exe -Profile Private `
         -RemoteAddress $remoteScope | Out-Null
-      Write-Warning "Firewall allows TCP 8765 only from $remoteScope on PRIVATE networks. UDP/5353 mDNS remains subject to Windows network discovery policy."
+      Write-Warning "Firewall allows TCP $listenPort only from $remoteScope on PRIVATE networks. UDP/5353 mDNS remains subject to Windows network discovery policy."
+    }
+    # Old token files can retain permissive explicit ACLs even when the
+    # containing directory is protected. Restrict every existing token.
+    $tokenPath = Join-Path $state 'control-token'
+    if (Test-Path -LiteralPath $tokenPath) {
+      $fileAcl = New-Object System.Security.AccessControl.FileSecurity
+      $fileAcl.SetAccessRuleProtection($true, $false)
+      foreach ($sid in @('S-1-5-18','S-1-5-32-544','S-1-5-19')) {
+        $who = [Security.Principal.SecurityIdentifier]::new($sid)
+        $fileAcl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new(
+          $who, 'FullControl', 'Allow'))
+      }
+      if ($PSVersionTable.PSVersion.Major -le 5) {
+        ([IO.FileInfo]::new($tokenPath)).SetAccessControl($fileAcl)
+      } else {
+        Set-Acl -LiteralPath $tokenPath -AclObject $fileAcl
+      }
     }
     Start-Service -Name $service
     Get-Service -Name $service | Format-Table Name,Status,StartType
