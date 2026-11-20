@@ -1,15 +1,15 @@
 # Computer Host LAN v0.5.6-beta.1 — consolidated installer and runtime hardening
 
-Candidate release URL (not yet published): https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.6-beta.1
+Published prerelease: https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.6-beta.1
 
 Existing SmartThings driver channel: https://bestow-regional.api.smartthings.com/invite/1J2Qy7ZkxL20
 
 
-**Status:** Release candidate source on review branch. **Do not publish or distribute until all native Windows and Linux CI checks pass at the final merged commit and migration behavior is reviewed.** This is one combined follow-up to the independently tested [v0.5.5-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.5-beta.1); no intermediate v0.5.5-beta.2 is planned.
+**Status:** Published prerelease (2026-11-20). The independent hardware validation below applies to [v0.5.5-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.5-beta.1), not to the new v0.5.6 hardening paths. Verify checksums and Edge driver assignment separately; publication alone is not hardware validation.
 
 ## Versions
 
-| Component | v0.5.6 candidate | Published v0.5.5 |
+| Component | Published v0.5.6 | Verified v0.5.5 baseline |
 | --- | --- | --- |
 | Integration | **0.5.6-beta.1** | 0.5.5-beta.1 |
 | Windows agent | **0.2.5-beta.1** | 0.2.4-beta.1 |
@@ -39,6 +39,6 @@ On Windows, keep the SmartThings hub's LAN address stable using a router DHCP re
 
 On Linux, update from the matching source ZIP using `./scripts/preflight.sh`, `./scripts/install-agent.sh --dry-run`, and `sudo ./scripts/install-agent.sh`. Retain persistent UUID and control token.
 
-**SmartThings:** The changed Edge driver v0.4.4-beta.1 must be packaged and assigned to the *existing* Computer Host LAN driver/channel only after publication approval. Keep the same driver ID, component IDs, profiles and capability schemas.
+**SmartThings:** Verify Edge driver 0.4.4-beta.1 has been assigned to the existing Computer Host LAN channel before treating the release as fully deployed. This document does not confirm deployment. Preserve the driver ID, profile component IDs and capability schemas.
 
 The Windows installer and agent remain unsigned. Validate the release's SHA256SUMS and use Windows SmartScreen guidance. Native Windows x64 testing, actual Windows 11 upgrades, permissions, WOL, sleep and failure recovery remain explicit pre-release acceptance gates.
