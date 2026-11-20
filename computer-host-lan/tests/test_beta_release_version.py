@@ -4,18 +4,10 @@ import json
 import re
 import unittest
 
+from scripts.ci.build_windows_kit import release_kind
+
 ROOT = Path(__file__).resolve().parents[1]
 VERSION = re.compile(r"^\d+\.\d+\.\d+(?:-(?:beta|rc)\.\d+)?$")
-
-
-def release_kind(version):
-    if not VERSION.fullmatch(version):
-        raise ValueError(f"Unsupported release version: {version}")
-    if "-beta." in version:
-        return "beta"
-    if "-rc." in version:
-        return "rc"
-    return "stable"
 
 
 def release_notes(version):
