@@ -821,8 +821,8 @@ begin
       InstallFailed := True;
       // State may be recoverable. Say what failed before attempting rollback.
       if not WizardSilent then
-        MsgBox('The updated agent did not pass the health, version or identity check. ' +
-          'Setup will try to restore the previous installation. If recovery fails, ' +
+        MsgBox('The agent did not pass the health, version or identity check. ' +
+          'Setup will try to restore a previous installation, if one exists. If recovery fails, ' +
           'keep the rollback files and consult the installation guide.', mbError, MB_OK);
       FinishUpgrade('Restore');
     end
