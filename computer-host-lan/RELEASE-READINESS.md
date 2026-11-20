@@ -1,5 +1,8 @@
 # Computer Host LAN — v0.5.5-beta.1 stabilization and first stable-release candidate
 
+> **Next candidate: Computer Host LAN v0.5.6-beta.1 (not yet published).** This single hardening candidate combines installer recovery and runtime resilience. Current published/tested beta: [v0.5.5-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.5-beta.1). [Candidate release notes](docs/beta/RELEASE-NOTES-v0.5.6-beta.1.md).
+
+
 **Published baseline:** v0.5.4-beta.1, GitHub prerelease (2026-11-19), from
 `f19c114b1cca7dcb87b5774eff7602e70184047c`. All four release workflows
 passed; ZIPs, Windows Setup.exe and unified SHA256SUMS are published.
