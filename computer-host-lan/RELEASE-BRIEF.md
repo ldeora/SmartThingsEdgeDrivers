@@ -1,12 +1,12 @@
 # Computer Host LAN v0.5.6-beta.1 — consolidated release brief
 
-**Published and Windows 11 hardware-tested:** [v0.5.5-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.5-beta.1), Windows agent 0.2.4-beta.1 and Linux/Edge 0.4.3-beta.1. **Consolidated next candidate:** [v0.5.6-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.6-beta.1), Windows agent 0.2.5-beta.1 and Linux/Edge 0.4.4-beta.1; [draft PR #21](https://github.com/ldeora/SmartThingsEdgeDrivers/pull/21) is not yet published or hardware-tested. Protocol v2 unchanged.
+**Published prerelease:** [v0.5.6-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.6-beta.1) with Windows agent 0.2.5-beta.1 and Linux/Edge 0.4.4-beta.1. **Hardware-tested fallback:** [v0.5.5-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.5-beta.1). v0.5.6's new paths remain to be tested on physical Windows and Linux hosts.
 
 **Scope:** a single hardening release addressing Windows installer recovery, health checks, privilege preflight, per-service key access, physical WOL NIC selection, retrying mDNS and atomic identity; safer Linux state and WOL configuration; SmartThings delayed-shutdown and transient-suspend state refinements.
 
 **Baseline evidence:** v0.5.5 Windows 11 Pro volunteer verified graphical upgrade, accurate telemetry, service recovery, all power buttons and working Wake-on-LAN. New v0.5.6 changes still require fresh CI and hardware tests.
 
-**Release process:** finish PR review → merge → verify all four workflows on exact final main SHA → validate installer, ZIP/source/doc assets and SHA256SUMS → publish **one** prerelease computer-host-lan-v0.5.6-beta.1 → package/assign Edge v0.4.4-beta.1 to the existing SmartThings channel → one Windows/Gentoo test round → announce. Preserve v0.5.5 assets for rollback. Signing and legal/provenance review remain stable-release gates.
+**Remaining follow-up:** Verify the final release-commit CI results, public assets/checksums and installation of Edge 0.4.4-beta.1 on the existing channel, then request dedicated v0.5.6 Windows/Gentoo validation. The prerelease has been published; do not retag or replace it. Keep v0.5.5 as the verified fallback. Signing and complete legal/provenance review remain stable-release gates.
 
 [Release notes](docs/beta/RELEASE-NOTES-v0.5.6-beta.1.md) · [Release readiness](RELEASE-READINESS.md)
 
