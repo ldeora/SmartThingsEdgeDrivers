@@ -1,5 +1,8 @@
 # Windows graphical installer (Inno Setup 7) — public-beta installation method
 
+> **Next candidate: Computer Host LAN v0.5.6-beta.1 (not yet published).** This single hardening candidate combines installer recovery and runtime resilience. Current published/tested beta: [v0.5.5-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.5-beta.1). [Candidate release notes](../../docs/beta/RELEASE-NOTES-v0.5.6-beta.1.md).
+
+
 **Source candidate v0.5.5-beta.1 (not yet published):** this setup source includes the merged PR #19 upgrade recovery changes. The currently downloadable installer remains the previous v0.5.4-beta.1. Read the [candidate release notes](../../docs/beta/RELEASE-NOTES-v0.5.5-beta.1.md).
 
 The graphical Windows x64 Setup.exe is the **recommended** installation and upgrade method in the published Computer Host LAN v0.5.4-beta.1 prerelease. Its [permanent release asset](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.4-beta.1) is separate from the existing supported PowerShell ZIP, which remains a fallback for troubleshooting. Both are unsigned; verify SHA-256 before running. A Windows 11 Pro volunteer has now reported real GUI installation and upgrade with accurate monitoring; broader hub-discovery topologies and hardware wake remain beta objectives. The native Windows Server 2025 CI has verified complete graphical navigation, clipboard copying, service upgrades, uninstall safety and ZIP migration.
