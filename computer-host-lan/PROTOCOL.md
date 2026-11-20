@@ -1,6 +1,6 @@
 # Computer Host Agent protocol v2 (current public beta)
 
-**Applies to:** published v0.5.4-beta.1 (Linux agent / Edge driver v0.4.2-beta.1; Windows agent v0.2.3-beta.1), and upcoming v0.5.5-beta.1 (Linux/Edge v0.4.3-beta.1; Windows v0.2.4-beta.1). The v2 wire contract, discovery namespace and installation identity format are unchanged.
+**Applies to:** published [v0.5.6-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.6-beta.1), including Linux agent and Edge driver 0.4.4-beta.1 and Windows agent 0.2.5-beta.1. The v2 wire contract, discovery namespace and installation identity format are unchanged; the v0.5.6 additions require further physical validation.
 **Not backward compatible with protocol v1.** All endpoints are under `/v2/`.
 The v0.3.1 contract is archived in `docs/history/v0.3.1-beta.1/PROTOCOL.md`.
 
