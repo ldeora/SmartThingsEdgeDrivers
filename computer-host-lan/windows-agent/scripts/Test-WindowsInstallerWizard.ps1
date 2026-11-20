@@ -195,7 +195,7 @@ try {
     for ($attempt = 0; $attempt -lt 70; $attempt++) {
         $children = @([ComputerHostWizardProbe]::Children($window.Handle))
         if (@($children | Where-Object {
-            $_.Visible -and $_.Text -match 'SmartThings hub \(automatically detected'
+            $_.Visible -and $_.Text -match 'SmartThings hub IPv4 \(DHCP reservation recommended'
         }).Count -gt 0) {
             $onHub = $true
             break
