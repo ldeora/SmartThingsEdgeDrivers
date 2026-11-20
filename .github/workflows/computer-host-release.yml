@@ -85,7 +85,7 @@ jobs:
           }
           if (-not $iscc) { throw 'Inno Setup 7 compiler missing after installation' }
           "INNO_ISCC=$iscc" >> $env:GITHUB_ENV
-      - name: Compile version-matched unsigned beta Setup.exe
+      - name: Compile version-matched unsigned Setup.exe
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -93,6 +93,9 @@ jobs:
           $iss = Get-Content windows-agent/installer/ComputerHostLAN.iss -Raw
           if (-not $iss.Contains('#define IntegrationVersion "' + $release.integration + '"')) {
             throw 'Inno Setup installer version differs from release.json'
+          }
+          if (-not $iss.Contains('#define WindowsAgentVersion "' + $release.windows_agent + '"')) {
+            throw 'Inno Setup expected Windows agent version differs from release.json'
           }
           Push-Location windows-agent/installer
           try {
@@ -170,14 +173,14 @@ jobs:
           printf '%s\n' \
             "Computer Host LAN unsigned development candidate" \
             "Commit: $GITHUB_SHA" \
-            "Unsigned beta candidate, not a published GitHub release; channel remains unchanged." \
+            "Unsigned build candidate, not a published GitHub release; channel remains unchanged." \
             "Windows Setup GUI passes separate native Windows CI; real Windows 11 hub/mDNS/WOL tests remain beta objectives." \
             > RELEASE-CANDIDATE-NOTICE.txt
           ls -lh *.zip *setup.exe SHA256SUMS.txt
-      - name: Upload one complete unsigned beta-candidate set
+      - name: Upload one complete unsigned candidate set
         uses: actions/upload-artifact@v7
         with:
-          name: computer-host-lan-complete-unsigned-beta-candidate
+          name: computer-host-lan-complete-unsigned-candidate
           path: ${{ runner.temp }}/computer-host-release/
           if-no-files-found: error
           retention-days: 7

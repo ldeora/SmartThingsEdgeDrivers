@@ -15,10 +15,9 @@ BASELINE_EDGE_HASHES = '25cd24f6ff0914fa05657a2dbeb4cd00004047fc4199849331336652
 class BetaReadiness(unittest.TestCase):
     def test_dev_release_manifest_and_power_default(self):
         release = json.loads((ROOT / 'release.json').read_text())
-        self.assertRegex(release['integration'], r'^\d+\.\d+\.\d+-beta\.\d+$')
-        self.assertRegex(release['agent'], r'^\d+\.\d+\.\d+-beta\.\d+$')
-        self.assertRegex(release['edge_driver'], r'^\d+\.\d+\.\d+-beta\.\d+$')
-        self.assertRegex(release['windows_agent'], r'^\d+\.\d+\.\d+-beta\.\d+$')
+        for name in ('integration', 'agent', 'edge_driver', 'windows_agent'):
+            self.assertRegex(release[name],
+                             r'^\d+\.\d+\.\d+(?:-(?:beta|rc)\.\d+)?$', name)
         self.assertEqual(release['agent_protocol'], 2)
         self.assertEqual(release['power_control_default'], 'disabled')
 
@@ -93,6 +92,7 @@ class BetaReadiness(unittest.TestCase):
         setup = (ROOT / 'windows-agent/installer/ComputerHostLAN.iss').read_text()
         self.assertIn('THIRD-PARTY-NOTICES.md', source)
         self.assertIn('THIRD-PARTY-NOTICES.md', setup)
+        self.assertIn('Source: "..\\..\\LICENSE"; DestDir: "{app}\\Docs"', setup)
         self.assertIn('Zeroconf', (ROOT / 'docs/beta/THIRD-PARTY-NOTICES.md').read_text())
 
 

@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 from pathlib import Path
 import stat
 import zipfile
@@ -38,10 +39,28 @@ def add_source(entries: dict[str, bytes], target: str, source: Path) -> None:
     entries[target] = source.read_bytes()
 
 
+def release_kind(version: str) -> str:
+    """Return the package stage; fail rather than publish an unknown version."""
+    if re.fullmatch(r"\d+\.\d+\.\d+-beta\.\d+", version):
+        return "beta"
+    if re.fullmatch(r"\d+\.\d+\.\d+-rc\.\d+", version):
+        return "rc"
+    if re.fullmatch(r"\d+\.\d+\.\d+", version):
+        return "stable"
+    raise ValueError(f"Unsupported integration version: {version}")
+
+
 def build(published: Path, output_dir: Path, runtime: str, commit: str) -> Path:
     release = json.loads((ROOT / "release.json").read_text(encoding="utf-8"))
     version = release["integration"]
     agent_version = release["windows_agent"]
+    stage = release_kind(version)
+    if release.get("release_stage") not in (
+        f"{stage}-candidate-v{version}", f"{stage}-published-v{version}"
+    ):
+        raise ValueError("release_stage is incompatible with integration version")
+    notes_directory = "beta" if stage == "beta" else "release"
+    release_label = {"beta": "beta", "rc": "release candidate", "stable": "stable release"}[stage]
     if runtime not in ("win-x64", "win-arm64"):
         raise ValueError("Only win-x64 / win-arm64 builds are supported")
     if len(commit) != 40 or not all(c in "0123456789abcdef" for c in commit.lower()):
@@ -64,18 +83,18 @@ def build(published: Path, output_dir: Path, runtime: str, commit: str) -> Path:
         add_source(entries, f"scripts/{helper}", ROOT / "windows-agent/scripts" / helper)
     for dst, src in DOCUMENTS.items():
         add_source(entries, dst, src)
-    add_source(entries, "docs/RELEASE-NOTES.md", ROOT / "docs/beta" / f"RELEASE-NOTES-v{version}.md")
+    add_source(entries, "docs/RELEASE-NOTES.md", ROOT / "docs" / notes_directory / f"RELEASE-NOTES-v{version}.md")
     add_source(entries, "LICENSE", ROOT / "LICENSE")
-    entries["README.md"] = (f"""# Computer Host LAN — Windows test kit
+    entries["README.md"] = (f"""# Computer Host LAN — Windows package
 
 Integration {version} · Windows agent {agent_version} · {runtime}
 Source commit: {commit}
 
-**Unsigned PowerShell installation fallback. For a new Windows x64 installation prefer the graphical Setup.exe provided as a separate asset in this same GitHub beta release. Verify both downloads against SHA256SUMS.txt.**
-A Windows 11 Pro volunteer verified v0.5.5 installation/upgrade, monitoring,
-service recovery, Wake/Restart/Sleep and WOL on one machine. This NEW
-v0.5.6 candidate has not yet been validated on physical Windows hardware.
-Physical recovery remains essential for power testing.
+**Unsigned PowerShell installation fallback. For a new Windows x64 installation prefer the graphical Setup.exe distributed alongside this ZIP. Verify downloads against SHA256SUMS.txt.**
+This is a Computer Host LAN {release_label} package. CI verifies installation and
+upgrade behavior, but cannot prove compatibility with every Windows computer or
+SmartThings hub. Keep a known-good installer for rollback.
+Physical recovery remains essential for optional power testing.
 Use only on a trusted PRIVATE LAN; never forward TCP 8765 to the Internet.
 
 ## Start with monitoring only
@@ -119,7 +138,7 @@ https://github.com/ldeora/SmartThingsEdgeDrivers/tree/main/computer-host-lan
         "source_commit": commit.lower(),
         "unsigned": True,
         "hardware_validated": False,
-        "release_state": "unsigned-beta-package",
+        "release_state": f"unsigned-{stage}-package",
     }, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
 
     manifest = "".join(f"{hashlib.sha256(data).hexdigest()}  {name}\n"
