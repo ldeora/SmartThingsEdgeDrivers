@@ -1,5 +1,8 @@
 # Computer Host LAN — next beta candidate v0.5.5-beta.1 (2026-11-19)
 
+> **Next candidate: Computer Host LAN v0.5.6-beta.1 (not yet published).** This single hardening candidate combines installer recovery and runtime resilience. Current published/tested beta: [v0.5.5-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.5-beta.1). [Candidate release notes](docs/beta/RELEASE-NOTES-v0.5.6-beta.1.md).
+
+
 **Candidate awaiting publication:** integration v0.5.5-beta.1 (Linux agent / Edge driver v0.4.3-beta.1; Windows agent v0.2.4-beta.1), based on merged PR #19 and new versioning PR. The source code includes the new safeguards, but no v0.5.5 files are yet published. Candidate notes: [v0.5.5-beta.1](docs/beta/RELEASE-NOTES-v0.5.5-beta.1.md). Protocol v2, installation UUIDs, control keys and the existing channel remain compatible.
 
 **Publishing gate:** merge and rerun all four CI workflows at the final commit, verify asset hashes and source metadata, confirm the Edge driver is packaged and assigned to the existing SmartThings channel, and separately publish a new GitHub prerelease before inviting testers to upgrade. Do not modify older release assets. Third-party licensing and signing require publisher review before stable v1.0.
