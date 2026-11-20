@@ -7,6 +7,12 @@ try {
   $ErrorActionPreference = 'Stop'
   $serviceName = 'ComputerHostAgent'
   $service = Get-CimInstance Win32_Service -Filter "Name='$serviceName'" -ErrorAction Stop
+  # Fail before stopping a healthy service if an earlier upgrade was interrupted.
+  $programRoot = if ([Environment]::Is64BitOperatingSystem -and $env:ProgramW6432) { $env:ProgramW6432 } else { $env:ProgramFiles }
+  $backup = (Join-Path $programRoot 'Computer Host Agent') + '.upgrade-rollback'
+  if (Test-Path -LiteralPath $backup) {
+    throw 'An unfinished upgrade snapshot exists. Recover it with Restore-WindowsAgentUpgrade.ps1 -Mode Restore before retrying Setup.'
+  }
   if (-not $service) { return }
   # Inno Setup invokes Windows PowerShell from a 32-bit bootstrapper on some
   # systems. ProgramFiles in that process may mean Program Files (x86).
@@ -38,9 +44,6 @@ try {
   # Files, not in a world-writable temporary directory.
   $programs = Join-Path $programRoot 'Computer Host Agent'
   $backup = $programs + '.upgrade-rollback'
-  if (Test-Path -LiteralPath $backup) {
-    throw 'Previous rollback snapshot still exists; inspect or restore it before another upgrade.'
-  }
   if (-not (Test-Path -LiteralPath $installedPath -PathType Leaf)) {
     throw 'Existing service binary is missing; refusing an unsafe upgrade.'
   }
