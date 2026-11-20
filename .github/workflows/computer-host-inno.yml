@@ -440,10 +440,10 @@ jobs:
           path: ${{ runner.temp }}/computer-host-wizard-screens/*.png
           retention-days: 7
           if-no-files-found: warn
-      - name: Upload unsigned beta installer candidate
+      - name: Upload unsigned installer candidate
         uses: actions/upload-artifact@v7
         with:
-          name: computer-host-lan-inno-setup-x64-beta-candidate
+          name: computer-host-lan-inno-setup-x64-candidate
           path: computer-host-lan/windows-agent/installer/output/*setup.exe
           retention-days: 7
           if-no-files-found: error
