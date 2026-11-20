@@ -230,6 +230,25 @@ try {
         throw 'Hub IPv4 selector did not retain manually entered address'
     }
     Write-Host 'PASS manual hub-IP entry accepts and displays IPv4 text'
+    # Windows CI has no discoverable hub. Test the real manual-entry path
+    # through Search again without injecting non-user-selectable Win32
+    # ComboBox items (which do not behave like Inno's native VCL selection).
+    ClickWizardButton $window.Handle '^Search again$'
+    $rescanStatus = @(VisibleControls $window.Handle | Where-Object {
+        $_.Text -match 'No hub detected|Discovery unavailable'
+    }).Count -gt 0
+    $rescanInput = VisibleControls $window.Handle | Where-Object {
+        $_.Class -match 'ComboBox' -and $_.Width -ge 100 -and $_.Height -ge 15
+    } | Select-Object -First 1
+    if (-not $rescanInput) { throw 'Hub selector disappeared after retry' }
+    if ($rescanStatus) {
+        if ([ComputerHostWizardProbe]::TextOf($rescanInput.Handle) -ne '192.0.2.20') {
+            throw 'Failed hub rediscovery lost previously entered valid IPv4 address'
+        }
+        Write-Host 'PASS failed rediscovery preserves manually entered hub IPv4 address'
+    } else {
+        Write-Host 'INFO hub(s) found on runner; no-results regression assertion skipped'
+    }
     $advanced = FindVisibleButton $window.Handle 'Advanced options'
     if (-not $advanced) { throw 'Advanced options button missing' }
     $before = @(VisibleControls $window.Handle | Where-Object {
