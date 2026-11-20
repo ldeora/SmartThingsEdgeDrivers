@@ -15,7 +15,7 @@
 - [ ] Validate Windows policy-dependent privilege preflight, per-service SID/token ACL, virtual-NIC WOL selection, mDNS retries and failure recovery; do not weaken fail-closed behavior to make CI pass.
 - [ ] Validate Linux atomic state creation and WOL configuration conflicts, and Edge slow shutdown/transient suspend state regressions.
 - [ ] Recheck the published four unsigned release assets plus SHA256SUMS, matching source commit, component versions, and third-party notices.
-- [ ] Confirm the published v0.5.6 GitHub prerelease assets have immutable versioned download paths; retain v0.5.5 assets as the tested fallback. Do not overwrite existing releases.
+- [ ] Confirm all published v0.5.6 asset links resolve and match the SHA-256 manifest; retain v0.5.5 assets as the tested fallback. Do not overwrite existing releases.
 - [ ] Independently check Edge driver 0.4.4-beta.1 is assigned to the existing SmartThings channel 7a23289c-d1f8-42cc-ba10-4ffd219b89bb and installed on a hub, preserving driver 2ab3db0e-3b78-499e-bc3b-bcfa7f62b9f7 and existing devices.
 - [ ] Complete a real Windows 11/Gentoo v0.5.6 test round; previous v0.5.5 hardware feedback does not validate these changes.
 
