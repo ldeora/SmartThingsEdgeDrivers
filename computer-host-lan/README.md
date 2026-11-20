@@ -24,7 +24,8 @@ Windows system metrics include CPU, RAM, system-drive usage and uptime. Both age
 - [Feedback and privacy](docs/beta/FEEDBACK-AND-SUPPORT.md)
 - [Supported / unverified environments](docs/beta/COMPATIBILITY-STATUS.md)
 - [Protocol v2](PROTOCOL.md)
-- [Security limitations](docs/beta/SECURITY-AND-PRIVACY.md)
+- [Security and responsible use](SECURITY.md)
+- [Short beta security and privacy guidance](docs/beta/SECURITY-AND-PRIVACY.md)
 - [Release gates](docs/beta/PUBLICATION-GATES.md)
 - [First stable release acceptance gates](docs/release/V1-RELEASE-GATES.md)
 

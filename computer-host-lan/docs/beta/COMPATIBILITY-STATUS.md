@@ -15,6 +15,8 @@
 
 The Windows 11 evidence is tester-reported and was received directly, with a SmartThings screenshot; the earlier power-test feedback is documented in the [SmartThings Community public beta thread](https://community.smartthings.com/t/st-edge-computer-host-lan-bring-windows-and-linux-computers-into-smartthings-public-beta/312605); it is not a complete independently witnessed hardware test matrix. Do not infer tested WOL or every monitoring attribute solely from the general positive installation report.
 
+**Additional Windows feedback (2026-11-20):** A Windows 11 Pro tester reported that the Reboot button works on their machine. A different tester reported a reboot problem without enough information to reproduce it; retain that report as unconfirmed rather than asserting a driver defect or marking it resolved. Another tester reproduced partial first-render painting on the installer hub-search page; a repaint mitigation was merged in PR #23 but requires confirmation on the reporting hardware. The specific installed component versions for these new reports were not independently established.
+
 Windows and Linux share protocol v2 and have platform-specific app profiles. Windows does not fabricate CPU temperature or Linux load averages.
 
 CI pass does not prove real-world SmartThings device discovery, S0/S3/S4/S5 transitions or WOL on a different network. WOL may fail after Windows Fast Startup or firmware-specific shutdown. Switch OFF after timeouts is inferred from network evidence, not electrically measured.
