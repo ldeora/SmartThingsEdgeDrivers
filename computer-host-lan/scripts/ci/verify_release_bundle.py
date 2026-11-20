@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate that four versioned beta artifacts describe one immutable release.
+"""Validate that four versioned release artifacts describe one immutable release.
 
 SHA-256 integrity is checked separately by the release workflow. This verifier
 prevents passing checksums for the *wrong* version or source commit.
@@ -55,7 +55,7 @@ def validate_bundle(directory: Path, manifest: dict, commit: str) -> None:
             embedded = json.loads(archive.read(member))
             if embedded != manifest:
                 raise ValueError(f"version/release manifest mismatch inside {filename}")
-    print(f"PASS exact beta asset names, source commit {commit}, and all component versions ({version})")
+    print(f"PASS exact release asset names, source commit {commit}, and all component versions ({version})")
 
 
 def main() -> None:
