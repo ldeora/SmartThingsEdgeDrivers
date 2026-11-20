@@ -21,6 +21,8 @@
 
 ## Before v1.0.0-rc.1 or stable
 
+**Current release acceptance policy:** [v1.0 gates and scope](docs/release/V1-RELEASE-GATES.md). This page tracks the published v0.5.6 follow-up; the separate v1.0 checklist defines what must be proven for RC and stable. Key rotation and automatic pairing are **not** in the v1.0 scope.
+
 - [ ] Retest installer upgrades, service recovery, WOL/Windows power controls and Linux state-machine changes on actual v0.5.6 hardware.
 - [ ] Check additional NICs/privilege policies/Windows network profiles and recovery edge cases when practical.
 - [ ] Review licenses and transitive dependency provenance; decide code signing/Authenticode policy. Checksums verify integrity, not publisher identity.
