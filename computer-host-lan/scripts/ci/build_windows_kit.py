@@ -17,7 +17,8 @@ ROOT = Path(__file__).resolve().parents[2]
 STAMP = (2026, 11, 16, 12, 0, 0)
 HELPERS = ("Install-WindowsAgent.ps1", "Uninstall-WindowsAgent.ps1",
            "Get-WolDiagnostics.ps1", "Collect-WindowsDiagnostics.ps1",
-           "Verify-Package.ps1")
+           "Verify-Package.ps1", "Restore-WindowsAgentUpgrade.ps1",
+    "Check-WindowsAgentHealth.ps1", "Set-WindowsHubAddress.ps1")
 DOCUMENTS = {
     "docs/START-HERE.md": ROOT / "docs/beta/START-HERE.md",
     "docs/TEST-CHECKLIST.md": ROOT / "docs/beta/TESTER-CHECKLIST.md",
