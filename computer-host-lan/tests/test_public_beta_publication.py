@@ -1,4 +1,4 @@
-"""Publication links and support files must be present in versioned beta packages."""
+"""Publication links and support files must be present in release packages."""
 import json
 from pathlib import Path
 import unittest
@@ -24,7 +24,7 @@ class PublicBetaPublicationTests(unittest.TestCase):
             self.skipTest("release candidate not published yet")
         for file in (BASE / "README.md", BASE / "INSTALLATION.md",
                      BASE / "docs/beta/START-HERE.md",
-                     BASE / f"docs/beta/RELEASE-NOTES-v{VERSION}.md"):
+                     NOTES):
             self.assertIn(RELEASE, file.read_text(encoding="utf-8"), str(file))
     def test_release_stage_never_enables_power(self):
         config = json.loads((BASE / "release.json").read_text())
