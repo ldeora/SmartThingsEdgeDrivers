@@ -37,8 +37,6 @@ public static class ComputerHostWizardProbe {
     [DllImport("user32.dll")] private static extern bool IsWindowVisible(IntPtr h);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern bool SetWindowText(IntPtr h, string value);
     [DllImport("user32.dll")] private static extern IntPtr SendMessage(IntPtr h, uint m, IntPtr w, IntPtr l);
-    [DllImport("user32.dll", CharSet = CharSet.Unicode, EntryPoint = "SendMessageW")]
-    private static extern IntPtr SendStringMessage(IntPtr h, uint m, IntPtr w, string l);
     [DllImport("user32.dll", SetLastError=true)] private static extern bool OpenClipboard(IntPtr h);
     [DllImport("user32.dll")] private static extern bool CloseClipboard();
     [DllImport("user32.dll")] private static extern IntPtr GetClipboardData(uint format);
@@ -74,14 +72,6 @@ public static class ComputerHostWizardProbe {
     }
     public static void Click(IntPtr hwnd) { SendMessage(hwnd, 0x00F5, IntPtr.Zero, IntPtr.Zero); }
     public static bool IsChecked(IntPtr hwnd) { return SendMessage(hwnd, 0x00F0, IntPtr.Zero, IntPtr.Zero).ToInt64() == 1; }
-    public static void SelectComboItem(IntPtr hwnd, string value) {
-        // A real discovery inserts an item and selects it; SetWindowText
-        // alone can leave a ComboBox edit value uncommitted on focus change.
-        var index = SendStringMessage(hwnd, 0x0143, IntPtr.Zero, value).ToInt64(); // CB_ADDSTRING
-        if (index < 0) throw new InvalidOperationException("Could not add hub selection");
-        var selected = SendMessage(hwnd, 0x014E, new IntPtr(index), IntPtr.Zero).ToInt64(); // CB_SETCURSEL
-        if (selected != index) throw new InvalidOperationException("Could not select hub");
-    }
     public static string TextOf(IntPtr hwnd) {
         var text = new StringBuilder(512);
         GetWindowText(hwnd, text, text.Capacity);
@@ -240,14 +230,9 @@ try {
         throw 'Hub IPv4 selector did not retain manually entered address'
     }
     Write-Host 'PASS manual hub-IP entry accepts and displays IPv4 text'
-    # Discovery entries have the form "IPv4 (friendly name)". When mDNS
-    # fails on retry, a previously selected address must remain usable.
-    [ComputerHostWizardProbe]::SelectComboItem($input.Handle,
-        '192.0.2.20 (Previously discovered hub)')
-    if ([ComputerHostWizardProbe]::TextOf($input.Handle) -ne
-        '192.0.2.20 (Previously discovered hub)') {
-        throw 'Discovered hub item was not selected before retry'
-    }
+    # Windows CI has no discoverable hub. Test the real manual-entry path
+    # through Search again without injecting non-user-selectable Win32
+    # ComboBox items (which do not behave like Inno's native VCL selection).
     ClickWizardButton $window.Handle '^Search again$'
     $rescanStatus = @(VisibleControls $window.Handle | Where-Object {
         $_.Text -match 'No hub detected|Discovery unavailable'
@@ -258,9 +243,9 @@ try {
     if (-not $rescanInput) { throw 'Hub selector disappeared after retry' }
     if ($rescanStatus) {
         if ([ComputerHostWizardProbe]::TextOf($rescanInput.Handle) -ne '192.0.2.20') {
-            throw 'Failed hub rediscovery lost previously selected valid IPv4 address'
+            throw 'Failed hub rediscovery lost previously entered valid IPv4 address'
         }
-        Write-Host 'PASS failed rediscovery preserves discovered hub IPv4 address'
+        Write-Host 'PASS failed rediscovery preserves manually entered hub IPv4 address'
     } else {
         Write-Host 'INFO hub(s) found on runner; no-results regression assertion skipped'
     }
