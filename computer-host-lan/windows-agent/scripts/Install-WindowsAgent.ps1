@@ -27,6 +27,7 @@ try {
   if ($HubIPv4) {
     $addr = $null
     if (-not [Net.IPAddress]::TryParse($HubIPv4, [ref]$addr) -or
+        $addr.ToString() -cne $HubIPv4 -or
         $addr.AddressFamily -ne [Net.Sockets.AddressFamily]::InterNetwork -or
         $addr.Equals([Net.IPAddress]::Any) -or $addr.Equals([Net.IPAddress]::Broadcast) -or
         $addr.GetAddressBytes()[0] -ge 224) {
@@ -62,7 +63,8 @@ try {
     if ($existing) {
       $installedService = Get-CimInstance Win32_Service -Filter "Name='$service'"
       if ($installedService.StartName -ne 'NT AUTHORITY\LocalService' -or
-          $installedService.PathName -notlike '*ComputerHost.WindowsAgent.exe*') {
+          -not [string]::Equals($installedService.PathName.Trim().Trim('"'), $exe,
+            [StringComparison]::OrdinalIgnoreCase)) {
         throw 'Existing service has unexpected binary/account; refusing to replace it.'
       }
       if ($existing.Status -ne 'Stopped') { Stop-Service -Name $service -ErrorAction Stop }
