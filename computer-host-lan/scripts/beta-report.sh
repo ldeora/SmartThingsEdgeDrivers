@@ -34,7 +34,7 @@ def label():
         return 'unknown'
 
 
-print('Linux Host LAN beta report (redacted; no secrets or network identifiers)')
+print('Computer Host LAN beta report (redacted; no secrets or network identifiers)')
 print('Distribution:', label())
 print('Architecture:', platform.machine())
 print('Kernel:', platform.release())
@@ -45,12 +45,13 @@ for name in ('linux-host-agent.service', 'linux-host-agent-power.socket',
 try:
     with urllib.request.urlopen('http://127.0.0.1:8765/v2/info', timeout=2) as r:
         payload = json.load(r)
-    if payload.get('protocol') != 'linux-host-agent':
+    if payload.get('protocol') != 'computer-host-agent':
         print('Agent API: unexpected protocol')
     else:
         version = str(payload.get('agent_version', 'unknown'))
-        # Permit only decimal dotted version output; avoid echoing remote strings.
-        if not version.replace('.', '').isdigit():
+        # Allow versioned beta identifiers, but never echo arbitrary agent text.
+        import re
+        if not re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+(?:-beta\.[0-9]+)?', version):
             version = 'unknown'
         print('Agent API: responding')
         print('Agent version:', version)

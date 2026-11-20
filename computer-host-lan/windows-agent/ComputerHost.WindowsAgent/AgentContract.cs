@@ -1,12 +1,12 @@
 namespace ComputerHost.WindowsAgent;
 
-/// <summary>The wire contract is shared with the validated Linux v0.4.0-dev.1 agent.</summary>
+/// <summary>The wire contract is shared with the shared Linux protocol-v2 agent.</summary>
 public static class AgentContract
 {
     public const string Protocol = "computer-host-agent";
     public const int ApiVersion = 2;
     public const string Platform = "windows";
-    public const string AgentVersion = "0.2.4-beta.1";
+    public const string AgentVersion = "0.2.5-beta.1";
     public const string ServiceType = "_computerhost._tcp.local";
     public const int DefaultPort = 8765;
 

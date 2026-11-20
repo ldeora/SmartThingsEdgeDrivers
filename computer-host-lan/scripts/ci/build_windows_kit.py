@@ -17,7 +17,8 @@ ROOT = Path(__file__).resolve().parents[2]
 STAMP = (2026, 11, 16, 12, 0, 0)
 HELPERS = ("Install-WindowsAgent.ps1", "Uninstall-WindowsAgent.ps1",
            "Get-WolDiagnostics.ps1", "Collect-WindowsDiagnostics.ps1",
-           "Verify-Package.ps1")
+           "Verify-Package.ps1", "Restore-WindowsAgentUpgrade.ps1",
+    "Check-WindowsAgentHealth.ps1", "Set-WindowsHubAddress.ps1")
 DOCUMENTS = {
     "docs/START-HERE.md": ROOT / "docs/beta/START-HERE.md",
     "docs/TEST-CHECKLIST.md": ROOT / "docs/beta/TESTER-CHECKLIST.md",
@@ -71,8 +72,10 @@ Integration {version} · Windows agent {agent_version} · {runtime}
 Source commit: {commit}
 
 **Unsigned PowerShell installation fallback. For a new Windows x64 installation prefer the graphical Setup.exe provided as a separate asset in this same GitHub beta release. Verify both downloads against SHA256SUMS.txt.**
-No Windows 11 SmartThings hardware discovery, shutdown or WOL claim has been
-verified yet. Physical recovery is required for power testing.
+A Windows 11 Pro volunteer verified v0.5.5 installation/upgrade, monitoring,
+service recovery, Wake/Restart/Sleep and WOL on one machine. This NEW
+v0.5.6 candidate has not yet been validated on physical Windows hardware.
+Physical recovery remains essential for power testing.
 Use only on a trusted PRIVATE LAN; never forward TCP 8765 to the Internet.
 
 ## Start with monitoring only

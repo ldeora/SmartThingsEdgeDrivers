@@ -75,7 +75,12 @@ jobs:
             $secret = (Get-Content -LiteralPath $secretPath -Raw).Trim()
             if ($secret -cnotmatch '^[a-f0-9]{64}$') { throw 'Control token malformed' }
             $infoPower = Invoke-RestMethod 'http://127.0.0.1:8765/v2/info' -TimeoutSec 3
-            if (@($infoPower.power_actions).Count -ne 3) { throw 'Opt-in power not advertised' }
+            # Windows Server service security policy may deny SeShutdownPrivilege.
+            # Power must then fail closed without disabling HTTP monitoring.
+            if (@($infoPower.power_actions).Count -notin @(0,3)) { throw 'Invalid power action set' }
+            if (@($infoPower.power_actions).Count -eq 0) {
+              Write-Host 'PASS Windows security policy refused privilege; power was not advertised'
+            }
             & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $install -PublishedDirectory $publish -SkipFirewall
             if ($LASTEXITCODE -ne 0) { throw 'Windows PowerShell 5.1 power-disable upgrade failed' }
             $infoOff = Invoke-RestMethod 'http://127.0.0.1:8765/v2/info' -TimeoutSec 3
@@ -98,7 +103,8 @@ jobs:
             $customInfo = Invoke-RestMethod http://127.0.0.1:18766/v2/info -TimeoutSec 3
             if ($customInfo.platform -ne 'windows') { throw 'Custom-port HTTP agent unavailable' }
             $tokenAcl = Get-Acl -LiteralPath $secretPath
-            if (-not $tokenAcl.AreAccessRulesProtected -or @($tokenAcl.Access).Count -lt 3) {
+            if (-not $tokenAcl.AreAccessRulesProtected -or @($tokenAcl.Access).Count -lt 3 -or
+                (@($tokenAcl.Access | Where-Object { $_.IdentityReference.Value -eq 'NT AUTHORITY\\LOCAL SERVICE' }).Count -gt 0)) {
               throw 'Existing authentication-token ACL was not restricted on upgrade'
             }
             Write-Host 'PASS Windows PowerShell config preservation, custom-port firewall and token ACL'

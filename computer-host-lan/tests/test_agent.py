@@ -31,6 +31,24 @@ class StateTests(unittest.TestCase):
             self.assertEqual((p / "control-token").stat().st_mode & 0o777, 0o600)
             self.assertNotEqual(id1, token)
 
+    def test_atomic_state_creation_and_corrupt_identity(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "installation-id"
+            # A simulated interruption before atomic publish cannot leave
+            # an empty final identity file or rotate an existing identity.
+            with mock.patch.object(agent.os, "link", side_effect=OSError("simulated power loss")):
+                with self.assertRaises(OSError):
+                    agent.installation_id(p)
+            self.assertFalse(p.exists())
+            self.assertFalse(list(Path(d).glob(".installation-id.*.tmp")))
+            original = agent.installation_id(p)
+            self.assertEqual(original, agent.installation_id(p))
+            p.write_text("")
+            p.chmod(0o600)
+            with self.assertRaises(RuntimeError):
+                agent.installation_id(p)
+            self.assertEqual(p.read_text(), "")
+
     def test_rejects_world_readable_secret(self):
         with tempfile.TemporaryDirectory() as d:
             token = Path(d) / "control-token"

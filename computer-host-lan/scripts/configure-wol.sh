@@ -76,14 +76,25 @@ else
   # Respect a per-NIC configuration already installed by an operator.
   # In particular, do not replace examplehost's working 10-wol.link configuration.
   ALREADY=''
-  for existing in "$LINK_DIR"/*.link; do
+  CONFLICT=''
+  # Never shadow an operator's per-MAC network link policy. A first-matching
+  # .link file can also control Name, MTU and other unrelated properties.
+  for existing in "$LINK_DIR"/*.link /run/systemd/network/*.link /usr/lib/systemd/network/*.link; do
     [ -f "$existing" ] || continue
-    if grep -Fxq "MACAddress=$MAC" "$existing" && grep -Fxq 'WakeOnLan=magic' "$existing"; then
-      ALREADY=$existing
+    if grep -iFxq "MACAddress=$MAC" "$existing"; then
+      if grep -Fxq 'WakeOnLan=magic' "$existing"; then
+        ALREADY=$existing
+      else
+        CONFLICT=$existing
+      fi
       break
     fi
   done
-  if [ -n "$ALREADY" ]; then
+  if [ -n "$CONFLICT" ]; then
+    echo "Refusing to shadow existing link configuration: $CONFLICT" >&2
+    echo "Add WakeOnLan=magic to its [Link] section manually, keeping all other settings." >&2
+    exit 1
+  elif [ -n "$ALREADY" ]; then
     echo "Found an existing per-MAC persistent WOL rule: $ALREADY"
   elif [ -e "$LINK_FILE" ]; then
     if ! grep -Fxq "MACAddress=$MAC" "$LINK_FILE" || ! grep -Fxq 'WakeOnLan=magic' "$LINK_FILE"; then

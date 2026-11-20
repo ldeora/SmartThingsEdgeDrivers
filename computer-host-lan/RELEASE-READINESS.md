@@ -1,59 +1,29 @@
-# Computer Host LAN — v0.5.5-beta.1 stabilization and first stable-release candidate
+# Computer Host LAN — v0.5.6-beta.1 release readiness
 
-**Published baseline:** v0.5.4-beta.1, GitHub prerelease (2026-11-19), from
-`f19c114b1cca7dcb87b5774eff7602e70184047c`. All four release workflows
-passed; ZIPs, Windows Setup.exe and unified SHA256SUMS are published.
-Previous v0.5.3-beta.1 assets remain available.
+**Public and Windows 11 hardware-tested baseline:** [v0.5.5-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.5-beta.1). **Unpublished consolidated hardening candidate:** [v0.5.6-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.6-beta.1) in [PR #21](https://github.com/ldeora/SmartThingsEdgeDrivers/pull/21), Windows agent 0.2.5-beta.1, Linux and Edge 0.4.4-beta.1, protocol v2 unchanged.
 
-**Stabilization implemented and merged:** [PR #19](https://github.com/ldeora/SmartThingsEdgeDrivers/pull/19), main commit `0978dd75557ce8b3b38693cdf740aaa2585ab0fa`, four workflows passed. **Next:** candidate v0.5.5-beta.1 with bumped components. This version has **not been published or deployed to a SmartThings channel**. It is not a stable build.
+## Confirmed baseline (v0.5.5-beta.1)
 
-## Verified evidence
+- [x] Native Windows/Linux/build/package workflows passed on release SHA f7e2bccec348876ddfa40c3256b35b002a7cd3a8.
+- [x] Windows 11 Pro tester: GUI in-place upgrade preserved settings and existing SmartThings device; accurate CPU/RAM/disk metrics, service stop/restart recovery (Off/Unreachable → On/Running), Wake/Restart/Sleep controls and working Wake-on-LAN; Windows agent 0.2.4-beta.1.
+- [x] Gentoo Linux hydra with real SmartThings hub: discovery, telemetry, service recovery, reboot, suspend/WOL, shutdown/WOL and expanded RAM/root filesystem readings.
 
-- Linux Gentoo + physical SmartThings hub: discovery, telemetry, service
-  recovery, Linux reboot/suspend/WOL/shutdown/WOL and four-value metrics.
-- Native Windows Server 2025 CI: .NET service/contract, native Setup GUI
-  navigation, install/upgrade/migration/uninstall; release packaging hashes.
-- Real Windows 11 Pro tester, 2026-11-19: Setup installation and wizard upgrade
-  succeeded; reported system statistics match expectations. Screenshot confirms
-  Windows profile and CPU/RAM/disk UI. Earlier Windows tester reported native
-  reboot/suspend/shutdown operations.
-- No claim that all Windows NIC/power states or all Linux distributions are
-  hardware-certified. Windows WOL and a full security penetration test remain open.
+## Before merging and publishing v0.5.6
 
-## Must pass before v1.0.0-rc.1
+- [ ] All four workflows green on the final PR head and again on the exact final merged main SHA.
+- [ ] Review abandoned installer snapshot recovery and service preservation, health-gated upgrade commits, UUID/key/configuration/custom-port retention and user-visible errors.
+- [ ] Validate Windows policy-dependent privilege preflight, per-service SID/token ACL, virtual-NIC WOL selection, mDNS retries and failure recovery; do not weaken fail-closed behavior to make CI pass.
+- [ ] Validate Linux atomic state creation and WOL configuration conflicts, and Edge slow shutdown/transient suspend state regressions.
+- [ ] Verify four unsigned release assets plus SHA256SUMS, matching source commit and component versions, and third-party notices.
+- [ ] Publish one new GitHub prerelease (computer-host-lan-v0.5.6-beta.1); retain the published v0.5.5 assets as rollback.
+- [ ] Package/assign Edge driver 0.4.4-beta.1 to the existing SmartThings channel 7a23289c-d1f8-42cc-ba10-4ffd219b89bb, driver 2ab3db0e-3b78-499e-bc3b-bcfa7f62b9f7, without re-pairing existing devices.
+- [ ] Request one real Windows 11/Gentoo v0.5.6 test round after publication; previous v0.5.5 hardware feedback does not validate these changes.
 
-- [x] All four CI workflows passed on the merged PR #19 `main` SHA (`0978dd75557ce8b3b38693cdf740aaa2585ab0fa`).
-- [ ] All four CI workflows must also pass on **one exact v0.5.5-beta.1 candidate `main` SHA** after versioning and release docs.
-- [x] Windows custom-port/config preservation and authentication-token ACL checks executed on native Windows CI for PR #19.
-- [ ] Verify these checks again on the exact versioned beta candidate commit.
-- [x] CI simulated a detected upgrade failure and verified recovery of configuration and running service.
-- [ ] Physical interrupted/aborted Setup recovery remains to be verified, including unexpected termination.
-- [ ] Verify the Lua suspend/cancelled-shutdown regressions in CI and hub
-      observations; no optimistic electrical power claims.
-- [ ] Test Windows 11 graphical install and upgrade on physical hardware again
-      using the new candidate; test mDNS/manual-IP/Private-subnet fallback.
-- [ ] Collect a second independent host/system combination when practical.
-- [ ] Confirm Windows service stop/start, hub restart and WOL only on suitable
-      physically recoverable test computers.
-- [ ] Review complete licenses and transitive dependency notices in shipped
-      Windows binaries; verify code copyright/provenance sign-off.
-- [ ] Decide the release signing policy: unsigned builds must retain SmartScreen
-      warnings; checksums do not authenticate publishers.
-- [ ] Confirm no change to protocol v2 identity, SmartThings channel or
-      registered capability schemas unless explicitly intended.
-- [ ] Verify release source SHA, internal Windows agent version, source/ZIP/Setup
-      hashes and published release assets. Then publish a **separate RC tag**.
+## Before v1.0.0-rc.1 or stable
 
-**Release policy:** Keep v0.5.4-beta.1 intact until these gates are closed.
-Never silently install a draft PR onto a user's computer. Treat any remaining
-hardware-dependent limitation transparently instead of presenting it as a
-universal guarantee.
+- [ ] Retest installer upgrades, service recovery, WOL/Windows power controls and Linux state-machine changes on actual v0.5.6 hardware.
+- [ ] Check additional NICs/privilege policies/Windows network profiles and recovery edge cases when practical.
+- [ ] Review licenses and transitive dependency provenance; decide code signing/Authenticode policy. Checksums verify integrity, not publisher identity.
+- [ ] Maintain the trusted-private-LAN, unsigned-beta, Windows S0/S3/S4/S5 and WOL limitations. Never promise power transitions are electrically confirmed.
 
-## Beta publication (separate from stable v1.0 gates)
-
-- [ ] Merge v0.5.5-beta.1 release/version PR and confirm green CI on **final `main` commit**, not an earlier PR build.
-- [ ] Verify all four asset names, exact source SHA in Windows `BUILD-INFO.json`, self-reported component versions, and unified `SHA256SUMS.txt`.
-- [ ] Publish a **new prerelease** `computer-host-lan-v0.5.5-beta.1`; preserve v0.5.4 assets for rollback. Windows Setup and ZIP remain unsigned.
-- [ ] Repackage/assign Edge driver v0.4.3-beta.1 into the existing SmartThings channel, preserving driver ID, profiles and registered capability schemas; verify installed beta device.
-- [ ] Ask Windows 11 Pro tester to validate v0.5.4 → v0.5.5 graphical in-place upgrade, token/UUID/settings, metrics, service recovery, and errors; Linux Gentoo recheck.
-- [ ] Only after artifacts and driver are ready, announce the new beta in the Community thread. Stable-release signing and full copyright/legal review remain open.
+No PR or CI workflow automatically publishes a GitHub release or assigns a SmartThings driver. Never purge persistent identities or keys to force a failed upgrade.

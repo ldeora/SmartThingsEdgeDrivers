@@ -27,6 +27,7 @@ try {
   if ($HubIPv4) {
     $addr = $null
     if (-not [Net.IPAddress]::TryParse($HubIPv4, [ref]$addr) -or
+        $addr.ToString() -cne $HubIPv4 -or
         $addr.AddressFamily -ne [Net.Sockets.AddressFamily]::InterNetwork -or
         $addr.Equals([Net.IPAddress]::Any) -or $addr.Equals([Net.IPAddress]::Broadcast) -or
         $addr.GetAddressBytes()[0] -ge 224) {
@@ -62,7 +63,8 @@ try {
     if ($existing) {
       $installedService = Get-CimInstance Win32_Service -Filter "Name='$service'"
       if ($installedService.StartName -ne 'NT AUTHORITY\LocalService' -or
-          $installedService.PathName -notlike '*ComputerHost.WindowsAgent.exe*') {
+          -not [string]::Equals($installedService.PathName.Trim().Trim('"'), $exe,
+            [StringComparison]::OrdinalIgnoreCase)) {
         throw 'Existing service has unexpected binary/account; refusing to replace it.'
       }
       if ($existing.Status -ne 'Stopped') { Stop-Service -Name $service -ErrorAction Stop }
@@ -101,15 +103,29 @@ try {
     if ($EnablePower) {
       $tokenPath = Join-Path $state 'control-token'
       if (-not (Test-Path -LiteralPath $tokenPath)) {
-        # Compatible with Windows PowerShell 5.1 (.NET Framework) and PowerShell 7+.
-        $keyBytes = New-Object byte[] 32
-        $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
-        try { $rng.GetBytes($keyBytes) } finally { $rng.Dispose() }
-        $keyHex = ([BitConverter]::ToString($keyBytes)).Replace('-', '').ToLowerInvariant()
-        [System.IO.File]::WriteAllText($tokenPath, $keyHex + "`n", [System.Text.Encoding]::ASCII)
-      } else {
-        $existingKey = (Get-Content -LiteralPath $tokenPath -Raw).Trim()
-        if ($existingKey -cnotmatch '^[a-fA-F0-9]{64}$') { throw 'Existing control-token invalid; refusing to rotate automatically.' }
+        # Publish the complete secret atomically. A power loss must not leave
+        # a partial control-token that prevents every later startup.
+        $temporaryToken = Join-Path $state ('control-token.' + [Guid]::NewGuid().ToString('N') + '.tmp')
+        try {
+          $keyBytes = New-Object byte[] 32
+          $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+          try { $rng.GetBytes($keyBytes) } finally { $rng.Dispose() }
+          $keyHex = ([BitConverter]::ToString($keyBytes)).Replace('-', '').ToLowerInvariant()
+          [System.IO.File]::WriteAllText($temporaryToken, $keyHex + "`n", [System.Text.Encoding]::ASCII)
+          try { [System.IO.File]::Move($temporaryToken, $tokenPath) }
+          catch [System.IO.IOException] {
+            if (-not (Test-Path -LiteralPath $tokenPath)) { throw }
+            # Another concurrent install published the secret first.
+          }
+        } finally {
+          if (Test-Path -LiteralPath $temporaryToken) {
+            Remove-Item -LiteralPath $temporaryToken -Force -ErrorAction SilentlyContinue
+          }
+        }
+      }
+      $existingKey = (Get-Content -LiteralPath $tokenPath -Raw).Trim()
+      if ($existingKey -cnotmatch '^[a-fA-F0-9]{64}$') {
+        throw 'Existing control-token invalid; refusing to rotate automatically.'
       }
     }
     if (-not $existing) {
@@ -120,6 +136,10 @@ try {
       & sc.exe failure $service 'reset=' '3600' 'actions=' 'restart/5000/restart/10000/none/0' | Out-Host
       if ($LASTEXITCODE -ne 0) { throw 'Unable to set service recovery' }
     }
+    # Add a unique service SID to the LocalService token before restricting
+    # state permissions. Other unrelated LocalService processes must not read keys.
+    & sc.exe sidtype $service unrestricted | Out-Host
+    if ($LASTEXITCODE -ne 0) { throw 'Unable to configure per-service SID' }
     # The firewall must match the actual HTTP listener, not just its default.
     $listenPort = 8765
     if ($null -ne $config.HostAgent.Port) {
@@ -138,22 +158,35 @@ try {
         -RemoteAddress $remoteScope | Out-Null
       Write-Warning "Firewall allows TCP $listenPort only from $remoteScope on PRIVATE networks. UDP/5353 mDNS remains subject to Windows network discovery policy."
     }
-    # Old token files can retain permissive explicit ACLs even when the
-    # containing directory is protected. Restrict every existing token.
+    # Per-service isolation: no generic LocalService/Users/Everyone ACL remains.
+    $serviceSid = ([Security.Principal.NTAccount]::new('NT SERVICE', $service)).Translate(
+      [Security.Principal.SecurityIdentifier])
+    $identitySids = @(
+      [Security.Principal.SecurityIdentifier]::new('S-1-5-18'),
+      [Security.Principal.SecurityIdentifier]::new('S-1-5-32-544')
+    )
+    $secureDirectoryAcl = New-Object System.Security.AccessControl.DirectorySecurity
+    $secureDirectoryAcl.SetAccessRuleProtection($true, $false)
+    foreach ($who in ($identitySids + @($serviceSid))) {
+      $secureDirectoryAcl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new(
+        $who, 'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow'))
+    }
+    if ($PSVersionTable.PSVersion.Major -le 5) {
+      ([IO.DirectoryInfo]::new($state)).SetAccessControl($secureDirectoryAcl)
+    } else { Set-Acl -LiteralPath $state -AclObject $secureDirectoryAcl }
     $tokenPath = Join-Path $state 'control-token'
     if (Test-Path -LiteralPath $tokenPath) {
-      $fileAcl = New-Object System.Security.AccessControl.FileSecurity
-      $fileAcl.SetAccessRuleProtection($true, $false)
-      foreach ($sid in @('S-1-5-18','S-1-5-32-544','S-1-5-19')) {
-        $who = [Security.Principal.SecurityIdentifier]::new($sid)
-        $fileAcl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new(
+      $keyAcl = New-Object System.Security.AccessControl.FileSecurity
+      $keyAcl.SetAccessRuleProtection($true, $false)
+      foreach ($who in $identitySids) {
+        $keyAcl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new(
           $who, 'FullControl', 'Allow'))
       }
+      $keyAcl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new(
+        $serviceSid, 'Read', 'Allow'))
       if ($PSVersionTable.PSVersion.Major -le 5) {
-        ([IO.FileInfo]::new($tokenPath)).SetAccessControl($fileAcl)
-      } else {
-        Set-Acl -LiteralPath $tokenPath -AclObject $fileAcl
-      }
+        ([IO.FileInfo]::new($tokenPath)).SetAccessControl($keyAcl)
+      } else { Set-Acl -LiteralPath $tokenPath -AclObject $keyAcl }
     }
     Start-Service -Name $service
     Get-Service -Name $service | Format-Table Name,Status,StartType

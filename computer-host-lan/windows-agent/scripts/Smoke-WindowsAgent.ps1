@@ -33,7 +33,7 @@ try {
     $health = Invoke-RestMethod -Uri "$base/v2/health" -TimeoutSec 3
     $metrics = Invoke-RestMethod -Uri "$base/v2/metrics" -TimeoutSec 3
     if ($info.platform -ne 'windows' -or $info.api_version -ne 2) { throw 'Incorrect info envelope' }
-    $release = Get-Content -LiteralPath (Join-Path (Get-Location) 'release.json') -Raw | ConvertFrom-Json
+    $release = Get-Content -LiteralPath (Join-Path (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent) 'release.json') -Raw | ConvertFrom-Json
     if ($info.agent_version -ne $release.windows_agent) { throw 'Runtime agent version differs from release.json' }
     if ($health.id -ne $info.id -or $metrics.id -ne $info.id) { throw 'Identity mismatch' }
     if ($info.power_actions.Count -ne 0) { throw 'Power enabled without opt-in' }
@@ -57,10 +57,11 @@ try {
   }
   finally { Stop-Agent $p }
   # Enabled-mode smoke never sends a valid authenticated power request.
-  $keyBytes = [byte[]]::new(32)
-  [Security.Cryptography.RandomNumberGenerator]::Fill($keyBytes)
+  $keyBytes = New-Object byte[] 32
+  $rng = [Security.Cryptography.RandomNumberGenerator]::Create()
+  try { $rng.GetBytes($keyBytes) } finally { $rng.Dispose() }
   New-Item -ItemType Directory -Path $state -Force | Out-Null
-  [IO.File]::WriteAllText((Join-Path $state 'control-token'), [Convert]::ToHexString($keyBytes).ToLowerInvariant())
+  [IO.File]::WriteAllText((Join-Path $state 'control-token'), ([BitConverter]::ToString($keyBytes)).Replace('-', '').ToLowerInvariant())
   $env:HostAgent__EnablePowerControl = 'true'
   $p = Start-Agent
   try {

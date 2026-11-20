@@ -14,7 +14,7 @@ class BetaReleaseVersionTests(unittest.TestCase):
         self.assertRegex(manifest["windows_agent"], r"^\d+\.\d+\.\d+-beta\.\d+$")
         self.assertEqual(manifest["release_stage"], f"beta-candidate-v{manifest['integration']}")
         self.assertEqual(manifest["release_candidate_tag"], f"computer-host-lan-v{manifest['integration']}")
-        self.assertEqual(manifest["github_prerelease"], "https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.4-beta.1", "keep published beta URL until the new release exists")
+        self.assertEqual(manifest["github_prerelease"], "https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.5-beta.1", "keep published beta URL until the new release exists")
         self.assertIn(f'<Version>{manifest["windows_agent"]}</Version>', (ROOT / 'windows-agent/ComputerHost.WindowsAgent/ComputerHost.WindowsAgent.csproj').read_text())
         self.assertIn(f'AgentVersion = "{manifest["windows_agent"]}"', (ROOT / 'windows-agent/ComputerHost.WindowsAgent/AgentContract.cs').read_text())
         self.assertIn(f'VERSION = "{manifest["agent"]}"', (ROOT / 'agent/linux_host_agent.py').read_text())

@@ -10,6 +10,13 @@ public sealed class WolMetadata
     public string? Mac { get; }
     public string? Broadcast { get; }
     public string? InterfaceId { get; }
+    public static bool LooksVirtualAdapter(string name, string description)
+    {
+        var details = (name + " " + description).ToLowerInvariant();
+        return new[] { "vethernet", "virtual", "hyper-v", "vmware", "virtualbox",
+            "wsl", "loopback", "tap-windows", "vpn", "tunnel", "bridge" }
+            .Any(marker => details.Contains(marker, StringComparison.Ordinal));
+    }
     public WolMetadata() : this(new AgentOptions()) { }
     public WolMetadata(AgentOptions options)
     {
@@ -18,13 +25,17 @@ public sealed class WolMetadata
             var nic = NetworkInterface.GetAllNetworkInterfaces()
                 .Where(x => x.NetworkInterfaceType == NetworkInterfaceType.Ethernet &&
                     x.OperationalStatus == OperationalStatus.Up &&
+                    (!string.IsNullOrEmpty(options.WolInterfaceId) || !LooksVirtualAdapter(x.Name, x.Description)) &&
                     (string.IsNullOrEmpty(options.WolInterfaceId) ||
                      string.Equals(x.Id, options.WolInterfaceId, StringComparison.OrdinalIgnoreCase)))
                 .Where(x => x.GetPhysicalAddress().GetAddressBytes().Length == 6)
-                .Select(x => new { Nic = x, V4 = x.GetIPProperties().UnicastAddresses
-                    .FirstOrDefault(a => a.Address.AddressFamily == AddressFamily.InterNetwork && a.IPv4Mask != null) })
+                .Select(x => new { Nic = x, Properties = x.GetIPProperties() })
+                .Select(x => new { x.Nic, V4 = x.Properties.UnicastAddresses
+                    .FirstOrDefault(a => a.Address.AddressFamily == AddressFamily.InterNetwork && a.IPv4Mask != null),
+                    HasGateway = x.Properties.GatewayAddresses.Any(g => g.Address.AddressFamily == AddressFamily.InterNetwork) })
                 .Where(x => x.V4 != null)
-                .OrderByDescending(x => x.Nic.Speed)
+                .OrderByDescending(x => x.HasGateway)
+                .ThenByDescending(x => x.Nic.Speed)
                 .FirstOrDefault();
             if (nic is null) return;
             var mac = nic.Nic.GetPhysicalAddress().GetAddressBytes();

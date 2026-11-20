@@ -1,5 +1,15 @@
 # Computer Host LAN — change log
 
+## v0.5.6-beta.1 — consolidated installer and runtime hardening (candidate)
+
+- One consolidated release candidate instead of separate installer/runtime betas.
+- Installer: restore abandoned upgrades, gate commit on actual agent health and identity, canonical hub IP validation and reconfiguration helper.
+- Windows: mDNS retry, physical NIC WOL selection, privilege preflight, atomic identity, per-service SID ACLs.
+- Linux: atomic ID/token state, conservative WOL link conflicts, fixed diagnostics.
+- Edge: bounded state-context improvements for delayed shutdown and transient suspend failures.
+- v0.5.5-beta.1 hardware validation: volunteer confirmed full upgrade/service/status/metrics/controls/WOL on Windows 11 Pro.
+
+
 ## v0.5.5-beta.1 (candidate, not yet published) — stabilization from merged PR #19
 
 - Correct Windows `/v2/info` runtime agent version and assert component versions against the release manifest.

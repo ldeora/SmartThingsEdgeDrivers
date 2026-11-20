@@ -35,6 +35,23 @@ public static class WindowsPowerOperations
     private static extern bool SetSuspendState([MarshalAs(UnmanagedType.U1)] bool hibernate,
         [MarshalAs(UnmanagedType.U1)] bool force, [MarshalAs(UnmanagedType.U1)] bool disableWakeEvents);
 
+    // Enabling a privilege already assigned to the service token is a safe
+    // non-destructive preflight. Never grant additional Windows user rights here.
+    public static bool TryEnableShutdownPrivilege(out string failure)
+    {
+        try
+        {
+            EnableShutdownPrivilege();
+            failure = string.Empty;
+            return true;
+        }
+        catch (Exception ex) when (ex is Win32Exception or PlatformNotSupportedException)
+        {
+            failure = ex.GetType().Name + ": " + ex.Message;
+            return false;
+        }
+    }
+
     public static void Execute(string action)
     {
         if (!OperatingSystem.IsWindows()) throw new PlatformNotSupportedException();

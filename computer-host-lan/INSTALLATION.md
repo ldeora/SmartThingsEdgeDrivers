@@ -1,6 +1,6 @@
 # Computer Host LAN — installation (protocol v2)
 
-**Current published beta:** v0.5.4-beta.1 introduces the recommended Windows graphical Setup.exe alongside the supported ZIP/PowerShell fallback. **Next candidate:** v0.5.5-beta.1 contains merged stabilization fixes but has not yet been released. Do not use its planned download link until the new GitHub prerelease is published. Install the Edge driver separately using the [verified SmartThings channel](https://bestow-regional.api.smartthings.com/invite/1J2Qy7ZkxL20).
+**Published and Windows 11 hardware-tested:** [v0.5.5-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.5-beta.1), Windows agent 0.2.4-beta.1 and Linux/Edge 0.4.3-beta.1. **Consolidated next candidate:** [v0.5.6-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.6-beta.1), Windows agent 0.2.5-beta.1 and Linux/Edge 0.4.4-beta.1; [draft PR #21](https://github.com/ldeora/SmartThingsEdgeDrivers/pull/21) is not yet published or hardware-tested. Protocol v2 unchanged.
 
 ## Before installation
 
@@ -8,7 +8,7 @@ Use a trusted private LAN and a SmartThings hub that supports LAN Edge drivers. 
 
 ## Windows 11 x64 — recommended graphical installer
 
-The **Windows x64 Setup.exe** is the recommended method beginning with the published [v0.5.4-beta.1 release](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.4-beta.1). Download `computer-host-lan-v0.5.4-beta.1-windows-x64-unsigned-setup.exe` and verify its SHA-256 using `SHA256SUMS.txt`. The installer is unsigned and needs administrator rights, but no separate .NET SDK.
+Use the Windows x64 Setup.exe from the **current published [v0.5.5-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.5-beta.1)** and verify its SHA-256 using SHA256SUMS.txt. The installer is unsigned, requires administrator rights and is self-contained. The proposed v0.5.6 installer is not public until its release is published.
 
 1. Run Setup.exe. On the **SmartThings hub** page, select a discovered hub, retry **Search again**, or enter the hub's IPv4 manually. When discovery fails, the explicit **Allow connections from devices on my local network** option configures a Private-only LocalSubnet firewall rule; when discovery works, find this choice under **Advanced options**. It does not repair blocked mDNS between networks.
 2. Choose whether to enable optional **Power management**. A new installation defaults to monitoring only. A Setup upgrade or conversion from the existing ZIP/PowerShell installation retains the previous power preference unless you change it.
@@ -55,20 +55,16 @@ The earlier Linux Host LAN uses protocol v1 and a different discovery namespace;
 
 A GitHub Actions artifact is temporary and is **not** a permanent published prerelease. Install only assets associated with a fixed release/tag and matching checksums. Package signing has not been implemented. Keep applications saved before power tests. Do not use production or workplace computers for initial hardware experiments.
 
-## Upgrading from v0.5.3-beta.1
+## Current upgrade and recovery guidance
 
-**Windows:** Run the v0.5.4 Setup.exe over your existing installation. It migrates the service and retains UUID, key, configuration and power setting. Alternatively use the new ZIP and rerun the script, specifying `-EnablePower` if it was previously enabled. Do not purge state or delete/re-pair the SmartThings device.
+The v0.5.5 Windows 11 tester confirmed a successful in-place GUI upgrade, preserved SmartThings device/settings, accurate CPU/RAM/disk statistics, service stop/restart recovery and functioning WOL. This does not validate new v0.5.6 changes.
 
-**Linux:** The Linux agent and Edge driver remain at v0.4.2-beta.1, so Linux users do not need an agent or driver upgrade just for this Windows-installer release. As always, `./scripts/preflight.sh` and `sudo ./scripts/install-agent.sh` remain available if reinstalling. The four RAM and filesystem measurements added in v0.5.3 remain unchanged.
+Run the version-matched newer Setup.exe over the existing installation. Do not uninstall, delete the SmartThings device or purge the persistent UUID and control token. Setup preserves the prior power preference; ZIP/PowerShell upgrades require -EnablePower again. Install only from a **published release** after checking SHA-256 hashes, not from temporary PR artifacts.
 
-**Release verification:** Download only from the published, versioned GitHub prerelease and compare SHA-256 checksums. Temporary GitHub Actions artifacts are development candidates, not permanent releases.
+The v0.5.6 candidate adds an interrupted-upgrade recovery option and checks health, version and existing identity before committing. Never delete the rollback snapshot or ProgramData files to bypass a failure. Keep a router DHCP reservation for the SmartThings hub. Review the [candidate release notes](docs/beta/RELEASE-NOTES-v0.5.6-beta.1.md) before any new hardware tests.
 
-## Stabilization before the first stable release
+## v0.5.6 hub address maintenance and interrupted upgrade recovery
 
-[Merged PR #19](https://github.com/ldeora/SmartThingsEdgeDrivers/pull/19) adds safeguards for the Windows graphical upgrade failure path, existing authentication-key ACLs, runtime-version checks, and preservation of PowerShell-upgraded custom settings/ports. These changes are **not part of the published v0.5.4-beta.1 release**. They are included in the **planned v0.5.5-beta.1 candidate**, which must pass fresh CI and be explicitly published before installing. Do not install PR build artifacts on production computers. A failed upgrade must be treated as a support event; never delete the persistent UUID or secret to make it disappear.
+Reserve the hub's IPv4 in your router's DHCP configuration. To update an existing Windows firewall allow-list without reinstalling, open an elevated PowerShell prompt and run `& "$env:ProgramFiles\Computer Host Agent\Installer\Set-WindowsHubAddress.ps1" -HubIPv4 192.168.1.20`, replacing the example with the hub's actual canonical IPv4. The rule remains Private-profile only. A public or domain-connected network may require an explicit network-profile correction; do not make the rule Public by default.
 
-Third-party components and redistribution: [notices](docs/beta/THIRD-PARTY-NOTICES.md). The clipboard can retain explicitly copied power-control keys through clipboard history or synchronization depending on Windows settings; clear that history and avoid sharing the key.
-
-## Planned v0.5.5-beta.1 upgrade (only after publication)
-
-Review the [versioned release notes](docs/beta/RELEASE-NOTES-v0.5.5-beta.1.md). Download and verify the **new** Setup.exe and `SHA256SUMS.txt` from the [v0.5.5-beta.1 release page](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.5-beta.1) after publication. Run Setup over v0.5.4 without uninstalling and confirm that UUID, token, custom port/configuration and power preferences remain unchanged. The new installer adds rollback safeguards for detectable errors; test service interruption/recovery on a recoverable machine. Linux should install from the matching new source ZIP. The publisher must build and assign the **updated Edge driver v0.4.3-beta.1** to the existing channel. The current published beta and driver remain usable until then.
+An abandoned `Computer Host Agent.upgrade-rollback` folder must **never** be deleted casually. Interactive Setup can offer an explicit recovery attempt. If Setup cannot recover, use `Restore-WindowsAgentUpgrade.ps1 -Mode Restore` from the same-version Windows ZIP in an elevated PowerShell session; preserve the snapshot and host identity in ProgramData. Silent installers refuse abandoned snapshots without stopping the service.
