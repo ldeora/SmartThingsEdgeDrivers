@@ -1,15 +1,8 @@
-# Native Windows Host Agent — v0.2.4-beta.1 (proposed v0.5.5-beta.1 integration)
+# Native Windows Host Agent — v0.2.5-beta.1 candidate
 
-> **Next candidate: Computer Host LAN v0.5.6-beta.1 (not yet published).** This single hardening candidate combines installer recovery and runtime resilience. Current published/tested beta: [v0.5.5-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.5-beta.1). [Candidate release notes](../docs/beta/RELEASE-NOTES-v0.5.6-beta.1.md).
+**Public and Windows 11 hardware-tested baseline:** [v0.5.5-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.5-beta.1). **Unpublished consolidated hardening candidate:** [v0.5.6-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.6-beta.1) in [PR #21](https://github.com/ldeora/SmartThingsEdgeDrivers/pull/21), Windows agent 0.2.5-beta.1, Linux and Edge 0.4.4-beta.1, protocol v2 unchanged.
 
-
-**Not yet published:** the public beta remains v0.5.4-beta.1. This source tree is the v0.5.5 stabilization candidate; see [candidate release notes](../docs/beta/RELEASE-NOTES-v0.5.5-beta.1.md).
-
-Companion to **Computer Host LAN v0.5.4-beta.1**, sharing protocol v2 and `_computerhost._tcp` discovery with the Linux agent.
-
-## Verified versus not verified
-
-The source **compiles and runs** in GitHub Actions on Windows Server 2025 (x64 .NET 10). Contract tests, HMAC/replay protection, Win32 metrics, HTTP smoke, self-contained publishing, LocalService installation, protected state and PowerShell 5.1 opt-in/opt-out passed: [CI run](https://github.com/ldeora/SmartThingsEdgeDrivers/actions/runs/43827358333). ARM64 builds cross-publish but have not been executed. **Real Windows 11 Pro feedback:** a volunteer reports the graphical Setup installation and upgrade both succeeded, with accurate CPU/RAM/disk fields visible in SmartThings. Earlier testing also reports Suspend, Reboot and Shutdown (Off). WOL and reproducibility across additional machines remain outstanding. See the [compatibility evidence](../docs/beta/COMPATIBILITY-STATUS.md).
+The Windows 11 tester confirmed **v0.5.5**, not the new candidate: successful graphical upgrade, preserved identity/settings and SmartThings device, accurate CPU/memory/disk statistics, service recovery, Wake/Restart/Sleep controls and working WOL. Windows Server 2025 CI covers agent and native GUI scenarios; ARM64 is cross-built only. The v0.5.6 candidate introduces privilege preflight with monitoring-only fallback, service-SID ACL isolation, atomic identity creation, refreshed physical-NIC WOL metadata and resilient mDNS registration.
 
 ## Build
 
@@ -22,37 +15,22 @@ dotnet run --project .\ComputerHost.WindowsAgent.Tests\ComputerHost.WindowsAgent
 
 Builds use .NET 10. Published x64 binaries are self-contained, so ordinary testers do not need the SDK. The smoke test disables mDNS and never sends valid power commands.
 
-## Recommended: graphical Windows Setup.exe (x64)
+## Recommended graphical Windows x64 Setup.exe
 
-From the published v0.5.4-beta.1 GitHub prerelease, download and verify the unsigned `computer-host-lan-v0.5.4-beta.1-windows-x64-unsigned-setup.exe`. Run as administrator and choose the discovered or manually entered hub IPv4, optional power management, and SmartThings onboarding. The installer preserves existing UUID, key, configuration and power preference during ZIP-to-Setup migrations and Setup upgrades. To uninstall, use Windows **Installed apps**; persistent ProgramData state is retained. See [full instructions](../INSTALLATION.md). The previous v0.5.3-beta.1 Windows ZIP remains available for rollback. Real Windows 11 multi-hub discovery and hardware behavior are beta test objectives.
+Download the current [v0.5.5-beta.1 release](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.5-beta.1) and verify SHA256SUMS; do not use the proposed v0.5.6 link until published. The unsigned Setup preserves UUID, control key, custom configuration, listener port and power opt-in during an in-place upgrade. Existing SmartThings devices should not be deleted or re-paired.
 
-## Fallback: ZIP and elevated PowerShell
+## ZIP / elevated PowerShell fallback
 
-From the extracted Windows kit (PowerShell as Administrator), replace the example with your hub's IP:
+From the version-matched ZIP use elevated PowerShell (replace the hub IP):
 
 ```powershell
-$hubIPv4 = '192.168.1.20'  # example only
+.\scripts\Verify-Package.ps1
 .\scripts\Install-WindowsAgent.ps1 -WhatIf
-.\scripts\Install-WindowsAgent.ps1 -HubIPv4 $hubIPv4
+.\scripts\Install-WindowsAgent.ps1 -HubIPv4 192.168.1.20
 Get-Service ComputerHostAgent
 Invoke-RestMethod http://127.0.0.1:8765/v2/info
-.\scripts\Get-WolDiagnostics.ps1
 ```
 
-Omit `-HubIPv4` to allow `LocalSubnet` on a Private Windows firewall profile. The PowerShell script **does not** configure Windows mDNS/UDP5353, firmware WOL or sleep policies. The service runs as `NT AUTHORITY\LocalService`, persists identity under `%ProgramData%\ComputerHostAgent` and does not enable power on a fresh install or ordinary reinstall.
+Power commands are disabled by default and require explicit -EnablePower and a 64-character private key entered in the SmartThings device preferences. A PowerShell upgrade requires -EnablePower again to retain consent; the graphical installer preserves the previous selection. On v0.5.6 a Windows policy denying shutdown privileges leaves monitoring enabled but power commands unavailable. The new Windows kit also includes Set-WindowsHubAddress.ps1 and Restore-WindowsAgentUpgrade.ps1 for guarded reconfiguration and recovery.
 
-## Optional power management
-
-After SmartThings discovery and telemetry succeed, save all open work and ensure physical recovery is possible. Run the installer again with `-EnablePower`, read the 64-hex token **privately** from `%ProgramData%\ComputerHostAgent\control-token`, and enter it into the SmartThings `controlKey` preference with `allowPowerCommands` enabled. Never post the key, HMAC signatures, IP/MAC or raw logs publicly.
-
-The Windows native operations are **best-effort** and hardware-dependent: reboot first, suspend/WOL second, shutdown/WOL last. A first Windows 11 volunteer confirms reboot, suspend and shutdown on their hardware; Windows WOL is still awaiting real-hardware validation. A 202 response means accepted for scheduling, not confirmed completion. Windows S0/S3/S4/S5 support, Fast Startup and WOL depend on policy, NIC and firmware.
-
-Reinstall **without** `-EnablePower` to disable remote power. Uninstall with `.\scripts\Uninstall-WindowsAgent.ps1`; add `-PurgeState` **only** to intentionally remove persistent identity and key. No binary is signed. The [currently published beta package](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.4-beta.1) and verified [SmartThings channel invitation](https://bestow-regional.api.smartthings.com/invite/1J2Qy7ZkxL20) are the entry points for testers.
-
-See [platform installation](../INSTALLATION.md), [tester checklist](docs/HARDWARE-TEST-MATRIX.md) and [security/privacy](../docs/beta/SECURITY-AND-PRIVACY.md).
-
-## Upgrading an existing beta
-
-**Preferred:** Run the newer Setup.exe over the existing agent; it preserves previous power opt-in without repeating a command-line flag. **Fallback:** Extract the new package into a fresh folder and rerun the included installer in elevated PowerShell. Persistent identity and the control key are preserved in `%ProgramData%\\ComputerHostAgent`. **Important:** `-EnablePower` must be provided *again* during an upgrade if you intend to keep remote power actions enabled; without it, power is intentionally disabled. Do not use `-PurgeState` for an upgrade. Check `/v2/metrics` for both memory byte fields (`memory_used_bytes`, `memory_available_bytes`) and filesystem byte fields (`disk_root_used_bytes`, `disk_root_available_bytes`), then verify **Used GiB** and **Available GiB** alongside usage % and total GiB for both cards in SmartThings. Linux reference hardware passed these new values; Windows 11 hardware confirmation is requested.
-
-**Merged stabilization (packaged in the proposed v0.5.5 beta):** PR #19 extends the graphical upgrader with a protected application/firewall snapshot and failure recovery, and corrects version reporting, custom port/configuration retention and authentication-key ACLs. These changes are not present in the existing published v0.5.4-beta.1 executable; they will be distributed only after v0.5.5-beta.1 is published. See [release readiness](../RELEASE-READINESS.md) and [third-party notices](../docs/beta/THIRD-PARTY-NOTICES.md).
+Do not expose the HTTP agent to the Internet or share the key. Real Windows WOL depends on NIC, firmware, and sleep/power state; one successful Windows 11 test is not a universal guarantee. Read [installation](../INSTALLATION.md), [installer details](installer/README.md), [test matrix](docs/HARDWARE-TEST-MATRIX.md) and [security notes](../docs/beta/SECURITY-AND-PRIVACY.md).

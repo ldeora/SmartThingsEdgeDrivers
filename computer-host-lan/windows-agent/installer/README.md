@@ -1,11 +1,8 @@
-# Windows graphical installer (Inno Setup 7) — public-beta installation method
+# Windows graphical installer (Inno Setup 7) — x64
 
-> **Next candidate: Computer Host LAN v0.5.6-beta.1 (not yet published).** This single hardening candidate combines installer recovery and runtime resilience. Current published/tested beta: [v0.5.5-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.5-beta.1). [Candidate release notes](../../docs/beta/RELEASE-NOTES-v0.5.6-beta.1.md).
+**Public and Windows 11 hardware-tested baseline:** [v0.5.5-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.5-beta.1). **Unpublished consolidated hardening candidate:** [v0.5.6-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.6-beta.1) in [PR #21](https://github.com/ldeora/SmartThingsEdgeDrivers/pull/21), Windows agent 0.2.5-beta.1, Linux and Edge 0.4.4-beta.1, protocol v2 unchanged.
 
-
-**Source candidate v0.5.5-beta.1 (not yet published):** this setup source includes the merged PR #19 upgrade recovery changes. The currently downloadable installer remains the previous v0.5.4-beta.1. Read the [candidate release notes](../../docs/beta/RELEASE-NOTES-v0.5.5-beta.1.md).
-
-The graphical Windows x64 Setup.exe is the **recommended** installation and upgrade method in the published Computer Host LAN v0.5.4-beta.1 prerelease. Its [permanent release asset](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.4-beta.1) is separate from the existing supported PowerShell ZIP, which remains a fallback for troubleshooting. Both are unsigned; verify SHA-256 before running. A Windows 11 Pro volunteer has now reported real GUI installation and upgrade with accurate monitoring; broader hub-discovery topologies and hardware wake remain beta objectives. The native Windows Server 2025 CI has verified complete graphical navigation, clipboard copying, service upgrades, uninstall safety and ZIP migration.
+Windows 11 Pro testing verified the published v0.5.5 graphical upgrade, telemetry, service recovery, power controls and Wake-on-LAN. The v0.5.6 installer recovery changes require new tests. The installer and ZIP remain unsigned, Private-profile firewall access is restricted to the configured hub address by default, and public Internet exposure is not supported.
 
 ## SmartThings hub selection
 
@@ -69,8 +66,8 @@ executes the discovery helper's self-test before invoking Inno Setup 7. A
 GitHub Windows runner **cannot** confirm discovery of a real SmartThings hub.
 Real Windows 11 beta testing remains an objective while Setup.exe is distributed in the public beta; stable-release certification is not implied.
 
-## Merged upgrade recovery improvements (packaged in v0.5.5-beta.1 candidate)
+## Upgrade recovery — v0.5.6 hardening
 
-The stabilization branch stages the previously installed application and its managed firewall configuration in an admin-protected sibling of the Program Files installation directory, before Inno replaces any files. On a detected post-install failure, a guarded helper restores the original application/configuration, firewall scope and stopped service. On success the snapshot is deleted. A CI failure-injection scenario checks recovery. This is an improvement over v0.5.4-beta.1 and is **not** a retroactive fix to its published Setup.exe. The helper must not touch the UUID or HMAC key in ProgramData. A canceled/aborted installation after preflight also attempts recovery, but power loss and unexpected Windows termination still require manual repair testing.
+v0.5.5 introduced a protected application/firewall snapshot and recovery from detected upgrade errors. The v0.5.6 candidate checks for an abandoned snapshot **before stopping the service**, offers guarded recovery in interactive Setup, includes a manual restore script and verifies runtime protocol/version/identity before committing the snapshot. It also tightens IP parsing and provides a helper for updating the Private-profile firewall allow-list when a hub IP changes. Do not delete persistent UUID, key or rollback snapshot to bypass a recovery error.
 
-The enhanced installer reads a customized agent listener port for its local health check, and the PowerShell installer uses that same port for the Private-profile firewall rule. Both installation methods retain the previous settings; script-based upgrades still require an explicit `-EnablePower`. Dependency licensing is recorded in [third-party notices](../../docs/beta/THIRD-PARTY-NOTICES.md).
+Native CI exercises wizard navigation, upgrade/migration, clipboard, failed-install restore and uninstall safety, but it is not an independent real Windows 11 v0.5.6 verification. For recovery instructions and third-party licensing see [installation](../../INSTALLATION.md) and [third-party notices](../../docs/beta/THIRD-PARTY-NOTICES.md).
