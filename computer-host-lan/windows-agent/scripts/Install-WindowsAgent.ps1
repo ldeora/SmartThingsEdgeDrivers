@@ -122,6 +122,10 @@ try {
       & sc.exe failure $service 'reset=' '3600' 'actions=' 'restart/5000/restart/10000/none/0' | Out-Host
       if ($LASTEXITCODE -ne 0) { throw 'Unable to set service recovery' }
     }
+    # Add a unique service SID to the LocalService token before restricting
+    # state permissions. Other unrelated LocalService processes must not read keys.
+    & sc.exe sidtype $service unrestricted | Out-Host
+    if ($LASTEXITCODE -ne 0) { throw 'Unable to configure per-service SID' }
     # The firewall must match the actual HTTP listener, not just its default.
     $listenPort = 8765
     if ($null -ne $config.HostAgent.Port) {
@@ -140,22 +144,35 @@ try {
         -RemoteAddress $remoteScope | Out-Null
       Write-Warning "Firewall allows TCP $listenPort only from $remoteScope on PRIVATE networks. UDP/5353 mDNS remains subject to Windows network discovery policy."
     }
-    # Old token files can retain permissive explicit ACLs even when the
-    # containing directory is protected. Restrict every existing token.
+    # Per-service isolation: no generic LocalService/Users/Everyone ACL remains.
+    $serviceSid = ([Security.Principal.NTAccount]::new('NT SERVICE', $service)).Translate(
+      [Security.Principal.SecurityIdentifier])
+    $identitySids = @(
+      [Security.Principal.SecurityIdentifier]::new('S-1-5-18'),
+      [Security.Principal.SecurityIdentifier]::new('S-1-5-32-544')
+    )
+    $secureDirectoryAcl = New-Object System.Security.AccessControl.DirectorySecurity
+    $secureDirectoryAcl.SetAccessRuleProtection($true, $false)
+    foreach ($who in ($identitySids + @($serviceSid))) {
+      $secureDirectoryAcl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new(
+        $who, 'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow'))
+    }
+    if ($PSVersionTable.PSVersion.Major -le 5) {
+      ([IO.DirectoryInfo]::new($state)).SetAccessControl($secureDirectoryAcl)
+    } else { Set-Acl -LiteralPath $state -AclObject $secureDirectoryAcl }
     $tokenPath = Join-Path $state 'control-token'
     if (Test-Path -LiteralPath $tokenPath) {
-      $fileAcl = New-Object System.Security.AccessControl.FileSecurity
-      $fileAcl.SetAccessRuleProtection($true, $false)
-      foreach ($sid in @('S-1-5-18','S-1-5-32-544','S-1-5-19')) {
-        $who = [Security.Principal.SecurityIdentifier]::new($sid)
-        $fileAcl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new(
+      $keyAcl = New-Object System.Security.AccessControl.FileSecurity
+      $keyAcl.SetAccessRuleProtection($true, $false)
+      foreach ($who in $identitySids) {
+        $keyAcl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new(
           $who, 'FullControl', 'Allow'))
       }
+      $keyAcl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new(
+        $serviceSid, 'Read', 'Allow'))
       if ($PSVersionTable.PSVersion.Major -le 5) {
-        ([IO.FileInfo]::new($tokenPath)).SetAccessControl($fileAcl)
-      } else {
-        Set-Acl -LiteralPath $tokenPath -AclObject $fileAcl
-      }
+        ([IO.FileInfo]::new($tokenPath)).SetAccessControl($keyAcl)
+      } else { Set-Acl -LiteralPath $tokenPath -AclObject $keyAcl }
     }
     Start-Service -Name $service
     Get-Service -Name $service | Format-Table Name,Status,StartType
