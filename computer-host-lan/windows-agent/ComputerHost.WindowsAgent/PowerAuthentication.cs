@@ -78,12 +78,19 @@ public sealed class PowerConfiguration
 {
     public bool Enabled { get; }
     public PowerAuthentication? Authentication { get; }
-    public PowerConfiguration(AgentOptions options, PersistentIdentity identity)
+    public PowerConfiguration(AgentOptions options, PersistentIdentity identity,
+        ILogger<PowerConfiguration>? logger = null)
     {
         if (!options.EnablePowerControl) return;
         var keyPath = Path.Combine(identity.StateDirectory, "control-token");
         if (!File.Exists(keyPath)) throw new InvalidOperationException("Power is enabled but control-token is absent");
-        Authentication = new PowerAuthentication(File.ReadAllText(keyPath).Trim());
+        var authentication = new PowerAuthentication(File.ReadAllText(keyPath).Trim());
+        if (!WindowsPowerOperations.TryEnableShutdownPrivilege(out var reason))
+        {
+            logger?.LogWarning("Power commands unavailable: {Reason}; monitoring remains active", reason);
+            return;
+        }
+        Authentication = authentication;
         Enabled = true;
     }
 }
