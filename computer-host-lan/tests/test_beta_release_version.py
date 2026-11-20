@@ -67,7 +67,9 @@ class ReleaseVersionTests(unittest.TestCase):
             self.skipTest("release is not yet published")
         release_url = manifest.get("github_release", manifest.get("github_prerelease"))
         for name in ("README.md", "INSTALLATION.md",
-                     "windows-agent/README.md", "docs/beta/START-HERE.md",
+                     "windows-agent/README.md",
+                     "docs/beta/START-HERE.md" if release_kind(version) == "beta"
+                     else "docs/release/QUICK-START.md",
                      release_notes(version)):
             content = (ROOT / name).read_text(encoding="utf-8")
             self.assertIn(release_url, content, name)

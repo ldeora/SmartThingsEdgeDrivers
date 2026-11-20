@@ -65,7 +65,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Hub discovery helper publish failed' }
           & ./windows-agent/publish/hub-discovery/ComputerHost.HubDiscovery.exe --self-test
           if ($LASTEXITCODE -ne 0) { throw 'Hub discovery candidate self-tests failed' }
-      - name: Install Inno Setup 7 for beta setup build
+      - name: Install Inno Setup 7 for candidate setup build
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -174,7 +174,7 @@ jobs:
             "Computer Host LAN unsigned development candidate" \
             "Commit: $GITHUB_SHA" \
             "Unsigned build candidate, not a published GitHub release; channel remains unchanged." \
-            "Windows Setup GUI passes separate native Windows CI; real Windows 11 hub/mDNS/WOL tests remain beta objectives." \
+            "Windows Setup GUI passes native CI; real Windows 11 hub/mDNS/WOL and first-paint RC tests remain pending." \
             > RELEASE-CANDIDATE-NOTICE.txt
           ls -lh *.zip *setup.exe SHA256SUMS.txt
       - name: Upload one complete unsigned candidate set

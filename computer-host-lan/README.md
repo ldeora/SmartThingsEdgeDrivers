@@ -1,6 +1,6 @@
 # Computer Host LAN — SmartThings for Linux and Windows
 
-**Latest published prerelease:** [v0.5.6-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.6-beta.1) (Windows agent 0.2.5-beta.1; Linux agent and Edge driver 0.4.4-beta.1; protocol v2 unchanged). **Hardware-validated baseline:** [v0.5.5-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.5-beta.1). The v0.5.6 changes still need independent physical Windows and Linux testing; publication does not establish hardware validation.
+**In preparation:** v1.0.0-rc.1 (Windows agent **0.2.6-rc.1**; Linux agent/Edge driver **0.4.5-rc.1**; protocol v2 unchanged). **Not yet published or deployed.** [v0.5.6-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.6-beta.1) is the latest published beta; [v0.5.5-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.5-beta.1) is the independently hardware-tested fallback. The RC still needs physical Windows and Linux validation.
 
 Computer Host LAN is a **separate** project from [Linux Host LAN](../linux-host-lan/). It uses the `_computerhost._tcp` discovery service and `/v2` HTTP API. **Do not pair a protocol-v1 Linux Host LAN agent with this driver.**
 
@@ -19,7 +19,9 @@ Windows system metrics include CPU, RAM, system-drive usage and uptime. Both age
 ## Documentation
 
 - [Installation (both platforms)](INSTALLATION.md)
-- [Beta tester onboarding](docs/beta/START-HERE.md)
+- [v1.0 RC quick start (for when the RC is published)](docs/release/QUICK-START.md)
+- [RC release notes](docs/release/RELEASE-NOTES-v1.0.0-rc.1.md)
+- [Previously published beta guide](docs/beta/START-HERE.md)
 - [Tester checklist](docs/beta/TESTER-CHECKLIST.md)
 - [Feedback and privacy](docs/beta/FEEDBACK-AND-SUPPORT.md)
 - [Supported / unverified environments](docs/beta/COMPATIBILITY-STATUS.md)
@@ -31,4 +33,4 @@ Windows system metrics include CPU, RAM, system-drive usage and uptime. Both age
 
 **SmartThings installation:** [ARoedl SmartThings Edge Drivers](https://bestow-regional.api.smartthings.com/invite/1J2Qy7ZkxL20). Enroll the existing hub and install the Computer Host LAN driver; do not re-pair existing computer devices during upgrades.
 
-**Release status:** [v0.5.6-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.6-beta.1) is published. The separately hardware-tested v0.5.5-beta.1 remains the rollback baseline. Windows x64 users should prefer the published unsigned graphical Setup.exe; Windows ZIP/PowerShell is a fallback. Verify Edge driver 0.4.4-beta.1 is assigned to the existing channel before claiming full v0.5.6 deployment. Never install temporary PR artifacts.
+**Release status:** The v1.0.0-rc.1 source tree is a candidate, not a published download. Do not distribute temporary CI/PR artifacts as stable installers. After the RC is approved and published, prefer the unsigned Windows x64 Setup.exe; ZIP/PowerShell remains a fallback. The existing SmartThings channel must be checked separately for the matching RC driver before testers upgrade their hubs. No re-pairing or new channel is intended.

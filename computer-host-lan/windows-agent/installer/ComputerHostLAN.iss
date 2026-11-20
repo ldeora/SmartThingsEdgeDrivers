@@ -1,9 +1,9 @@
 ; Computer Host LAN — unsigned Windows graphical installer.
 ; Reuses the existing ZIP installer scripts; never modifies ProgramData state.
 ; Native Windows CI tested; hub discovery and power behavior require physical hardware verification.
-#define IntegrationVersion "0.5.6-beta.1"
+#define IntegrationVersion "1.0.0-rc.1"
 ; Must match release.json windows_agent; both CI and Python version tests enforce this.
-#define WindowsAgentVersion "0.2.5-beta.1"
+#define WindowsAgentVersion "0.2.6-rc.1"
 [Setup]
 AppId={{B7B83C5C-78B1-4F5F-9BDF-4D5B9D07C12B}
 AppName=Computer Host LAN - Windows Agent

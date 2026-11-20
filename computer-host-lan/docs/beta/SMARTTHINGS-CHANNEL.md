@@ -14,7 +14,7 @@ This is the existing public channel containing other community Edge drivers. No 
 1. Open the [channel invitation](https://bestow-regional.api.smartthings.com/invite/1J2Qy7ZkxL20) and sign in to the Samsung account associated with the intended hub.
 2. Accept the invitation and **Enroll** the hub in the channel if it is not enrolled already.
 3. Under the hub, choose **Available Drivers** and install **Computer Host LAN**.
-4. Install the matching Computer Host LAN host agent from the [v0.5.3-beta.1 GitHub prerelease](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.3-beta.1) (once published) on a separate test computer.
+4. Install the matching Computer Host LAN agent from an **actually published** GitHub Release on a separate computer. The latest published beta is [v0.5.6-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.6-beta.1). The v1.0.0-rc.1 source candidate must be published separately before it is distributed to testers.
 5. Ensure the hub can reach the host on **TCP 8765** and mDNS/UDP 5353 works on the trusted LAN. In SmartThings, select **Scan nearby**. The host advertises `_computerhost._tcp` and exposes protocol `/v2`.
 
 **Important:** This shared channel also lists other drivers. Testers need only **Computer Host LAN**; installing unrelated drivers is unnecessary. This protocol-v2 driver is separate from the older protocol-v1 **Linux Host LAN** driver. Do not combine them.
