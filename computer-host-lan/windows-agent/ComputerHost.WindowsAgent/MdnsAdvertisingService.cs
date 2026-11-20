@@ -59,7 +59,11 @@ public sealed class MdnsAdvertisingService(AgentOptions options,
         }
         finally
         {
-            if (instance != IntPtr.Zero) DnsServiceFreeInstance(instance);
+            if (instance != IntPtr.Zero)
+            {
+                try { DnsServiceFreeInstance(instance); }
+                catch (Exception) { /* A native callback must not crash the HTTP agent. */ }
+            }
         }
     }
 
@@ -70,8 +74,33 @@ public sealed class MdnsAdvertisingService(AgentOptions options,
             logger.LogWarning("mDNS disabled by HostAgent:DiscoveryEnabled=false (testing only)");
             return;
         }
+        // DNS-SD can fail temporarily while Windows initializes the network.
+        // Such failures must never bring down the HTTP monitoring service.
+        var delay = TimeSpan.FromSeconds(3);
+        while (!stoppingToken.IsCancellationRequested)
+        {
+            try
+            {
+                if (TryRegister())
+                {
+                    try { await Task.Delay(Timeout.InfiniteTimeSpan, stoppingToken); }
+                    catch (OperationCanceledException) { }
+                    return;
+                }
+            }
+            catch (Exception ex) when (!stoppingToken.IsCancellationRequested)
+            {
+                logger.LogWarning(ex, "Native mDNS registration failed; HTTP monitoring remains available");
+            }
+            try { await Task.Delay(delay, stoppingToken); }
+            catch (OperationCanceledException) { return; }
+            delay = TimeSpan.FromSeconds(Math.Min(delay.TotalSeconds * 2, 120));
+        }
+    }
+
+    private bool TryRegister()
+    {
         var hostname = Environment.MachineName;
-        // DNS-SD TXT includes the same protocol marker and platform as the Linux Avahi service.
         var keys = new[] { "platform", "agent", "api" };
         var values = new[] { "windows", AgentContract.Protocol, "2" };
         var keyStrings = keys.Select(Marshal.StringToHGlobalUni).ToArray();
@@ -85,10 +114,8 @@ public sealed class MdnsAdvertisingService(AgentOptions options,
                 Marshal.WriteIntPtr(keyBlock, i * IntPtr.Size, keyStrings[i]);
                 Marshal.WriteIntPtr(valueBlock, i * IntPtr.Size, valueStrings[i]);
             }
-            // Instance name must be a fully-qualified service instance (not just the type).
             var serviceName = $"Computer Host Agent (Windows) on {hostname}._computerhost._tcp.local";
-            var hostName = hostname + ".local";
-            _instance = DnsServiceConstructInstance(serviceName, hostName, IntPtr.Zero, IntPtr.Zero,
+            _instance = DnsServiceConstructInstance(serviceName, hostname + ".local", IntPtr.Zero, IntPtr.Zero,
                 checked((ushort)options.Port), 0, 0, (uint)keys.Length, keyBlock, valueBlock);
         }
         finally
@@ -100,11 +127,11 @@ public sealed class MdnsAdvertisingService(AgentOptions options,
         }
         if (_instance == IntPtr.Zero)
         {
-            logger.LogError("DnsServiceConstructInstance failed. HTTP monitoring remains available; mDNS discovery is unavailable.");
-            return;
+            logger.LogWarning("DnsServiceConstructInstance returned null; retrying without disrupting HTTP");
+            return false;
         }
         _request = Marshal.AllocHGlobal(Marshal.SizeOf<RegistrationRequest>());
-        var req = new RegistrationRequest
+        var request = new RegistrationRequest
         {
             Version = 1, InterfaceIndex = options.DiscoveryInterfaceIndex,
             ServiceInstance = _instance,
@@ -112,20 +139,31 @@ public sealed class MdnsAdvertisingService(AgentOptions options,
             Context = _request, Credentials = IntPtr.Zero,
             UnicastEnabled = false
         };
-        Marshal.StructureToPtr(req, _request, false);
+        Marshal.StructureToPtr(request, _request, false);
         Loggers.TryAdd(_request, logger);
-        var code = DnsServiceRegister(_request, IntPtr.Zero);
-        if (code != 9506) // DNS_REQUEST_PENDING, normal asynchronous success.
+        uint code;
+        try { code = DnsServiceRegister(_request, IntPtr.Zero); }
+        catch
         {
-            logger.LogError("DnsServiceRegister returned {Code}; auto discovery unavailable", code);
+            // Do not free request/instance if an asynchronous native callback
+            // may still hold them. The bounded allocation survives until exit.
+            throw;
+        }
+        if (code != 9506) // DNS_REQUEST_PENDING
+        {
+            logger.LogWarning("DnsServiceRegister returned {Code}; retrying mDNS discovery", code);
             Loggers.TryRemove(_request, out _);
-            return;
+            // A synchronous registration failure has not handed ownership to
+            // the DNS-SD callback. Release temporary unmanaged allocations.
+            Marshal.FreeHGlobal(_request);
+            DnsServiceFreeInstance(_instance);
+            _request = IntPtr.Zero;
+            _instance = IntPtr.Zero;
+            return false;
         }
         logger.LogInformation("Advertising {Service} TCP {Port}; interface index {Interface}",
             AgentContract.ServiceType, options.Port, options.DiscoveryInterfaceIndex);
-        try { await Task.Delay(Timeout.InfiniteTimeSpan, stoppingToken); }
-        catch (OperationCanceledException) { }
-        // Native registration lifetime ends when service process exits, per Microsoft.
-        // Deliberately no asynchronous cancellation/free before exit to avoid callback races.
+        // Native request and instance remain alive for callbacks until process exit.
+        return true;
     }
 }
