@@ -1,5 +1,14 @@
 # Computer Host LAN — change log
 
+## v1.0.0-rc.1 (candidate; not published) — installation and update readiness
+
+- Coordinated candidate versions: Windows agent 0.2.6-rc.1; Linux agent and SmartThings Edge driver 0.4.5-rc.1; protocol v2 unchanged.
+- Improve initial Windows hub-search painting and preserve the selected hub IP if a discovery retry fails (merged PRs #23 and #27).
+- Make the Windows upgrade health check follow the packaged agent version; clarify detectable failure/recovery messaging (PR #28).
+- Retain v0.5.6 hardening for agent identity, installer rollback, mDNS, optional power, NIC selection, Linux WOL configuration and SmartThings transient state accuracy.
+- Prepare concise RC installation instructions and version-coherent checksummed assets. No new pairing, secret rotation, device capabilities or automatic publication.
+- Physical Windows 11 rendering/upgrades, Linux hub testing, channel assignment and soak validation remain pending.
+
 ## v0.5.6-beta.1 (published 2026-11-20) — consolidated installer and runtime hardening
 
 - One consolidated release candidate instead of separate installer/runtime betas.
