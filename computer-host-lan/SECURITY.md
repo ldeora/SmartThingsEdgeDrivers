@@ -1,98 +1,45 @@
-> **Historical Linux-only v0.3.1 source document.** It describes the
-> pre-refactor release and must not be used as evidence of hardware
-> validation for v0.4.0-dev.1. For the current architecture read
-> `README.md`, `PROTOCOL.md`, `INSTALLATION.md` and
-> `docs/development/LINUX-PARITY-ACCEPTANCE.md`.
+# Computer Host LAN — security and responsible use
 
-> **Latest changes:** See [SECURITY-HARDENING.md](SECURITY-HARDENING.md).
+**Current architecture:** Linux and Windows agents with SmartThings Edge over the local `computer-host-agent` protocol v2. This page describes the published v0.5.6-beta.1 design and the accepted limitations for the planned v1.0 release; it is **not** an independent security audit, a claim of complete hardware verification, or a guarantee that every protection has been exhaustively tested. See [PROTOCOL.md](PROTOCOL.md), [INSTALLATION.md](INSTALLATION.md), and [v1.0 release gates](docs/release/V1-RELEASE-GATES.md). Older Linux-only v0.3.x notes are preserved for historical reference in [SECURITY-HARDENING.md](SECURITY-HARDENING.md).
 
-# Security notes (historical baseline; see SECURITY-HARDENING.md for v0.3.0)
+## Supported trust model
 
-**Development preview: not security-audited.** The daemon listens over
-unencrypted HTTP by default, and read-only info/health/metrics are visible to
-anyone with network access to TCP 8765. Do not forward it through a router,
-expose it to the Internet, or deploy it on an untrusted Wi-Fi/LAN.
+Use **only on a trusted private LAN**. The computer agent listens on TCP 8765 by default (or a configured alternative), and the SmartThings hub connects to it using **unencrypted HTTP**. It does not require forwarding a port from the public Internet. Where practical, permit incoming agent HTTP traffic **only from the SmartThings hub's LAN address**; allow DNS-SD/mDNS discovery as required by the network. Do not disable firewalls globally or open a public/Internet-facing rule to make discovery work.
 
-## Controls already implemented
+The Windows installer offers a Private-profile firewall rule scoped to the selected hub address; a broader Private LocalSubnet fallback requires explicit selection. It does not automatically configure Public-profile access. Linux firewall configuration depends on the host distribution and local administrator. If the hub IP address changes, a Windows allow-list may need an intentional update.
 
-- Power endpoints are disabled by default and enabled only via the
-  `--enable-power-control` agent flag (installed with the optional systemd
-  drop-in); the SmartThings
-  switch additionally requires `allowPowerCommands=true` and a configured key.
-- The agent generates a random **256-bit secret** and stores it in a private
-  state file (`0600`, owned by the dedicated agent user).
-- Power commands use **HMAC-SHA256**, not a plaintext token over HTTP. A
-  one-time random 192-bit nonce expires after 30 seconds after successful
-  signature checking (v0.3.0). Commands and paths are included in the signature.
-- Only hard-coded `shutdown`, `reboot`, and `suspend` requests are accepted.
-  Arbitrary commands, filenames and shell strings are never evaluated.
-- The agent runs as an unprivileged `linuxhost` user; privileged actions are
-  delegated via a restricted Unix socket to a minimal root helper, which also
-  checks the calling process UID using `SO_PEERCRED`.
-- Linux systemd unit has filesystem and namespace hardening options. The
-  helper uses fixed `/usr/bin/systemctl` arguments without `shell=True`.
-- The Edge driver never intentionally logs the control secret or HMAC value.
+The unauthenticated read-only endpoints `/v2/info`, `/v2/health`, and `/v2/metrics` can disclose hostname, installation UUID, OS and system telemetry to any client that can reach the listening port. HMAC authentication for power operations **does not encrypt or authenticate the monitoring channel**, and it does not authenticate mDNS advertisements. An attacker with sufficient LAN access could observe or interfere with monitoring or disrupt connectivity; network isolation remains necessary.
 
-## Remaining security limitations
+## Power commands and credentials
 
-- **No TLS or mutual authentication of the HTTP server.** HMAC authenticates a
-  command to the target but cannot protect telemetry, host metadata, or
-  challenge/signature traffic against eavesdropping. A LAN attacker capable of
-  MITM or active races may cause denial-of-service or more. Use VLAN/firewall
-  isolation and do not rely on HMAC as full channel security.
-- The shared secret is entered into a **SmartThings device preference**, which
-  may be retained by the platform. Treat it as sensitive account/configuration
-  data, not as a local secure enclave. A compromised SmartThings account or hub
-  can operate the computer.
-- Host info and telemetry are **unauthenticated**. They reveal hostname, OS,
-  uptime, hardware metrics and the installation UUID to LAN clients.
-- Magic packets are unauthenticated by the WOL protocol; anyone on the LAN
-  who can send them may also attempt to wake the system.
-- If a power request times out after reaching the agent, the command may
-  already have been executed; the sender must not retry blindly.
-- A root-side helper that accepts power actions can still cause data loss if
-  misused. Ordinary systemd power actions should be graceful but applications
-  may still have unsaved work.
-- The socket helper's systemd integration and all hardening settings need
-  testing on the supported distributions.
+- **Monitoring only by default.** Shutdown, reboot and suspend are optional and require enabling power control on the host *and* setting `allowPowerCommands` plus the matching control key on the SmartThings device.
+- The agent generates a **random 256-bit control secret** represented as 64 hexadecimal characters. The host protects its persisted copy using OS file permissions/ACLs. The matching copy in a **SmartThings device preference is sensitive configuration data, not a secure vault**; its access and retention are governed by the platform.
+- Requests for `/v2/power/{shutdown,reboot,suspend}` use HMAC-SHA256, a short-lived one-use challenge nonce and a fixed list of supported actions. The secret itself is not sent as the HTTP request body. Challenge requests and signed traffic still travel over plain HTTP.
+- An accepted HTTP **202 means the command was accepted, not that the computer has finished changing power state**. Timeouts and host reachability cannot prove physical shutdown, sleep or wake. Never blindly retry a power command that may already have been accepted.
+- Wake-on-LAN uses **unauthenticated network magic packets**. Supported sleep and shutdown states depend on the network adapter, driver, firmware and OS; Windows Fast Startup, Modern Standby and S5 wake are not universal capabilities.
 
-## Recommended deployment
+## Platform-specific containment
 
-1. Use a trusted VLAN. Permit **TCP 8765 only from the SmartThings hub** where
-   practical, and permit mDNS as needed. No WAN port forwarding.
-2. Enable WOL in the OS/firmware only when needed. Disable remote power
-   actions unless explicitly required.
-3. Keep the control key private. Do not publish it in SmartThings screenshots,
-   diagnostic archives, bug reports or documentation.
-4. Rotate compromised keys by stopping the agent, generating a new token,
-   restarting, and updating the device preference; do not delete the stable
-   installation ID in the process.
-5. Before a public release, add automated systemd integration tests, perform a
-   third-party security review, and consider a mutually authenticated TLS
-   transport or local certificate pinning.
+**Linux:** The normal agent runs as the restricted `linuxhost` user, with the opt-in privileged power actions delegated through a restricted systemd socket to a minimal helper. The helper checks the connecting process's UID and accepts only the three fixed systemctl operations. Linux firewall, systemd security features, SELinux/AppArmor and WOL persistence must be validated on the intended distribution.
 
-## Network-interface selection (agent 0.2.2)
+**Windows:** The agent runs as `NT AUTHORITY\\LocalService` with access controls on persistent state and a service-specific security boundary for its token files. A privilege preflight can disable advertised power actions without taking monitoring offline if host policy prevents the necessary operations. The installer and agent in v0.5.6 are **unsigned**. Checksums verify downloaded file content but do not authenticate the publisher in the same way as a trusted code signature.
 
-Automatic WOL interface selection is based on the host network configuration and /sys physical-device topology. For computers with more than one candidate NIC or complex network routes, explicitly choose the WOL-capable Ethernet NIC via `--wol-interface` or `LINUX_HOST_WOL_INTERFACE`. This affects only advertised WOL metadata; it grants no additional privileges. Port 8765 remains LAN-only, power commands still require HMAC authentication, and the agent continues running unprivileged.
+Neither platform implementation is independently security-certified. Do not infer complete Windows or distro coverage from container tests or Windows Server CI alone.
 
-## v0.2.9 installer and diagnostic security
+## Key handling and recovery policy for v1.0
 
-- `scripts/diagnose.sh` is read-only and avoids displaying the UUID, MAC and
-  broadcast address in the general-agent summary, never the HMAC token. An
-  opt-in `ethtool` interface check displays only WOL flags. Review output
-  before publishing because host/kernel names still may be identifying.
-- Fresh monitoring-only installs no longer enable the privileged
-  `linux-host-agent-power.socket`; existing power-enabled installations
-  retain their opt-in drop-in and socket.
-- WOL persistence changes are opt-in. The systemd-udev `.link` file is
-  specific to one MAC; the NetworkManager alternative affects only the
-  selected connection. Neither installer opens firewall ports.
-- HMAC over **plain HTTP is not encrypted transport**. The secret is not
-  transmitted directly, but health/metrics can be observed/interfered with by
-  parties who control the network. Do not use an untrusted LAN, route port
-  8765 over the Internet, or distribute any actual `control-token` file.
-- A compromised SmartThings account with read access to device preferences
-  may expose the control key. The control-key preference is not equivalent
-  to a hardware-backed secret vault.
-- Signed acceptance does not guarantee the target actually completed a
-  shutdown/reboot/suspend. `stopped`/`suspended` remain inferred statuses.
+Existing **installation UUIDs and control keys must be preserved across normal upgrades**, along with the existing SmartThings computer device. Never delete persistent state, uninstall-and-purge, or reset credentials merely to fix a failed upgrade.
+
+There is **no automatic key rotation or automatic pairing protocol planned for v1.0**. We are deliberately not introducing a mechanism that might unexpectedly replace a working credential. If the key is missing or incorrect, monitoring can still work while authenticated power commands remain unavailable. Verify the configuration before making changes; do not print or publish the key in troubleshooting logs.
+
+If a key is **suspected compromised**, first disable power control on the host and in SmartThings, restrict network access and investigate the exposure. Do not treat re-copying the same exposed key as a security fix. Any manual credential replacement must be a deliberate, coordinated recovery operation with a validated backup and preservation of the stable installation UUID; no automatic or untested rotation procedure is offered in this release.
+
+Treat screenshots, exported preferences, clipboard history, synchronised clipboard, Windows Event Logs, journal output, diagnostic ZIPs, private IPv4 addresses, MAC addresses, installation UUIDs and SmartThings account/location identifiers as potentially sensitive. Review even sanitized reports manually before sharing. The Windows installer copies a control key to the clipboard only after an explicit user action.
+
+## Reporting a security concern
+
+Do **not** post real credentials, privately identifying diagnostics, or proof-of-exploit details in a public GitHub issue or Community thread. If GitHub's **private vulnerability reporting** option is enabled for this repository, use it for sensitive reports. Otherwise, use a non-sensitive public request asking the maintainer for a private reporting channel, without disclosing exploit steps or secrets. For ordinary installation problems, file a redacted issue with OS version, agent/driver version and a concise description.
+
+## Release limitations and open decisions
+
+The v1.0 acceptance checklist separately requires review of third-party redistribution notices, final build integrity/provenance, signing policy, Windows/Linux installation and upgrade recovery, and real hardware behavior. These remain **release gates**, not claims already satisfied. TLS/mTLS, automatic pairing and routine key rotation are out of scope for v1.0.
