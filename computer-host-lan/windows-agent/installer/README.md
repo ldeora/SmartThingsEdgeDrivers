@@ -1,8 +1,8 @@
 # Windows graphical installer (Inno Setup 7) — x64
 
-**Public and Windows 11 hardware-tested baseline:** [v0.5.5-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.5-beta.1). **Unpublished consolidated hardening candidate:** [v0.5.6-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.6-beta.1) in [PR #21](https://github.com/ldeora/SmartThingsEdgeDrivers/pull/21), Windows agent 0.2.5-beta.1, Linux and Edge 0.4.4-beta.1, protocol v2 unchanged.
+**Release-candidate source:** v1.0.0-rc.1 (Windows agent 0.2.6-rc.1, Linux/Edge 0.4.5-rc.1, protocol v2 unchanged); not published yet. **Published beta:** [v0.5.6-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.6-beta.1). **Windows 11 hardware-tested fallback:** [v0.5.5-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.5-beta.1).
 
-Windows 11 Pro testing verified the published v0.5.5 graphical upgrade, telemetry, service recovery, power controls and Wake-on-LAN. The v0.5.6 installer recovery changes require new tests. The installer and ZIP remain unsigned, Private-profile firewall access is restricted to the configured hub address by default, and public Internet exposure is not supported.
+Windows 11 Pro testing verified the v0.5.5 graphical upgrade, telemetry, recovery, power controls and Wake-on-LAN on one system. The RC includes the later upgrade-recovery and first-search display/rescan improvements; those changes still need physical Windows confirmation. Setup and ZIP remain unsigned. Firewall access is restricted to Private-profile hub connections by default; public Internet exposure is unsupported.
 
 ## SmartThings hub selection
 
@@ -64,10 +64,10 @@ iscc.exe .\ComputerHostLAN.iss
 Run from `computer-host-lan/windows-agent/installer`. The CI job builds and
 executes the discovery helper's self-test before invoking Inno Setup 7. A
 GitHub Windows runner **cannot** confirm discovery of a real SmartThings hub.
-Real Windows 11 beta testing remains an objective while Setup.exe is distributed in the public beta; stable-release certification is not implied.
+Real Windows 11 testing of the RC, including the original first-search rendering report, remains essential; passing CI is not physical certification.
 
-## Upgrade recovery — v0.5.6 hardening
+## Upgrade recovery
 
-v0.5.5 introduced a protected application/firewall snapshot and recovery from detected upgrade errors. The v0.5.6 candidate checks for an abandoned snapshot **before stopping the service**, offers guarded recovery in interactive Setup, includes a manual restore script and verifies runtime protocol/version/identity before committing the snapshot. It also tightens IP parsing and provides a helper for updating the Private-profile firewall allow-list when a hub IP changes. Do not delete persistent UUID, key or rollback snapshot to bypass a recovery error.
+v0.5.5 introduced a protected application/firewall snapshot and recovery from detected upgrade errors. The v0.5.6 and RC installers check for an abandoned snapshot **before stopping the service**, offers guarded recovery in interactive Setup, includes a manual restore script and verifies runtime protocol/version/identity before committing the snapshot. It also tightens IP parsing and provides a helper for updating the Private-profile firewall allow-list when a hub IP changes. Do not delete persistent UUID, key or rollback snapshot to bypass a recovery error.
 
-Native CI exercises wizard navigation, upgrade/migration, clipboard, failed-install restore and uninstall safety, but it is not an independent real Windows 11 v0.5.6 verification. For recovery instructions and third-party licensing see [installation](../../INSTALLATION.md) and [third-party notices](../../docs/beta/THIRD-PARTY-NOTICES.md).
+Native CI exercises wizard navigation, upgrade/migration, clipboard, failed-install restore and uninstall safety, but it is not an independent real Windows 11 RC verification. For recovery instructions and third-party licensing see [installation](../../INSTALLATION.md) and [third-party notices](../../docs/beta/THIRD-PARTY-NOTICES.md).
