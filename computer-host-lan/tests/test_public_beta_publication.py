@@ -5,18 +5,23 @@ import unittest
 
 BASE = Path(__file__).resolve().parents[1]
 CHANNEL = "https://bestow-regional.api.smartthings.com/invite/1J2Qy7ZkxL20"
-VERSION = json.loads((BASE / "release.json").read_text(encoding="utf-8"))["integration"]
+MANIFEST = json.loads((BASE / "release.json").read_text(encoding="utf-8"))
+VERSION = MANIFEST["integration"]
 RELEASE = f"https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v{VERSION}"
+NOTES_DIRECTORY = "beta" if "-beta." in VERSION else "release"
+NOTES = BASE / f"docs/{NOTES_DIRECTORY}/RELEASE-NOTES-v{VERSION}.md"
 
 class PublicBetaPublicationTests(unittest.TestCase):
     def test_invite_in_distribution_docs(self):
         for file in (BASE / "README.md", BASE / "INSTALLATION.md",
                      BASE / "docs/beta/START-HERE.md",
                      BASE / "docs/beta/SMARTTHINGS-CHANNEL.md",
-                     BASE / f"docs/beta/RELEASE-NOTES-v{VERSION}.md",
+                     NOTES,
                      BASE / "docs/beta/COMMUNITY-ANNOUNCEMENT.md"):
             self.assertIn(CHANNEL, file.read_text(encoding="utf-8"), str(file))
     def test_release_link_in_distribution_docs(self):
+        if "-candidate-v" in MANIFEST["release_stage"]:
+            self.skipTest("release candidate not published yet")
         for file in (BASE / "README.md", BASE / "INSTALLATION.md",
                      BASE / "docs/beta/START-HERE.md",
                      BASE / f"docs/beta/RELEASE-NOTES-v{VERSION}.md"):
