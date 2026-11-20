@@ -1,7 +1,9 @@
-; Computer Host LAN — unsigned Windows beta graphical installer.
+; Computer Host LAN — unsigned Windows graphical installer.
 ; Reuses the existing ZIP installer scripts; never modifies ProgramData state.
-; Native Windows CI tested. Real Windows 11 hub discovery remains beta scope.
+; Native Windows CI tested; hub discovery and power behavior require physical hardware verification.
 #define IntegrationVersion "0.5.6-beta.1"
+; Must match release.json windows_agent; both CI and Python version tests enforce this.
+#define WindowsAgentVersion "0.2.5-beta.1"
 [Setup]
 AppId={{B7B83C5C-78B1-4F5F-9BDF-4D5B9D07C12B}
 AppName=Computer Host LAN - Windows Agent
@@ -44,6 +46,7 @@ Source: "..\scripts\Check-WindowsAgentHealth.ps1"; Flags: dontcopy
 Source: "..\scripts\Set-WindowsHubAddress.ps1"; DestDir: "{app}\Installer"; Flags: ignoreversion
 Source: "..\publish\hub-discovery\ComputerHost.HubDiscovery.exe"; Flags: dontcopy
 Source: "CONNECT-TO-SMARTTHINGS.html"; DestDir: "{app}\Docs"; Flags: ignoreversion
+Source: "..\..\LICENSE"; DestDir: "{app}\Docs"; Flags: ignoreversion
 Source: "..\..\docs\beta\THIRD-PARTY-NOTICES.md"; DestDir: "{app}\Docs"; Flags: ignoreversion
 
 [Icons]
@@ -663,7 +666,8 @@ begin
     if InstallFailed then
     begin
       WizardForm.FinishedHeadingLabel.Caption := 'Installation needs attention';
-      WizardForm.FinishedLabel.Caption := 'The Computer Host Agent service could not be configured. Review the setup log and retry.';
+      WizardForm.FinishedLabel.Caption :=
+        'The installation could not be verified or completed. Check the setup log and recovery guidance before retrying.';
     end
     else
     begin
@@ -736,7 +740,7 @@ var
 begin
   ExtractTemporaryFile('Check-WindowsAgentHealth.ps1');
   Params := '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' +
-    ExpandConstant('{tmp}\Check-WindowsAgentHealth.ps1') + '" -ExpectedVersion 0.2.5-beta.1';
+    ExpandConstant('{tmp}\Check-WindowsAgentHealth.ps1') + '" -ExpectedVersion "{#WindowsAgentVersion}"';
   Result := ExecWithNativeSysDir(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
     Params, '', SW_HIDE, ewWaitUntilTerminated, ExitCode) and (ExitCode = 0);
   if not Result then Log('Agent health/identity/version gate failed before committing upgrade.');
@@ -815,6 +819,11 @@ begin
     if not CheckAgentBeforeCommit then
     begin
       InstallFailed := True;
+      // State may be recoverable. Say what failed before attempting rollback.
+      if not WizardSilent then
+        MsgBox('The updated agent did not pass the health, version or identity check. ' +
+          'Setup will try to restore the previous installation. If recovery fails, ' +
+          'keep the rollback files and consult the installation guide.', mbError, MB_OK);
       FinishUpgrade('Restore');
     end
     else if FinishUpgrade('Commit') then InstallCommitted := True
