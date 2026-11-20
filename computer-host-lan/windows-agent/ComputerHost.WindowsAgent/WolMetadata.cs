@@ -10,9 +10,9 @@ public sealed class WolMetadata
     public string? Mac { get; }
     public string? Broadcast { get; }
     public string? InterfaceId { get; }
-    private static bool LooksVirtual(NetworkInterface nic)
+    public static bool LooksVirtualAdapter(string name, string description)
     {
-        var details = (nic.Name + " " + nic.Description).ToLowerInvariant();
+        var details = (name + " " + description).ToLowerInvariant();
         return new[] { "vethernet", "virtual", "hyper-v", "vmware", "virtualbox",
             "wsl", "loopback", "tap-windows", "vpn", "tunnel", "bridge" }
             .Any(marker => details.Contains(marker, StringComparison.Ordinal));
@@ -25,7 +25,7 @@ public sealed class WolMetadata
             var nic = NetworkInterface.GetAllNetworkInterfaces()
                 .Where(x => x.NetworkInterfaceType == NetworkInterfaceType.Ethernet &&
                     x.OperationalStatus == OperationalStatus.Up &&
-                    (!string.IsNullOrEmpty(options.WolInterfaceId) || !LooksVirtual(x)) &&
+                    (!string.IsNullOrEmpty(options.WolInterfaceId) || !LooksVirtualAdapter(x.Name, x.Description)) &&
                     (string.IsNullOrEmpty(options.WolInterfaceId) ||
                      string.Equals(x.Id, options.WolInterfaceId, StringComparison.OrdinalIgnoreCase)))
                 .Where(x => x.GetPhysicalAddress().GetAddressBytes().Length == 6)
