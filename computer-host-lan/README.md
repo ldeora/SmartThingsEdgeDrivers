@@ -26,6 +26,7 @@ Windows system metrics include CPU, RAM, system-drive usage and uptime. Both age
 - [Protocol v2](PROTOCOL.md)
 - [Security limitations](docs/beta/SECURITY-AND-PRIVACY.md)
 - [Release gates](docs/beta/PUBLICATION-GATES.md)
+- [First stable release acceptance gates](docs/release/V1-RELEASE-GATES.md)
 
 **SmartThings installation:** [ARoedl SmartThings Edge Drivers](https://bestow-regional.api.smartthings.com/invite/1J2Qy7ZkxL20). Enroll the existing hub and install the Computer Host LAN driver; do not re-pair existing computer devices during upgrades.
 
