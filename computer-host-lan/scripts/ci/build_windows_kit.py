@@ -82,8 +82,11 @@ def build(published: Path, output_dir: Path, runtime: str, commit: str) -> Path:
     for helper in HELPERS:
         add_source(entries, f"scripts/{helper}", ROOT / "windows-agent/scripts" / helper)
     for dst, src in DOCUMENTS.items():
-        if dst == "docs/START-HERE.md" and stage != "beta":
-            src = ROOT / "docs/release/QUICK-START.md"
+        if stage != "beta":
+            if dst == "docs/START-HERE.md":
+                src = ROOT / "docs/release/QUICK-START.md"
+            elif dst == "docs/TEST-CHECKLIST.md":
+                src = ROOT / "docs/release/RC-ACCEPTANCE.md"
         add_source(entries, dst, src)
     add_source(entries, "docs/RELEASE-NOTES.md", ROOT / "docs" / notes_directory / f"RELEASE-NOTES-v{version}.md")
     add_source(entries, "LICENSE", ROOT / "LICENSE")
