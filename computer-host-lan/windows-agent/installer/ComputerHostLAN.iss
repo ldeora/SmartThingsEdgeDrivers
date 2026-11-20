@@ -38,7 +38,9 @@ Source: "..\publish\win-x64\appsettings.json"; DestDir: "{app}"; Flags: onlyifdo
 Source: "..\scripts\Install-WindowsAgent.ps1"; DestDir: "{app}\Installer"; Flags: ignoreversion
 Source: "..\scripts\Uninstall-WindowsAgent.ps1"; DestDir: "{app}\Installer"; Flags: ignoreversion
 Source: "..\scripts\Prepare-WindowsAgentUpgrade.ps1"; Flags: dontcopy
-Source: "..\scripts\Restore-WindowsAgentUpgrade.ps1"; Flags: dontcopy
+Source: "..\scripts\Restore-WindowsAgentUpgrade.ps1"; DestDir: "{app}\Installer"; Flags: ignoreversion
+Source: "..\scripts\Check-WindowsAgentHealth.ps1"; Flags: dontcopy
+Source: "..\scripts\Set-WindowsHubAddress.ps1"; DestDir: "{app}\Installer"; Flags: ignoreversion
 Source: "..\publish\hub-discovery\ComputerHost.HubDiscovery.exe"; Flags: dontcopy
 Source: "CONNECT-TO-SMARTTHINGS.html"; DestDir: "{app}\Docs"; Flags: ignoreversion
 Source: "..\..\docs\beta\THIRD-PARTY-NOTICES.md"; DestDir: "{app}\Docs"; Flags: ignoreversion
@@ -89,6 +91,7 @@ begin
     begin
       Part := Copy(Address, StartPos, I - StartPos);
       if (Length(Part) < 1) or (Length(Part) > 3) then Exit;
+      if (Length(Part) > 1) and (Part[1] = '0') then Exit;
       N := StrToIntDef(Part, -1);
       if (N < 0) or (N > 255) then Exit;
       Count := Count + 1;
@@ -401,7 +404,7 @@ begin
   HubPage := CreateCustomPage(wpWelcome, 'SmartThings hub', 'Find the hub on your local network');
   LabelText := TNewStaticText.Create(HubPage);
   LabelText.Parent := HubPage.Surface;
-  LabelText.Caption := 'SmartThings hub (automatically detected when possible):';
+  LabelText.Caption := 'SmartThings hub IPv4 (DHCP reservation recommended):';
   LabelText.Top := ScaleY(4);
 
   HubSelect := TNewComboBox.Create(HubPage);
@@ -683,6 +686,43 @@ begin
   end;
 end;
 
+// Explicitly offer recovery from an abandoned snapshot before touching the agent.
+// A silent installation refuses this situation instead of changing user state.
+function RecoverAbandonedSnapshot: Boolean;
+var
+  Snapshot, Params: String;
+  ExitCode: Integer;
+begin
+  Result := True;
+  Snapshot := ExpandConstant('{autopf}\Computer Host Agent.upgrade-rollback');
+  if not DirExists(Snapshot) then Exit;
+  Result := False;
+  if WizardSilent then Exit;
+  if MsgBox('An unfinished Computer Host LAN upgrade was detected. Restore the previous installation before proceeding?',
+    mbConfirmation, MB_YESNO) <> IDYES then Exit;
+  ExtractTemporaryFile('Restore-WindowsAgentUpgrade.ps1');
+  Params := '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' +
+    ExpandConstant('{tmp}\Restore-WindowsAgentUpgrade.ps1') + '" -Mode Restore';
+  Result := ExecWithNativeSysDir(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
+    Params, '', SW_HIDE, ewWaitUntilTerminated, ExitCode) and (ExitCode = 0);
+  if not Result then MsgBox('Recovery could not be completed. Preserve the rollback snapshot and consult the release recovery instructions.',
+    mbError, MB_OK);
+end;
+
+// Require a healthy new agent before removing the last known-good snapshot.
+function CheckAgentBeforeCommit: Boolean;
+var
+  ExitCode: Integer;
+  Params: String;
+begin
+  ExtractTemporaryFile('Check-WindowsAgentHealth.ps1');
+  Params := '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' +
+    ExpandConstant('{tmp}\Check-WindowsAgentHealth.ps1') + '" -ExpectedVersion 0.2.5-beta.1';
+  Result := ExecWithNativeSysDir(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
+    Params, '', SW_HIDE, ewWaitUntilTerminated, ExitCode) and (ExitCode = 0);
+  if not Result then Log('Agent health/identity/version gate failed before committing upgrade.');
+end;
+
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
   ExitCode: Integer;
@@ -693,6 +733,11 @@ begin
   if not ValidConfiguration then
   begin
     Result := 'Missing hub address. Use /HUBIP=192.168.1.20 or /LOCALSUBNET=1 in silent mode.';
+    Exit;
+  end;
+  if not RecoverAbandonedSnapshot then
+  begin
+    Result := 'A previous upgrade requires restoration before proceeding. Existing service was not modified. Use interactive recovery or the recovery script from the Windows ZIP.';
     Exit;
   end;
   ExtractTemporaryFile('Prepare-WindowsAgentUpgrade.ps1');
@@ -748,7 +793,12 @@ begin
   end
   else
   begin
-    if FinishUpgrade('Commit') then InstallCommitted := True
+    if not CheckAgentBeforeCommit then
+    begin
+      InstallFailed := True;
+      FinishUpgrade('Restore');
+    end
+    else if FinishUpgrade('Commit') then InstallCommitted := True
     else
     begin
       InstallFailed := True;
