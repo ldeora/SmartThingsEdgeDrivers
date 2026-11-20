@@ -1,6 +1,9 @@
 # Computer Host LAN — installation (protocol v2)
 
-**Current published beta:** v0.5.4-beta.1 introduces the recommended Windows graphical Setup.exe alongside the supported ZIP/PowerShell fallback. **Next candidate:** v0.5.5-beta.1 contains merged stabilization fixes but has not yet been released. Do not use its planned download link until the new GitHub prerelease is published. Install the Edge driver separately using the [verified SmartThings channel](https://bestow-regional.api.smartthings.com/invite/1J2Qy7ZkxL20).
+> **Next candidate: Computer Host LAN v0.5.6-beta.1 (not yet published).** This single hardening candidate combines installer recovery and runtime resilience. Current published/tested beta: [v0.5.5-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.5-beta.1). [Candidate release notes](docs/beta/RELEASE-NOTES-v0.5.6-beta.1.md).
+
+
+**Current published beta:** v0.5.5-beta.1. **Next consolidated candidate:** v0.5.6-beta.1 (unpublished). The v0.5.5 Windows 11 Pro GUI upgrade, telemetry, service recovery and WOL have been reported working; v0.5.6 changes still require validation.
 
 ## Before installation
 
@@ -72,3 +75,9 @@ Third-party components and redistribution: [notices](docs/beta/THIRD-PARTY-NOTIC
 ## Planned v0.5.5-beta.1 upgrade (only after publication)
 
 Review the [versioned release notes](docs/beta/RELEASE-NOTES-v0.5.5-beta.1.md). Download and verify the **new** Setup.exe and `SHA256SUMS.txt` from the [v0.5.5-beta.1 release page](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.5-beta.1) after publication. Run Setup over v0.5.4 without uninstalling and confirm that UUID, token, custom port/configuration and power preferences remain unchanged. The new installer adds rollback safeguards for detectable errors; test service interruption/recovery on a recoverable machine. Linux should install from the matching new source ZIP. The publisher must build and assign the **updated Edge driver v0.4.3-beta.1** to the existing channel. The current published beta and driver remain usable until then.
+
+## v0.5.6 hub address maintenance and interrupted upgrade recovery
+
+Reserve the hub's IPv4 in your router's DHCP configuration. To update an existing Windows firewall allow-list without reinstalling, open an elevated PowerShell prompt and run `& "$env:ProgramFiles\Computer Host Agent\Installer\Set-WindowsHubAddress.ps1" -HubIPv4 192.168.1.20`, replacing the example with the hub's actual canonical IPv4. The rule remains Private-profile only. A public or domain-connected network may require an explicit network-profile correction; do not make the rule Public by default.
+
+An abandoned `Computer Host Agent.upgrade-rollback` folder must **never** be deleted casually. Interactive Setup can offer an explicit recovery attempt. If Setup cannot recover, use `Restore-WindowsAgentUpgrade.ps1 -Mode Restore` from the same-version Windows ZIP in an elevated PowerShell session; preserve the snapshot and host identity in ProgramData. Silent installers refuse abandoned snapshots without stopping the service.
