@@ -156,6 +156,17 @@ begin
   HubSelect.Enabled := not LocalSubnetCheck.Checked;
 end;
 
+// Normalise the visible dropdown label before either installation or retry.
+// The same parser is used in SelectedHubIP so the two paths cannot diverge.
+function HubIPv4FromSelection(const Selection: String): String;
+var
+  CutAt: Integer;
+begin
+  Result := Trim(Selection);
+  CutAt := Pos(' (', Result);
+  if CutAt > 0 then Result := Copy(Result, 1, CutAt - 1);
+end;
+
 procedure SearchForHubs(Sender: TObject);
 var
   ExitCode, I, Sep, Count: Integer;
@@ -166,9 +177,7 @@ begin
   // A discovered entry is displayed as "IPv4 (hub name)". Retain its
   // actual address on an unsuccessful retry rather than discarding it as
   // invalid input. This also preserves a manually entered IPv4 address.
-  PreviousInput := Trim(HubSelect.Text);
-  Sep := Pos(' (', PreviousInput);
-  if Sep > 0 then PreviousInput := Copy(PreviousInput, 1, Sep - 1);
+  PreviousInput := HubIPv4FromSelection(HubSelect.Text);
   if not IsValidIPv4(PreviousInput) then PreviousInput := '';
   HubStatus.Caption := 'Searching for SmartThings hubs on your network...';
   // Initial discovery starts before the new page necessarily has time to
@@ -676,14 +685,8 @@ begin
 end;
 
 function SelectedHubIP: String;
-var
-  Selected: String;
-  CutAt: Integer;
 begin
-  Selected := Trim(HubSelect.Text);
-  CutAt := Pos(' (', Selected);
-  if CutAt > 0 then Selected := Copy(Selected, 1, CutAt - 1);
-  Result := Selected;
+  Result := HubIPv4FromSelection(HubSelect.Text);
 end;
 
 function ValidConfiguration: Boolean;
