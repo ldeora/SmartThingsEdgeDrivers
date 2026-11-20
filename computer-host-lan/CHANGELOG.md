@@ -1,6 +1,6 @@
 # Computer Host LAN — change log
 
-## v0.5.6-beta.1 — consolidated installer and runtime hardening (candidate)
+## v0.5.6-beta.1 (published 2026-11-20) — consolidated installer and runtime hardening
 
 - One consolidated release candidate instead of separate installer/runtime betas.
 - Installer: restore abandoned upgrades, gate commit on actual agent health and identity, canonical hub IP validation and reconfiguration helper.
@@ -10,7 +10,7 @@
 - v0.5.5-beta.1 hardware validation: volunteer confirmed full upgrade/service/status/metrics/controls/WOL on Windows 11 Pro.
 
 
-## v0.5.5-beta.1 (candidate, not yet published) — stabilization from merged PR #19
+## v0.5.5-beta.1 (published) — stabilization from merged PR #19
 
 - Correct Windows `/v2/info` runtime agent version and assert component versions against the release manifest.
 - Protect the existing authentication token ACL on upgrades; preserve customized Windows ZIP/PowerShell configuration and align firewall/installer diagnostics with the configured HTTP port.
