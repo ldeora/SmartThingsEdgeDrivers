@@ -38,6 +38,7 @@ Source: "..\publish\win-x64\appsettings.json"; DestDir: "{app}"; Flags: onlyifdo
 Source: "..\scripts\Install-WindowsAgent.ps1"; DestDir: "{app}\Installer"; Flags: ignoreversion
 Source: "..\scripts\Uninstall-WindowsAgent.ps1"; DestDir: "{app}\Installer"; Flags: ignoreversion
 Source: "..\scripts\Prepare-WindowsAgentUpgrade.ps1"; Flags: dontcopy
+Source: "..\scripts\Restore-WindowsAgentUpgrade.ps1"; Flags: dontcopy
 Source: "..\scripts\Restore-WindowsAgentUpgrade.ps1"; DestDir: "{app}\Installer"; Flags: ignoreversion
 Source: "..\scripts\Check-WindowsAgentHealth.ps1"; Flags: dontcopy
 Source: "..\scripts\Set-WindowsHubAddress.ps1"; DestDir: "{app}\Installer"; Flags: ignoreversion
