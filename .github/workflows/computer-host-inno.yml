@@ -1,4 +1,4 @@
-name: Computer Host LAN Windows graphical installer (beta validation)
+name: Computer Host LAN Windows graphical installer (candidate validation)
 concurrency:
   group: computer-host-${{ github.workflow }}-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
