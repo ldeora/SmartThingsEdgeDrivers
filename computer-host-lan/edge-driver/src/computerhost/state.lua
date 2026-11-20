@@ -39,11 +39,16 @@ function M.success(action,boot_changed,failed_polls,elapsed_seconds)
     return boot_changed and "running" or "rebooting",boot_changed==true
   end
   if action=="shutdown" then
-    if (elapsed_seconds or 0)>=60 then return "running",true end
+    -- A slow Windows shutdown may still complete later; show Running after
+    -- the grace period without discarding its action context. The outer
+    -- 180-second bound eventually expires a truly cancelled shutdown.
+    if (elapsed_seconds or 0)>=60 then return "running",false end
     return "stopping",false
   end
   if action=="suspend" then
-    if (failed_polls or 0)>0 or (elapsed_seconds or 0)>=30 then return "running",true end
+    -- Do not interpret one unrelated transient network error as a resume.
+    if (failed_polls or 0)>=2 then return "running",true end
+    if (elapsed_seconds or 0)>=30 then return "running",false end
     return "suspending",false
   end
   return "running",false
