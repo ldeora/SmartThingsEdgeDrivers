@@ -52,17 +52,20 @@ class StateReducerTests(unittest.TestCase):
             -- Suspend accepted but still running: keep transitional state.
             a,b=S.success('suspend',false,0,10)
             assert(a=='suspending' and b==false)
-            -- Short suspend/resume with one failed poll must clear pending.
+            -- One transient failed poll alone is not enough to confirm a resume.
             a,b=S.success('suspend',false,1,10)
+            assert(a=='suspending' and b==false)
+            -- Multiple failed polls before a successful poll confirm a resume gap.
+            a,b=S.success('suspend',false,2,10)
             assert(a=='running' and b==true)
-            -- Unobserved/very brief sleep must not leave 180s stale state.
+            -- Expired display grace returns Running but keeps bounded pending context.
             a,b=S.success('suspend',false,0,31)
-            assert(a=='running' and b==true)
-            -- A cancelled shutdown should recover to running after its grace.
+            assert(a=='running' and b==false)
+            -- A cancelled shutdown should recover to Running, allowing late shutdown.
             a,b=S.success('shutdown',false,0,15)
             assert(a=='stopping' and b==false)
             a,b=S.success('shutdown',false,0,61)
-            assert(a=='running' and b==true)
+            assert(a=='running' and b==false)
         ''' % repr(str(ROOT))
         vm=lib.luaL_newstate()
         try:
