@@ -1,5 +1,8 @@
 # Native Windows Host Agent — v0.2.4-beta.1 (proposed v0.5.5-beta.1 integration)
 
+> **Next candidate: Computer Host LAN v0.5.6-beta.1 (not yet published).** This single hardening candidate combines installer recovery and runtime resilience. Current published/tested beta: [v0.5.5-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.5-beta.1). [Candidate release notes](../docs/beta/RELEASE-NOTES-v0.5.6-beta.1.md).
+
+
 **Not yet published:** the public beta remains v0.5.4-beta.1. This source tree is the v0.5.5 stabilization candidate; see [candidate release notes](../docs/beta/RELEASE-NOTES-v0.5.5-beta.1.md).
 
 Companion to **Computer Host LAN v0.5.4-beta.1**, sharing protocol v2 and `_computerhost._tcp` discovery with the Linux agent.
