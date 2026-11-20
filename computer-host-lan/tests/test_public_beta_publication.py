@@ -10,11 +10,13 @@ VERSION = MANIFEST["integration"]
 RELEASE = f"https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v{VERSION}"
 NOTES_DIRECTORY = "beta" if "-beta." in VERSION else "release"
 NOTES = BASE / f"docs/{NOTES_DIRECTORY}/RELEASE-NOTES-v{VERSION}.md"
+QUICK_START = BASE / ("docs/beta/START-HERE.md" if NOTES_DIRECTORY == "beta"
+                      else "docs/release/QUICK-START.md")
 
 class PublicBetaPublicationTests(unittest.TestCase):
     def test_invite_in_distribution_docs(self):
         for file in (BASE / "README.md", BASE / "INSTALLATION.md",
-                     BASE / "docs/beta/START-HERE.md",
+                     QUICK_START,
                      BASE / "docs/beta/SMARTTHINGS-CHANNEL.md",
                      NOTES,
                      BASE / "docs/beta/COMMUNITY-ANNOUNCEMENT.md"):
@@ -23,7 +25,7 @@ class PublicBetaPublicationTests(unittest.TestCase):
         if "-candidate-v" in MANIFEST["release_stage"]:
             self.skipTest("release candidate not published yet")
         for file in (BASE / "README.md", BASE / "INSTALLATION.md",
-                     BASE / "docs/beta/START-HERE.md",
+                     QUICK_START,
                      NOTES):
             self.assertIn(RELEASE, file.read_text(encoding="utf-8"), str(file))
     def test_release_stage_never_enables_power(self):
