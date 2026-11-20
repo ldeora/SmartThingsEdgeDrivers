@@ -1,5 +1,8 @@
 # Computer Host LAN — SmartThings for Linux and Windows
 
+> **Next candidate: Computer Host LAN v0.5.6-beta.1 (not yet published).** This single hardening candidate combines installer recovery and runtime resilience. Current published/tested beta: [v0.5.5-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.5-beta.1). [Candidate release notes](docs/beta/RELEASE-NOTES-v0.5.6-beta.1.md).
+
+
 **Current published beta: v0.5.4-beta.1** (Linux/Edge v0.4.2-beta.1; Windows v0.2.3-beta.1). **Next beta candidate: v0.5.5-beta.1** (Linux/Edge v0.4.3-beta.1; Windows v0.2.4-beta.1). Protocol v2 unchanged; the new version is **not published yet**.
 
 Computer Host LAN is a **separate** project from [Linux Host LAN](../linux-host-lan/). It uses the `_computerhost._tcp` discovery service and `/v2` HTTP API. **Do not pair a protocol-v1 Linux Host LAN agent with this driver.**
