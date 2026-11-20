@@ -51,17 +51,37 @@ def state_dir() -> Path:
 
 
 def persistent_value(path: Path, create, validate) -> str:
+    """Publish fresh identity/token atomically; never replace an existing value.
+
+    An interrupted first startup can leave an unreferenced private temporary
+    file, but cannot leave a partial installation-id or control-token.
+    """
     path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    if path.is_symlink():
+        raise RuntimeError(f"Refusing symlinked private state: {path}")
+    if not path.exists():
+        temporary = path.with_name(f".{path.name}.{secrets.token_hex(8)}.tmp")
+        fd = os.open(temporary, os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW, 0o600)
+        try:
+            with os.fdopen(fd, "w", encoding="ascii") as out:
+                out.write(create() + "\n")
+                out.flush()
+                os.fsync(out.fileno())
+            try:
+                os.link(temporary, path, follow_symlinks=False)
+                directory_fd = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
+                try:
+                    os.fsync(directory_fd)
+                finally:
+                    os.close(directory_fd)
+            except FileExistsError:
+                # Another startup won the race; read its published value.
+                pass
+        finally:
+            temporary.unlink(missing_ok=True)
     try:
-        fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
-    except FileExistsError:
-        fd = None
-    if fd is not None:
-        with os.fdopen(fd, "w", encoding="ascii") as out:
-            out.write(create() + "\n")
-            out.flush()
-            os.fsync(out.fileno())
-    try:
+        if path.is_symlink():
+            raise ValueError("private state cannot be a symbolic link")
         value = path.read_text(encoding="ascii").strip()
         if path.stat().st_mode & 0o077:
             raise ValueError("private state file must have mode 0600 or more restrictive")
@@ -70,7 +90,6 @@ def persistent_value(path: Path, create, validate) -> str:
         return value
     except (OSError, ValueError) as exc:
         raise RuntimeError(f"Corrupt or insecure state at {path}: {exc}") from exc
-
 
 def installation_id(path: Path) -> str:
     return persistent_value(path, lambda: str(uuid.uuid4()),
