@@ -1,33 +1,20 @@
-# Computer Host LAN — next beta candidate v0.5.5-beta.1 (2026-11-19)
+# Computer Host LAN — beta status (2026-11-20)
 
-> **Next candidate: Computer Host LAN v0.5.6-beta.1 (not yet published).** This single hardening candidate combines installer recovery and runtime resilience. Current published/tested beta: [v0.5.5-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.5-beta.1). [Candidate release notes](docs/beta/RELEASE-NOTES-v0.5.6-beta.1.md).
+**Published and Windows 11 hardware-tested:** [v0.5.5-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.5-beta.1), Windows agent 0.2.4-beta.1 and Linux/Edge 0.4.3-beta.1. **Consolidated next candidate:** [v0.5.6-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.6-beta.1), Windows agent 0.2.5-beta.1 and Linux/Edge 0.4.4-beta.1; [draft PR #21](https://github.com/ldeora/SmartThingsEdgeDrivers/pull/21) is not yet published or hardware-tested. Protocol v2 unchanged.
 
+## Real-hardware baseline
 
-**Candidate awaiting publication:** integration v0.5.5-beta.1 (Linux agent / Edge driver v0.4.3-beta.1; Windows agent v0.2.4-beta.1), based on merged PR #19 and new versioning PR. The source code includes the new safeguards, but no v0.5.5 files are yet published. Candidate notes: [v0.5.5-beta.1](docs/beta/RELEASE-NOTES-v0.5.5-beta.1.md). Protocol v2, installation UUIDs, control keys and the existing channel remain compatible.
+- **Windows 11 Pro v0.5.5:** GUI in-place upgrade, device/settings retention, CPU/RAM/disk data, service stop/restart recovery (Off/Unreachable → On/Running), Wake/Restart/Sleep controls, working WOL and agent 0.2.4-beta.1 confirmed by volunteer.
+- **Gentoo Linux hydra + real SmartThings hub:** discovery, telemetry, reboot, suspend/WOL, shutdown/WOL and recovery confirmed.
+- **CI:** native Windows Server 2025 and Linux Python/distribution tests validate builds and scripted scenarios; they do not certify all physical computers.
 
-**Publishing gate:** merge and rerun all four CI workflows at the final commit, verify asset hashes and source metadata, confirm the Edge driver is packaged and assigned to the existing SmartThings channel, and separately publish a new GitHub prerelease before inviting testers to upgrade. Do not modify older release assets. Third-party licensing and signing require publisher review before stable v1.0.
+## Consolidated v0.5.6 candidate
 
-## Published baseline: v0.5.4-beta.1
+Addresses abandoned installer snapshots, health-gated upgrades, Windows privilege/service SID, physical NIC WOL selection, resilient mDNS, atomic identity creation, Linux WOL conflicts and Edge state-machine accuracy. All four workflows must pass at the final PR head and merged main commit; publish **one** new prerelease and assign the updated Edge driver to the existing channel. Request a new physical Windows/Gentoo test round before the stable RC.
 
-**Current public download:** [v0.5.4-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.4-beta.1), published November 19 from commit `f19c114b1cca7dcb87b5774eff7602e70184047c`.
-The Linux agent and Edge Driver remain v0.4.2-beta.1; Windows agent
-v0.2.3-beta.1; protocol v2 and the existing shared SmartThings channel are
-unchanged. Both Windows Setup.exe and ZIP/PowerShell remain supported.
+---
 
-**Hardware confirmation:** A Windows 11 Pro volunteer has now reported
-successful installation and upgrade through the actual graphical wizard,
-accurate CPU/RAM/disk monitoring, and provided a SmartThings screenshot.
-The previous Windows volunteer's report confirmed suspend, reboot and
-shutdown actions. This is valuable real-hardware evidence, not complete
-coverage of WOL, every firmware or network recovery scenario.
-
-**Stabilization merged:** [PR #19](https://github.com/ldeora/SmartThingsEdgeDrivers/pull/19) now resides in `main` (`0978dd75557ce8b3b38693cdf740aaa2585ab0fa`), with all four workflows passing. Its changes are **not** in the published v0.5.4-beta.1 binaries. They will first be distributed in the separately published v0.5.5-beta.1.
-The first stable release candidate is gated by
-[release readiness](RELEASE-READINESS.md), including actual Windows hardware
-retests and publisher licensing/provenance sign-off. Preserve the published
-v0.5.4-beta.1 assets for rollback.
-
-
+## Historical releases (previous status snapshots)
 ---
 
 # Next candidate: Computer Host LAN v0.5.3-beta.1 — preparing publication

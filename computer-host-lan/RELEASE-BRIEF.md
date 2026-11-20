@@ -1,13 +1,14 @@
-# Computer Host LAN v0.5.5-beta.1 — candidate release brief
+# Computer Host LAN v0.5.6-beta.1 — consolidated release brief
 
-> **Next candidate: Computer Host LAN v0.5.6-beta.1 (not yet published).** This single hardening candidate combines installer recovery and runtime resilience. Current published/tested beta: [v0.5.5-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.5-beta.1). [Candidate release notes](docs/beta/RELEASE-NOTES-v0.5.6-beta.1.md).
+**Published and Windows 11 hardware-tested:** [v0.5.5-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.5-beta.1), Windows agent 0.2.4-beta.1 and Linux/Edge 0.4.3-beta.1. **Consolidated next candidate:** [v0.5.6-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.6-beta.1), Windows agent 0.2.5-beta.1 and Linux/Edge 0.4.4-beta.1; [draft PR #21](https://github.com/ldeora/SmartThingsEdgeDrivers/pull/21) is not yet published or hardware-tested. Protocol v2 unchanged.
 
+**Scope:** a single hardening release addressing Windows installer recovery, health checks, privilege preflight, per-service key access, physical WOL NIC selection, retrying mDNS and atomic identity; safer Linux state and WOL configuration; SmartThings delayed-shutdown and transient-suspend state refinements.
 
-**Not yet released.** Follow-up to the stabilization PR #19 (merged main commit `0978dd75557ce8b3b38693cdf740aaa2585ab0fa`), with Windows agent v0.2.4-beta.1, Linux agent / Edge driver v0.4.3-beta.1, and unchanged protocol v2. The installer is still unsigned; GUI setup remains the recommended Windows method and ZIP/PowerShell remains supported.
+**Baseline evidence:** v0.5.5 Windows 11 Pro volunteer verified graphical upgrade, accurate telemetry, service recovery, all power buttons and working Wake-on-LAN. New v0.5.6 changes still require fresh CI and hardware tests.
 
-**Sequence:** new versioning PR → all four CI workflows on final merged commit → verify source SHA, four deliverable checksums and embedded component versions → publish a *new* prerelease `computer-host-lan-v0.5.5-beta.1` → package/assign the updated Edge driver to the *existing* channel → validate Windows 11 and Gentoo upgrade/recovery → announce. Keep v0.5.4-beta.1 as a rollback option. No workflow automatically creates a release or deploys the Edge driver.
+**Release process:** finish PR review → merge → verify all four workflows on exact final main SHA → validate installer, ZIP/source/doc assets and SHA256SUMS → publish **one** prerelease computer-host-lan-v0.5.6-beta.1 → package/assign Edge v0.4.4-beta.1 to the existing SmartThings channel → one Windows/Gentoo test round → announce. Preserve v0.5.5 assets for rollback. Signing and legal/provenance review remain stable-release gates.
 
-[Release notes](docs/beta/RELEASE-NOTES-v0.5.5-beta.1.md) · [Publication gates](docs/beta/PUBLICATION-GATES.md) · [Stable-release readiness](RELEASE-READINESS.md)
+[Release notes](docs/beta/RELEASE-NOTES-v0.5.6-beta.1.md) · [Release readiness](RELEASE-READINESS.md)
 
 ---
 
