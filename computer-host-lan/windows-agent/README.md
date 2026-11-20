@@ -1,6 +1,6 @@
-# Native Windows Host Agent — v0.2.5-beta.1 candidate
+# Native Windows Host Agent — v0.2.5-beta.1
 
-**Public and Windows 11 hardware-tested baseline:** [v0.5.5-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.5-beta.1). **Unpublished consolidated hardening candidate:** [v0.5.6-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.6-beta.1) in [PR #21](https://github.com/ldeora/SmartThingsEdgeDrivers/pull/21), Windows agent 0.2.5-beta.1, Linux and Edge 0.4.4-beta.1, protocol v2 unchanged.
+**Published prerelease:** [v0.5.6-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.6-beta.1) (Windows agent 0.2.5-beta.1; Linux/Edge 0.4.4-beta.1; protocol v2). **Hardware-validated rollback baseline:** [v0.5.5-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.5-beta.1). The v0.5.6 changes need independent Windows 11 testing.
 
 The Windows 11 tester confirmed **v0.5.5**, not the new candidate: successful graphical upgrade, preserved identity/settings and SmartThings device, accurate CPU/memory/disk statistics, service recovery, Wake/Restart/Sleep controls and working WOL. Windows Server 2025 CI covers agent and native GUI scenarios; ARM64 is cross-built only. The v0.5.6 candidate introduces privilege preflight with monitoring-only fallback, service-SID ACL isolation, atomic identity creation, refreshed physical-NIC WOL metadata and resilient mDNS registration.
 
@@ -17,7 +17,7 @@ Builds use .NET 10. Published x64 binaries are self-contained, so ordinary teste
 
 ## Recommended graphical Windows x64 Setup.exe
 
-Download the current [v0.5.5-beta.1 release](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.5-beta.1) and verify SHA256SUMS; do not use the proposed v0.5.6 link until published. The unsigned Setup preserves UUID, control key, custom configuration, listener port and power opt-in during an in-place upgrade. Existing SmartThings devices should not be deleted or re-paired.
+Download the published [v0.5.6-beta.1 release](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.6-beta.1) and verify SHA256SUMS. Its new recovery/privilege/NIC paths still need real-hardware testing. The unsigned Setup preserves UUID, control key, custom configuration, listener port and power opt-in during an in-place upgrade. Existing SmartThings devices should not be deleted or re-paired.
 
 ## ZIP / elevated PowerShell fallback
 

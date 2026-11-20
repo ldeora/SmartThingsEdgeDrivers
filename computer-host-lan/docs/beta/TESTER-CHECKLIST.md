@@ -22,7 +22,7 @@
 - [ ] M13: Uninstall removes service and application-owned firewall rule; state retained unless purge requested.
 - [ ] M14: Diagnostics are readable and manually reviewed for identifiers before sharing.
 
-## v0.5.5-beta.1 stabilization validation (when published)
+## v0.5.5-beta.1 stabilization validation (tested baseline)
 
 - [ ] S01: Upgrade from the published v0.5.4-beta.1 Setup.exe to v0.5.5 using the wizard, not a ZIP extracted into Program Files. Existing SmartThings device, installation ID, control key, settings and optional power enablement remain unchanged.
 - [ ] S02: On Windows, run `Get-Service ComputerHostAgent`, `/v2/info` and `/v2/metrics`; verify `agent_version=0.2.4-beta.1`, monitoring values and no duplicate SmartThings device.
@@ -31,6 +31,16 @@
 - [ ] S05: On Gentoo or another Linux systemd host, verify `agent_version=0.4.3-beta.1` and unchanged UUID/key, telemetry, driver discovery and normal service behavior.
 - [ ] S06: After **publisher** updates the existing SmartThings channel, confirm driver v0.4.3-beta.1, readable Wake/Restart/Sleep component labels, unchanged automations and quick suspend/recovery state transitions.
 - [ ] S07: Record failures and Windows Setup log after **manual redaction**; never share control tokens. Mark untested WOL/power states explicitly.
+
+## v0.5.6-beta.1 hardening verification (physical hardware)
+
+- [ ] H01: Record the actually installed v0.5.6 agent version from `/v2/info` and driver version from the enrolled hub; verify that the 0.5.6 release assets match checksums. If the driver assignment cannot be verified, mark it NOT TESTED.
+- [ ] H02: Upgrade via the graphical installer over v0.5.5 on a noncritical Windows 11 x64 machine. Confirm the same UUID, control token, firewall restrictions, configured HTTP port, optional power setting and SmartThings device; no re-pairing.
+- [ ] H03: Confirm the agent's health checks pass before the installer considers the upgrade successful. If an interrupted-upgrade snapshot already exists, use only the documented recovery procedure; do not delete state or simulate failure on irreplaceable equipment.
+- [ ] H04: Where hardware permits, verify a virtual NIC is not incorrectly selected for WOL, and the physical Ethernet adapter remains selectable. Do not assume WOL from every Windows sleep/shutdown state.
+- [ ] H05: Where policy permits, verify that a Windows shutdown-privilege restriction disables power advertisement without disabling monitoring.
+- [ ] H06: Exercise a controlled service restart and a hub reboot, verifying no duplicate SmartThings devices or permanently incorrect suspend/shutdown status.
+- [ ] H07: On Linux, upgrade without identity/key regeneration; verify service recovery and WOL configuration preservation without touching unrelated per-MAC systemd link files.
 
 ## Windows guided Setup.exe beta test cases (Windows 11 x64)
 

@@ -1,11 +1,8 @@
 # Computer Host LAN — volunteer beta quick start
 
-Candidate release URL (not yet published): https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.6-beta.1
+**Latest published prerelease:** [v0.5.6-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.6-beta.1) (Windows agent 0.2.5-beta.1, Linux/Edge 0.4.4-beta.1; protocol v2). The previous [v0.5.5-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.5-beta.1) remains the hardware-validated rollback baseline. v0.5.6's new upgrade and runtime hardening changes still need physical verification.
 
-
-**Upcoming beta: v0.5.5-beta.1** is being prepared after the stabilization merge, but is **not downloadable yet**. Continue using published v0.5.4-beta.1 until the [new release](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.5-beta.1) is explicitly published and the updated Edge driver has been assigned to the existing channel. [Candidate changes and upgrade instructions](RELEASE-NOTES-v0.5.5-beta.1.md).
-
-**Current public beta v0.5.4-beta.1 (published 2026-11-19):** Download the host agent from the [official GitHub prerelease](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.4-beta.1) and install the Edge Driver through the [verified SmartThings channel invitation](https://bestow-regional.api.smartthings.com/invite/1J2Qy7ZkxL20). A Windows 11 Pro volunteer has confirmed graphical wizard installation and upgrade plus accurate monitoring in SmartThings; earlier testing also confirmed Suspend, Reboot, and Shutdown (Off); WOL and further platform coverage still need testers. Do not follow old `Linux Host LAN` beta guides for this project; those use protocol v1.
+**SmartThings:** Enroll the hub via the [existing driver channel invitation](https://bestow-regional.api.smartthings.com/invite/1J2Qy7ZkxL20), and check that Edge driver 0.4.4-beta.1 is assigned before claiming the v0.5.6 driver is installed. Do not use the old protocol-v1 Linux Host LAN driver.
 
 ## Requirements
 
@@ -13,7 +10,7 @@ A LAN-capable SmartThings hub, private trusted LAN with UDP5353/mDNS (for discov
 
 ## 1. Download and verify
 
-For Windows 11 x64, prefer the **unsigned graphical Setup.exe** from the published [v0.5.4-beta.1 release](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.4-beta.1). Verify the SHA-256 using `SHA256SUMS.txt`. For Linux, download the versioned source ZIP. Windows ZIP/PowerShell installation continues as a fallback, not a deprecated method. The older [v0.5.3-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.3-beta.1) assets remain available for rollback.
+For Windows 11 x64, prefer the **unsigned graphical Setup.exe** from the [v0.5.6-beta.1 release](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.6-beta.1). Verify its SHA-256 using `SHA256SUMS.txt`. Linux users should download the matching source ZIP. The Windows ZIP/PowerShell kit remains a fallback. The [v0.5.5-beta.1 assets](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.5-beta.1) remain available for rollback.
 
 ## 2. Install monitoring only
 

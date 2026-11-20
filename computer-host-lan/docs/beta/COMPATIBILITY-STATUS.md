@@ -1,6 +1,6 @@
-> **Candidate evidence:** the upcoming v0.5.5-beta.1 includes changes from merged PR #19, validated on native Windows Server 2025 and Linux CI at `0978dd75557ce8b3b38693cdf740aaa2585ab0fa`. The Windows 11 Pro installer/metrics report below refers to the previously published v0.5.4-beta.1; **it does not yet validate v0.5.5 on real Windows hardware**. The final versioned candidate requires fresh CI and a tester upgrade. All hardware-specific WOL constraints remain.
+> **Current evidence:** [v0.5.6-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.6-beta.1) is published but its newly changed recovery, privilege, NIC and state-machine paths still require hardware validation. The Windows 11 Pro tester's upgrade, metrics, recovery, controls and Wake-on-LAN report validates [v0.5.5-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.5-beta.1) on that machine. Container/Windows Server CI is not a substitute for physical testing.
 
-# Computer Host LAN — compatibility evidence (updated 2026-11-19)
+# Computer Host LAN — compatibility evidence (updated 2026-11-20)
 
 | Platform | Evidence | Outstanding |
 | --- | --- | --- |
@@ -9,7 +9,7 @@
 | Ubuntu 24.04/26.04 | Python/unit and installer-source smoke **CI passed in containers** | Full systemd/network manager integration, hardware WOL |
 | Fedora 43/44 | Python/unit and installer-source smoke **CI passed in containers** | SELinux enforcing, firewalld, actual hardware |
 | Windows Server 2025 x64 | Agent and native Inno Setup 7 GUI tests passed (Welcome, hub field, optional key copy, ZIP migration, upgrade, uninstall safety); service/HMAC/metrics CI passed ([GUI CI](https://github.com/ldeora/SmartThingsEdgeDrivers/actions/runs/44515639490)) | Physical SmartThings LAN/mDNS, Windows 11 graphical testing, WOL and desktop sleep behavior |
-| Windows 11 Pro x64 (public-beta volunteer, 2026-11-19) | **Real GUI validation reported:** new graphical Setup.exe installation **and** upgrade worked; CPU, RAM and system-drive statistics reported as accurate, with a SmartThings screenshot showing the Windows profile and resource fields. An earlier Windows volunteer confirmed authenticated Suspend, Reboot and Shutdown on the ZIP-based installation. | Windows WOL, nondefault custom ports, intentionally interrupted upgrades, service loss/recovery and other NICs/hardware; a screenshot cannot prove every power path. |
+| Windows 11 Pro x64 (v0.5.4/v0.5.5 volunteers, 2026-11-19/20) | Real graphical installation and in-place upgrade, device/configuration retention, CPU/RAM/disk metrics; a v0.5.5 volunteer also confirmed service recovery, Wake/Restart/Sleep and WOL on their machine. | These reports do **not** validate newly changed v0.5.6 recovery, privileges, mDNS, WOL NIC selection or state inference. Other NICs, power states and network profiles still need testing. |
 | Windows ARM64 | Cross-publish passed | Execution, installer, mDNS, power, hardware WOL |
 | Other Linux, Windows variants | Not validated | Must not be advertised as verified |
 

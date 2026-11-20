@@ -1,6 +1,6 @@
 # Computer Host LAN — SmartThings for Linux and Windows
 
-**Published and Windows 11 hardware-tested:** [v0.5.5-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.5-beta.1), Windows agent 0.2.4-beta.1 and Linux/Edge 0.4.3-beta.1. **Consolidated next candidate:** [v0.5.6-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.6-beta.1), Windows agent 0.2.5-beta.1 and Linux/Edge 0.4.4-beta.1; [draft PR #21](https://github.com/ldeora/SmartThingsEdgeDrivers/pull/21) is not yet published or hardware-tested. Protocol v2 unchanged.
+**Latest published prerelease:** [v0.5.6-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.6-beta.1) (Windows agent 0.2.5-beta.1; Linux agent and Edge driver 0.4.4-beta.1; protocol v2 unchanged). **Hardware-validated baseline:** [v0.5.5-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.5-beta.1). The v0.5.6 changes still need independent physical Windows and Linux testing; publication does not establish hardware validation.
 
 Computer Host LAN is a **separate** project from [Linux Host LAN](../linux-host-lan/). It uses the `_computerhost._tcp` discovery service and `/v2` HTTP API. **Do not pair a protocol-v1 Linux Host LAN agent with this driver.**
 
@@ -29,4 +29,4 @@ Windows system metrics include CPU, RAM, system-drive usage and uptime. Both age
 
 **SmartThings installation:** [ARoedl SmartThings Edge Drivers](https://bestow-regional.api.smartthings.com/invite/1J2Qy7ZkxL20). Enroll the existing hub and install the Computer Host LAN driver; do not re-pair existing computer devices during upgrades.
 
-**Release status:** [v0.5.5-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.5-beta.1) is the current public download and tested rollback baseline. The graphical Setup.exe is recommended for Windows x64; the ZIP/PowerShell kit is a fallback. v0.5.6 adds installer recovery and Windows/Linux/Edge hardening; publish it only after full CI on the merged main commit and separate SmartThings driver-channel deployment. Do not deploy PR artifacts to volunteer computers.
+**Release status:** [v0.5.6-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.6-beta.1) is published. The separately hardware-tested v0.5.5-beta.1 remains the rollback baseline. Windows x64 users should prefer the published unsigned graphical Setup.exe; Windows ZIP/PowerShell is a fallback. Verify Edge driver 0.4.4-beta.1 is assigned to the existing channel before claiming full v0.5.6 deployment. Never install temporary PR artifacts.

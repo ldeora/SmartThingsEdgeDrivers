@@ -1,6 +1,6 @@
 # Computer Host LAN — beta status (2026-11-20)
 
-**Published and Windows 11 hardware-tested:** [v0.5.5-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.5-beta.1), Windows agent 0.2.4-beta.1 and Linux/Edge 0.4.3-beta.1. **Consolidated next candidate:** [v0.5.6-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.6-beta.1), Windows agent 0.2.5-beta.1 and Linux/Edge 0.4.4-beta.1; [draft PR #21](https://github.com/ldeora/SmartThingsEdgeDrivers/pull/21) is not yet published or hardware-tested. Protocol v2 unchanged.
+**Latest published prerelease:** [v0.5.6-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.6-beta.1) (Windows agent 0.2.5-beta.1; Linux agent/Edge driver 0.4.4-beta.1; protocol v2). **Hardware-tested baseline:** [v0.5.5-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.5-beta.1); the new v0.5.6 paths still require physical validation.
 
 ## Real-hardware baseline
 
@@ -8,9 +8,9 @@
 - **Gentoo Linux hydra + real SmartThings hub:** discovery, telemetry, reboot, suspend/WOL, shutdown/WOL and recovery confirmed.
 - **CI:** native Windows Server 2025 and Linux Python/distribution tests validate builds and scripted scenarios; they do not certify all physical computers.
 
-## Consolidated v0.5.6 candidate
+## Published v0.5.6 — outstanding verification
 
-Addresses abandoned installer snapshots, health-gated upgrades, Windows privilege/service SID, physical NIC WOL selection, resilient mDNS, atomic identity creation, Linux WOL conflicts and Edge state-machine accuracy. All four workflows must pass at the final PR head and merged main commit; publish **one** new prerelease and assign the updated Edge driver to the existing channel. Request a new physical Windows/Gentoo test round before the stable RC.
+Addresses abandoned installer snapshots, health-gated upgrades, Windows privilege/service SID, physical NIC WOL selection, resilient mDNS, atomic identity creation, Linux WOL conflicts and Edge state-machine accuracy. Confirm the final release-commit CI and published checksums. Verify the updated Edge driver is assigned to the existing channel; this document does not independently establish that deployment. Request a physical Windows/Gentoo test round before the stable RC.
 
 ---
 

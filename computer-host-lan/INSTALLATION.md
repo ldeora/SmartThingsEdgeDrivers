@@ -1,6 +1,6 @@
 # Computer Host LAN — installation (protocol v2)
 
-**Published and Windows 11 hardware-tested:** [v0.5.5-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.5-beta.1), Windows agent 0.2.4-beta.1 and Linux/Edge 0.4.3-beta.1. **Consolidated next candidate:** [v0.5.6-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.6-beta.1), Windows agent 0.2.5-beta.1 and Linux/Edge 0.4.4-beta.1; [draft PR #21](https://github.com/ldeora/SmartThingsEdgeDrivers/pull/21) is not yet published or hardware-tested. Protocol v2 unchanged.
+**Published prerelease:** [v0.5.6-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.6-beta.1) (Windows agent 0.2.5-beta.1; Linux/Edge 0.4.4-beta.1; protocol v2). **Hardware-validated rollback baseline:** [v0.5.5-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.5-beta.1). v0.5.6 hardware validation is still pending.
 
 ## Before installation
 
@@ -8,7 +8,7 @@ Use a trusted private LAN and a SmartThings hub that supports LAN Edge drivers. 
 
 ## Windows 11 x64 — recommended graphical installer
 
-Use the Windows x64 Setup.exe from the **current published [v0.5.5-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.5-beta.1)** and verify its SHA-256 using SHA256SUMS.txt. The installer is unsigned, requires administrator rights and is self-contained. The proposed v0.5.6 installer is not public until its release is published.
+Use the Windows x64 Setup.exe from the **published [v0.5.6-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.6-beta.1)**, verifying SHA-256 using SHA256SUMS.txt. The installer is unsigned, requires administrator rights and is self-contained. New v0.5.6 recovery paths still require physical Windows 11 testing.
 
 1. Run Setup.exe. On the **SmartThings hub** page, select a discovered hub, retry **Search again**, or enter the hub's IPv4 manually. When discovery fails, the explicit **Allow connections from devices on my local network** option configures a Private-only LocalSubnet firewall rule; when discovery works, find this choice under **Advanced options**. It does not repair blocked mDNS between networks.
 2. Choose whether to enable optional **Power management**. A new installation defaults to monitoring only. A Setup upgrade or conversion from the existing ZIP/PowerShell installation retains the previous power preference unless you change it.
@@ -61,7 +61,7 @@ The v0.5.5 Windows 11 tester confirmed a successful in-place GUI upgrade, preser
 
 Run the version-matched newer Setup.exe over the existing installation. Do not uninstall, delete the SmartThings device or purge the persistent UUID and control token. Setup preserves the prior power preference; ZIP/PowerShell upgrades require -EnablePower again. Install only from a **published release** after checking SHA-256 hashes, not from temporary PR artifacts.
 
-The v0.5.6 candidate adds an interrupted-upgrade recovery option and checks health, version and existing identity before committing. Never delete the rollback snapshot or ProgramData files to bypass a failure. Keep a router DHCP reservation for the SmartThings hub. Review the [candidate release notes](docs/beta/RELEASE-NOTES-v0.5.6-beta.1.md) before any new hardware tests.
+The published v0.5.6 beta adds an interrupted-upgrade recovery option and checks health, version and existing identity before committing. Never delete the rollback snapshot or ProgramData files to bypass a failure. Keep a router DHCP reservation for the SmartThings hub. Review the [published beta release notes](docs/beta/RELEASE-NOTES-v0.5.6-beta.1.md) before any new hardware tests.
 
 ## v0.5.6 hub address maintenance and interrupted upgrade recovery
 
