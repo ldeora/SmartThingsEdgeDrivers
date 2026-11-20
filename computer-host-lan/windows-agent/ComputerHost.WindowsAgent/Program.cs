@@ -24,7 +24,8 @@ builder.Services.AddSingleton<PersistentIdentity>();
 builder.Services.AddSingleton<BootSession>(sp =>
     new BootSession(sp.GetRequiredService<PersistentIdentity>(), WindowsMetrics.GetTickCount64()));
 builder.Services.AddSingleton<WindowsMetrics>();
-builder.Services.AddSingleton<WolMetadata>();
+// Network interfaces can change after boot: evaluate WOL candidates on each info request.
+builder.Services.AddTransient<WolMetadata>();
 builder.Services.AddSingleton<PowerConfiguration>();
 builder.Services.AddSingleton<PowerDispatcher>();
 builder.Services.AddHostedService<CpuSamplingService>();
@@ -34,6 +35,8 @@ var app = builder.Build();
 // Fail at startup if persistent identity is invalid or cannot be written.
 _ = app.Services.GetRequiredService<PersistentIdentity>();
 _ = app.Services.GetRequiredService<BootSession>();
+// Preflight optional power privileges before advertising actions to SmartThings.
+_ = app.Services.GetRequiredService<PowerConfiguration>();
 app.MapGet("/v2/info", (PersistentIdentity identity, PowerConfiguration power, WolMetadata wol) =>
 {
     var build = Environment.OSVersion.Version.Build;
