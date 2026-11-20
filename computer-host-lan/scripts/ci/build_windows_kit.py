@@ -85,7 +85,7 @@ def build(published: Path, output_dir: Path, runtime: str, commit: str) -> Path:
         add_source(entries, dst, src)
     add_source(entries, "docs/RELEASE-NOTES.md", ROOT / "docs" / notes_directory / f"RELEASE-NOTES-v{version}.md")
     add_source(entries, "LICENSE", ROOT / "LICENSE")
-    entries["README.md"] = (f"""# Computer Host LAN — Windows test kit
+    entries["README.md"] = (f"""# Computer Host LAN — Windows package
 
 Integration {version} · Windows agent {agent_version} · {runtime}
 Source commit: {commit}
