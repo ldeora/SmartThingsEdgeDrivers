@@ -30,4 +30,4 @@ The installer retains the existing installation identity, key and opt-in configu
 
 ## Feedback and limitations
 
-Please report the actual **OS, agent version, Edge driver version and result** (PASS/FAIL/NOT TESTED), particularly initial Windows installer rendering, hub discovery/retry, in-place upgrade, service restart and SmartThings device continuity. A Windows 11/SmartThings hardware result is not equivalent to CI. **Do not share IP/MAC addresses, installation IDs or control keys.** Full instructions: [installation and recovery](../../INSTALLATION.md).
+For one-round verification, use the [short RC checklist](RC-ACCEPTANCE.md). Report the actual **OS, agent version, Edge driver version and result** (PASS/FAIL/NOT TESTED), particularly initial Windows installer rendering, hub discovery/retry, in-place upgrade, service restart and SmartThings device continuity. A Windows 11/SmartThings hardware result is not equivalent to CI. **Do not share IP/MAC addresses, installation IDs or control keys.** Full instructions: [installation and recovery](../../INSTALLATION.md).
