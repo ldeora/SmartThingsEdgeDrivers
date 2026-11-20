@@ -1,6 +1,6 @@
-> **Candidate evidence:** the upcoming v0.5.5-beta.1 includes changes from merged PR #19, validated on native Windows Server 2025 and Linux CI at `0978dd75557ce8b3b38693cdf740aaa2585ab0fa`. The Windows 11 Pro installer/metrics report below refers to the previously published v0.5.4-beta.1; **it does not yet validate v0.5.5 on real Windows hardware**. The final versioned candidate requires fresh CI and a tester upgrade. All hardware-specific WOL constraints remain.
+> **Current evidence:** [v0.5.6-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.6-beta.1) is published but its newly changed recovery, privilege, NIC and state-machine paths still require hardware validation. The Windows 11 Pro tester's upgrade, metrics, recovery, controls and Wake-on-LAN report validates [v0.5.5-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.5-beta.1) on that machine. Container/Windows Server CI is not a substitute for physical testing.
 
-# Computer Host LAN — compatibility evidence (updated 2026-11-19)
+# Computer Host LAN — compatibility evidence (updated 2026-11-20)
 
 | Platform | Evidence | Outstanding |
 | --- | --- | --- |
