@@ -43,6 +43,12 @@ var b = new WindowsMetrics.CpuSample(1200, 5600, 5400);
 Assert(WindowsMetrics.CpuPercent(a, b) == 80, "CPU delta excludes idle kernel time");
 Assert(WindowsMetrics.CpuPercent(null, b) is null, "CPU first sample null");
 Assert(WindowsMetrics.CpuPercent(b, a) is null, "CPU backwards time rejected");
+Assert(WolMetadata.LooksVirtualAdapter("vEthernet (WSL)", "Hyper-V Virtual Ethernet Adapter"),
+    "WSL / Hyper-V virtual adapter excluded from automatic WOL selection");
+Assert(WolMetadata.LooksVirtualAdapter("Ethernet 2", "VMware Virtual Ethernet Adapter"),
+    "VMware virtual adapter excluded from automatic WOL selection");
+Assert(!WolMetadata.LooksVirtualAdapter("Ethernet", "Intel(R) Ethernet Controller"),
+    "physical Ethernet candidate retained");
 Assert(BootSession.IsSameBoot(1000, 1119), "boot estimate within tolerance preserved");
 Assert(!BootSession.IsSameBoot(1000, 1400), "genuine kernel restart changes boot ID");
 
@@ -53,6 +59,7 @@ try
     var id1 = new PersistentIdentity(cfg);
     var id2 = new PersistentIdentity(cfg);
     Assert(id1.Id == id2.Id && Guid.TryParse(id1.Id, out _), "persistent identity survives process reinitialization");
+    Assert(!Directory.EnumerateFiles(temp, "installation-id.*.tmp").Any(), "atomic identity leaves no temporary file after success");
     var boot1 = new BootSession(id1, 400000);
     var boot2 = new BootSession(id2, 400100);
     Assert(boot1.BootId == boot2.BootId, "boot session survives service restart");
