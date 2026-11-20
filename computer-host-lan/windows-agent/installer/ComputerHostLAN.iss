@@ -17,7 +17,7 @@ PrivilegesRequired=admin
 ; Inno Setup 7 builds a native x64 installer, avoiding WOW64 PowerShell module
 ; and Program Files redirection during service and firewall management.
 SetupArchitecture=x64
-ArchitecturesAllowed=x64compatible
+ArchitecturesAllowed=x64os
 ArchitecturesInstallIn64BitMode=x64compatible
 WizardStyle=modern dynamic
 Compression=lzma2
