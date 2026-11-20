@@ -1,18 +1,19 @@
-# Computer Host LAN — v0.5.5-beta.1 candidate publication gates
+# Computer Host LAN — v0.5.6-beta.1 post-publication verification
 
-The **published** baseline is still [v0.5.4-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.4-beta.1). [PR #19](https://github.com/ldeora/SmartThingsEdgeDrivers/pull/19) was merged into `main` as `0978dd75557ce8b3b38693cdf740aaa2585ab0fa` and all four workflows passed on that commit. Those fixes are *not* present in published 0.5.4 binaries.
+**Published prerelease:** [v0.5.6-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.6-beta.1), dated 2026-11-20. **Previously hardware-tested baseline:** [v0.5.5-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.5-beta.1). The existence of a GitHub release does not demonstrate that the matching Edge driver was assigned or that the new runtime/installer behaviors passed real-hardware tests.
 
-The candidate is **v0.5.5-beta.1** (Linux/Edge 0.4.3-beta.1, Windows 0.2.4-beta.1, protocol v2). The target [GitHub tag](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.5-beta.1) is **not yet published**. The existing SmartThings channel is unchanged until an explicit new driver assignment.
+## Verify the published beta
 
-## Publication checklist
+- [ ] Record final merged release commit and verify all four CI workflows for that exact commit.
+- [ ] Independently check the four public deliverables (3 ZIP files and Windows Setup.exe) plus SHA256SUMS, internal BUILD-INFO, component versions, and source SHA. Never replace the published tag/assets to fix a failed check; publish a corrective version instead.
+- [ ] Confirm the existing SmartThings channel `7a23289c-d1f8-42cc-ba10-4ffd219b89bb` has Edge driver 0.4.4-beta.1 installed on at least one test hub, preserving driver ID `2ab3db0e-3b78-499e-bc3b-bcfa7f62b9f7`.
+- [ ] Complete v0.5.6 Windows 11 and Gentoo hardware checks for upgrade recovery, identity/key preservation, service resilience, selected physical WOL NIC, and state-machine recovery. Mark destructive failure simulations as controlled tests only.
+- [ ] Review third-party redistribution/provenance notices, unsigned SmartScreen guidance, and trusted-LAN restrictions.
+- [ ] After confirming the driver is available and the instructions match published binaries, update the SmartThings Community thread. Do not claim physical validation until reported.
+- [ ] Preserve the v0.5.5 release and already-paired SmartThings devices. Never delete persistent UUIDs or control tokens to force a successful upgrade.
 
-- [ ] Merge versioned candidate sources and documentation after passing Linux, Windows agent, native Inno GUI and complete release-packaging CI.
-- [ ] Use the **final merged `main` commit** and its release-candidate workflow, not preliminary PR assets. Verify 3 ZIPs, Windows Setup.exe and unified `SHA256SUMS.txt`, including `BUILD-INFO.json` source commit and runtime versions.
-- [ ] Confirm rollback testing (including ZIP→Setup) and unchanged UUID, token, profile component IDs and protocol; document any hardware-limited behavior.
-- [ ] Confirm third-party provenance/redistribution notices, unsigned SmartScreen wording and trusted-LAN restriction. Stable-release signing and full copyright sign-off are distinct, still-open gates.
-- [ ] Publish an **additional** GitHub prerelease, targeting the candidate merged commit, without overwriting or retagging 0.5.4 or earlier versions.
-- [ ] **Because the Edge driver changed**, package and assign Edge Driver 0.4.3-beta.1 to the existing SmartThings channel; do not create a replacement channel/driver identity.
-- [ ] Verify published asset hashes, SmartThings app telemetry/profile after updating the driver and safely upgrade Windows 11/Gentoo test devices.
-- [ ] Then publish the prepared Community update; retain v0.5.4 for rollback.
+## Stable v1.0 readiness
 
-No workflow automatically publishes a release or deploys a SmartThings driver. Full first-stable-release gates are tracked in [RELEASE-READINESS.md](../../RELEASE-READINESS.md).
+Hardware coverage, soak tests, security/third-party sign-off, and explicit Windows code-signing policy remain separate release gates. See [RELEASE-READINESS.md](../../RELEASE-READINESS.md) and the [v0.5.6 tester checklist](TESTER-CHECKLIST.md).
+
+No workflow automatically publishes a GitHub release or deploys a SmartThings driver.
