@@ -165,6 +165,10 @@ begin
   Searched := True;
   PreviousInput := HubSelect.Text;
   HubStatus.Caption := 'Searching for SmartThings hubs on your network...';
+  // Initial discovery starts before the new page necessarily has time to
+  // paint. Force the status and controls to render before blocking on the
+  // external discovery helper. Keep search behavior and network scope intact.
+  WizardForm.Repaint;
   HubSelect.Items.Clear;
   HubSelect.Text := '';
   try
@@ -629,7 +633,12 @@ procedure CurPageChanged(CurPageID: Integer);
 begin
   if (CurPageID = HubPage.ID) and (not Searched) and (not WizardSilent) and
      (HubSelect.Text = '') then
+  begin
+    // CurPageChanged runs as the page becomes active; without this repaint,
+    // waiting for the discovery process can leave the title/controls half drawn.
+    WizardForm.Repaint;
     SearchForHubs(nil);
+  end;
   if (CurPageID = ConnectPage.ID) and not WizardSilent and not InstallFailed then
     ShowConnectionPage;
   if (CurPageID = KeyPage.ID) and not WizardSilent and not InstallFailed then
