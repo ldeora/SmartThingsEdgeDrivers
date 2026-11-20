@@ -17,16 +17,30 @@ public sealed class PersistentIdentity
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "ComputerHostAgent");
         Directory.CreateDirectory(StateDirectory);
         var path = Path.Combine(StateDirectory, "installation-id");
-        try
+        // Create into a private same-directory temporary file and atomically publish it.
+        // A power loss before the move can leave an unused .tmp file, but never a
+        // zero-byte installation-id. Never regenerate an existing invalid identity.
+        if (!File.Exists(path))
         {
-            using var writer = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None);
-            var bytes = Encoding.ASCII.GetBytes(Guid.NewGuid().ToString("D") + "\n");
-            writer.Write(bytes);
-            writer.Flush(true);
-        }
-        catch (IOException) when (File.Exists(path))
-        {
-            // The identity already exists, e.g. after a service restart or upgrade.
+            var temporary = Path.Combine(StateDirectory, "installation-id." + Guid.NewGuid().ToString("N") + ".tmp");
+            try
+            {
+                using (var writer = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+                {
+                    var bytes = Encoding.ASCII.GetBytes(Guid.NewGuid().ToString("D") + "\n");
+                    writer.Write(bytes);
+                    writer.Flush(true);
+                }
+                try { File.Move(temporary, path); }
+                catch (IOException) when (File.Exists(path))
+                {
+                    // Another instance won the identity creation race; read its identity.
+                }
+            }
+            finally
+            {
+                if (File.Exists(temporary)) File.Delete(temporary);
+            }
         }
         var raw = File.ReadAllText(path, Encoding.ASCII).Trim();
         if (!Guid.TryParseExact(raw, "D", out var guid) ||
