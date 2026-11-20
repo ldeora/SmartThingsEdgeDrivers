@@ -1,5 +1,10 @@
 # Computer Host LAN v0.5.6-beta.1 — consolidated installer and runtime hardening
 
+Candidate release URL (not yet published): https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.6-beta.1
+
+Existing SmartThings driver channel: https://bestow-regional.api.smartthings.com/invite/1J2Qy7ZkxL20
+
+
 **Status:** Release candidate source on review branch. **Do not publish or distribute until all native Windows and Linux CI checks pass at the final merged commit and migration behavior is reviewed.** This is one combined follow-up to the independently tested [v0.5.5-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.5-beta.1); no intermediate v0.5.5-beta.2 is planned.
 
 ## Versions
