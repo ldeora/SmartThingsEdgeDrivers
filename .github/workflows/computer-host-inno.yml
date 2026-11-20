@@ -153,6 +153,27 @@ jobs:
           & ./windows-agent/scripts/Install-WindowsAgent.ps1 -PublishedDirectory (Resolve-Path windows-agent/publish/win-x64).Path -HubIPv4 $hub -EnablePower
           if ($LASTEXITCODE -ne 0) { throw 'Legacy ZIP script install failed' }
           $old = Invoke-RestMethod http://127.0.0.1:8765/v2/info
+          # An abandoned snapshot must be detected without stopping a
+          # still-working existing service. Simulate an interruption only by
+          # creating the marker, never by disrupting a real power operation.
+          $staleSnapshot = Join-Path $env:ProgramFiles 'Computer Host Agent.upgrade-rollback'
+          if (Test-Path -LiteralPath $staleSnapshot) { throw 'Runner unexpectedly contains a stale upgrade snapshot' }
+          New-Item -ItemType Directory -Path $staleSnapshot -ErrorAction Stop | Out-Null
+          try {
+            $refused = $false
+            try { & ./windows-agent/scripts/Prepare-WindowsAgentUpgrade.ps1 }
+            catch {
+              if ($_.Exception.Message -match 'unfinished upgrade snapshot') { $refused = $true }
+              else { throw }
+            }
+            if (-not $refused) { throw 'Stale snapshot was not refused' }
+            if ((Get-Service ComputerHostAgent).Status -ne 'Running') {
+              throw 'Stale snapshot handling unexpectedly stopped the working service'
+            }
+            Write-Host 'PASS stale rollback snapshot refused without service interruption'
+          } finally {
+            Remove-Item -LiteralPath $staleSnapshot -Recurse -Force -ErrorAction Stop
+          }
           # The agent intentionally does not advertise privileged actions if
           # LocalService cannot enable SeShutdownPrivilege under the runner's
           # Windows security policy. This is a valid, fail-closed outcome.

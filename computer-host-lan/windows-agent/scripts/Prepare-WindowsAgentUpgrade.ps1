@@ -33,22 +33,24 @@ try {
   }
   if ($ValidateOnly) { Write-Host 'PASS existing agent service ownership validation'; return }
   $running = Get-Service -Name $serviceName -ErrorAction Stop
-  if ($running.Status -ne 'Stopped') {
-      Stop-Service -Name $serviceName -ErrorAction Stop
-      (Get-Service -Name $serviceName).WaitForStatus(
-          [System.ServiceProcess.ServiceControllerStatus]::Stopped,
-          [TimeSpan]::FromSeconds(40))
-  }
-  # Preserve the previous working installation if file replacement or service
-  # configuration fails. Snapshot resides beside the app in admin-only Program
-  # Files, not in a world-writable temporary directory.
+  $wasRunning = $running.Status -ne 'Stopped'
   $programs = Join-Path $programRoot 'Computer Host Agent'
   $backup = $programs + '.upgrade-rollback'
-  if (-not (Test-Path -LiteralPath $installedPath -PathType Leaf)) {
-    throw 'Existing service binary is missing; refusing an unsafe upgrade.'
-  }
-  Copy-Item -LiteralPath $programs -Destination $backup -Recurse -Force -ErrorAction Stop
+  $snapshotAttempted = $false
   try {
+    if ($wasRunning) {
+      Stop-Service -Name $serviceName -ErrorAction Stop
+      (Get-Service -Name $serviceName).WaitForStatus(
+        [System.ServiceProcess.ServiceControllerStatus]::Stopped,
+        [TimeSpan]::FromSeconds(40))
+    }
+    if (-not (Test-Path -LiteralPath $installedPath -PathType Leaf)) {
+      throw 'Existing service binary is missing; refusing an unsafe upgrade.'
+    }
+    # A staging failure is not an upgrade: remove only our NEW partial snapshot
+    # and restore the original service before returning an error to Setup.
+    $snapshotAttempted = $true
+    Copy-Item -LiteralPath $programs -Destination $backup -Recurse -Force -ErrorAction Stop
     $rule = Get-NetFirewallRule -Name 'ComputerHostAgent-TCP8765' -ErrorAction SilentlyContinue
     $saved = @{ Present = [bool]$rule }
     if ($rule) {
@@ -61,7 +63,26 @@ try {
     [IO.File]::WriteAllText((Join-Path $backup 'firewall-rollback.json'),
       ($saved | ConvertTo-Json -Depth 5), [Text.Encoding]::UTF8)
   } catch {
-    Remove-Item -LiteralPath $backup -Recurse -Force -ErrorAction SilentlyContinue
+    $stagingFailure = $_.Exception.Message
+    $cleanupFailure = ''
+    $restartFailure = ''
+    if ($snapshotAttempted -and (Test-Path -LiteralPath $backup)) {
+      try { Remove-Item -LiteralPath $backup -Recurse -Force -ErrorAction Stop }
+      catch { $cleanupFailure = $_.Exception.Message }
+    }
+    if ($wasRunning) {
+      try {
+        $current = Get-Service -Name $serviceName -ErrorAction Stop
+        if ($current.Status -ne 'Running') {
+          Start-Service -Name $serviceName -ErrorAction Stop
+          $current.WaitForStatus([System.ServiceProcess.ServiceControllerStatus]::Running,
+            [TimeSpan]::FromSeconds(40))
+        }
+      } catch { $restartFailure = $_.Exception.Message }
+    }
+    if ($cleanupFailure -or $restartFailure) {
+      throw "Upgrade preparation failed: $stagingFailure. Snapshot cleanup: $cleanupFailure. Original service restart: $restartFailure."
+    }
     throw
   }
 } catch {

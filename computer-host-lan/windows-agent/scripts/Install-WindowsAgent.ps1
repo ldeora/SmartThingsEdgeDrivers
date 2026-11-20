@@ -103,15 +103,29 @@ try {
     if ($EnablePower) {
       $tokenPath = Join-Path $state 'control-token'
       if (-not (Test-Path -LiteralPath $tokenPath)) {
-        # Compatible with Windows PowerShell 5.1 (.NET Framework) and PowerShell 7+.
-        $keyBytes = New-Object byte[] 32
-        $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
-        try { $rng.GetBytes($keyBytes) } finally { $rng.Dispose() }
-        $keyHex = ([BitConverter]::ToString($keyBytes)).Replace('-', '').ToLowerInvariant()
-        [System.IO.File]::WriteAllText($tokenPath, $keyHex + "`n", [System.Text.Encoding]::ASCII)
-      } else {
-        $existingKey = (Get-Content -LiteralPath $tokenPath -Raw).Trim()
-        if ($existingKey -cnotmatch '^[a-fA-F0-9]{64}$') { throw 'Existing control-token invalid; refusing to rotate automatically.' }
+        # Publish the complete secret atomically. A power loss must not leave
+        # a partial control-token that prevents every later startup.
+        $temporaryToken = Join-Path $state ('control-token.' + [Guid]::NewGuid().ToString('N') + '.tmp')
+        try {
+          $keyBytes = New-Object byte[] 32
+          $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+          try { $rng.GetBytes($keyBytes) } finally { $rng.Dispose() }
+          $keyHex = ([BitConverter]::ToString($keyBytes)).Replace('-', '').ToLowerInvariant()
+          [System.IO.File]::WriteAllText($temporaryToken, $keyHex + "`n", [System.Text.Encoding]::ASCII)
+          try { [System.IO.File]::Move($temporaryToken, $tokenPath) }
+          catch [System.IO.IOException] {
+            if (-not (Test-Path -LiteralPath $tokenPath)) { throw }
+            # Another concurrent install published the secret first.
+          }
+        } finally {
+          if (Test-Path -LiteralPath $temporaryToken) {
+            Remove-Item -LiteralPath $temporaryToken -Force -ErrorAction SilentlyContinue
+          }
+        }
+      }
+      $existingKey = (Get-Content -LiteralPath $tokenPath -Raw).Trim()
+      if ($existingKey -cnotmatch '^[a-fA-F0-9]{64}$') {
+        throw 'Existing control-token invalid; refusing to rotate automatically.'
       }
     }
     if (-not $existing) {
