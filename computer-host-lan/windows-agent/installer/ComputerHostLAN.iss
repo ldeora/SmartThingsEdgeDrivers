@@ -163,7 +163,13 @@ var
   Lines: TArrayOfString;
 begin
   Searched := True;
-  PreviousInput := HubSelect.Text;
+  // A discovered entry is displayed as "IPv4 (hub name)". Retain its
+  // actual address on an unsuccessful retry rather than discarding it as
+  // invalid input. This also preserves a manually entered IPv4 address.
+  PreviousInput := Trim(HubSelect.Text);
+  Sep := Pos(' (', PreviousInput);
+  if Sep > 0 then PreviousInput := Copy(PreviousInput, 1, Sep - 1);
+  if not IsValidIPv4(PreviousInput) then PreviousInput := '';
   HubStatus.Caption := 'Searching for SmartThings hubs on your network...';
   // Initial discovery starts before the new page necessarily has time to
   // paint. Force the status and controls to render before blocking on the
