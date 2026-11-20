@@ -27,4 +27,6 @@ Windows system metrics include CPU, RAM, system-drive usage and uptime. Both age
 - [Security limitations](docs/beta/SECURITY-AND-PRIVACY.md)
 - [Release gates](docs/beta/PUBLICATION-GATES.md)
 
+**SmartThings installation:** [ARoedl SmartThings Edge Drivers](https://bestow-regional.api.smartthings.com/invite/1J2Qy7ZkxL20). Enroll the existing hub and install the Computer Host LAN driver; do not re-pair existing computer devices during upgrades.
+
 **Release status:** [v0.5.5-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.5-beta.1) is the current public download and tested rollback baseline. The graphical Setup.exe is recommended for Windows x64; the ZIP/PowerShell kit is a fallback. v0.5.6 adds installer recovery and Windows/Linux/Edge hardening; publish it only after full CI on the merged main commit and separate SmartThings driver-channel deployment. Do not deploy PR artifacts to volunteer computers.
