@@ -15,7 +15,7 @@ from pathlib import Path
 
 ALLOWED = {"shutdown": "poweroff", "reboot": "reboot", "suspend": "suspend"}
 SYSTEMCTL_SEARCH_PATH = "/usr/bin:/bin:/usr/sbin:/sbin"
-SYSTEMCTL_TIMEOUT_SECONDS = 3.0
+SYSTEMCTL_TIMEOUT_SECONDS = 2.5
 
 
 def resolve_systemctl() -> str:
