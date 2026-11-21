@@ -1,6 +1,6 @@
 # Computer Host LAN — installation (protocol v2)
 
-**Candidate:** v1.0.0-rc.1 (Windows agent 0.2.6-rc.1; Linux/Edge 0.4.5-rc.1; protocol v2). **Not yet published.** The [latest published beta v0.5.6-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.6-beta.1) remains available; [v0.5.5-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.5-beta.1) is the hardware-tested fallback. For a shorter setup guide, see the [RC quick start](docs/release/QUICK-START.md).
+**Published GitHub prerelease:** [v1.0.0-rc.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v1.0.0-rc.1) (Windows agent 0.2.6-rc.1; Linux/Edge 0.4.5-rc.1; protocol v2). This remains a release candidate with outstanding real-hardware verification. The earlier [v0.5.6-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.6-beta.1) beta is still available; [v0.5.5-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.5-beta.1) is the hardware-tested fallback. For a shorter setup guide, see the [RC quick start](docs/release/QUICK-START.md).
 
 ## Before installation
 
@@ -8,7 +8,7 @@ Use a trusted private LAN and a SmartThings hub that supports LAN Edge drivers. 
 
 ## Windows 11 x64 — recommended graphical installer
 
-Once approved and published, use **v1.0.0-rc.1 Windows x64 Setup.exe** and the matching `SHA256SUMS.txt` from its GitHub prerelease. Until then, use the [previously published v0.5.6 beta](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.6-beta.1), not temporary CI artifacts. Setup is unsigned, self-contained and requires administrator rights. The RC installer improvements still need real Windows 11 testing.
+Download **v1.0.0-rc.1 Windows x64 Setup.exe** and the matching `SHA256SUMS.txt` from the [published GitHub prerelease](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v1.0.0-rc.1), not from temporary CI artifacts. Verify the checksum before running Setup. The installer is unsigned, self-contained and requires administrator rights. The rc.1 installer improvements still need real Windows 11 testing.
 
 1. Run Setup.exe. On the **SmartThings hub** page, select a discovered hub, retry **Search again**, or enter the hub's IPv4 manually. When discovery fails, the explicit **Allow connections from devices on my local network** option configures a Private-only LocalSubnet firewall rule; when discovery works, find this choice under **Advanced options**. It does not repair blocked mDNS between networks.
 2. Choose whether to enable optional **Power management**. A new installation defaults to monitoring only. A Setup upgrade or conversion from the existing ZIP/PowerShell installation retains the previous power preference unless you change it.
