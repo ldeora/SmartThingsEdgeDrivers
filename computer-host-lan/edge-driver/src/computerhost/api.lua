@@ -7,6 +7,11 @@ local SHA = require "computerhost.sha256"
 local M = {}
 local MAX_RESPONSE = 32768
 
+-- LuaSocket's http.open() reapplies this module timeout after the custom
+-- create callback, overriding sock:settimeout() there. Set both to the same
+-- value so the driver's intended timeout is the effective connect/read limit.
+http.TIMEOUT = C.HTTP_TIMEOUT
+
 local function request_json(host,port,path,method,headers)
   local clean_host,clean_port=U.parse_host_port(host,port)
   if not clean_host then return nil,"invalid address" end
