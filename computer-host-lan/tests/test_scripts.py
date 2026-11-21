@@ -1,7 +1,10 @@
 """Shell portability and dry-run guard checks (no privileged mutations)."""
 from pathlib import Path
+import json
 import os
 import subprocess
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import tempfile
 import unittest
 
@@ -10,7 +13,7 @@ SCRIPTS=ROOT/'scripts'
 
 class ScriptTests(unittest.TestCase):
     def test_posix_shell_syntax(self):
-        for name in ('install-agent.sh','configure-wol.sh','diagnose.sh','publish-presentations.sh','python-selector.sh','preflight.sh','rollback-agent.sh','uninstall-agent.sh'):
+        for name in ('install-agent.sh','configure-wol.sh','diagnose.sh','beta-report.sh','publish-presentations.sh','python-selector.sh','preflight.sh','rollback-agent.sh','uninstall-agent.sh'):
             with self.subTest(script=name):
                 subprocess.run(['sh','-n',str(SCRIPTS/name)],check=True)
 
@@ -99,6 +102,70 @@ esac
                                     env=env,capture_output=True,text=True)
             self.assertEqual(result.returncode,1)
             self.assertIn('does not advertise magic-packet WOL support',result.stderr)
+
+    def test_beta_report_custom_port_rc_version_and_redaction(self):
+        """A custom localhost agent port must report only allowlisted fields."""
+        sample = {'version': '0.4.5-rc.1'}
+        class InfoHandler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                if self.path != '/v2/info':
+                    self.send_error(404)
+                    return
+                payload = json.dumps({
+                    'protocol': 'computer-host-agent',
+                    'agent_version': sample['version'],
+                    'features': ['power-control'],
+                    'wol_mac': '00:11:22:33:44:55',
+                    'wol_broadcast': '192.0.2.255',
+                    'hostname': 'SHOULD-NOT-APPEAR',
+                    'id': '11111111-2222-4333-8444-555555555555',
+                    'control-token': 'SHOULD-NOT-APPEAR',
+                }).encode()
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Content-Length', str(len(payload)))
+                self.end_headers()
+                self.wfile.write(payload)
+            def log_message(self, *args):
+                pass
+
+        server = ThreadingHTTPServer(('127.0.0.1', 0), InfoHandler)
+        worker = threading.Thread(target=server.serve_forever, daemon=True)
+        worker.start()
+        try:
+            port = str(server.server_port)
+            for version in ('0.4.5-rc.1', '0.4.4-beta.2', '0.4.3'):
+                with self.subTest(version=version):
+                    sample['version'] = version
+                    result = subprocess.run(
+                        ['sh', str(SCRIPTS/'beta-report.sh'), '--port', port],
+                        text=True, capture_output=True, timeout=20)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertIn('Agent API: responding', result.stdout)
+                    self.assertIn('Agent version: ' + version, result.stdout)
+                    self.assertNotIn('SHOULD-NOT-APPEAR', result.stdout)
+                    self.assertNotIn('11111111-2222-4333-8444-555555555555', result.stdout)
+                    self.assertNotIn('192.0.2.255', result.stdout)
+            sample['version'] = '0.4.5-rc.1 confidential'
+            result = subprocess.run(
+                ['sh', str(SCRIPTS/'beta-report.sh'), '--port', port],
+                text=True, capture_output=True, timeout=20)
+            self.assertIn('Agent version: unknown', result.stdout)
+            self.assertNotIn('confidential', result.stdout)
+        finally:
+            server.shutdown()
+            server.server_close()
+            worker.join(timeout=5)
+
+    def test_beta_report_rejects_invalid_ports_without_network_request(self):
+        for args in (['--port'], ['--port', 'abc'], ['--port', '0'],
+                     ['--port', '65536'], ['--port', '1234567890'], ['--other']):
+            with self.subTest(args=args):
+                result = subprocess.run(
+                    ['sh', str(SCRIPTS/'beta-report.sh'), *args],
+                    text=True, capture_output=True, timeout=5)
+                self.assertEqual(result.returncode, 2)
+                self.assertNotIn('Agent API:', result.stdout)
 
     def test_installer_dry_run_never_writes(self):
         result=subprocess.run(['sh',str(SCRIPTS/'install-agent.sh'),'--dry-run'],

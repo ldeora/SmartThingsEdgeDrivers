@@ -70,7 +70,7 @@ const
 var
   HubPage, PowerPage, ConnectPage, KeyPage: TWizardPage;
   HubSelect: TNewComboBox;
-  HubStatus, LocalHelp: TNewStaticText;
+  HubStatus, LocalHelp, NetworkProfileHint: TNewStaticText;
   LocalSubnetCheck: TNewCheckBox;
   AdvancedButton: TNewButton;
   PowerCheck: TNewCheckBox;
@@ -481,7 +481,18 @@ begin
   LocalHelp.Height := ScaleY(44);
   LocalHelp.AutoSize := False;
   LocalHelp.WordWrap := True;
-  LocalHelp.Caption := 'Use this option if your SmartThings hub cannot be detected automatically and you do not know its IP address.';
+  LocalHelp.Caption := 'Use this option if your SmartThings hub cannot be detected automatically and you do not know its IP address. The rule remains Private-only.';
+
+  // Always visible: Setup's loopback health check cannot prove the hub can
+  // reach a host whose network profile is Public. Never broaden the firewall.
+  NetworkProfileHint := TNewStaticText.Create(HubPage);
+  NetworkProfileHint.Parent := HubPage.Surface;
+  NetworkProfileHint.Top := LocalHelp.Top + LocalHelp.Height + ScaleY(8);
+  NetworkProfileHint.Width := HubPage.SurfaceWidth;
+  NetworkProfileHint.AutoSize := False;
+  NetworkProfileHint.Height := ScaleY(48);
+  NetworkProfileHint.WordWrap := True;
+  NetworkProfileHint.Caption := 'Windows firewall: Private networks only. If this PC is on a Public network, your hub may not connect even when local health checks pass. Review the network profile in Windows Settings.';
   SetAdvancedVisible(False);
 
   PowerPage := CreateCustomPage(HubPage.ID, 'Power management', 'Optional shutdown, reboot and suspend');

@@ -66,8 +66,15 @@ class LuaDriverTests(unittest.TestCase):
             }
             package.loaded['computerhost.telemetry']={status=function(dev,status) dev.last_status=status; return true end,metrics=function() end}
             local wakes,actions=0,{}
+            local wake_failure=false
             package.loaded['computerhost.power']={
-              wake=function(device) wakes=wakes+1;device:set_field('computerhost_pending_action','wake');device:set_field('computerhost_pending_at',os.time()); return true end,
+              wake=function(device)
+                wakes=wakes+1
+                if wake_failure then return nil,'invalid WOL MAC' end
+                device:set_field('computerhost_pending_action','wake')
+                device:set_field('computerhost_pending_at',os.time())
+                return true
+              end,
               action=function(device,action) actions[#actions+1]=action;device:set_field('computerhost_pending_action',action);device:set_field('computerhost_pending_at',os.time());return true end,
             }
             require 'init'
@@ -119,15 +126,30 @@ class LuaDriverTests(unittest.TestCase):
             assert(fields.computerhost_failures==4)
             assert(fields.computerhost_host_failures==0)
             assert(fields.computerhost_last_switch=='on')
+            -- Failed WOL must restore the *last known* state, not force OFF
+            -- when only the HTTP agent is refusing connections.
+            wake_failure=true
+            local previous_events=#device.events
+            TEMPLATE.capability_handlers.switch.on(driver,device)
+            assert(fields.computerhost_last_switch=='on')
+            assert(#device.events==previous_events+1)
+            assert(device.events[#device.events].value=='on')
             -- Real shutdown / suspend usually results in a silent timeout.
             error_message='HTTP transport failed: timeout'
             for i=1,3 do timers['Computer Host health'].fn() end
             assert(fields.computerhost_host_failures==3)
             assert(fields.computerhost_last_switch=='off')
+            -- The mirror case: failed Wake must retain the known OFF state.
+            previous_events=#device.events
+            TEMPLATE.capability_handlers.switch.on(driver,device)
+            assert(fields.computerhost_last_switch=='off')
+            assert(#device.events==previous_events+1)
+            assert(device.events[#device.events].value=='off')
+            wake_failure=false
             -- A real switch-on command sends WOL and does not immediately
             -- report ON before the agent is actually reachable.
             TEMPLATE.capability_handlers.switch.on(driver,device)
-            assert(wakes==2)
+            assert(wakes==4)
             assert(fields.computerhost_last_switch=='off')
             healthy=true
             timers['Computer Host health'].fn()

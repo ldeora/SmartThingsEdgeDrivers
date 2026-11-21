@@ -299,6 +299,23 @@ try {
         -Direction Inbound -Action Allow -Protocol TCP -LocalPort $listenPort -Program $exe -Profile Private `
         -RemoteAddress $remoteScope | Out-Null
       Write-Warning "Firewall allows TCP $listenPort only from $remoteScope on PRIVATE networks. UDP/5353 mDNS remains subject to Windows network discovery policy."
+      # Loopback /v2/health cannot detect a hub blocked by a Public profile.
+      # This check only warns; never silently switch the Windows network to
+      # Private or widen the firewall rule to Public.
+      try {
+        $networkProfiles = @(Get-NetConnectionProfile -ErrorAction Stop)
+        $publicProfiles = @($networkProfiles | Where-Object {
+          $_.NetworkCategory -eq 'Public' -and
+          $_.IPv4Connectivity -ne 'Disconnected'
+        })
+        if ($publicProfiles.Count -gt 0) {
+          Write-Warning 'An active Windows network profile is PUBLIC. The Computer Host firewall rule is PRIVATE-only, so SmartThings hub connections over that interface may be blocked even when localhost health checks pass. If this is a trusted home network, review its profile in Windows Settings > Network & internet; do not disable the firewall.'
+        }
+      } catch {
+        # The native Inno PowerShell host can restrict module auto-loading.
+        # Firewall installation must not fail due to optional diagnostics.
+        Write-Warning 'Unable to inspect the Windows network profile. Verify that the hub-facing interface is PRIVATE; this installer does not open PUBLIC inbound access.'
+      }
     }
     Start-Service -Name $service
     # PersistentIdentity creates this file as LocalService on first startup.

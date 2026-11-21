@@ -6,6 +6,9 @@ local U = require "computerhost.util"
 local manual_hosts = require "computerhost.manual_hosts"
 local M = {}
 local pending = {}
+-- A silently dropped create request must not block all subsequent scans.
+-- Keep this longer than a typical hub add/init callback, but retry eventually.
+local PENDING_CREATE_TTL_SECONDS = 120
 local function select_host(info)
   if type(info)~="table" then return nil end
   local ip=U.trim(info.address)
@@ -114,10 +117,18 @@ function M.process_candidate(driver,c)
     if U.debug(existing) then log.info("Computer Host address updated for "..dni) end
     return existing,nil
   end
-  if pending[dni] then return nil,nil end
+  local queued=pending[dni]
+  if queued then
+    local age=os.time()-(tonumber(queued.at) or 0)
+    if age>=0 and age<PENDING_CREATE_TTL_SECONDS then return nil,nil end
+    -- A previous request never completed (or the runtime clock changed).
+    -- Retry with current verified metadata; late callbacks use the same DNI.
+    log.warn("Computer Host creation still unconfirmed; retrying on next scan")
+    pending[dni]=nil
+  end
   local hostname=tostring(info.hostname or "Computer"):sub(1,80)
   local label=(info.platform == "windows" and "Windows " or "Linux ")..hostname
-  pending[dni]={host=c.host,port=c.port,id=info.id,hostname=hostname,info=info}
+  pending[dni]={host=c.host,port=c.port,id=info.id,hostname=hostname,info=info,at=os.time()}
   local ok,creation_err=pcall(function()
     driver:try_create_device({type="LAN",device_network_id=dni,label=label,
       profile=C.profile_for(info.platform),manufacturer="Computer Host Agent",

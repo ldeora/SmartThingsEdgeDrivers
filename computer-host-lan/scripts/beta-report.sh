@@ -3,10 +3,22 @@
 # Intentionally excludes hostnames, IPv4/IPv6 addresses, MACs, UUIDs,
 # authentication tokens, network paths, device IDs, raw journal records.
 set -eu
+PORT=8765
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --port) [ "$#" -ge 2 ] || { echo 'Missing --port value.' >&2; exit 2; }; PORT=$2; shift 2 ;;
+    *) echo "Usage: $0 [--port PORT]" >&2; exit 2 ;;
+  esac
+done
+case "$PORT" in ''|*[!0-9]*) echo 'Invalid TCP port.' >&2; exit 2 ;; esac
+[ "${#PORT}" -le 5 ] && [ "$PORT" -ge 1 ] && [ "$PORT" -le 65535 ] || {
+  echo 'Invalid TCP port (1-65535).' >&2
+  exit 2
+}
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 . "$ROOT/scripts/python-selector.sh"
 linuxhost_select_python '' >/dev/null || { echo 'ERROR: Python >=3.10 required' >&2; exit 1; }
-"$LINUXHOST_PYTHON" - <<'PY'
+"$LINUXHOST_PYTHON" - "$PORT" <<'PY'
 import os
 import platform
 import subprocess
@@ -43,15 +55,15 @@ for name in ('linux-host-agent.service', 'linux-host-agent-power.socket',
              'avahi-daemon.service', 'NetworkManager.service', 'systemd-networkd.service'):
     print(f'{name}:', service(name))
 try:
-    with urllib.request.urlopen('http://127.0.0.1:8765/v2/info', timeout=2) as r:
+    with urllib.request.urlopen(f'http://127.0.0.1:{int(sys.argv[1])}/v2/info', timeout=2) as r:
         payload = json.load(r)
     if payload.get('protocol') != 'computer-host-agent':
         print('Agent API: unexpected protocol')
     else:
         version = str(payload.get('agent_version', 'unknown'))
-        # Allow versioned beta identifiers, but never echo arbitrary agent text.
+        # Allow stable, beta and RC identifiers, but never echo arbitrary agent text.
         import re
-        if not re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+(?:-beta\.[0-9]+)?', version):
+        if not re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+(?:-(?:beta|rc)\.[0-9]+)?', version):
             version = 'unknown'
         print('Agent API: responding')
         print('Agent version:', version)
