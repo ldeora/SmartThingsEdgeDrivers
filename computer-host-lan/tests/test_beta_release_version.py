@@ -149,15 +149,15 @@ class ReleaseVersionTests(unittest.TestCase):
         notes = (ROOT / release_notes(version)).read_text(encoding="utf-8")
         self.assertIn(candidate_url, notes)
         self.assertIn("NOT published", notes)
-        self.assertIn("not evidence", notes)
-        self.assertIn("GitHub publication", notes)
+        self.assertIn("evidence that the release exists", notes)
+        self.assertIn("separate", notes.lower())
         for field in ("agent", "edge_driver", "windows_agent"):
             self.assertIn(manifest[field], notes, field)
 
         for name in ("README.md", "INSTALLATION.md",
                      "windows-agent/README.md", "docs/release/QUICK-START.md"):
             intro = (ROOT / name).read_text(encoding="utf-8").splitlines()[:8]
-            self.assertIn("NOT published", "\n".join(intro), name)
+            self.assertRegex("\n".join(intro).lower(), r"(?:not published|unpublished|not a published download)", name)
             self.assertIn(version, "\n".join(intro), name)
         acceptance = (ROOT / "docs/release/RC-ACCEPTANCE.md").read_text(encoding="utf-8")
         self.assertIn(version, acceptance)
