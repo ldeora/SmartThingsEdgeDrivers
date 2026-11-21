@@ -124,10 +124,11 @@ class HelperAcknowledgementTests(unittest.TestCase):
             power_helper.run_systemctl([
                 "/usr/bin/systemctl", "--no-block", "poweroff"
             ])
+        self.assertEqual(power_helper.SYSTEMCTL_TIMEOUT_SECONDS, 2.5)
         run.assert_called_once_with(
             ["/usr/bin/systemctl", "--no-block", "poweroff"],
             check=True,
-            timeout=2.5,
+            timeout=power_helper.SYSTEMCTL_TIMEOUT_SECONDS,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             close_fds=True,
