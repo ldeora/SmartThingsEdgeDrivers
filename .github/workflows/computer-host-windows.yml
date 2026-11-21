@@ -151,6 +151,33 @@ jobs:
               throw 'Existing authentication-token ACL was not restricted on upgrade'
             }
             Write-Host 'PASS Windows PowerShell config preservation, custom-port firewall and token ACL'
+
+            # The uninstaller deliberately retains ProgramData for reinstallation.
+            # A stricter owner/DACL preflight must not reject that legitimate state
+            # after the original Windows service is no longer registered.
+            & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $uninstall -KeepProgramFiles
+            if ($LASTEXITCODE -ne 0) { throw 'State-preserving uninstall failed' }
+            $removed = $false
+            for ($i = 0; $i -lt 40; $i++) {
+              if (-not (Get-CimInstance Win32_Service -Filter "Name='ComputerHostAgent'")) {
+                $removed = $true
+                break
+              }
+              Start-Sleep -Milliseconds 250
+            }
+            if (-not $removed) { throw 'Service remained registered after uninstall' }
+            & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $install -PublishedDirectory $publish -SkipFirewall -EnablePower
+            if ($LASTEXITCODE -ne 0) { throw 'Retained-state reinstallation failed' }
+            if ((Get-Content -LiteralPath $secretPath -Raw).Trim() -cne $secret -or
+                (Get-Content -LiteralPath $identityPath -Raw).Trim() -cne $installedId) {
+              throw 'Retained-state reinstallation changed the key or installation ID'
+            }
+            $again = Invoke-RestMethod http://127.0.0.1:18766/v2/info -TimeoutSec 3
+            if ($again.id -cne $installedId) { throw 'Reinstalled agent reported different UUID' }
+            if ((Get-Acl -LiteralPath $state).GetOwner([Security.Principal.SecurityIdentifier]).Value -ne $admins) {
+              throw 'Reinstalled state directory owner changed unexpectedly'
+            }
+            Write-Host 'PASS retained-state reinstall without key rotation, UUID change or service mismatch'
             Write-Host 'PASS Windows PowerShell 5.1 install, secure token, opt-in and power opt-out'
           } finally {
             & $uninstall -PurgeState
