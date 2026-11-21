@@ -1,5 +1,7 @@
 # Computer Host LAN v1.0.0-rc.1 — one-round acceptance
 
+**Version boundary:** The published rc.1 package does **not** contain post-rc.1 corrections on `main` (PRs #56–#59). In particular, the Windows Public-network Setup hint and `beta-report.sh --port PORT` below are **main-only checks planned for rc.2**, not rc.1 acceptance criteria. Do not interpret their absence in rc.1 as a regression. The rc.1 Windows installer also lacks the ProgramData/control-token hardening ([#32](https://github.com/ldeora/SmartThingsEdgeDrivers/issues/32)); do not test authenticated power control on shared PCs with untrusted local users. See the [security version warning](../../SECURITY.md#known-issues-in-the-published-rc1).
+
 Use **one published RC package** when available, not temporary PR artifacts. Preserve existing SmartThings devices and host identity. Record OS/build, agent version, hub/Edge driver version, and **PASS / FAIL / NOT TESTED** for the cases below. Do not share credentials, IPs, MACs or installation IDs.
 
 | Check | Expected result |
