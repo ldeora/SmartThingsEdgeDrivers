@@ -1,6 +1,6 @@
 # Native Windows Host Agent — v0.2.6-rc.1
 
-**RC preparation:** Integration v1.0.0-rc.1, Windows agent 0.2.6-rc.1 and Linux/Edge 0.4.5-rc.1; protocol v2 unchanged. **The RC is not published yet.** The [published v0.5.6-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.6-beta.1) remains available; [v0.5.5-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.5-beta.1) is the tested rollback baseline.
+**Published GitHub prerelease:** [Integration v1.0.0-rc.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v1.0.0-rc.1) (November 20, 2026), Windows agent 0.2.6-rc.1 and Linux/Edge 0.4.5-rc.1; protocol v2 unchanged. The [previous v0.5.6-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.6-beta.1) remains available, while [v0.5.5-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.5-beta.1) is the tested rollback baseline. GitHub publication and SmartThings driver deployment are separate, and rc.1 still needs new Windows 11 hardware acceptance.
 
 Windows 11 testing previously confirmed a v0.5.5 graphical upgrade, preserved identity and SmartThings device, accurate metrics, service recovery and working power/WOL controls on one computer. The v0.5.6 hardening and new RC still require physical validation. Windows Server CI covers agent and native GUI tests; ARM64 is cross-built only. The RC includes the v0.5.6 privilege/ACL, NIC and mDNS improvements plus first-search display and rescan usability fixes.
 
@@ -17,7 +17,7 @@ Builds use .NET 10. Published x64 binaries are self-contained, so ordinary teste
 
 ## Recommended graphical Windows x64 Setup.exe
 
-Once published, download the matching **v1.0.0-rc.1** Setup.exe and verify its `SHA256SUMS.txt`; until then, only the [v0.5.6 beta](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.6-beta.1) is publicly available. The unsigned Setup is designed to preserve UUID, control key, custom configuration, listener port and power opt-in during in-place upgrades. **Do not delete or re-pair existing SmartThings devices.**
+Download the matching **v1.0.0-rc.1** Setup.exe from the [published GitHub prerelease](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v1.0.0-rc.1) and verify its `SHA256SUMS.txt`; do not install ephemeral CI artifacts. The unsigned Setup is designed to preserve UUID, control key, custom configuration, listener port and power opt-in during in-place upgrades. **Do not delete or re-pair existing SmartThings devices.**
 
 ## ZIP / elevated PowerShell fallback
 
