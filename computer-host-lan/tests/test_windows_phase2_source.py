@@ -31,6 +31,18 @@ class WindowsPhase2SourceTests(unittest.TestCase):
         excluded={'controlKey','allowPowerCommands','wolPort','wolMacOverride','wolBroadcastOverride'}
         self.assertTrue(excluded.issubset(x['name'] for x in windows['preferences']))
 
+    def test_power_acknowledgement_is_native_result_aware(self):
+        program=(WINDOWS/'ComputerHost.WindowsAgent/Program.cs').read_text()
+        operations=(WINDOWS/'ComputerHost.WindowsAgent/WindowsPowerOperations.cs').read_text()
+        self.assertIn('dispatcher.TrySchedule(action)', program)
+        self.assertIn('PowerDispatchResult.ShutdownInProgress', program)
+        self.assertIn('Results.StatusCode(503)', program)
+        self.assertIn('ErrorShutdownInProgress = 1115', operations)
+        self.assertIn('InitiateSystemShutdownEx', operations)
+        self.assertIn('action is "shutdown" or "reboot"', operations)
+        self.assertIn('await _delay(TimeSpan.FromSeconds(3))', operations)
+        self.assertNotIn('dispatcher.Schedule(action)', program)
+
     def test_windows_no_linux_file_access(self):
         sources='\n'.join(f.read_text() for f in (WINDOWS/'ComputerHost.WindowsAgent').glob('*.cs'))
         for linux_marker in ('/proc/stat','/proc/meminfo','/sys/class/hwmon','systemctl','ethtool'):
