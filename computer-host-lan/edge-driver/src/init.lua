@@ -280,7 +280,10 @@ local function turn_on(driver,device)
   local ok,err=Power.wake(device)
   if not ok then
     log.error("Computer Host switch ON rejected: "..tostring(err))
-    switch_state(device,"off",true) -- undo an optimistic app toggle
+    -- The agent may be refusing connections while the host is running.
+    -- Reject the app's optimistic ON without inventing a confirmed OFF.
+    local known=device:get_field(C.FIELD_LAST_SWITCH)
+    if known then switch_state(device,known,true) end
     return
   end
 
