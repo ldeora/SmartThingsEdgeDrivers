@@ -85,28 +85,99 @@ public static class WindowsPowerOperations
     }
 }
 
-public sealed class PowerDispatcher(ILogger<PowerDispatcher> logger)
+public enum PowerDispatchResult
 {
+    Accepted,
+    Busy,
+    ShutdownInProgress,
+    Failed
+}
+
+public sealed class PowerDispatcher
+{
+    private const int ErrorShutdownInProgress = 1115;
+    private readonly ILogger<PowerDispatcher> _logger;
+    private readonly Action<string> _execute;
+    private readonly Func<TimeSpan, Task> _delay;
     private int _busy;
-    public bool Schedule(string action)
+
+    public PowerDispatcher(ILogger<PowerDispatcher> logger)
+        : this(logger, WindowsPowerOperations.Execute, Task.Delay) { }
+
+    // Injectable delegates keep the dispatcher testable without invoking real
+    // Windows power APIs in CI or on a developer workstation.
+    public PowerDispatcher(ILogger<PowerDispatcher> logger, Action<string> execute,
+        Func<TimeSpan, Task> delay)
     {
-        if (!AgentContract.SupportedPowerActions.Contains(action)) return false;
-        if (Interlocked.CompareExchange(ref _busy, 1, 0) != 0) return false;
-        _ = Task.Run(async () =>
+        _logger = logger;
+        _execute = execute;
+        _delay = delay;
+    }
+
+    public PowerDispatchResult TrySchedule(string action)
+    {
+        if (!AgentContract.SupportedPowerActions.Contains(action))
+            return PowerDispatchResult.Failed;
+        if (Interlocked.CompareExchange(ref _busy, 1, 0) != 0)
+            return PowerDispatchResult.Busy;
+
+        // InitiateSystemShutdownEx returns as soon as Windows has accepted the
+        // shutdown/reboot request. Its 15-second countdown gives the HTTP 202
+        // time to reach SmartThings; unsaved applications may still hold the
+        // shutdown in progress because forceAppsClosed remains false.
+        if (action is "shutdown" or "reboot")
         {
             try
             {
-                // Allow HTTP 202 to reach SmartThings before suspending/shutting down.
-                await Task.Delay(TimeSpan.FromSeconds(3));
-                WindowsPowerOperations.Execute(action);
-                logger.LogInformation("Windows accepted native {Action} API call", action);
+                _execute(action);
+                _logger.LogInformation("Windows accepted native {Action} API call", action);
+                return PowerDispatchResult.Accepted;
+            }
+            catch (Win32Exception ex) when (ex.NativeErrorCode == ErrorShutdownInProgress)
+            {
+                _logger.LogWarning(ex, "Windows already has a shutdown or reboot in progress");
+                return PowerDispatchResult.ShutdownInProgress;
             }
             catch (Exception ex)
             {
-                logger.LogError(ex, "Native {Action} request failed; verify privileges and powercfg", action);
+                _logger.LogError(ex, "Native {Action} request failed; verify privileges and power policy", action);
+                return PowerDispatchResult.Failed;
             }
-            finally { Interlocked.Exchange(ref _busy, 0); }
-        });
-        return true;
+            finally
+            {
+                Interlocked.Exchange(ref _busy, 0);
+            }
+        }
+
+        // Suspend takes effect immediately and may prevent the HTTP response
+        // from reaching the hub. Preserve the short grace period for suspend;
+        // 202 means the service queued this operation, not that sleep succeeded.
+        try
+        {
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await _delay(TimeSpan.FromSeconds(3));
+                    _execute(action);
+                    _logger.LogInformation("Windows accepted native {Action} API call", action);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Native {Action} request failed; verify privileges and powercfg", action);
+                }
+                finally
+                {
+                    Interlocked.Exchange(ref _busy, 0);
+                }
+            });
+            return PowerDispatchResult.Accepted;
+        }
+        catch (Exception ex)
+        {
+            Interlocked.Exchange(ref _busy, 0);
+            _logger.LogError(ex, "Unable to queue native {Action} request", action);
+            return PowerDispatchResult.Failed;
+        }
     }
 }

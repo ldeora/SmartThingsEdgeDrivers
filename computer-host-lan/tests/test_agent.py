@@ -230,6 +230,17 @@ class HTTPTests(unittest.TestCase):
         status, body = self.http("/v2/power/reboot", "POST", headers)
         self.assertEqual(status, 401)
 
+    def test_helper_execution_error_returns_service_unavailable(self):
+        _, challenge = self.http("/v2/challenge")
+        nonce = challenge["nonce"]
+        headers = {"X-ComputerHost-Nonce": nonce,
+                   "X-ComputerHost-Signature": agent.signature(
+                       self.state.secret, "/v2/power/shutdown", nonce)}
+        with mock.patch.object(agent, "request_power", side_effect=RuntimeError("helper rejected")):
+            status, body = self.http("/v2/power/shutdown", "POST", headers)
+        self.assertEqual(status, 503)
+        self.assertEqual(body["error"], "power helper unavailable")
+
     def test_wrong_signature_rejected(self):
         _, challenge = self.http("/v2/challenge")
         headers = {"X-ComputerHost-Nonce": challenge["nonce"], "X-ComputerHost-Signature": "0" * 64}
@@ -259,9 +270,6 @@ class HTTPTests(unittest.TestCase):
                 worker.join(timeout=3)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
 class HelperSocketTests(unittest.TestCase):
     def test_agent_to_socket_action(self):
         import socket
@@ -285,3 +293,55 @@ class HelperSocketTests(unittest.TestCase):
                 self.assertEqual(collected,[b'suspend\n'])
             finally:
                 listener.close()
+
+    def test_agent_reads_fragmented_ok_reply(self):
+        import socket
+        import threading
+        import time
+        with tempfile.TemporaryDirectory() as d:
+            path = str(Path(d) / "power.sock")
+            listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            listener.bind(path)
+            listener.listen(1)
+            received = []
+            def responder():
+                conn, _ = listener.accept()
+                with conn:
+                    received.append(conn.recv(64))
+                    conn.sendall(b"O")
+                    time.sleep(0.02)
+                    conn.sendall(b"K\n")
+            task = threading.Thread(target=responder)
+            task.start()
+            try:
+                agent.request_power(path, "shutdown")
+                task.join(timeout=2)
+                self.assertEqual(received, [b"shutdown\n"])
+            finally:
+                listener.close()
+
+    def test_agent_rejects_helper_error_acknowledgement(self):
+        import socket
+        import threading
+        with tempfile.TemporaryDirectory() as d:
+            path = str(Path(d) / "power.sock")
+            listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            listener.bind(path)
+            listener.listen(1)
+            def responder():
+                conn, _ = listener.accept()
+                with conn:
+                    conn.recv(64)
+                    conn.sendall(b"ERROR\n")
+            task = threading.Thread(target=responder)
+            task.start()
+            try:
+                with self.assertRaises(RuntimeError):
+                    agent.request_power(path, "reboot")
+                task.join(timeout=2)
+            finally:
+                listener.close()
+
+
+if __name__ == "__main__":
+    unittest.main()

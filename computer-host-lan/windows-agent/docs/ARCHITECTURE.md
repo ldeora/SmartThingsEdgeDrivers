@@ -14,7 +14,13 @@
 - `LocalService` is normally assigned the shutdown privilege but it may be disabled
   in its token by default. Commands enable that privilege at call time;
   native calls are best-effort. Suspend keeps wake events enabled.
-- No forced application closures. HTTP 202 means accepted/scheduled only.
+- No forced application closures. Shutdown/reboot return HTTP 202 only after
+  `InitiateSystemShutdownEx` accepts the request; `ERROR_SHUTDOWN_IN_PROGRESS`
+  maps to 409 and other immediate native failures map to 503. Unsaved
+  applications can keep graceful shutdown pending until the console user
+  responds. Suspend retains a three-second delayed background attempt so the
+  HTTP response can leave first; its 202 confirms scheduling, not successful
+  sleep. No 202 proves a completed power-state transition.
 - Main switch OFF requests graceful shutdown; ON sends WOL from the hub.
 - Windows device profile exposes Wake/Reboot/Suspend; temperature/load excluded.
 - Power disabled unless both agent `-EnablePower` and SmartThings preferences

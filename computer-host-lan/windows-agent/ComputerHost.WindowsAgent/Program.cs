@@ -93,7 +93,13 @@ app.MapPost("/v2/power/{action}", (string action, HttpContext context, Persisten
     var nonce = context.Request.Headers["X-ComputerHost-Nonce"].ToString();
     var signature = context.Request.Headers["X-ComputerHost-Signature"].ToString();
     if (!power.Authentication.Authenticate(action, nonce, signature, remote)) return Results.Unauthorized();
-    if (!dispatcher.Schedule(action)) return Results.Conflict(new { error = "power operation already pending" });
+    var dispatch = dispatcher.TrySchedule(action);
+    if (dispatch == PowerDispatchResult.Busy)
+        return Results.Conflict(new { error = "power operation already pending" });
+    if (dispatch == PowerDispatchResult.ShutdownInProgress)
+        return Results.Conflict(new { error = "Windows shutdown or reboot is already in progress" });
+    if (dispatch != PowerDispatchResult.Accepted)
+        return Results.StatusCode(503);
     context.Response.Headers["Cache-Control"] = "no-store";
     return Results.Json(new { protocol = AgentContract.Protocol, api_version = AgentContract.ApiVersion,
         platform = AgentContract.Platform, id = identity.Id, accepted = true, action }, statusCode: 202);
