@@ -127,7 +127,7 @@ class HelperAcknowledgementTests(unittest.TestCase):
         run.assert_called_once_with(
             ["/usr/bin/systemctl", "--no-block", "poweroff"],
             check=True,
-            timeout=power_helper.SYSTEMCTL_TIMEOUT_SECONDS,
+            timeout=2.5,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             close_fds=True,
