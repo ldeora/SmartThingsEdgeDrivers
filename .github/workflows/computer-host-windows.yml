@@ -100,12 +100,16 @@ jobs:
             if ((Get-Acl -LiteralPath $identityPath).GetOwner([Security.Principal.SecurityIdentifier]).Value -ne $admins) {
               throw 'Persistent installation-id owner is not BUILTIN Administrators'
             }
-            Write-Host 'PASS LocalService, HTTP monitoring, protected state ownership and default-disabled power'
+            Write-Host 'PASS LocalService, HTTP monitoring, secure state ownership and default-disabled power'
             & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $install -PublishedDirectory $publish -SkipFirewall -EnablePower
             if ($LASTEXITCODE -ne 0) { throw 'Windows PowerShell 5.1 opt-in install failed' }
             $secretPath = Join-Path $state 'control-token'
             $secret = (Get-Content -LiteralPath $secretPath -Raw).Trim()
-            if ($secret -cnotmatch '^[a-f0-9]{64}            $infoPower = Invoke-RestMethod 'http://127.0.0.1:8765/v2/info' -TimeoutSec 3
+            if ($secret -cnotmatch '^[a-f0-9]{64}$') { throw 'Control token malformed' }
+            if ((Get-Acl -LiteralPath $secretPath).GetOwner([Security.Principal.SecurityIdentifier]).Value -ne $admins) {
+              throw 'Control-token owner is not BUILTIN Administrators'
+            }
+            $infoPower = Invoke-RestMethod 'http://127.0.0.1:8765/v2/info' -TimeoutSec 3
             # Windows Server service security policy may deny SeShutdownPrivilege.
             # Power must then fail closed without disabling HTTP monitoring.
             if (@($infoPower.power_actions).Count -notin @(0,3)) { throw 'Invalid power action set' }
@@ -141,68 +145,6 @@ jobs:
                 (Get-Content -LiteralPath $identityPath -Raw).Trim() -cne $installedId) {
               throw 'Custom-port upgrade changed the existing key or installation identity'
             }
-            $tokenAcl = Get-Acl -LiteralPath $secretPath
-            if (-not $tokenAcl.AreAccessRulesProtected -or @($tokenAcl.Access).Count -lt 3 -or
-                (@($tokenAcl.Access | Where-Object { $_.IdentityReference.Value -eq 'NT AUTHORITY\\LOCAL SERVICE' }).Count -gt 0)) {
-              throw 'Existing authentication-token ACL was not restricted on upgrade'
-            }
-            Write-Host 'PASS Windows PowerShell config preservation, custom-port firewall and token ACL'
-            Write-Host 'PASS Windows PowerShell 5.1 install, secure token, opt-in and power opt-out'
-          } finally {
-            & $uninstall -PurgeState
-          }
-  windows-arm64-build:
-    runs-on: windows-2025
-    defaults:
-      run:
-        working-directory: computer-host-lan
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-dotnet@v6
-        with:
-          dotnet-version: '10.0.x'
-      - name: Cross-publish arm64 package (not executed)
-        shell: pwsh
-        run: ./windows-agent/scripts/Publish-WindowsAgent.ps1 -Runtime win-arm64
-      - name: Archive unsigned development arm64 executable
-        uses: actions/upload-artifact@v7
-        with:
-          name: computer-host-windows-unsigned-dev-win-arm64
-          path: computer-host-lan/windows-agent/publish/win-arm64/
-          if-no-files-found: error
-          retention-days: 7
-) { throw 'Control token malformed' }
-            if ((Get-Acl -LiteralPath $secretPath).GetOwner([Security.Principal.SecurityIdentifier]).Value -ne $admins) {
-              throw 'Control-token owner is not BUILTIN Administrators'
-            }
-            $infoPower = Invoke-RestMethod 'http://127.0.0.1:8765/v2/info' -TimeoutSec 3
-            # Windows Server service security policy may deny SeShutdownPrivilege.
-            # Power must then fail closed without disabling HTTP monitoring.
-            if (@($infoPower.power_actions).Count -notin @(0,3)) { throw 'Invalid power action set' }
-            if (@($infoPower.power_actions).Count -eq 0) {
-              Write-Host 'PASS Windows security policy refused privilege; power was not advertised'
-            }
-            & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $install -PublishedDirectory $publish -SkipFirewall
-            if ($LASTEXITCODE -ne 0) { throw 'Windows PowerShell 5.1 power-disable upgrade failed' }
-            $infoOff = Invoke-RestMethod 'http://127.0.0.1:8765/v2/info' -TimeoutSec 3
-            if (@($infoOff.power_actions).Count -ne 0) { throw 'Power remained enabled after opt-out' }
-            # Reuse the legacy ZIP/PowerShell path to verify custom settings survive
-            # an upgrade, and the firewall listens on the actual configured port.
-            $appConfig = Join-Path $env:ProgramFiles 'Computer Host Agent/appsettings.json'
-            $config = Get-Content -LiteralPath $appConfig -Raw | ConvertFrom-Json
-            $config.HostAgent.Port = 18766
-            $config.HostAgent.DiscoveryEnabled = $false
-            $config | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $appConfig -Encoding utf8
-            & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $install -PublishedDirectory $publish -HubIPv4 '192.0.2.20'
-            if ($LASTEXITCODE -ne 0) { throw 'Windows PowerShell custom-port upgrade failed' }
-            $kept = Get-Content -LiteralPath $appConfig -Raw | ConvertFrom-Json
-            if ($kept.HostAgent.Port -ne 18766 -or $kept.HostAgent.DiscoveryEnabled -ne $false) {
-              throw 'PowerShell upgrade lost custom configuration'
-            }
-            $ports = @((Get-NetFirewallRule -Name 'ComputerHostAgent-TCP8765' | Get-NetFirewallPortFilter).LocalPort)
-            if ($ports -notcontains '18766') { throw 'Firewall did not follow configured HTTP port' }
-            $customInfo = Invoke-RestMethod http://127.0.0.1:18766/v2/info -TimeoutSec 3
-            if ($customInfo.platform -ne 'windows') { throw 'Custom-port HTTP agent unavailable' }
             $tokenAcl = Get-Acl -LiteralPath $secretPath
             if (-not $tokenAcl.AreAccessRulesProtected -or @($tokenAcl.Access).Count -lt 3 -or
                 (@($tokenAcl.Access | Where-Object { $_.IdentityReference.Value -eq 'NT AUTHORITY\\LOCAL SERVICE' }).Count -gt 0)) {
