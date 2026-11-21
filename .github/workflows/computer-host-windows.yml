@@ -50,7 +50,87 @@ jobs:
           $publish = Join-Path $agent 'publish/win-x64'
           $install = Join-Path $agent 'scripts/Install-WindowsAgent.ps1'
           $uninstall = Join-Path $agent 'scripts/Uninstall-WindowsAgent.ps1'
+          $state = Join-Path $env:ProgramData 'ComputerHostAgent'
+          $attackerName = 'chlan-ci-standard'
+          $attackerAccount = '{0}\{1}' -f $env:COMPUTERNAME, $attackerName
           try {
+            # Create a real unprivileged local account for the ownership attack.
+            $attackerPassword = ConvertTo-SecureString 'Chlan-CI-only!2026' -AsPlainText -Force
+            New-LocalUser -Name $attackerName -Password $attackerPassword -PasswordNeverExpires -AccountNeverExpires -UserMayNotChangePassword | Out-Null
+            $attackerSid = (Get-LocalUser -Name $attackerName).SID.Value
+            $standardUserSids = @(Get-LocalGroupMember -SID 'S-1-5-32-545' | ForEach-Object { $_.SID.Value })
+            if ($standardUserSids -notcontains $attackerSid) {
+              Add-LocalGroupMember -SID 'S-1-5-32-545' -Member $attackerName
+              $standardUserSids = @(Get-LocalGroupMember -SID 'S-1-5-32-545' | ForEach-Object { $_.SID.Value })
+            }
+            if ($standardUserSids -notcontains $attackerSid) {
+              throw 'CI attacker account could not be added to the standard Users group'
+            }
+
+            # Scenario 1: a standard user owns the directory and the planted key.
+            if (Test-Path -LiteralPath $state) { throw 'Unexpected pre-existing state on clean CI runner' }
+            New-Item -ItemType Directory -Path $state | Out-Null
+            $plantedToken = Join-Path $state 'control-token'
+            [IO.File]::WriteAllText($plantedToken, (('a' * 64) + [Environment]::NewLine), [Text.Encoding]::ASCII)
+            $ownerFixtureAcl = Get-Acl -LiteralPath $state
+            $ownerFixtureAcl.SetAccessRuleProtection($true, $false)
+            foreach ($sid in @('S-1-5-18','S-1-5-32-544',$attackerSid)) {
+              $ownerFixtureAcl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new(
+                [Security.Principal.SecurityIdentifier]::new($sid),
+                'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow'))
+            }
+            Set-Acl -LiteralPath $state -AclObject $ownerFixtureAcl
+            & icacls.exe $state /setowner $attackerAccount /T /C | Out-Null
+            if ($LASTEXITCODE -ne 0) { throw 'Unable to assign the CI standard user as state owner' }
+            $stateOwner = (Get-Acl -LiteralPath $state).GetOwner([Security.Principal.SecurityIdentifier]).Value
+            $tokenOwner = (Get-Acl -LiteralPath $plantedToken).GetOwner([Security.Principal.SecurityIdentifier]).Value
+            if ($stateOwner -ne $attackerSid -or $tokenOwner -ne $attackerSid) {
+              throw 'CI fixture did not create an attacker-owned directory and control-token'
+            }
+            $ownerTestOutput = & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $install -PublishedDirectory $publish -SkipFirewall -EnablePower 2>&1
+            $ownerTestExitCode = $LASTEXITCODE
+            if ($ownerTestExitCode -eq 0) { throw 'Installer accepted standard-user-owned ProgramData state' }
+            if (($ownerTestOutput | Out-String) -notmatch 'untrusted owner') {
+              throw 'Installer refused attacker-owned state for an unexpected reason'
+            }
+            if ((Get-Content -LiteralPath $plantedToken -Raw).Trim() -cne ('a' * 64)) {
+              throw 'Installer changed an attacker-owned planted key before refusing state'
+            }
+            if (Get-Service ComputerHostAgent -ErrorAction SilentlyContinue) {
+              throw 'Installer registered a service before refusing attacker-owned state'
+            }
+            & icacls.exe $state /setowner '*S-1-5-32-544' /T /C | Out-Null
+            if ($LASTEXITCODE -ne 0) { throw 'Unable to restore CI state fixture ownership' }
+            & icacls.exe $state /grant '*S-1-5-32-544:(OI)(CI)F' /T /C | Out-Null
+            if ($LASTEXITCODE -ne 0) { throw 'Unable to restore CI state fixture permissions' }
+            Remove-Item -LiteralPath $state -Force -Recurse -ErrorAction Stop
+            Write-Host 'PASS refused a standard-user-owned directory and planted token without reading or changing the key'
+
+            # Scenario 2: even an administrator-owned folder is refused when
+            # its DACL grants BUILTIN Users access to the retained control-token.
+            New-Item -ItemType Directory -Path $state | Out-Null
+            $plantedToken = Join-Path $state 'control-token'
+            [IO.File]::WriteAllText($plantedToken, (('b' * 64) + [Environment]::NewLine), [Text.Encoding]::ASCII)
+            $weakAcl = Get-Acl -LiteralPath $state
+            $weakAcl.SetAccessRuleProtection($true, $false)
+            foreach ($sid in @('S-1-5-18','S-1-5-32-544','S-1-5-32-545')) {
+              $weakAcl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new(
+                [Security.Principal.SecurityIdentifier]::new($sid),
+                'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow'))
+            }
+            Set-Acl -LiteralPath $state -AclObject $weakAcl
+            $aceTestOutput = & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $install -PublishedDirectory $publish -SkipFirewall -EnablePower 2>&1
+            $aceTestExitCode = $LASTEXITCODE
+            if ($aceTestExitCode -eq 0) { throw 'Installer accepted administrator-owned state with a Users FullControl ACE' }
+            if (($aceTestOutput | Out-String) -notmatch 'untrusted principal') {
+              throw 'Installer refused permissive state for an unexpected reason'
+            }
+            if ((Get-Content -LiteralPath $plantedToken -Raw).Trim() -cne ('b' * 64)) {
+              throw 'Installer changed a key in a state directory with a permissive DACL'
+            }
+            Remove-Item -LiteralPath $state -Force -Recurse -ErrorAction Stop
+            Write-Host 'PASS refused administrator-owned state with an untrusted Users access rule'
+
             & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $install -PublishedDirectory $publish -SkipFirewall
             if ($LASTEXITCODE -ne 0) { throw 'Windows PowerShell 5.1 monitoring install failed' }
             $svc = Get-CimInstance Win32_Service -Filter "Name='ComputerHostAgent'"
@@ -65,15 +145,49 @@ jobs:
               } catch { Start-Sleep -Seconds 1 }
             }
             if (-not $ready) { throw 'LocalService Windows Service did not provide monitoring endpoint' }
-            $state = Join-Path $env:ProgramData 'ComputerHostAgent'
             $permissions = Get-Acl -LiteralPath $state
             if (-not $permissions.AreAccessRulesProtected) { throw 'State directory ACL is not protected' }
-            Write-Host 'PASS LocalService, HTTP monitoring, protected state and default-disabled power'
+            $admins = 'S-1-5-32-544'
+            $serviceSidOutput = (& sc.exe showsid ComputerHostAgent 2>&1 | Out-String)
+            if ($LASTEXITCODE -ne 0) { throw 'Unable to calculate service SID in CI' }
+            $serviceSidMatch = [regex]::Match($serviceSidOutput, 'S-1-5-80-(?:\d+-){4}\d+')
+            if (-not $serviceSidMatch.Success) { throw 'Service SID was not returned in CI' }
+            $serviceSid = $serviceSidMatch.Value
+            $expectedDirectorySids = @($admins,'S-1-5-18',$serviceSid)
+            foreach ($rule in $permissions.Access) {
+              if ($rule.AccessControlType -ne [Security.AccessControl.AccessControlType]::Allow) { continue }
+              $subject = $rule.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value
+              if ($expectedDirectorySids -notcontains $subject) {
+                throw "State directory has unexpected allow ACE: $subject"
+              }
+            }
+            if ($permissions.GetOwner([Security.Principal.SecurityIdentifier]).Value -ne $admins) {
+              throw 'State directory owner is not BUILTIN Administrators'
+            }
+            $identityPath = Join-Path $state 'installation-id'
+            $installedId = (Get-Content -LiteralPath $identityPath -Raw).Trim()
+            if ((Get-Acl -LiteralPath $identityPath).GetOwner([Security.Principal.SecurityIdentifier]).Value -ne $admins) {
+              throw 'Persistent installation-id owner is not BUILTIN Administrators'
+            }
+            Write-Host 'PASS LocalService, HTTP monitoring, secure state ownership and default-disabled power'
             & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $install -PublishedDirectory $publish -SkipFirewall -EnablePower
             if ($LASTEXITCODE -ne 0) { throw 'Windows PowerShell 5.1 opt-in install failed' }
             $secretPath = Join-Path $state 'control-token'
             $secret = (Get-Content -LiteralPath $secretPath -Raw).Trim()
             if ($secret -cnotmatch '^[a-f0-9]{64}$') { throw 'Control token malformed' }
+            $tokenAcl = Get-Acl -LiteralPath $secretPath
+            if ($tokenAcl.GetOwner([Security.Principal.SecurityIdentifier]).Value -ne $admins) {
+              throw 'Control-token owner is not BUILTIN Administrators'
+            }
+            if (-not $tokenAcl.AreAccessRulesProtected) { throw 'Control-token ACL is not protected' }
+            $expectedTokenSids = @($admins,'S-1-5-18',$serviceSid)
+            foreach ($rule in $tokenAcl.Access) {
+              if ($rule.AccessControlType -ne [Security.AccessControl.AccessControlType]::Allow) { continue }
+              $subject = $rule.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value
+              if ($expectedTokenSids -notcontains $subject) {
+                throw "Control-token has unexpected allow ACE: $subject"
+              }
+            }
             $infoPower = Invoke-RestMethod 'http://127.0.0.1:8765/v2/info' -TimeoutSec 3
             # Windows Server service security policy may deny SeShutdownPrivilege.
             # Power must then fail closed without disabling HTTP monitoring.
@@ -85,6 +199,10 @@ jobs:
             if ($LASTEXITCODE -ne 0) { throw 'Windows PowerShell 5.1 power-disable upgrade failed' }
             $infoOff = Invoke-RestMethod 'http://127.0.0.1:8765/v2/info' -TimeoutSec 3
             if (@($infoOff.power_actions).Count -ne 0) { throw 'Power remained enabled after opt-out' }
+            if ((Get-Content -LiteralPath $secretPath -Raw).Trim() -cne $secret -or
+                (Get-Content -LiteralPath $identityPath -Raw).Trim() -cne $installedId) {
+              throw 'Power opt-out upgrade changed the existing key or installation identity'
+            }
             # Reuse the legacy ZIP/PowerShell path to verify custom settings survive
             # an upgrade, and the firewall listens on the actual configured port.
             $appConfig = Join-Path $env:ProgramFiles 'Computer Host Agent/appsettings.json'
@@ -102,15 +220,109 @@ jobs:
             if ($ports -notcontains '18766') { throw 'Firewall did not follow configured HTTP port' }
             $customInfo = Invoke-RestMethod http://127.0.0.1:18766/v2/info -TimeoutSec 3
             if ($customInfo.platform -ne 'windows') { throw 'Custom-port HTTP agent unavailable' }
+            if ((Get-Content -LiteralPath $secretPath -Raw).Trim() -cne $secret -or
+                (Get-Content -LiteralPath $identityPath -Raw).Trim() -cne $installedId) {
+              throw 'Custom-port upgrade changed the existing key or installation identity'
+            }
             $tokenAcl = Get-Acl -LiteralPath $secretPath
-            if (-not $tokenAcl.AreAccessRulesProtected -or @($tokenAcl.Access).Count -lt 3 -or
-                (@($tokenAcl.Access | Where-Object { $_.IdentityReference.Value -eq 'NT AUTHORITY\\LOCAL SERVICE' }).Count -gt 0)) {
+            if (-not $tokenAcl.AreAccessRulesProtected -or @($tokenAcl.Access).Count -lt 3) {
               throw 'Existing authentication-token ACL was not restricted on upgrade'
             }
+            foreach ($rule in $tokenAcl.Access) {
+              if ($rule.AccessControlType -ne [Security.AccessControl.AccessControlType]::Allow) { continue }
+              $subject = $rule.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value
+              if ($expectedTokenSids -notcontains $subject) {
+                throw "Upgraded control-token has unexpected allow ACE: $subject"
+              }
+            }
             Write-Host 'PASS Windows PowerShell config preservation, custom-port firewall and token ACL'
-            Write-Host 'PASS Windows PowerShell 5.1 install, secure token, opt-in and power opt-out'
+
+            # The uninstaller deliberately retains ProgramData for reinstallation.
+            # A stricter owner/DACL preflight must not reject that legitimate state
+            # after the original Windows service is no longer registered.
+            & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $uninstall -KeepProgramFiles
+            if ($LASTEXITCODE -ne 0) { throw 'State-preserving uninstall failed' }
+            $removed = $false
+            for ($i = 0; $i -lt 40; $i++) {
+              if (-not (Get-CimInstance Win32_Service -Filter "Name='ComputerHostAgent'")) {
+                $removed = $true
+                break
+              }
+              Start-Sleep -Milliseconds 250
+            }
+            if (-not $removed) { throw 'Service remained registered after uninstall' }
+            & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $install -PublishedDirectory $publish -SkipFirewall -EnablePower
+            if ($LASTEXITCODE -ne 0) { throw 'Retained-state reinstallation failed' }
+            if ((Get-Content -LiteralPath $secretPath -Raw).Trim() -cne $secret -or
+                (Get-Content -LiteralPath $identityPath -Raw).Trim() -cne $installedId) {
+              throw 'Retained-state reinstallation changed the key or installation ID'
+            }
+            $again = Invoke-RestMethod http://127.0.0.1:18766/v2/info -TimeoutSec 3
+            if ($again.id -cne $installedId) { throw 'Reinstalled agent reported different UUID' }
+            if ((Get-Acl -LiteralPath $state).GetOwner([Security.Principal.SecurityIdentifier]).Value -ne $admins) {
+              throw 'Reinstalled state directory owner changed unexpectedly'
+            }
+            Write-Host 'PASS retained-state reinstall without key rotation, UUID change or service mismatch'
+
+            # Exercise the PowerShell 7 / .NET ACL-aware creation path separately.
+            # Purge only this disposable CI installation, retaining Program Files.
+            & $uninstall -PurgeState -KeepProgramFiles
+            if (-not $?) { throw 'PowerShell 7 pre-test cleanup failed' }
+            & $install -PublishedDirectory $publish -SkipFirewall
+            if (-not $?) { throw 'PowerShell 7 fresh install using ACL-aware Directory.Create failed' }
+            $ps7Info = $null
+            for ($i = 0; $i -lt 30; $i++) {
+              try {
+                $ps7Info = Invoke-RestMethod http://127.0.0.1:18766/v2/info -TimeoutSec 2
+                if ($ps7Info.platform -eq 'windows') { break }
+              } catch { Start-Sleep -Seconds 1 }
+            }
+            if (-not $ps7Info -or $ps7Info.platform -ne 'windows') {
+              throw 'PowerShell 7 fresh installation did not start its monitoring service'
+            }
+            $ps7Id = $ps7Info.id
+            $ps7DirectoryAcl = Get-Acl -LiteralPath $state
+            if (-not $ps7DirectoryAcl.AreAccessRulesProtected -or
+                $ps7DirectoryAcl.GetOwner([Security.Principal.SecurityIdentifier]).Value -ne $admins) {
+              throw 'PowerShell 7 fresh state directory owner or DACL is incorrect'
+            }
+            foreach ($rule in $ps7DirectoryAcl.Access) {
+              if ($rule.AccessControlType -ne [Security.AccessControl.AccessControlType]::Allow) { continue }
+              $subject = $rule.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value
+              if ($expectedDirectorySids -notcontains $subject) {
+                throw "PowerShell 7 state directory has unexpected allow ACE: $subject"
+              }
+            }
+            & $install -PublishedDirectory $publish -SkipFirewall -EnablePower
+            if (-not $?) { throw 'PowerShell 7 power opt-in upgrade failed' }
+            $ps7EnabledInfo = Invoke-RestMethod http://127.0.0.1:18766/v2/info -TimeoutSec 3
+            if ($ps7EnabledInfo.id -cne $ps7Id) { throw 'PowerShell 7 upgrade changed the installation UUID' }
+            $ps7TokenPath = Join-Path $state 'control-token'
+            $ps7Token = (Get-Content -LiteralPath $ps7TokenPath -Raw).Trim()
+            if ($ps7Token -cnotmatch '^[a-f0-9]{64}$') { throw 'PowerShell 7 control-token malformed' }
+            $ps7TokenAcl = Get-Acl -LiteralPath $ps7TokenPath
+            if (-not $ps7TokenAcl.AreAccessRulesProtected -or
+                $ps7TokenAcl.GetOwner([Security.Principal.SecurityIdentifier]).Value -ne $admins) {
+              throw 'PowerShell 7 control-token owner or DACL is incorrect'
+            }
+            foreach ($rule in $ps7TokenAcl.Access) {
+              if ($rule.AccessControlType -ne [Security.AccessControl.AccessControlType]::Allow) { continue }
+              $subject = $rule.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value
+              if ($expectedTokenSids -notcontains $subject) {
+                throw "PowerShell 7 control-token has unexpected allow ACE: $subject"
+              }
+            }
+            Write-Host 'PASS PowerShell 7 fresh ACL-aware state creation and token lockdown'
+            Write-Host 'PASS Windows PowerShell 5.1 and PowerShell 7 install, upgrade and retained-state coverage'
           } finally {
+            if (Test-Path -LiteralPath $state) {
+              & icacls.exe $state /setowner '*S-1-5-32-544' /T /C | Out-Null
+              & icacls.exe $state /grant '*S-1-5-32-544:(OI)(CI)F' /T /C | Out-Null
+            }
             & $uninstall -PurgeState
+            if (Get-LocalUser -Name $attackerName -ErrorAction SilentlyContinue) {
+              Remove-LocalUser -Name $attackerName
+            }
           }
   windows-arm64-build:
     runs-on: windows-2025
