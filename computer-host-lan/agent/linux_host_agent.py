@@ -585,8 +585,11 @@ def make_handler(state: AgentState):
             try:
                 return super().handle_one_request()
             except OSError:
-                # A disconnected peer or expired header timer affects only
-                # this connection; do not emit a noisy server traceback.
+                # Only suppress socket failures while the request line or
+                # headers are still being read. Preserve unexpected OSErrors
+                # from endpoint processing for normal server error handling.
+                if self._header_read_complete.is_set():
+                    raise
                 self.close_connection = True
                 return
             finally:
@@ -595,6 +598,11 @@ def make_handler(state: AgentState):
         def parse_request(self):
             try:
                 return super().parse_request()
+            except OSError:
+                # A peer disconnect or deadline shutdown during header parsing
+                # is connection-local and must not escape the handler thread.
+                self.close_connection = True
+                return False
             finally:
                 # Stop the timer immediately after the headers are parsed,
                 # before endpoint processing or response generation.
