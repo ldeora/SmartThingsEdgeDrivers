@@ -64,58 +64,99 @@ class SystemctlResolutionTests(unittest.TestCase):
 
 
 class HelperAcknowledgementTests(unittest.TestCase):
-    def test_systemd_job_is_started_before_ok_acknowledgement(self):
+    @staticmethod
+    def invoke(conn, executor, events, sleeper=None):
+        # Tests must never execute a real power operation, or depend on the
+        # test runner having systemctl installed at a specific path.
+        with mock.patch.object(power_helper.Path, "is_file", return_value=True), \
+             mock.patch.object(power_helper.os, "access", return_value=True):
+            return power_helper.handle_connection(
+                conn, 1001, "/usr/bin/systemctl", executor,
+                sleeper or (lambda seconds: events.append(("sleep", seconds))),
+            )
+
+    def test_shutdown_acknowledged_before_delay_and_execution(self):
         events = []
-        connection = FakeConnection(1001, b"shutdown\n", events)
+        conn = FakeConnection(1001, b"shutdown\n", events)
 
         def executor(command):
             events.append(("execute", command))
 
-        self.assertTrue(power_helper.handle_connection(
-            connection, 1001, "/usr/bin/systemctl", executor
-        ))
-        execute_index = next(i for i, item in enumerate(events) if item[0] == "execute")
-        ack_index = events.index(("send", b"OK\n"))
-        self.assertLess(execute_index, ack_index)
-        self.assertEqual(events[execute_index][1], [
-            "/usr/bin/systemctl", "--no-block", "poweroff"
+        self.assertTrue(self.invoke(conn, executor, events))
+        self.assertEqual(events[-3:], [
+            ("send", b"OK\n"),
+            ("sleep", power_helper.SHUTDOWN_ACK_GRACE_SECONDS),
+            ("execute", ["/usr/bin/systemctl", "--no-block", "poweroff"]),
+        ])
+        self.assertGreaterEqual(power_helper.SHUTDOWN_ACK_GRACE_SECONDS, 0.5)
+
+    def test_reboot_uses_the_same_acknowledgement_grace(self):
+        events = []
+        conn = FakeConnection(1001, b"reboot\n", events)
+
+        def executor(command):
+            events.append(("execute", command))
+
+        self.assertTrue(self.invoke(conn, executor, events))
+        self.assertEqual(events[-3:], [
+            ("send", b"OK\n"),
+            ("sleep", power_helper.SHUTDOWN_ACK_GRACE_SECONDS),
+            ("execute", ["/usr/bin/systemctl", "--no-block", "reboot"]),
         ])
 
-    def test_executor_failure_returns_error_without_ok(self):
+    def test_delayed_failure_cannot_be_turned_into_a_false_second_reply(self):
         events = []
-        connection = FakeConnection(1001, b"reboot\n", events)
+        conn = FakeConnection(1001, b"reboot\n", events)
 
         def executor(command):
             events.append(("execute", command))
             raise FileNotFoundError("systemctl disappeared")
 
-        self.assertFalse(power_helper.handle_connection(
-            connection, 1001, "/usr/bin/systemctl", executor
-        ))
-        responses = [item[1] for item in events if item[0] == "send"]
-        self.assertEqual(responses, [b"ERROR\n"])
-        self.assertNotIn(b"OK\n", responses)
+        self.assertFalse(self.invoke(conn, executor, events))
+        self.assertEqual([item[1] for item in events if item[0] == "send"], [b"OK\n"])
+        self.assertEqual(events[-2][0], "sleep")
 
-    def test_systemctl_nonzero_exit_is_an_operation_failure(self):
+    def test_suspend_is_confirmed_before_acknowledgement(self):
         events = []
-        connection = FakeConnection(1001, b"suspend\n", events)
+        conn = FakeConnection(1001, b"suspend\n", events)
+
+        def executor(command):
+            events.append(("execute", command))
+
+        self.assertTrue(self.invoke(conn, executor, events))
+        self.assertEqual(events[-2:], [
+            ("execute", ["/usr/bin/systemctl", "--no-block", "suspend"]),
+            ("send", b"OK\n"),
+        ])
+
+    def test_suspend_nonzero_exit_returns_error_without_ok(self):
+        events = []
+        conn = FakeConnection(1001, b"suspend\n", events)
 
         def executor(command):
             raise subprocess.CalledProcessError(1, command)
 
-        self.assertFalse(power_helper.handle_connection(
-            connection, 1001, "/usr/bin/systemctl", executor
-        ))
+        self.assertFalse(self.invoke(conn, executor, events))
+        self.assertEqual([item[1] for item in events if item[0] == "send"], [b"ERROR\n"])
+
+    def test_missing_systemctl_before_shutdown_is_rejected(self):
+        events = []
+        conn = FakeConnection(1001, b"shutdown\n", events)
+        executor = mock.Mock()
+        with mock.patch.object(power_helper.Path, "is_file", return_value=False):
+            self.assertFalse(power_helper.handle_connection(
+                conn, 1001, "/missing/systemctl", executor,
+                sleeper=lambda seconds: events.append(("sleep", seconds)),
+            ))
         self.assertIn(("send", b"ERROR\n"), events)
+        executor.assert_not_called()
+        self.assertFalse(any(item[0] == "sleep" for item in events))
 
     def test_unauthorized_peer_is_denied_without_running_systemctl(self):
         events = []
-        connection = FakeConnection(2002, b"poweroff\n", events)
+        conn = FakeConnection(2002, b"shutdown\n", events)
         executor = mock.Mock()
-
-        self.assertFalse(power_helper.handle_connection(
-            connection, 1001, "/usr/bin/systemctl", executor
-        ))
+        self.assertFalse(self.invoke(conn, executor, events))
         self.assertIn(("send", b"DENIED\n"), events)
         executor.assert_not_called()
 
@@ -133,7 +174,6 @@ class HelperAcknowledgementTests(unittest.TestCase):
             stderr=subprocess.DEVNULL,
             close_fds=True,
         )
-
 
 if __name__ == "__main__":
     unittest.main()
