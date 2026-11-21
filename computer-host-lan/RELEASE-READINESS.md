@@ -1,6 +1,19 @@
-# Computer Host LAN — v0.5.6-beta.1 release readiness
+# Computer Host LAN — published rc.2 and stable release readiness
 
-**Published prerelease:** [v0.5.6-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.6-beta.1) (Windows 0.2.5-beta.1; Linux/Edge 0.4.4-beta.1). **Hardware-tested baseline:** [v0.5.5-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.5-beta.1); the v0.5.6 paths still require dedicated validation. Channel assignment and published artifact integrity are separate checks, not established by this file.
+**Current prerelease:** [v1.0.0-rc.2](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v1.0.0-rc.2), published 2026-11-21 19:17:25 UTC from immutable commit `72e4a99c4b2e8f958ce771152826319318d0d537`. Linux/Edge **0.4.6-rc.2**, Windows **0.2.7-rc.2**, protocol v2. Four unsigned deliverables and `SHA256SUMS.txt` are available. **Do not replace these assets or move the tag after this documentation PR.** [v0.5.5-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.5-beta.1) remains the last independently Windows 11 hardware-tested rollback baseline.
+
+## rc.2 publication verification
+
+- [x] GitHub release and tag reference original rc.2 source commit `72e4a99c4b2e8f958ce771152826319318d0d537`; four unsigned deliverables and checksum manifest are present.
+- [x] All four main-branch workflows passed on that SHA: [Linux 44933351339](https://github.com/ldeora/SmartThingsEdgeDrivers/actions/runs/44933351339), [Windows 44933351147](https://github.com/ldeora/SmartThingsEdgeDrivers/actions/runs/44933351147), [Inno 44933351273](https://github.com/ldeora/SmartThingsEdgeDrivers/actions/runs/44933351273), [packaging 44933351260](https://github.com/ldeora/SmartThingsEdgeDrivers/actions/runs/44933351260).
+- [x] Publisher reports Gentoo Linux rc.2 upgrade working normally with SmartThings (2026-11-21); individual rc.2 power cases and seven-day soak have not been documented.
+- [ ] Independently compare downloaded public rc.2 assets to CI candidates, beyond the GitHub API digest and packaging CI evidence.
+- [ ] Verify and record actual rc.2 channel-assigned and hub-installed Edge driver version; GitHub publication alone does not assign it.
+- [ ] Complete Windows 11 rc.2 fresh-install/upgrade, GUI first paint, ACL/security handling, monitoring/power and recovery checks.
+- [ ] Complete additional Linux physical platform testing and at least seven days of Windows/Linux unattended hub soak.
+- [ ] Complete licensing/redistribution notices, code-signing decision and final security/platform sign-off before stable v1.0.0.
+
+## Earlier beta evidence and historical follow-up
 
 ## Confirmed baseline (v0.5.5-beta.1)
 
@@ -8,7 +21,7 @@
 - [x] Windows 11 Pro tester: GUI in-place upgrade preserved settings and existing SmartThings device; accurate CPU/RAM/disk metrics, service stop/restart recovery (Off/Unreachable → On/Running), Wake/Restart/Sleep controls and working Wake-on-LAN; Windows agent 0.2.4-beta.1.
 - [x] Gentoo Linux hydra with real SmartThings hub: discovery, telemetry, service recovery, reboot, suspend/WOL, shutdown/WOL and expanded RAM/root filesystem readings.
 
-## Post-publication verification for v0.5.6
+## Historical post-publication verification for v0.5.6
 
 **Release engineering audit (2026-11-20):** [Verified tag, CI, published asset digests and open packaging/signing gates](docs/release/V1-RELEASE-ENGINEERING-AUDIT.md). The GitHub artifact-integrity checks below can now be distinguished from still-pending SmartThings deployment and hardware tests.
 
@@ -22,13 +35,14 @@
 - [ ] Independently check Edge driver 0.4.4-beta.1 is assigned to the existing SmartThings channel 7a23289c-d1f8-42cc-ba10-4ffd219b89bb and installed on a hub, preserving driver 2ab3db0e-3b78-499e-bc3b-bcfa7f62b9f7 and existing devices.
 - [ ] Complete a real Windows 11/Gentoo v0.5.6 test round; previous v0.5.5 hardware feedback does not validate these changes.
 
-## Before v1.0.0-rc.2 publication or stable
+## Remaining gates before stable v1.0.0
 
-**Current release acceptance policy:** [v1.0 gates and scope](docs/release/V1-RELEASE-GATES.md). This page tracks the unpublished v1.0.0-rc.2 source candidate; the separate v1.0 checklist defines what must be proven before RC publication and stable release. The latest published candidate remains v1.0.0-rc.1. Key rotation and automatic pairing are **not** in the v1.0 scope.
+The [stable release gates](docs/release/V1-RELEASE-GATES.md) remain in force. Public rc.2 is for testing; publication does **not** waive Windows/Linux hardware, security, redistribution or soak requirements. The older rc.1 remains downloadable with its documented missing fixes.
 
-- [ ] Retest installer upgrades, service recovery, WOL/Windows power controls and Linux state-machine changes on actual v0.5.6 hardware.
-- [ ] Check additional NICs/privilege policies/Windows network profiles and recovery edge cases when practical.
-- [ ] Review licenses and transitive dependency provenance; decide code signing/Authenticode policy. Checksums verify integrity, not publisher identity.
-- [ ] Maintain the trusted-private-LAN, unsigned-beta, Windows S0/S3/S4/S5 and WOL limitations. Never promise power transitions are electrically confirmed.
+- [ ] Retest Windows 11 rc.2 installer/upgrade, service recovery, WOL and power controls on real hardware.
+- [ ] Record individual Linux rc.2 power/reconnection cases and test one physical Debian/Ubuntu system.
+- [ ] Check relevant NIC/privilege policies/network profiles and safe recovery edge cases.
+- [ ] Review third-party notices, resolved license obligations and signing; SHA-256 validates bytes, not publisher identity.
+- [ ] Finish seven-day soak and retain trusted private LAN/unencrypted HTTP and hardware-specific sleep/WOL caveats.
 
 No PR or CI workflow automatically publishes a GitHub release or assigns a SmartThings driver. Never purge persistent identities or keys to force a failed upgrade.
