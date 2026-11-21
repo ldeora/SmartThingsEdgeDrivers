@@ -299,13 +299,13 @@ class HelperSocketTests(unittest.TestCase):
                     received.append(conn.recv(64))
                     conn.sendall(b"O")
                     time.sleep(0.02)
-                    conn.sendall(b"K\\n")
+                    conn.sendall(b"K\n")
             task = threading.Thread(target=responder)
             task.start()
             try:
                 agent.request_power(path, "shutdown")
                 task.join(timeout=2)
-                self.assertEqual(received, [b"shutdown\\n"])
+                self.assertEqual(received, [b"shutdown\n"])
             finally:
                 listener.close()
 
@@ -321,7 +321,7 @@ class HelperSocketTests(unittest.TestCase):
                 conn, _ = listener.accept()
                 with conn:
                     conn.recv(64)
-                    conn.sendall(b"ERROR\\n")
+                    conn.sendall(b"ERROR\n")
             task = threading.Thread(target=responder)
             task.start()
             try:
