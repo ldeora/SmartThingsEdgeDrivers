@@ -1,6 +1,8 @@
 """Power-helper acknowledgement and systemctl resolution tests."""
 from pathlib import Path
+import os
 import socket
+import threading
 import struct
 import subprocess
 import sys
@@ -174,6 +176,59 @@ class HelperAcknowledgementTests(unittest.TestCase):
             stderr=subprocess.DEVNULL,
             close_fds=True,
         )
+
+class SocketAcknowledgementTests(unittest.TestCase):
+    def test_agent_receives_shutdown_ok_before_systemctl_is_invoked(self):
+        """Exercise the actual Unix socket handshake without powering off."""
+        import linux_host_agent as agent
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = str(Path(directory) / "power.sock")
+            executable = Path(directory) / "systemctl"
+            executable.write_text("#!/bin/sh\nexit 0\n", encoding="ascii")
+            executable.chmod(0o755)
+
+            listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            listener.bind(path)
+            listener.listen(1)
+            sleeping = threading.Event()
+            release = threading.Event()
+            executed = []
+            results = []
+
+            def grace_period(seconds):
+                self.assertEqual(seconds, power_helper.SHUTDOWN_ACK_GRACE_SECONDS)
+                sleeping.set()
+                if not release.wait(timeout=3):
+                    raise AssertionError("test did not release the grace period")
+
+            def run_helper():
+                conn, _ = listener.accept()
+                with conn:
+                    results.append(power_helper.handle_connection(
+                        conn, os.getuid(), str(executable),
+                        executor=lambda command: executed.append(command),
+                        sleeper=grace_period,
+                    ))
+
+            worker = threading.Thread(target=run_helper)
+            worker.start()
+            try:
+                # The agent must complete the full OK handshake while the
+                # helper's grace period still prevents systemctl invocation.
+                agent.request_power(path, "shutdown", timeout=2)
+                self.assertTrue(sleeping.wait(timeout=2))
+                self.assertEqual(executed, [])
+            finally:
+                release.set()
+                worker.join(timeout=3)
+                listener.close()
+            self.assertFalse(worker.is_alive())
+            self.assertEqual(results, [True])
+            self.assertEqual(executed, [[
+                str(executable), "--no-block", "poweroff"
+            ]])
+
 
 if __name__ == "__main__":
     unittest.main()
