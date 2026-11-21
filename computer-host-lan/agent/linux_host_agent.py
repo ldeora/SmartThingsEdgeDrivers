@@ -549,11 +549,13 @@ def make_handler(state: AgentState):
             self._header_deadline_lock = threading.Lock()
             self._header_read_complete = threading.Event()
             self._header_read_complete.set()
+            self._header_deadline_expired = False
             self._header_deadline_timer = None
 
         def _begin_header_read(self):
             with self._header_deadline_lock:
                 self._header_read_complete.clear()
+                self._header_deadline_expired = False
                 self.rfile.begin_request()
                 timer = threading.Timer(self.header_timeout, self._expire_header_read)
                 timer.daemon = True
@@ -564,6 +566,7 @@ def make_handler(state: AgentState):
             with self._header_deadline_lock:
                 if self._header_read_complete.is_set():
                     return
+                self._header_deadline_expired = True
                 # shutdown() interrupts a BufferedReader.readline() that is
                 # still receiving bytes; a socket inactivity timeout alone
                 # cannot enforce an absolute deadline against a slow drip.
@@ -574,6 +577,16 @@ def make_handler(state: AgentState):
 
         def _finish_header_read(self):
             with self._header_deadline_lock:
+                # The timer thread can be scheduled late under load. Check
+                # the clock here as well so a just-finished slow read cannot
+                # win a race and cancel an already-expired deadline.
+                if (not self._header_read_complete.is_set()
+                        and time.monotonic() >= self.rfile.deadline):
+                    self._header_deadline_expired = True
+                    try:
+                        self.connection.shutdown(socket.SHUT_RDWR)
+                    except OSError:
+                        pass
                 self._header_read_complete.set()
                 timer = self._header_deadline_timer
                 self._header_deadline_timer = None
@@ -588,7 +601,7 @@ def make_handler(state: AgentState):
                 # Only suppress socket failures while the request line or
                 # headers are still being read. Preserve unexpected OSErrors
                 # from endpoint processing for normal server error handling.
-                if self._header_read_complete.is_set():
+                if self._header_read_complete.is_set() and not self._header_deadline_expired:
                     raise
                 self.close_connection = True
                 return
