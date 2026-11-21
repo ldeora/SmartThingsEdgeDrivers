@@ -1,6 +1,6 @@
 # Computer Host LAN v1.0.0-rc.1 — release candidate
 
-**Status:** RC source and assets prepared for CI and acceptance testing. GitHub publication and SmartThings driver deployment are separate steps; neither is implied by these notes. The [published v0.5.6-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.6-beta.1) remains available, and v0.5.5-beta.1 is the hardware-tested rollback baseline.
+**Release downloads:** [Computer Host LAN v1.0.0-rc.1 on GitHub](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v1.0.0-rc.1). These notes can be bundled into release-candidate archives before GitHub publication; their presence does not by itself prove a release has been published. Check the linked GitHub release page and matching checksums before using any asset. GitHub publication, SmartThings driver/channel deployment and real-hardware validation are **separate** events. The earlier [v0.5.6-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.6-beta.1) remains available, and v0.5.5-beta.1 is the hardware-tested rollback baseline.
 
 **SmartThings channel:** [ARoedl SmartThings Edge Drivers](https://bestow-regional.api.smartthings.com/invite/1J2Qy7ZkxL20) (same channel and Computer Host LAN driver ID; no new pairing).
 
@@ -22,7 +22,7 @@
 
 ## Installation and upgrading
 
-For first-time installations, see the [short RC quick start](QUICK-START.md). Windows 11 x64 should use the **unsigned graphical Setup.exe** after this RC is published; the ZIP/PowerShell method remains a fallback. Linux systems use the matching source ZIP. Always verify SHA-256 hashes, and use the trusted private LAN.
+For first-time installations, see the [short RC quick start](QUICK-START.md). If the [GitHub release page](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v1.0.0-rc.1) is public, obtain the **unsigned graphical Windows 11 x64 Setup.exe** from its assets; the ZIP/PowerShell method remains a fallback. Linux systems use the matching source ZIP. Never substitute temporary CI artifacts for a published release. Always verify SHA-256 hashes, and use a trusted private LAN.
 
 **Upgrades must preserve the existing SmartThings computer device, installation UUID, control key, configuration and power preference.** Do not uninstall or purge state before upgrading. Windows Setup validates the new agent and can restore an existing installation after detectable failures. Power operations remain **disabled by default** for new installations and depend on OS/NIC/firmware.
 
@@ -30,4 +30,4 @@ For first-time installations, see the [short RC quick start](QUICK-START.md). Wi
 
 CI alone cannot verify pixel rendering or hub discovery on the reporting Windows machine, SmartThings channel assignment, hardware-specific WOL/sleep transitions, or multi-day stability. Before calling this candidate stable, verify Windows 11 upgrades and first-search layout on physical testers, Linux on a real hub, and continuity without duplicate SmartThings devices. Keep an existing known-good installer for recovery.
 
-**No GitHub release, driver/channel assignment or physical tester installation is performed simply by merging the candidate PR.**
+**A merged PR, a generated release ZIP or these notes alone does not prove publication, driver/channel assignment or physical tester installation. Verify each independently.**
