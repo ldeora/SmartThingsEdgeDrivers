@@ -109,12 +109,16 @@ class ReleaseVersionTests(unittest.TestCase):
                 self.assertEqual(zip_file.read("docs/RELEASE-NOTES.md"), notes_path.read_bytes())
 
     def test_published_rc1_warnings_do_not_conflate_main_with_tag(self):
-        """Published rc.1 is not equivalent to post-tag code on main."""
+        """While rc.1 is the latest download, keep its missing-fixes warning."""
         manifest = json.loads((ROOT / "release.json").read_text(encoding="utf-8"))
-        if manifest["integration"] != "1.0.0-rc.1" or (
-            manifest["release_stage"] != "rc-published-v1.0.0-rc.1"
-        ):
-            self.skipTest("rc.1 publication-specific disclosure")
+        published_rc1_url = (
+            "https://github.com/ldeora/SmartThingsEdgeDrivers/"
+            "releases/tag/computer-host-lan-v1.0.0-rc.1"
+        )
+        # Do not tie this to the current integration version: rc.2 source is
+        # already ahead of the still-published rc.1 binaries.
+        if manifest.get("github_prerelease") != published_rc1_url:
+            self.skipTest("published prerelease is no longer rc.1")
         required = {
             "README.md": ("#32", "rc.2", "main", "rc.1"),
             "INSTALLATION.md": ("#32", "#33", "#44", "rc.2", "main", "rc.1"),
