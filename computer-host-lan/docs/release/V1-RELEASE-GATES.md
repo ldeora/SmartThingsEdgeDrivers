@@ -8,7 +8,7 @@ Computer Host LAN monitors supported Linux and Windows computers over a trusted 
 
 **Not in scope for 1.0:** automatic pairing; routine/automatic key rotation; new authentication or HTTP transport; Windows tray application; WinGet or new APT/DNF repository; native DEB/RPM; macOS; TLS/mTLS; extra metrics or power actions. These are not prerequisites for stability. If a credential is lost or compromised, document a **manual recovery** procedure which does not silently reset the identity or enable power; do not implement rotation in this release.
 
-### P0: entry gates to v1.0.0-rc.1
+### P0: entry gates to v1.0.0-rc.2 publication
 
 - [ ] **Close v0.5.6 verification:** record published tag and source SHA, four unsigned assets and `SHA256SUMS.txt`, `BUILD-INFO.json`/manifest component versions, and all four CI workflows on the exact release commit. Check that Edge driver 0.4.4-beta.1 is assigned and installed on a real hub on the **existing** channel/driver ID. Never infer assignment from the release link.
 - [ ] **Resolve reproducible installer defects:** first hub-search painting glitch reported on Windows 11; verify any isolated fix on the reporting hardware (fresh wizard start, initial search, second search, manual IP, Advanced options, Next/Back) and run native Inno GUI compilation/tests. A CI window-control smoke test cannot prove pixels are painted correctly.
@@ -20,7 +20,7 @@ Computer Host LAN monitors supported Linux and Windows computers over a trusted 
 - [ ] **User documentation:** one up-to-date Windows quick start and one Linux quick start, upgrade/uninstall guide and troubleshooting reference; published version links sourced from `release.json` and checked by tests. Keep historic release-engineering content separate.
 - [ ] **Freeze and traceability:** document agent/driver compatibility, version policy (public integration release vs internally versioned agents), explicit platform support and known hardware limitations. Freeze protocol v2's existing semantics for the 1.x line, allowing backward-compatible optional additions only.
 
-### P0: gate from v1.0.0-rc.1 to v1.0.0
+### P0: gate from v1.0.0-rc.2 to v1.0.0
 
 - [ ] Run a **minimum seven-day unattended soak** on at least one physical Windows 11 system and one Linux host with a real SmartThings hub; log dates, exact binaries/driver version, reconnects, resource use and any duplicate/stuck state.
 - [ ] Exercise hub restart, agent stop/start, computer reboot, a router/network interruption and host DHCP address change (where feasible); separate a **hub IP change** from a **host IP change**, because the Windows firewall may intentionally scope access to the hub's previous IP.
