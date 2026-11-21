@@ -16,9 +16,15 @@ public Internet.** It is an incremental reduction in attack surface.
   address families. Added `MemoryMax`, `TasksMax`, file-descriptor limits,
   `RestrictSUIDSGID`, `LockPersonality`, `ProtectHostname` and syscall
   architecture restrictions. Check compatibility with each target OS.
-- Bounded HTTP server allows at most **12 active client connections** with
-  **4-second socket-inactivity timeouts**, a **5-second cumulative HTTP header deadline**, a **12 KiB header budget**, and listen backlog 16.
-  Connections exceeding the cap are closed (caller should retry).
+- The historical v0.3.x HTTP server allowed at most **12 active client
+  connections**, with **4-second socket-inactivity timeouts**, a **12 KiB
+  header budget**, and listen backlog 16. Its nominal **5-second cumulative
+  header deadline was checked only between calls to `readline()`**; it did
+  not interrupt a single blocked read, so a peer continuously drip-feeding
+  bytes could exceed it. The v1.0 RC correction adds an independent per-request
+  timer that shuts down the connection at the absolute deadline, including
+  during a blocked header read. Connections exceeding the active-handler cap
+  are closed (caller should retry).
 - Challenge issuance is limited to **20 requests per minute per source IP**
   and **120 per minute overall**, with a bounded client map and 128 live
   challenge slots. Saturation returns HTTP 429 with `Retry-After: 30`.
