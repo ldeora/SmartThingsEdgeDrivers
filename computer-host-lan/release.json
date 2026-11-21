@@ -1,9 +1,9 @@
 {
-  "integration": "1.0.0-rc.1",
-  "agent": "0.4.5-rc.1",
-  "edge_driver": "0.4.5-rc.1",
+  "integration": "1.0.0-rc.2",
+  "agent": "0.4.6-rc.2",
+  "edge_driver": "0.4.6-rc.2",
   "agent_protocol": 2,
-  "release_stage": "rc-published-v1.0.0-rc.1",
+  "release_stage": "rc-candidate-v1.0.0-rc.2",
   "hardware_validated": [
     "Linux Gentoo hydra / SmartThings hub: protocol v2 discovery, telemetry, service-interruption recovery, reboot, suspend/WOL and full shutdown/WOL (2026-11-16)",
     "Linux Gentoo hydra / SmartThings hub: diskTotalGiB 431.8 accepted after hub reboot following account-level capability update (2026-11-18)",
@@ -25,7 +25,7 @@
   "power_control_default": "disabled",
   "redistribution_license": "Apache-2.0",
   "linux_reference_baseline": "Linux protocol-v2 hardware baseline verified on hydra; added disk capacity confirmed after SmartThings hub reboot (2026-11-18)",
-  "windows_agent": "0.2.6-rc.1",
+  "windows_agent": "0.2.7-rc.2",
   "windows_power_control": "opt-in best effort; Windows 11 Pro volunteer has confirmed reboot/suspend/shutdown and WOL on one hardware combination; S0/S3/S4/S5 behavior varies",
   "smartthings_beta_channel": {
     "name": "ARoedl SmartThings Edge Drivers",
@@ -39,5 +39,5 @@
     "2026-11-19: Windows 11 Pro volunteer reports successful installation and upgrade with Inno Setup wizard and accurate CPU, RAM and system-disk data in SmartThings (screenshot supplied); this validates the previous v0.5.4-beta.1 GUI build, not the proposed v0.5.5 beta.",
     "2026-11-20: Independent Windows 11 Pro volunteer confirmed v0.5.5-beta.1 in-place upgrade, device continuity, resource accuracy, Windows service startup and stop/restart recovery, all three momentary controls, working WOL and agent 0.2.4-beta.1. This does not validate v0.5.6 changes."
   ],
-  "release_candidate_tag": "computer-host-lan-v1.0.0-rc.1"
+  "release_candidate_tag": "computer-host-lan-v1.0.0-rc.2"
 }
