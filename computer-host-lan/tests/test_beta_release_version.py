@@ -135,6 +135,36 @@ class ReleaseVersionTests(unittest.TestCase):
         self.assertIn("do not include the later security fixes", security)
         self.assertIn("do not enable power control", security.lower())
 
+    def test_current_rc_candidate_versions_and_publication_separation(self):
+        """Future RCs are version coherent but never imply publication."""
+        manifest = json.loads((ROOT / "release.json").read_text(encoding="utf-8"))
+        version = manifest["integration"]
+        if manifest["release_stage"] != f"rc-candidate-v{version}":
+            self.skipTest("only applies to unannounced RC source candidates")
+        candidate_url = ("https://github.com/ldeora/SmartThingsEdgeDrivers/"
+                         f"releases/tag/computer-host-lan-v{version}")
+        self.assertEqual(manifest["release_candidate_tag"], f"computer-host-lan-v{version}")
+        self.assertNotEqual(manifest.get("github_prerelease"), candidate_url,
+                            "unpublished candidate must not replace latest published URL")
+        notes = (ROOT / release_notes(version)).read_text(encoding="utf-8")
+        self.assertIn(candidate_url, notes)
+        self.assertIn("NOT published", notes)
+        self.assertIn("not evidence", notes)
+        self.assertIn("GitHub publication", notes)
+        for field in ("agent", "edge_driver", "windows_agent"):
+            self.assertIn(manifest[field], notes, field)
+
+        for name in ("README.md", "INSTALLATION.md",
+                     "windows-agent/README.md", "docs/release/QUICK-START.md"):
+            intro = (ROOT / name).read_text(encoding="utf-8").splitlines()[:8]
+            self.assertIn("NOT published", "\n".join(intro), name)
+            self.assertIn(version, "\n".join(intro), name)
+        acceptance = (ROOT / "docs/release/RC-ACCEPTANCE.md").read_text(encoding="utf-8")
+        self.assertIn(version, acceptance)
+        self.assertIn("not", acceptance.lower())
+        self.assertEqual(manifest["agent_protocol"], 2)
+        self.assertEqual(manifest["power_control_default"], "disabled")
+
     def test_release_docs_consistent(self):
         manifest = json.loads((ROOT / "release.json").read_text(encoding="utf-8"))
         version = manifest["integration"]
