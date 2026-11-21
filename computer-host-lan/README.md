@@ -1,12 +1,12 @@
 # Computer Host LAN — SmartThings for Linux and Windows
 
-**Published GitHub prerelease:** [v1.0.0-rc.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v1.0.0-rc.1) (November 20, 2026, UTC; Windows agent **0.2.6-rc.1**, Linux agent/Edge driver **0.4.5-rc.1**, protocol v2 unchanged). This is **not a stable release** and GitHub publication does not itself confirm SmartThings driver deployment or new physical hardware tests. [v0.5.6-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.6-beta.1) remains the previous published beta, and [v0.5.5-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.5-beta.1) the independently hardware-tested rollback baseline. The rc.1 changes still require new Linux and Windows acceptance tests.
+**Current source candidate (NOT published): v1.0.0-rc.2.** The matching components are Linux agent and Edge driver **0.4.6-rc.2**, Windows agent **0.2.7-rc.2**, protocol **v2 unchanged**. This version is prepared for source/CI review; **there is no rc.2 GitHub release, new tag or automatic SmartThings channel assignment yet.** Do not install temporary CI artifacts as if they were a published release. The latest published prerelease is [v1.0.0-rc.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v1.0.0-rc.1) (November 20, 2026, UTC). [v0.5.5-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.5-beta.1) remains the independently hardware-tested Windows rollback baseline.
 
-## Important: published rc.1 versus current `main`
+## rc.2 candidate versus published rc.1
 
-**The published v1.0.0-rc.1 installers and agents are built from tag `5466ad0`, not from the current `main` branch.** Security and reliability changes merged later in [PRs #56–#59](https://github.com/ldeora/SmartThingsEdgeDrivers/compare/computer-host-lan-v1.0.0-rc.1...main) are **not** included in those downloadable rc.1 assets. They are planned for **v1.0.0-rc.2**, which has not yet been published. The [installation guide](INSTALLATION.md#known-differences-between-rc1-and-main) and [security notes](SECURITY.md#known-issues-in-the-published-rc1) distinguish the two versions.
+**The downloadable rc.1 installers and agents were built from tag `5466ad0` and do not contain the subsequent fixes.** The rc.2 source candidate contains PRs #56–#60, including HTTP reliability, power acknowledgment improvements, **Windows ProgramData ownership and atomic state creation**, discovery/Wake behavior and release metadata/documentation corrections. See the [rc.2 release notes](docs/release/RELEASE-NOTES-v1.0.0-rc.2.md) and [installation instructions](INSTALLATION.md#known-differences-between-rc1-and-main). CI success is not physical acceptance of this candidate.
 
-In particular, **rc.1 lacks the Windows ProgramData state/key preflight and atomic protected-directory creation** added in PR #58 ([#32](https://github.com/ldeora/SmartThingsEdgeDrivers/issues/32)). On a Windows PC with untrusted local users, **do not enable authenticated power control with the rc.1 installer**; prefer waiting for rc.2. Inspecting an unexpected pre-existing `%ProgramData%\ComputerHostAgent` folder is useful, but a one-time check does **not** eliminate rc.1's creation race. On existing installations, do not delete persistent state to work around this warning.
+**Security caution for published rc.1:** the Windows installer in rc.1 still lacks PR #58's retained-state/credential hardening ([#32](https://github.com/ldeora/SmartThingsEdgeDrivers/issues/32)). Do not enable rc.1 authenticated power commands on a shared PC with untrusted local accounts; checking the ProgramData directory once does not eliminate its fresh-install race. Keep existing installation IDs and control keys intact during upgrades. The [security page](SECURITY.md#known-issues-in-the-published-rc1) documents rc.1 limitations separately.
 
 Computer Host LAN is a **separate** project from [Linux Host LAN](../linux-host-lan/). It uses the `_computerhost._tcp` discovery service and `/v2` HTTP API. **Do not pair a protocol-v1 Linux Host LAN agent with this driver.**
 
@@ -26,7 +26,8 @@ Windows system metrics include CPU, RAM, system-drive usage and uptime. Both age
 
 - [Installation (both platforms)](INSTALLATION.md)
 - [v1.0 RC quick start](docs/release/QUICK-START.md)
-- [RC release notes](docs/release/RELEASE-NOTES-v1.0.0-rc.1.md)
+- [Current rc.2 candidate release notes](docs/release/RELEASE-NOTES-v1.0.0-rc.2.md)
+- [Published rc.1 release notes (historical)](docs/release/RELEASE-NOTES-v1.0.0-rc.1.md)
 - [Previously published beta guide](docs/beta/START-HERE.md)
 - [Tester checklist](docs/beta/TESTER-CHECKLIST.md)
 - [Feedback and privacy](docs/beta/FEEDBACK-AND-SUPPORT.md)
@@ -39,4 +40,4 @@ Windows system metrics include CPU, RAM, system-drive usage and uptime. Both age
 
 **SmartThings installation:** [ARoedl SmartThings Edge Drivers](https://bestow-regional.api.smartthings.com/invite/1J2Qy7ZkxL20). Enroll the existing hub and install the Computer Host LAN driver; do not re-pair existing computer devices during upgrades.
 
-**Release status:** The [v1.0.0-rc.1 GitHub prerelease](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v1.0.0-rc.1) is published, with unsigned Windows x64 Setup.exe and ZIP, Linux source, documentation and checksums. Do not distribute temporary CI/PR artifacts as installers. Prefer the graphical Setup.exe for Windows x64; ZIP/PowerShell remains a fallback. The existing SmartThings channel must be checked separately for the matching Edge driver before hub upgrades. Publication does not establish real-hardware validation of this RC, and no re-pairing or new channel is intended.
+**Release status:** The **rc.2 source candidate has not been published**, tagged or deployed to the SmartThings channel. The [older v1.0.0-rc.1 GitHub prerelease](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v1.0.0-rc.1) is published with unsigned Windows x64 Setup/ZIP, Linux source, documentation and checksums, but it lacks the later rc.2 fixes. Do not distribute temporary CI/PR artifacts as installers or use rc.1 to test rc.2 behavior. Once rc.2 is approved and published, prefer its graphical Setup.exe on Windows x64; matching ZIP/PowerShell remains a fallback. Driver/channel assignment, new hardware validation and preserving existing paired devices are separate steps.

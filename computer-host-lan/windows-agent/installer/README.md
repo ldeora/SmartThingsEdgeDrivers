@@ -1,6 +1,6 @@
 # Windows graphical installer (Inno Setup 7) — x64
 
-**Release-candidate source:** v1.0.0-rc.1 (Windows agent 0.2.6-rc.1, Linux/Edge 0.4.5-rc.1, protocol v2 unchanged); not published yet. **Published beta:** [v0.5.6-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.6-beta.1). **Windows 11 hardware-tested fallback:** [v0.5.5-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.5-beta.1).
+**Unpublished rc.2 source candidate:** integration v1.0.0-rc.2, Windows agent 0.2.7-rc.2, Linux/Edge 0.4.6-rc.2, protocol v2 unchanged. **Latest published prerelease:** [v1.0.0-rc.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v1.0.0-rc.1), which lacks the rc.2 Windows ProgramData and native power-acknowledgment fixes. **Windows 11 hardware-tested rollback baseline:** [v0.5.5-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.5-beta.1). Do not distribute temporary rc.2 CI artifacts.
 
 Windows 11 Pro testing verified the v0.5.5 graphical upgrade, telemetry, recovery, power controls and Wake-on-LAN on one system. The RC includes the later upgrade-recovery and first-search display/rescan improvements; those changes still need physical Windows confirmation. Setup and ZIP remain unsigned. Firewall access is restricted to Private-profile hub connections by default; public Internet exposure is unsupported.
 
