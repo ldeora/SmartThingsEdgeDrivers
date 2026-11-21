@@ -37,11 +37,88 @@ try {
   if (-not (Test-Path -LiteralPath $source)) { throw "Published executable not found: $source" }
   $principal = [Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsIdentity]::GetCurrent())
   if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { throw 'Run PowerShell as Administrator.' }
+  # A non-admin can create a folder under the standard ProgramData root on
+  # Windows. Its owner retains WRITE_DAC even if the installer replaces the
+  # DACL. Never treat an existing state folder or planted token as trusted just
+  # because its content has a syntactically valid key or UUID.
+  $adminSid = [Security.Principal.SecurityIdentifier]::new('S-1-5-32-544')
+  $systemSid = [Security.Principal.SecurityIdentifier]::new('S-1-5-18')
+  $currentAdminSid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+  $trustedOwners = @($adminSid.Value, $systemSid.Value, 'S-1-5-19', $currentAdminSid)
+  # Older releases may have been installed by a different local admin. Accept
+  # their retained state without changing the secret or installation identity.
+  # Membership lookup is a compatibility aid, not a substitute for ACL checks.
+  try {
+    $adminMembers = @(Get-LocalGroupMember -SID $adminSid -ErrorAction Stop)
+    foreach ($member in $adminMembers) {
+      if ($member.SID) { $trustedOwners += $member.SID.Value }
+    }
+  } catch {
+    # Some Windows/PowerShell editions cannot enumerate local group members.
+    # Known system, group, LocalService and current elevated owner SIDs remain
+    # supported; otherwise fail closed with a remediation message.
+  }
+  function Test-TrustedStateSid([string]$Sid) {
+    return (($trustedOwners -contains $Sid) -or $Sid.StartsWith('S-1-5-80-'))
+  }
+  function Assert-TrustedStateEntry([string]$Path, [bool]$IsDirectory) {
+    $entry = Get-Item -LiteralPath $Path -Force -ErrorAction Stop
+    if ($IsDirectory -and -not $entry.PSIsContainer) {
+      throw "Existing ComputerHostAgent state path is not a directory; refusing installation: $Path"
+    }
+    if (-not $IsDirectory -and $entry.PSIsContainer) {
+      throw "Existing ComputerHostAgent state file is a directory; refusing installation: $Path"
+    }
+    if (($entry.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+      throw "ComputerHostAgent state contains a reparse point; refusing to follow it: $Path"
+    }
+    $security = Get-Acl -LiteralPath $Path -ErrorAction Stop
+    $owner = $security.GetOwner([Security.Principal.SecurityIdentifier]).Value
+    if (-not (Test-TrustedStateSid $owner)) {
+      throw "ComputerHostAgent state has an untrusted owner; refusing to read or replace retained credentials: $Path. Review ownership and permissions manually; do not delete or rotate the existing state."
+    }
+    # An administrator-owned folder is not safe if it grants an unprivileged
+    # account write/read access to a planted control-token.
+    foreach ($rule in $security.Access) {
+      if ($rule.AccessControlType -ne [Security.AccessControl.AccessControlType]::Allow) { continue }
+      try {
+        $subject = $rule.IdentityReference.Translate(
+          [Security.Principal.SecurityIdentifier]).Value
+      } catch {
+        throw "ComputerHostAgent state has an unresolved access principal; refusing installation: $Path"
+      }
+      if (-not (Test-TrustedStateSid $subject)) {
+        throw "ComputerHostAgent state grants access to an untrusted principal; refusing installation: $Path"
+      }
+    }
+    if ($IsDirectory -and -not $security.AreAccessRulesProtected) {
+      throw "Existing ComputerHostAgent state has an unprotected access list; refusing installation: $Path"
+    }
+  }
+  $existing = Get-Service -Name $service -ErrorAction SilentlyContinue
+  if ($existing) {
+    $installedService = Get-CimInstance Win32_Service -Filter "Name='$service'"
+    if ($installedService.StartName -ne 'NT AUTHORITY\LocalService' -or
+        -not [string]::Equals($installedService.PathName.Trim().Trim('"'), $exe,
+          [StringComparison]::OrdinalIgnoreCase)) {
+      throw 'Existing service has unexpected binary/account; refusing to replace it.'
+    }
+  }
+  if (Test-Path -LiteralPath $state) {
+    Assert-TrustedStateEntry $state $true
+    foreach ($name in @('control-token', 'installation-id', 'boot-session.json')) {
+      $existingFile = Join-Path $state $name
+      if (Test-Path -LiteralPath $existingFile) {
+        Assert-TrustedStateEntry $existingFile $false
+      }
+    }
+  }
   if ($PSCmdlet.ShouldProcess($service, ('Install service; power enabled: ' + [bool]$EnablePower))) {
     # Persisted UUID/boot state intentionally remains in ProgramData between upgrades.
     New-Item -ItemType Directory -Path $state -Force | Out-Null
     $acl = New-Object System.Security.AccessControl.DirectorySecurity
     $acl.SetAccessRuleProtection($true, $false)
+    $acl.SetOwner($adminSid)
     foreach ($sid in @('S-1-5-18','S-1-5-32-544','S-1-5-19')) {
       $identity = [Security.Principal.SecurityIdentifier]::new($sid)
       $rule = [Security.AccessControl.FileSystemAccessRule]::new(
@@ -59,15 +136,8 @@ try {
       Set-Acl -LiteralPath $state -AclObject $acl
     }
   
-    $existing = Get-Service -Name $service -ErrorAction SilentlyContinue
-    if ($existing) {
-      $installedService = Get-CimInstance Win32_Service -Filter "Name='$service'"
-      if ($installedService.StartName -ne 'NT AUTHORITY\LocalService' -or
-          -not [string]::Equals($installedService.PathName.Trim().Trim('"'), $exe,
-            [StringComparison]::OrdinalIgnoreCase)) {
-        throw 'Existing service has unexpected binary/account; refusing to replace it.'
-      }
-      if ($existing.Status -ne 'Stopped') { Stop-Service -Name $service -ErrorAction Stop }
+    if ($existing -and $existing.Status -ne 'Stopped') {
+      Stop-Service -Name $service -ErrorAction Stop
     }
     $configPath = Join-Path $programs 'appsettings.json'
     $preservedConfig = $null
@@ -167,6 +237,7 @@ try {
     )
     $secureDirectoryAcl = New-Object System.Security.AccessControl.DirectorySecurity
     $secureDirectoryAcl.SetAccessRuleProtection($true, $false)
+    $secureDirectoryAcl.SetOwner($adminSid)
     foreach ($who in ($identitySids + @($serviceSid))) {
       $secureDirectoryAcl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new(
         $who, 'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow'))
@@ -178,6 +249,7 @@ try {
     if (Test-Path -LiteralPath $tokenPath) {
       $keyAcl = New-Object System.Security.AccessControl.FileSecurity
       $keyAcl.SetAccessRuleProtection($true, $false)
+      $keyAcl.SetOwner($adminSid)
       foreach ($who in $identitySids) {
         $keyAcl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new(
           $who, 'FullControl', 'Allow'))
@@ -189,6 +261,26 @@ try {
       } else { Set-Acl -LiteralPath $tokenPath -AclObject $keyAcl }
     }
     Start-Service -Name $service
+    # PersistentIdentity creates this file as LocalService on first startup.
+    # Its retained value is immutable, but ownership must not remain with a
+    # generic service account: set Administrators as owner, while keeping the
+    # per-service SID authorized to read/write the same file.
+    $identityPath = Join-Path $state 'installation-id'
+    for ($attempt = 0; $attempt -lt 20 -and -not (Test-Path -LiteralPath $identityPath); $attempt++) {
+      Start-Sleep -Milliseconds 150
+    }
+    if (Test-Path -LiteralPath $identityPath -PathType Leaf) {
+      $identityAcl = New-Object System.Security.AccessControl.FileSecurity
+      $identityAcl.SetAccessRuleProtection($true, $false)
+      $identityAcl.SetOwner($adminSid)
+      foreach ($who in ($identitySids + @($serviceSid))) {
+        $identityAcl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new(
+          $who, 'FullControl', 'Allow'))
+      }
+      if ($PSVersionTable.PSVersion.Major -le 5) {
+        ([IO.FileInfo]::new($identityPath)).SetAccessControl($identityAcl)
+      } else { Set-Acl -LiteralPath $identityPath -AclObject $identityAcl }
+    }
     Get-Service -Name $service | Format-Table Name,Status,StartType
     Write-Host "Identity/state kept in $state. Power commands enabled: $([bool]$EnablePower)"
     if ($EnablePower) { Write-Warning 'Privileged commands are enabled. Keep control-token secret; put it in SmartThings device preferences only over a trusted channel. Never share it in logs.' }
