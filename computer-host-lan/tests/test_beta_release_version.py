@@ -2,9 +2,11 @@
 from pathlib import Path
 import json
 import re
+import tempfile
 import unittest
+from zipfile import ZipFile
 
-from scripts.ci.build_windows_kit import release_kind
+from scripts.ci.build_windows_kit import build, release_kind
 
 ROOT = Path(__file__).resolve().parents[1]
 VERSION = re.compile(r"^\d+\.\d+\.\d+(?:-(?:beta|rc)\.\d+)?$")
@@ -76,6 +78,35 @@ class ReleaseVersionTests(unittest.TestCase):
             opening = "\n".join(content.splitlines()[:6]).lower()
             self.assertNotIn("not yet published", opening, name)
             self.assertNotIn("unpublished", opening, name)
+
+    def test_rc_notes_are_publication_neutral_and_packaged_verbatim(self):
+        """The same bundled notes must be accurate before and after a GitHub release."""
+        manifest = json.loads((ROOT / "release.json").read_text(encoding="utf-8"))
+        version = manifest["integration"]
+        if release_kind(version) != "rc":
+            self.skipTest("publication-neutral RC notes apply to release candidates")
+        notes_path = ROOT / release_notes(version)
+        notes = notes_path.read_text(encoding="utf-8")
+        release_url = (f"https://github.com/ldeora/SmartThingsEdgeDrivers/"
+                       f"releases/tag/computer-host-lan-v{version}")
+        self.assertIn(release_url, notes)
+        self.assertIn("their presence does not by itself prove a release has been published", notes)
+        self.assertIn("separate", notes.lower())
+        for stale in ("not yet published", "not published yet",
+                      "after this RC is published", "no GitHub release"):
+            self.assertNotIn(stale.lower(), notes.lower())
+
+        # The RC Windows fallback ZIP contains precisely this file, not a
+        # differently staged or hard-coded release announcement.
+        with tempfile.TemporaryDirectory() as temporary:
+            temp = Path(temporary)
+            published = temp / "publish"
+            published.mkdir()
+            (published / "ComputerHost.WindowsAgent.exe").write_bytes(b"test stub")
+            (published / "appsettings.json").write_text("{}", encoding="utf-8")
+            archive = build(published, temp / "out", "win-x64", "a" * 40)
+            with ZipFile(archive) as zip_file:
+                self.assertEqual(zip_file.read("docs/RELEASE-NOTES.md"), notes_path.read_bytes())
 
     def test_release_docs_consistent(self):
         manifest = json.loads((ROOT / "release.json").read_text(encoding="utf-8"))
