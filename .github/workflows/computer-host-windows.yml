@@ -299,37 +299,7 @@ jobs:
             if ($ps7EnabledInfo.id -cne $ps7Id) { throw 'PowerShell 7 upgrade changed the installation UUID' }
             $ps7TokenPath = Join-Path $state 'control-token'
             $ps7Token = (Get-Content -LiteralPath $ps7TokenPath -Raw).Trim()
-            if ($ps7Token -cnotmatch '^[a-f0-9]{64}          } finally {
-            if (Test-Path -LiteralPath $state) {
-              & icacls.exe $state /setowner '*S-1-5-32-544' /T /C | Out-Null
-              & icacls.exe $state /grant '*S-1-5-32-544:(OI)(CI)F' /T /C | Out-Null
-            }
-            & $uninstall -PurgeState
-            if (Get-LocalUser -Name $attackerName -ErrorAction SilentlyContinue) {
-              Remove-LocalUser -Name $attackerName
-            }
-          }
-  windows-arm64-build:
-    runs-on: windows-2025
-    defaults:
-      run:
-        working-directory: computer-host-lan
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-dotnet@v6
-        with:
-          dotnet-version: '10.0.x'
-      - name: Cross-publish arm64 package (not executed)
-        shell: pwsh
-        run: ./windows-agent/scripts/Publish-WindowsAgent.ps1 -Runtime win-arm64
-      - name: Archive unsigned development arm64 executable
-        uses: actions/upload-artifact@v7
-        with:
-          name: computer-host-windows-unsigned-dev-win-arm64
-          path: computer-host-lan/windows-agent/publish/win-arm64/
-          if-no-files-found: error
-          retention-days: 7
-) { throw 'PowerShell 7 control-token malformed' }
+            if ($ps7Token -cnotmatch '^[a-f0-9]{64}$') { throw 'PowerShell 7 control-token malformed' }
             $ps7TokenAcl = Get-Acl -LiteralPath $ps7TokenPath
             if (-not $ps7TokenAcl.AreAccessRulesProtected -or
                 $ps7TokenAcl.GetOwner([Security.Principal.SecurityIdentifier]).Value -ne $admins) {
