@@ -1,4 +1,6 @@
 using System.Text.Json;
+using System.ComponentModel;
+using Microsoft.Extensions.Logging.Abstractions;
 using ComputerHost.WindowsAgent;
 
 static void Assert(bool condition, string message)
@@ -99,5 +101,56 @@ if (OperatingSystem.IsWindows())
     Assert(root.GetProperty("cpu_temperature_c").ValueKind == JsonValueKind.Null, "no fabricated CPU temperature");
     Assert(!root.TryGetProperty("load_1m", out _), "no fabricated Linux load on Windows");
 }
+
+
+// Dispatcher tests inject a harmless delegate; CI must never execute a real
+// shutdown, reboot or suspend operation.
+var powerCalls = new List<string>();
+var immediateDispatcher = new PowerDispatcher(
+    NullLogger<PowerDispatcher>.Instance,
+    action => powerCalls.Add(action),
+    _ => Task.CompletedTask);
+Assert(immediateDispatcher.TrySchedule("shutdown") == PowerDispatchResult.Accepted,
+    "shutdown is accepted only after the native operation delegate succeeds");
+Assert(immediateDispatcher.TrySchedule("reboot") == PowerDispatchResult.Accepted,
+    "reboot is accepted only after the native operation delegate succeeds");
+Assert(powerCalls.SequenceEqual(new[] { "shutdown", "reboot" }),
+    "shutdown and reboot delegates run synchronously before HTTP acceptance");
+
+var alreadyShuttingDown = new PowerDispatcher(
+    NullLogger<PowerDispatcher>.Instance,
+    _ => throw new Win32Exception(1115),
+    _ => Task.CompletedTask);
+Assert(alreadyShuttingDown.TrySchedule("shutdown") == PowerDispatchResult.ShutdownInProgress,
+    "ERROR_SHUTDOWN_IN_PROGRESS maps to a conflict result");
+
+var nativeFailure = new PowerDispatcher(
+    NullLogger<PowerDispatcher>.Instance,
+    _ => throw new Win32Exception(5),
+    _ => Task.CompletedTask);
+Assert(nativeFailure.TrySchedule("reboot") == PowerDispatchResult.Failed,
+    "other native power failures are not acknowledged");
+
+var suspendGate = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+var delayRequested = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+var suspendExecuted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+TimeSpan? suspendDelay = null;
+var suspendDispatcher = new PowerDispatcher(
+    NullLogger<PowerDispatcher>.Instance,
+    action => { if (action == "suspend") suspendExecuted.TrySetResult(true); },
+    delay =>
+    {
+        suspendDelay = delay;
+        delayRequested.TrySetResult(true);
+        return suspendGate.Task;
+    });
+Assert(suspendDispatcher.TrySchedule("suspend") == PowerDispatchResult.Accepted,
+    "suspend retains asynchronous scheduling so the HTTP response can leave first");
+await delayRequested.Task.WaitAsync(TimeSpan.FromSeconds(5));
+Assert(suspendDelay == TimeSpan.FromSeconds(3), "suspend retains the three-second response grace period");
+Assert(suspendDispatcher.TrySchedule("reboot") == PowerDispatchResult.Busy,
+    "only one delayed power operation can be in flight");
+suspendGate.SetResult(true);
+await suspendExecuted.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
 Console.WriteLine("All Windows Host Agent contract tests passed.");
