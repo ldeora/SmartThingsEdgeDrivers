@@ -230,6 +230,17 @@ class HTTPTests(unittest.TestCase):
         status, body = self.http("/v2/power/reboot", "POST", headers)
         self.assertEqual(status, 401)
 
+    def test_helper_execution_error_returns_service_unavailable(self):
+        _, challenge = self.http("/v2/challenge")
+        nonce = challenge["nonce"]
+        headers = {"X-ComputerHost-Nonce": nonce,
+                   "X-ComputerHost-Signature": agent.signature(
+                       self.state.secret, "/v2/power/shutdown", nonce)}
+        with mock.patch.object(agent, "request_power", side_effect=RuntimeError("helper rejected")):
+            status, body = self.http("/v2/power/shutdown", "POST", headers)
+        self.assertEqual(status, 503)
+        self.assertEqual(body["error"], "power helper unavailable")
+
     def test_wrong_signature_rejected(self):
         _, challenge = self.http("/v2/challenge")
         headers = {"X-ComputerHost-Nonce": challenge["nonce"], "X-ComputerHost-Signature": "0" * 64}
