@@ -1,6 +1,16 @@
 # Computer Host LAN — change log
 
-## v1.0.0-rc.1 (candidate; not published) — installation and update readiness
+## v1.0.0-rc.2 (candidate; not published) — post-rc.1 stabilization
+
+- Coordinated source candidate: integration **1.0.0-rc.2**, Linux agent and Edge driver **0.4.6-rc.2**, Windows agent **0.2.7-rc.2**; protocol v2 unchanged. No tag, GitHub release, channel assignment or hardware validation is implied.
+- PR #56: enforce the driver's four-second LuaSocket HTTP timeout and Linux's cumulative header deadline, including slow-client regression tests (#30, partial #31).
+- PR #57: Windows native shutdown/reboot acceptance and 409/503 error mapping; Linux power-helper path validation and acknowledgment ordering, with safe delayed shutdown/reboot attempts (#33, #44).
+- PR #58: refuse Windows ProgramData state with untrusted owner/permissions/reparse points; atomic protected-directory creation and path-specific ACLs, retaining credentials and UUID across legitimate upgrades (#32).
+- PR #59: retry unconfirmed device creation after 120 seconds, preserve known switch state on failed Wake, warn about Windows Public profile while retaining Private-only firewall, and permit redacted beta/RC reporting on a custom local port (#34, #37, #46, #47).
+- PR #60: align published rc.1 metadata and security/docs with the actual tag, distinguish rc.1 from post-tag hardening, verify bundled notes exactly (#52–#54).
+- Physical Windows 11 and Linux power/SmartThings acceptance and soak testing remain pending before a stable v1.0.0 release. See [rc.2 candidate notes](docs/release/RELEASE-NOTES-v1.0.0-rc.2.md).
+
+## v1.0.0-rc.1 (published prerelease 2026-11-20 UTC) — installation and update readiness
 
 - Coordinated candidate versions: Windows agent 0.2.6-rc.1; Linux agent and SmartThings Edge driver 0.4.5-rc.1; protocol v2 unchanged.
 - Improve initial Windows hub-search painting and preserve the selected hub IP if a discovery retry fails (merged PRs #23 and #27).
