@@ -72,7 +72,18 @@ try {
     if (($entry.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
       throw "ComputerHostAgent state contains a reparse point; refusing to follow it: $Path"
     }
-    $security = Get-Acl -LiteralPath $Path -ErrorAction Stop
+    # Inno Setup can launch Windows PowerShell 5.1 with restricted module
+    # auto-loading. Get-Acl may fail there even though .NET access-control
+    # methods work; mirror the existing SetAccessControl compatibility path.
+    if ($PSVersionTable.PSVersion.Major -le 5) {
+      if ($IsDirectory) {
+        $security = ([IO.DirectoryInfo]::new($Path)).GetAccessControl()
+      } else {
+        $security = ([IO.FileInfo]::new($Path)).GetAccessControl()
+      }
+    } else {
+      $security = Get-Acl -LiteralPath $Path -ErrorAction Stop
+    }
     $owner = $security.GetOwner([Security.Principal.SecurityIdentifier]).Value
     if (-not (Test-TrustedStateSid $owner)) {
       throw "ComputerHostAgent state has an untrusted owner; refusing to read or replace retained credentials: $Path. Review ownership and permissions manually; do not delete or rotate the existing state."
