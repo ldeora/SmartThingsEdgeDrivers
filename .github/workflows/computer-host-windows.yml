@@ -60,7 +60,11 @@ jobs:
             $attackerSid = (Get-LocalUser -Name $attackerName).SID.Value
             $standardUserSids = @(Get-LocalGroupMember -SID 'S-1-5-32-545' | ForEach-Object { $_.SID.Value })
             if ($standardUserSids -notcontains $attackerSid) {
-              throw 'CI attacker account was not created as a standard Users member'
+              Add-LocalGroupMember -SID 'S-1-5-32-545' -Member $attackerName
+              $standardUserSids = @(Get-LocalGroupMember -SID 'S-1-5-32-545' | ForEach-Object { $_.SID.Value })
+            }
+            if ($standardUserSids -notcontains $attackerSid) {
+              throw 'CI attacker account could not be added to the standard Users group'
             }
 
             # Scenario 1: a standard user owns the directory and the planted key.
