@@ -1,6 +1,6 @@
 # Computer Host LAN — first stable release gates (v1.0.0)
 
-**Planning document; not a claim of completed testing or a release announcement.** Baseline: published [v0.5.6-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.6-beta.1), with the independently hardware-tested [v0.5.5-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.5-beta.1) retained for rollback. Use [RELEASE-READINESS.md](../../RELEASE-READINESS.md) for v0.5.6 follow-up and [TESTER-CHECKLIST.md](../beta/TESTER-CHECKLIST.md) for per-machine details.
+**Planning document for stable v1.0.0, not proof of completed acceptance.** The current [published prerelease v1.0.0-rc.2](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v1.0.0-rc.2) was built from immutable source commit `72e4a99c4b2e8f958ce771152826319318d0d537`. v0.5.5-beta.1 is the last independently Windows 11 hardware-tested fallback. Refer to [release readiness](../../RELEASE-READINESS.md) for current evidence and [RC acceptance](RC-ACCEPTANCE.md) for per-platform checks. Several originally planned rc.2 publication gates remain open; publication does **not** retroactively mark them PASS.
 
 ## Intended 1.0 contract
 
@@ -8,7 +8,9 @@ Computer Host LAN monitors supported Linux and Windows computers over a trusted 
 
 **Not in scope for 1.0:** automatic pairing; routine/automatic key rotation; new authentication or HTTP transport; Windows tray application; WinGet or new APT/DNF repository; native DEB/RPM; macOS; TLS/mTLS; extra metrics or power actions. These are not prerequisites for stability. If a credential is lost or compromised, document a **manual recovery** procedure which does not silently reset the identity or enable power; do not implement rotation in this release.
 
-### P0: entry gates to v1.0.0-rc.2 publication
+### P0: original rc.2 entry-gate evidence (outstanding items carry into stable review)
+
+These requirements were drafted before rc.2 publication; unchecked items remain open for the stable decision, without implying that they were satisfied at prerelease publication.
 
 - [ ] **Close v0.5.6 verification:** record published tag and source SHA, four unsigned assets and `SHA256SUMS.txt`, `BUILD-INFO.json`/manifest component versions, and all four CI workflows on the exact release commit. Check that Edge driver 0.4.4-beta.1 is assigned and installed on a real hub on the **existing** channel/driver ID. Never infer assignment from the release link.
 - [ ] **Resolve reproducible installer defects:** first hub-search painting glitch reported on Windows 11; verify any isolated fix on the reporting hardware (fresh wizard start, initial search, second search, manual IP, Advanced options, Next/Back) and run native Inno GUI compilation/tests. A CI window-control smoke test cannot prove pixels are painted correctly.
@@ -20,11 +22,11 @@ Computer Host LAN monitors supported Linux and Windows computers over a trusted 
 - [ ] **User documentation:** one up-to-date Windows quick start and one Linux quick start, upgrade/uninstall guide and troubleshooting reference; published version links sourced from `release.json` and checked by tests. Keep historic release-engineering content separate.
 - [ ] **Freeze and traceability:** document agent/driver compatibility, version policy (public integration release vs internally versioned agents), explicit platform support and known hardware limitations. Freeze protocol v2's existing semantics for the 1.x line, allowing backward-compatible optional additions only.
 
-### P0: gate from v1.0.0-rc.2 to v1.0.0
+### P0: gate from published v1.0.0-rc.2 to stable v1.0.0
 
 - [ ] Run a **minimum seven-day unattended soak** on at least one physical Windows 11 system and one Linux host with a real SmartThings hub; log dates, exact binaries/driver version, reconnects, resource use and any duplicate/stuck state.
 - [ ] Exercise hub restart, agent stop/start, computer reboot, a router/network interruption and host DHCP address change (where feasible); separate a **hub IP change** from a **host IP change**, because the Windows firewall may intentionally scope access to the hub's previous IP.
-- [ ] Validate all four repository workflows on the **final merged main SHA**. Rebuild RC assets from that SHA, check source/embedded component versions, SHA-256 and any attestation; never mix release assets from different commits.
+- [ ] Validate all four repository workflows on the **final merged main SHA**. Build the proposed stable release assets from the final stable commit, checking source/embedded versions, SHA-256 and attestations; do not mix commits or replace existing rc.2 release assets.
 - [ ] Verify Windows x64 first install and upgrade from v0.5.5/v0.5.6 on an existing device; verify Linux upgrade. Failure recovery must retain known-good snapshot/state. Recheck SmartThings channel assignment separately from GitHub publication.
 - [ ] Perform final security, licensing, download integrity and supported-platform sign-off. Publish a new stable tag only after explicit approval; never retag or overwrite existing published betas. Test permanent links and disclose unsigned status if applicable.
 
