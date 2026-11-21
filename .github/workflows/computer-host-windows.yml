@@ -58,8 +58,9 @@ jobs:
             $attackerPassword = ConvertTo-SecureString 'Chlan-CI-only!2026' -AsPlainText -Force
             New-LocalUser -Name $attackerName -Password $attackerPassword -PasswordNeverExpires -AccountNeverExpires -UserMayNotChangePassword | Out-Null
             $attackerSid = (Get-LocalUser -Name $attackerName).SID.Value
-            if ((Get-LocalGroupMember -Group 'Users').SID.Value -notcontains $attackerSid) {
-              Add-LocalGroupMember -Group 'Users' -Member $attackerName
+            $standardUserSids = @(Get-LocalGroupMember -SID 'S-1-5-32-545' | ForEach-Object { $_.SID.Value })
+            if ($standardUserSids -notcontains $attackerSid) {
+              throw 'CI attacker account was not created as a standard Users member'
             }
 
             # Scenario 1: a standard user owns the directory and the planted key.
@@ -143,6 +144,19 @@ jobs:
             $permissions = Get-Acl -LiteralPath $state
             if (-not $permissions.AreAccessRulesProtected) { throw 'State directory ACL is not protected' }
             $admins = 'S-1-5-32-544'
+            $serviceSidOutput = (& sc.exe showsid ComputerHostAgent 2>&1 | Out-String)
+            if ($LASTEXITCODE -ne 0) { throw 'Unable to calculate service SID in CI' }
+            $serviceSidMatch = [regex]::Match($serviceSidOutput, 'S-1-5-80-(?:\d+-){4}\d+')
+            if (-not $serviceSidMatch.Success) { throw 'Service SID was not returned in CI' }
+            $serviceSid = $serviceSidMatch.Value
+            $expectedDirectorySids = @($admins,'S-1-5-18',$serviceSid)
+            foreach ($rule in $permissions.Access) {
+              if ($rule.AccessControlType -ne [Security.AccessControl.AccessControlType]::Allow) { continue }
+              $subject = $rule.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value
+              if ($expectedDirectorySids -notcontains $subject) {
+                throw "State directory has unexpected allow ACE: $subject"
+              }
+            }
             if ($permissions.GetOwner([Security.Principal.SecurityIdentifier]).Value -ne $admins) {
               throw 'State directory owner is not BUILTIN Administrators'
             }
@@ -157,8 +171,18 @@ jobs:
             $secretPath = Join-Path $state 'control-token'
             $secret = (Get-Content -LiteralPath $secretPath -Raw).Trim()
             if ($secret -cnotmatch '^[a-f0-9]{64}$') { throw 'Control token malformed' }
-            if ((Get-Acl -LiteralPath $secretPath).GetOwner([Security.Principal.SecurityIdentifier]).Value -ne $admins) {
+            $tokenAcl = Get-Acl -LiteralPath $secretPath
+            if ($tokenAcl.GetOwner([Security.Principal.SecurityIdentifier]).Value -ne $admins) {
               throw 'Control-token owner is not BUILTIN Administrators'
+            }
+            if (-not $tokenAcl.AreAccessRulesProtected) { throw 'Control-token ACL is not protected' }
+            $expectedTokenSids = @($admins,'S-1-5-18',$serviceSid)
+            foreach ($rule in $tokenAcl.Access) {
+              if ($rule.AccessControlType -ne [Security.AccessControl.AccessControlType]::Allow) { continue }
+              $subject = $rule.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value
+              if ($expectedTokenSids -notcontains $subject) {
+                throw "Control-token has unexpected allow ACE: $subject"
+              }
             }
             $infoPower = Invoke-RestMethod 'http://127.0.0.1:8765/v2/info' -TimeoutSec 3
             # Windows Server service security policy may deny SeShutdownPrivilege.
@@ -197,9 +221,15 @@ jobs:
               throw 'Custom-port upgrade changed the existing key or installation identity'
             }
             $tokenAcl = Get-Acl -LiteralPath $secretPath
-            if (-not $tokenAcl.AreAccessRulesProtected -or @($tokenAcl.Access).Count -lt 3 -or
-                (@($tokenAcl.Access | Where-Object { $_.IdentityReference.Value -eq 'NT AUTHORITY\\LOCAL SERVICE' }).Count -gt 0)) {
+            if (-not $tokenAcl.AreAccessRulesProtected -or @($tokenAcl.Access).Count -lt 3) {
               throw 'Existing authentication-token ACL was not restricted on upgrade'
+            }
+            foreach ($rule in $tokenAcl.Access) {
+              if ($rule.AccessControlType -ne [Security.AccessControl.AccessControlType]::Allow) { continue }
+              $subject = $rule.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value
+              if ($expectedTokenSids -notcontains $subject) {
+                throw "Upgraded control-token has unexpected allow ACE: $subject"
+              }
             }
             Write-Host 'PASS Windows PowerShell config preservation, custom-port firewall and token ACL'
 
