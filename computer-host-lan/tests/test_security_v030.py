@@ -168,6 +168,37 @@ class LiveHTTPSecurityTests(unittest.TestCase):
         with self.assertRaises(TimeoutError):
             reader.readline()
 
+    def test_slow_byte_drip_cannot_hold_all_connection_slots(self):
+        # The former reader only checked the deadline before readline(). A
+        # client sending bytes faster than the inactivity timeout could keep
+        # that single buffered readline blocked indefinitely.
+        self.server.header_timeout = 0.25
+        slow_clients = []
+        try:
+            for _ in range(4):  # exhaust this test server's four handler slots
+                conn = socket.create_connection(
+                    ('127.0.0.1', self.server.server_port), timeout=1
+                )
+                conn.settimeout(1)
+                conn.sendall(b'GET /v2/health')  # deliberately no CRLF
+                slow_clients.append(conn)
+
+            end = time.monotonic() + 0.6
+            while time.monotonic() < end:
+                for conn in slow_clients:
+                    try:
+                        conn.sendall(b'a')
+                    except OSError:
+                        pass  # the absolute deadline should have closed it
+                time.sleep(0.03)
+
+            # All slow clients should have been closed and their handler slots
+            # released; an ordinary hub-style request must succeed immediately.
+            self.assertEqual(self.request('/v2/health')[0], 200)
+        finally:
+            for conn in slow_clients:
+                conn.close()
+
     def test_hard_active_connection_bound(self):
         self.server._slots.acquire()
         self.server._slots.acquire()
