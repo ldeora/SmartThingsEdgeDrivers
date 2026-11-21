@@ -414,11 +414,11 @@ class ChallengeRateLimiter:
 
 
 class HeaderBudgetReader:
-    """Enforce a cumulative byte/time budget while HTTP headers are parsed.
+    """Enforce per-request HTTP header byte and elapsed-time budgets.
 
-    Every request uses HTTP/1.0 / Connection: close and has no body. A slow
-    client cannot bypass the deadline by drip-feeding bytes before each socket
-    inactivity timeout. Exceeding either budget closes only that connection.
+    The reader checks the deadline between reads and limits socket inactivity.
+    Handler's independent timer interrupts a blocked BufferedReader.readline(),
+    so a peer cannot extend the absolute deadline by drip-feeding bytes.
     """
     def __init__(self, reader, conn: socket.socket, *, io_timeout: float,
                  max_bytes: int = MAX_HTTP_HEADER_BYTES,
@@ -427,8 +427,13 @@ class HeaderBudgetReader:
         self.conn = conn
         self.io_timeout = io_timeout
         self.max_bytes = max_bytes
+        self.deadline_seconds = deadline_seconds
+        self.begin_request()
+
+    def begin_request(self) -> None:
+        """Reset the budgets before reading one request line and its headers."""
         self.used = 0
-        self.deadline = time.monotonic() + deadline_seconds
+        self.deadline = time.monotonic() + self.deadline_seconds
 
     def readline(self, limit: int = -1) -> bytes:
         remaining = self.deadline - time.monotonic()
@@ -460,9 +465,11 @@ class BoundedHTTPServer(ThreadingHTTPServer):
 
     def __init__(self, server_address, request_handler_class,
                  max_clients: int = MAX_CONCURRENT_CLIENTS,
-                 io_timeout: float = CLIENT_IO_TIMEOUT_SECONDS):
+                 io_timeout: float = CLIENT_IO_TIMEOUT_SECONDS,
+                 header_timeout: float = MAX_HTTP_HEADER_SECONDS):
         self._slots = threading.BoundedSemaphore(max_clients)
         self.io_timeout = io_timeout
+        self.header_timeout = header_timeout
         super().__init__(server_address, request_handler_class)
 
     def get_request(self):
@@ -533,8 +540,65 @@ def make_handler(state: AgentState):
 
         def setup(self):
             super().setup()
-            self.rfile = HeaderBudgetReader(self.rfile, self.connection,
-                                            io_timeout=getattr(self.server, "io_timeout", CLIENT_IO_TIMEOUT_SECONDS))
+            self.header_timeout = getattr(self.server, "header_timeout", MAX_HTTP_HEADER_SECONDS)
+            self.rfile = HeaderBudgetReader(
+                self.rfile, self.connection,
+                io_timeout=getattr(self.server, "io_timeout", CLIENT_IO_TIMEOUT_SECONDS),
+                deadline_seconds=self.header_timeout,
+            )
+            self._header_deadline_lock = threading.Lock()
+            self._header_read_complete = threading.Event()
+            self._header_read_complete.set()
+            self._header_deadline_timer = None
+
+        def _begin_header_read(self):
+            with self._header_deadline_lock:
+                self._header_read_complete.clear()
+                self.rfile.begin_request()
+                timer = threading.Timer(self.header_timeout, self._expire_header_read)
+                timer.daemon = True
+                self._header_deadline_timer = timer
+                timer.start()
+
+        def _expire_header_read(self):
+            with self._header_deadline_lock:
+                if self._header_read_complete.is_set():
+                    return
+                # shutdown() interrupts a BufferedReader.readline() that is
+                # still receiving bytes; a socket inactivity timeout alone
+                # cannot enforce an absolute deadline against a slow drip.
+                try:
+                    self.connection.shutdown(socket.SHUT_RDWR)
+                except OSError:
+                    pass
+
+        def _finish_header_read(self):
+            with self._header_deadline_lock:
+                self._header_read_complete.set()
+                timer = self._header_deadline_timer
+                self._header_deadline_timer = None
+                if timer is not None:
+                    timer.cancel()
+
+        def handle_one_request(self):
+            self._begin_header_read()
+            try:
+                return super().handle_one_request()
+            except OSError:
+                # A disconnected peer or expired header timer affects only
+                # this connection; do not emit a noisy server traceback.
+                self.close_connection = True
+                return
+            finally:
+                self._finish_header_read()
+
+        def parse_request(self):
+            try:
+                return super().parse_request()
+            finally:
+                # Stop the timer immediately after the headers are parsed,
+                # before endpoint processing or response generation.
+                self._finish_header_read()
 
         def do_GET(self):
             if self.path == "/v2/info":
