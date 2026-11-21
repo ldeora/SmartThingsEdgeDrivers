@@ -11,11 +11,13 @@ import struct
 import subprocess
 import sys
 import shutil
+import time
 from pathlib import Path
 
 ALLOWED = {"shutdown": "poweroff", "reboot": "reboot", "suspend": "suspend"}
 SYSTEMCTL_SEARCH_PATH = "/usr/bin:/bin:/usr/sbin:/sbin"
 SYSTEMCTL_TIMEOUT_SECONDS = 2.5
+SHUTDOWN_ACK_GRACE_SECONDS = 1.0
 
 
 def resolve_systemctl() -> str:
@@ -50,9 +52,11 @@ def authorize_and_parse(peer_uid: int, allowed_uid: int, data: bytes) -> str | N
     return action if action in ALLOWED else None
 
 
-def handle_connection(conn, allowed_uid, systemctl_path, executor=None):
+def handle_connection(conn, allowed_uid, systemctl_path, executor=None, sleeper=None):
     if executor is None:
         executor = run_systemctl
+    if sleeper is None:
+        sleeper = time.sleep
     try:
         conn.settimeout(3.0)  # unprivileged peer must not stall this root helper
         peer = conn.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, struct.calcsize("3i"))
@@ -62,12 +66,38 @@ def handle_connection(conn, allowed_uid, systemctl_path, executor=None):
         if not action:
             conn.sendall(b"DENIED\n")
             return False
+        # The executable was resolved at startup, but check for a removed or
+        # inaccessible path before acknowledging an irreversible operation.
+        if not Path(systemctl_path).is_file() or not os.access(systemctl_path, os.X_OK):
+            conn.sendall(b"ERROR\n")
+            return False
+
+        command = [systemctl_path, "--no-block", ALLOWED[action]]
+        if action in ("shutdown", "reboot"):
+            # Starting the shutdown job can immediately SIGTERM this helper
+            # AND the unprivileged HTTP agent (both systemd services have
+            # default shutdown dependencies). Acknowledge first and leave
+            # enough time for the agent's HTTP 202 to reach SmartThings.
+            # This is acceptance for a delayed attempt, NOT confirmation that
+            # systemd has accepted or completed the power operation.
+            conn.sendall(b"OK\n")
+            sleeper(SHUTDOWN_ACK_GRACE_SECONDS)
+            try:
+                executor(command)
+            except (OSError, ValueError, subprocess.SubprocessError) as exc:
+                # Execution failures after OK cannot be reported over this
+                # socket. Log locally; never send a misleading second reply.
+                print(f"Linux Host delayed power request failed: {type(exc).__name__}",
+                      file=sys.stderr, flush=True)
+                return False
+            return True
+
+        # Suspend normally does not stop the agent/helper services. Preserve
+        # immediate error reporting for a rejected or unsupported suspend.
         try:
-            # --no-block returns after systemd has accepted the job instead of
-            # waiting for the machine to power down. Only then acknowledge it.
-            executor([systemctl_path, "--no-block", ALLOWED[action]])
+            executor(command)
         except (OSError, ValueError, subprocess.SubprocessError) as exc:
-            print(f"Linux Host power helper operation failed: {type(exc).__name__}", file=sys.stderr, flush=True)
+            print(f"Linux Host suspend request failed: {type(exc).__name__}", file=sys.stderr, flush=True)
             try:
                 conn.sendall(b"ERROR\n")
             except OSError:
@@ -79,6 +109,7 @@ def handle_connection(conn, allowed_uid, systemctl_path, executor=None):
         # No secrets, full requests, or client-controlled bytes in journal logs.
         print(f"Linux Host power helper connection failed: {type(exc).__name__}", file=sys.stderr, flush=True)
         return False
+
 
 def main():
     if os.geteuid() != 0:
