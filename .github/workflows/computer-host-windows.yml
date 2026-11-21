@@ -263,7 +263,87 @@ jobs:
               throw 'Reinstalled state directory owner changed unexpectedly'
             }
             Write-Host 'PASS retained-state reinstall without key rotation, UUID change or service mismatch'
-            Write-Host 'PASS Windows PowerShell 5.1 install, secure token, opt-in and power opt-out'
+
+            # Exercise the PowerShell 7 / .NET ACL-aware creation path separately.
+            # Purge only this disposable CI installation, retaining Program Files.
+            & $uninstall -PurgeState -KeepProgramFiles
+            if (-not $?) { throw 'PowerShell 7 pre-test cleanup failed' }
+            & $install -PublishedDirectory $publish -SkipFirewall
+            if (-not $?) { throw 'PowerShell 7 fresh install using ACL-aware Directory.Create failed' }
+            $ps7Info = $null
+            for ($i = 0; $i -lt 30; $i++) {
+              try {
+                $ps7Info = Invoke-RestMethod http://127.0.0.1:18766/v2/info -TimeoutSec 2
+                if ($ps7Info.platform -eq 'windows') { break }
+              } catch { Start-Sleep -Seconds 1 }
+            }
+            if (-not $ps7Info -or $ps7Info.platform -ne 'windows') {
+              throw 'PowerShell 7 fresh installation did not start its monitoring service'
+            }
+            $ps7Id = $ps7Info.id
+            $ps7DirectoryAcl = Get-Acl -LiteralPath $state
+            if (-not $ps7DirectoryAcl.AreAccessRulesProtected -or
+                $ps7DirectoryAcl.GetOwner([Security.Principal.SecurityIdentifier]).Value -ne $admins) {
+              throw 'PowerShell 7 fresh state directory owner or DACL is incorrect'
+            }
+            foreach ($rule in $ps7DirectoryAcl.Access) {
+              if ($rule.AccessControlType -ne [Security.AccessControl.AccessControlType]::Allow) { continue }
+              $subject = $rule.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value
+              if ($expectedDirectorySids -notcontains $subject) {
+                throw "PowerShell 7 state directory has unexpected allow ACE: $subject"
+              }
+            }
+            & $install -PublishedDirectory $publish -SkipFirewall -EnablePower
+            if (-not $?) { throw 'PowerShell 7 power opt-in upgrade failed' }
+            $ps7EnabledInfo = Invoke-RestMethod http://127.0.0.1:18766/v2/info -TimeoutSec 3
+            if ($ps7EnabledInfo.id -cne $ps7Id) { throw 'PowerShell 7 upgrade changed the installation UUID' }
+            $ps7TokenPath = Join-Path $state 'control-token'
+            $ps7Token = (Get-Content -LiteralPath $ps7TokenPath -Raw).Trim()
+            if ($ps7Token -cnotmatch '^[a-f0-9]{64}          } finally {
+            if (Test-Path -LiteralPath $state) {
+              & icacls.exe $state /setowner '*S-1-5-32-544' /T /C | Out-Null
+              & icacls.exe $state /grant '*S-1-5-32-544:(OI)(CI)F' /T /C | Out-Null
+            }
+            & $uninstall -PurgeState
+            if (Get-LocalUser -Name $attackerName -ErrorAction SilentlyContinue) {
+              Remove-LocalUser -Name $attackerName
+            }
+          }
+  windows-arm64-build:
+    runs-on: windows-2025
+    defaults:
+      run:
+        working-directory: computer-host-lan
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+      - name: Cross-publish arm64 package (not executed)
+        shell: pwsh
+        run: ./windows-agent/scripts/Publish-WindowsAgent.ps1 -Runtime win-arm64
+      - name: Archive unsigned development arm64 executable
+        uses: actions/upload-artifact@v7
+        with:
+          name: computer-host-windows-unsigned-dev-win-arm64
+          path: computer-host-lan/windows-agent/publish/win-arm64/
+          if-no-files-found: error
+          retention-days: 7
+) { throw 'PowerShell 7 control-token malformed' }
+            $ps7TokenAcl = Get-Acl -LiteralPath $ps7TokenPath
+            if (-not $ps7TokenAcl.AreAccessRulesProtected -or
+                $ps7TokenAcl.GetOwner([Security.Principal.SecurityIdentifier]).Value -ne $admins) {
+              throw 'PowerShell 7 control-token owner or DACL is incorrect'
+            }
+            foreach ($rule in $ps7TokenAcl.Access) {
+              if ($rule.AccessControlType -ne [Security.AccessControl.AccessControlType]::Allow) { continue }
+              $subject = $rule.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value
+              if ($expectedTokenSids -notcontains $subject) {
+                throw "PowerShell 7 control-token has unexpected allow ACE: $subject"
+              }
+            }
+            Write-Host 'PASS PowerShell 7 fresh ACL-aware state creation and token lockdown'
+            Write-Host 'PASS Windows PowerShell 5.1 and PowerShell 7 install, upgrade and retained-state coverage'
           } finally {
             if (Test-Path -LiteralPath $state) {
               & icacls.exe $state /setowner '*S-1-5-32-544' /T /C | Out-Null
