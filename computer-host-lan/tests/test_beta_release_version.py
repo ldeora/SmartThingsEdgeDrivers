@@ -108,6 +108,33 @@ class ReleaseVersionTests(unittest.TestCase):
             with ZipFile(archive) as zip_file:
                 self.assertEqual(zip_file.read("docs/RELEASE-NOTES.md"), notes_path.read_bytes())
 
+    def test_published_rc1_warnings_do_not_conflate_main_with_tag(self):
+        """Published rc.1 is not equivalent to post-tag code on main."""
+        manifest = json.loads((ROOT / "release.json").read_text(encoding="utf-8"))
+        if manifest["integration"] != "1.0.0-rc.1" or (
+            manifest["release_stage"] != "rc-published-v1.0.0-rc.1"
+        ):
+            self.skipTest("rc.1 publication-specific disclosure")
+        required = {
+            "README.md": ("#32", "rc.2", "main", "rc.1"),
+            "INSTALLATION.md": ("#32", "#33", "#44", "rc.2", "main", "rc.1"),
+            "SECURITY.md": ("#30", "#31", "#32", "#33", "#44", "rc.2", "main"),
+            "windows-agent/README.md": ("#32", "rc.2", "main", "rc.1"),
+            "docs/release/QUICK-START.md": ("#32", "rc.2", "main", "rc.1"),
+            "docs/release/RC-ACCEPTANCE.md": ("rc.2", "main", "rc.1"),
+        }
+        for name, terms in required.items():
+            with self.subTest(document=name):
+                content = (ROOT / name).read_text(encoding="utf-8")
+                for term in terms:
+                    self.assertIn(term, content, (name, term))
+        install = (ROOT / "INSTALLATION.md").read_text(encoding="utf-8")
+        security = (ROOT / "SECURITY.md").read_text(encoding="utf-8")
+        self.assertIn("fresh-install race", install)
+        self.assertIn("Known issues in the published rc.1", security)
+        self.assertIn("do not include the later security fixes", security)
+        self.assertIn("do not enable power control", security.lower())
+
     def test_release_docs_consistent(self):
         manifest = json.loads((ROOT / "release.json").read_text(encoding="utf-8"))
         version = manifest["integration"]
