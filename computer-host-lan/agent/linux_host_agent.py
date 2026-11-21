@@ -499,15 +499,21 @@ def signature(secret_hex: str, path: str, nonce: str) -> str:
     return hmac.new(bytes.fromhex(secret_hex), data, hashlib.sha256).hexdigest()
 
 
-def request_power(sockpath: str, action: str, timeout: float = 2) -> None:
+def request_power(sockpath: str, action: str, timeout: float = 3.5) -> None:
     if action not in ALLOWED_ACTIONS:
         raise ValueError("invalid action")
+    response = bytearray()
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
         s.settimeout(timeout)
         s.connect(sockpath)
         s.sendall((action + "\n").encode("ascii"))
-        response = s.recv(128)
-    if response != b"OK\n":
+        # Unix stream sockets may split even a tiny reply across recv calls.
+        while len(response) < 32 and b"\n" not in response:
+            chunk = s.recv(32 - len(response))
+            if not chunk:
+                break
+            response.extend(chunk)
+    if bytes(response) != b"OK\n":
         raise RuntimeError("power helper rejected the request")
 
 
