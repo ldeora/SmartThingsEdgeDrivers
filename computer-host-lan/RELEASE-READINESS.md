@@ -22,9 +22,9 @@
 - [ ] Independently check Edge driver 0.4.4-beta.1 is assigned to the existing SmartThings channel 7a23289c-d1f8-42cc-ba10-4ffd219b89bb and installed on a hub, preserving driver 2ab3db0e-3b78-499e-bc3b-bcfa7f62b9f7 and existing devices.
 - [ ] Complete a real Windows 11/Gentoo v0.5.6 test round; previous v0.5.5 hardware feedback does not validate these changes.
 
-## Before v1.0.0-rc.1 or stable
+## Before v1.0.0-rc.2 publication or stable
 
-**Current release acceptance policy:** [v1.0 gates and scope](docs/release/V1-RELEASE-GATES.md). This page tracks the published v0.5.6 follow-up; the separate v1.0 checklist defines what must be proven for RC and stable. Key rotation and automatic pairing are **not** in the v1.0 scope.
+**Current release acceptance policy:** [v1.0 gates and scope](docs/release/V1-RELEASE-GATES.md). This page tracks the unpublished v1.0.0-rc.2 source candidate; the separate v1.0 checklist defines what must be proven before RC publication and stable release. The latest published candidate remains v1.0.0-rc.1. Key rotation and automatic pairing are **not** in the v1.0 scope.
 
 - [ ] Retest installer upgrades, service recovery, WOL/Windows power controls and Linux state-machine changes on actual v0.5.6 hardware.
 - [ ] Check additional NICs/privilege policies/Windows network profiles and recovery edge cases when practical.
