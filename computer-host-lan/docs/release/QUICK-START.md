@@ -12,6 +12,8 @@
 4. In SmartThings, use the [existing channel invitation](https://bestow-regional.api.smartthings.com/invite/1J2Qy7ZkxL20), enroll your hub if necessary, install **Computer Host LAN** and choose **Add device → Scan nearby**. Do **not** delete or re-pair an already installed computer device.
 5. Check CPU, memory, system disk, uptime and online state in SmartThings. Optional power commands require opt-in on the computer **and** the matching control key in SmartThings settings. Save work and keep physical access before testing.
 
+**Public-network troubleshooting:** Windows inbound access is restricted to **Private** networks, including the LocalSubnet fallback. If the computer is on a Public network, the agent's local health test can pass while hub connections fail. Check `Get-NetConnectionProfile` and, only on a trusted home LAN, change the hub-facing network to **Private** in Windows Settings. Setup never opens Public access or changes the Windows network profile.
+
 **Existing Windows installation:** Run the newer Setup.exe **over** the current installation, including ZIP/PowerShell installations. Do not uninstall first or remove `%ProgramData%\ComputerHostAgent`. Setup is designed to retain the UUID, secret, configuration, custom port and previous power preference. If Setup fails, preserve the rollback snapshot; use the matching ZIP's `Restore-WindowsAgentUpgrade.ps1` rather than deleting state. The Windows ZIP is a fallback, not the preferred installation route.
 
 ## Linux (systemd)
