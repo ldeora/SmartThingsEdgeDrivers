@@ -1,35 +1,40 @@
 # Linux installer — non-privileged UX experiment
 
-> **EXPERIMENT ONLY — NOT AN INSTALLER.** This Go program **does not** install, upgrade, configure, discover or connect anything. It does not inspect services, open a socket, read credentials, use sudo, or modify the host. Everything labeled as compatibility/discovery/installation is simulated.
+> **EXPERIMENT ONLY — NOT AN INSTALLER.** This Go program does not install, upgrade, configure, discover or connect anything. It does not inspect services, open a socket, read credentials, use sudo, or modify the host. All compatibility, discovery, installation and upgrade information is simulated.
 
-This branch is stacked on [the Linux installer specification PR](../docs/development/LINUX-INSTALLER-DESIGN.md) to test the initial forms and keyboard experience before privileged operations are designed. It is **not** part of any release or installation instructions for Computer Host LAN v1.0.0-rc.2.
+This draft PR is stacked on the [Linux installer design specification](../docs/development/LINUX-INSTALLER-DESIGN.md). It tests wizard interaction and accessibility before privileged operations are designed. It is **not** part of any Computer Host LAN v1.0.0-rc.2 release.
 
 ## Try the experiment
 
-Requires **Go 1.25+** to build the Huh v2 dependency. From `computer-host-lan/linux-installer/`:
+Requires **Go 1.25+** and network access to download pinned dependencies on the first build. From the linux-installer directory:
 
-```sh
-go mod tidy
-go run .
-go run . -accessible
-go run . -preview
-go test ./...
-```
+    go mod verify
+    go mod tidy -diff
+    go run .
+    go run . -accessible
+    go run . -preview
+    go test ./...
 
-The form widgets use `charm.land/huh/v2` (which uses Bubble Tea v2 internally). A custom Bubble Tea app shell will be considered once these interaction patterns have been evaluated. Examples use reserved TEST-NET addresses, not real discovered SmartThings hubs.
+The interactive wizard uses **one Huh v2 form with several groups**. Shift+Tab goes back to previous pages; manual IPv4 and nonlocal-address acknowledgement groups are conditional. All values are demonstrations and are never applied.
 
-**Dependency-lock status:** The module pins a direct Huh version for this experiment. The `go.sum` / transitive dependency lock and license review must be generated, checked and committed before this changes from **draft spike** to a mergeable implementation. CI can validate the experiment independently by running `go mod tidy` first. Do not package this experiment or run it with elevated privileges.
+For -accessible, the program intentionally uses **ANSI-free line prompts** rather than Huh's built-in accessible runner: in v2.0.3 the latter can emit ANSI styling and does not respect WithHideFunc in accessible mode. The plain path supports typing 'back' and 'quit', accepts piped input, and never activates raw terminal mode. Full-screen mode requires a TTY; -preview never requires interaction.
+
+Manual input must be a canonical literal IPv4 address, not an IPv4-mapped IPv6 representation. Addresses outside RFC1918 and 100.64.0.0/10 require explicit acknowledgement. This is NOT firewall-rule validation; real installation will need stronger checks.
+
+## Dependency and CI policy
+
+Both go.mod and go.sum are committed from a successful Go 1.25 resolution. CI uses 'go mod tidy -diff' and 'go mod verify' to detect drift, then runs tests, go vet, a build, and an ANSI-free accessible smoke test. Third-party license and supply-chain reviews remain open before release packaging.
 
 ## What to evaluate
 
-- Is the short, wizard-like flow comfortable for both beginner and experienced users?
-- Does accessible mode work acceptably with screen readers?
-- Are the disabled-by-default power selections and separate WOL option obvious?
-- Is manual IP validation helpful? Can users exit without confusion?
-- How does it behave in narrow/monochrome terminals and over SSH?
+- New/upgrade selections, Shift+Tab Back, cancel/quit, and conditional manual IP.
+- Monitoring-only default and preservation of current power settings in upgrade mode.
+- Narrow and monochrome terminals, SSH, screen readers and non-TTY fallback.
+- Explicit warnings for nonlocal hub addresses without claiming reachability.
+- Confirm that abort/preview never invoke sudo or access system state.
 
-## Next engineering steps (out of scope here)
+## Future work (out of scope)
 
-Implement structured and privileged/unprivileged controller interfaces; real preflight, mDNS hub discovery and firewall diagnostics; installed-state detection; transactions with crash recovery; effective-config preservation, port configuration and post-install health verification; followed by real installation/hardware acceptance and signed/discoverable release assets.
+Privileged/unprivileged controller API; root-owned verified payload staging; actual preflight and mDNS discovery; protected transaction-state inspection; crash recovery and health checks; config preservation and custom ports; SmartThings onboarding; then hardware and distribution acceptance.
 
-The currently documented manual Linux install remains unchanged and supported.
+The existing manual Linux installation remains unchanged and supported.
