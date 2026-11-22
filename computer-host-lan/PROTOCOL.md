@@ -162,8 +162,9 @@ and provisioning UX are investigated.
   another power operation is pending and when a shutdown or reboot is already
   in progress. A matching agent responding with a new boot ID supersedes the
   grace period: the driver restores ON/running and clears the pending shutdown.
-  ON commands during the shutdown grace period cannot overwrite the pending
-  action with Wake. Automations that must wait for a finished shutdown should
+  ON commands and momentary Wake/reboot/suspend controls during shutdown grace
+  cannot overwrite the pending shutdown action. Automations that must wait
+  for a finished shutdown should
   use Host Status = Stopped rather than Switch = Off.
 
 The monitoring intervals, power-state inference, WOL metadata persistence,
