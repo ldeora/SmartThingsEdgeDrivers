@@ -224,7 +224,6 @@ class InstallerAPIReadOnlyTests(unittest.TestCase):
             (['unknown-command'], 'invalid_argument'),
             ([], 'invalid_argument'),
             (['inspect', '--bogus'], 'invalid_argument'),
-            (['plan', '--python', 'python3'], 'invalid_argument'),
         ]
         for args, code in vectors:
             with self.subTest(args=args):
@@ -238,6 +237,17 @@ class InstallerAPIReadOnlyTests(unittest.TestCase):
                 self.assertEqual(err.getvalue().count('\n'), 1)
                 self.assertNotIn('usage:', err.getvalue())
                 self.assertNotIn('bad/name', err.getvalue())
+
+    def test_bad_explicit_python_override_is_json(self):
+        # A fake selector refusal keeps the test independent of the CI host.
+        out, err = StringIO(), StringIO()
+        with mock.patch.object(api, 'select_python',
+                               side_effect=api.InvalidArgument('rejected')), \
+             contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            rc = api.main(['plan', '--python', 'python3'])
+        self.assertEqual(rc, 2)
+        self.assertEqual(out.getvalue(), '')
+        self.assertEqual(json.loads(err.getvalue())['error']['code'], 'invalid_argument')
 
     def test_error_codes_distinguish_unsafe_from_source_missing(self):
         dest = self.root / core.APP_FILES[0].lstrip('/')
