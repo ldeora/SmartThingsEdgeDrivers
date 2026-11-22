@@ -13,7 +13,7 @@ SCRIPTS=ROOT/'scripts'
 
 class ScriptTests(unittest.TestCase):
     def test_posix_shell_syntax(self):
-        for name in ('install-agent.sh','configure-wol.sh','diagnose.sh','beta-report.sh','publish-presentations.sh','python-selector.sh','preflight.sh','rollback-agent.sh','uninstall-agent.sh'):
+        for name in ('install-agent.sh','configure-wol.sh','diagnose.sh','beta-report.sh','publish-presentations.sh','python-selector.sh','preflight.sh','installer-api.sh','rollback-agent.sh','uninstall-agent.sh'):
             with self.subTest(script=name):
                 subprocess.run(['sh','-n',str(SCRIPTS/name)],check=True)
 
