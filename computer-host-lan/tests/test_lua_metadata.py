@@ -101,6 +101,30 @@ class MetadataRecoveryTests(unittest.TestCase):
             ok,err=Power.wake(dev)
             assert(not ok and err:find('override is invalid',1,true))
             assert(#sent==9)
+            -- Power actions: the Windows agent answers 409 both when its
+            -- dispatcher is busy (e.g. a pending suspend) and for
+            -- ERROR_SHUTDOWN_IN_PROGRESS, which also covers a reboot. A 409
+            -- is therefore never an accepted shutdown and records nothing.
+            dev.preferences.allowPowerCommands=true
+            dev.preferences.controlKey=string.rep('a',64)
+            fields[C.FIELD_POWER_ACTIONS]='reboot,shutdown,suspend'
+            local control_result
+            package.loaded['computerhost.api'].control=function()
+              return control_result[1],control_result[2]
+            end
+            for _,reason in ipairs({
+              'HTTP status 409 (power operation already pending)',
+              'HTTP status 409 (Windows shutdown or reboot is already in progress)',
+              'HTTP status 503 (Service Unavailable)'}) do
+              control_result={nil,reason}
+              fields[C.FIELD_PENDING_ACTION]=nil
+              ok,err=Power.action(dev,'shutdown')
+              assert(not ok and err==reason)
+              assert(fields[C.FIELD_PENDING_ACTION]==nil)
+            end
+            control_result={true,nil}
+            assert(Power.action(dev,'shutdown')==true)
+            assert(fields[C.FIELD_PENDING_ACTION]=='shutdown')
         ''' % (repr(str(ROOT)),repr(str(ROOT)))
         state = lib.luaL_newstate()
         try:
