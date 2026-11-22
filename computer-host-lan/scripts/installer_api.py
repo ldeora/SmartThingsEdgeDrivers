@@ -206,6 +206,15 @@ def change_plan(*, source: Path = DEFAULT_SOURCE, root: Path = Path('/'),
     if enable_power and disable_power:
         raise InvalidArgument('power enable/disable flags conflict')
     valid_interface(wol_interface, root=root)
+    # Keep the v1 JSON schema and existing Go allowlisted error codes stable.
+    # Never report proposed replacements for an identifiable legacy v1 agent
+    # or a partial/unknown installation that may hold a retained identity.
+    try:
+        installed = core.detect_installed_protocol(root)
+    except (core.InstallError, OSError):
+        raise UnsafeManagedPath('cannot safely inspect the existing agent version') from None
+    if installed in ('v1', 'unknown'):
+        raise PrerequisiteMissing('legacy or unrecognized agent requires explicit migration/repair')
     selected_python = select_python(explicit=python_bin, source=source)
     if selected_python is None:
         raise PrerequisiteMissing('No supported Python interpreter available')
