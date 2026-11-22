@@ -37,6 +37,7 @@ jobs:
           grep -q 'DEMO ONLY — NO CHANGES WILL BE MADE' "$RUNNER_TEMP/tui-preview.txt"
           grep -q 'Power management: false' "$RUNNER_TEMP/tui-preview.txt"
           grep -q 'Persistent Wake-on-LAN: false' "$RUNNER_TEMP/tui-preview.txt"
+          python3 pty_smoke.py "$RUNNER_TEMP/computer-host-linux-tui-demo"
           printf '1\n4\nk\nk\ny\n' | NO_COLOR=1 TERM=dumb "$RUNNER_TEMP/computer-host-linux-tui-demo" -accessible > "$RUNNER_TEMP/accessibility.txt"
           grep -q 'DEMO COMPLETE' "$RUNNER_TEMP/accessibility.txt"
           if LC_ALL=C grep -q $'\e' "$RUNNER_TEMP/accessibility.txt"; then
