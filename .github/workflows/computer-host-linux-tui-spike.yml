@@ -28,6 +28,14 @@ jobs:
           cache: false
       - name: Resolve experimental dependencies
         run: go mod tidy
+      - name: Export dependency resolution for review (temporary)
+        run: |
+          echo 'BEGIN_GO_MOD_LOCK'
+          cat go.mod
+          echo 'END_GO_MOD_LOCK'
+          echo 'BEGIN_GO_SUM_LOCK'
+          cat go.sum
+          echo 'END_GO_SUM_LOCK'
       - name: Unit tests
         run: go test ./...
       - name: Static checks
