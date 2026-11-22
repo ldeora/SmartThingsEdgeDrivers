@@ -282,6 +282,17 @@ try {
     # state permissions. Other unrelated LocalService processes must not read keys.
     & sc.exe sidtype $service unrestricted | Out-Host
     if ($LASTEXITCODE -ne 0) { throw 'Unable to configure per-service SID' }
+    # Service metadata shown in services.msc; no effect on runtime configuration.
+    # Apply it on both new installs and upgrades without making it a release blocker.
+    $serviceDescription = 'Provides local computer status and system monitoring to Samsung SmartThings, with optional remote power management.'
+    try {
+      & sc.exe description $service $serviceDescription | Out-Host
+      if ($LASTEXITCODE -ne 0) {
+        Write-Warning 'Unable to update ComputerHostAgent service description; continuing installation.'
+      }
+    } catch {
+      Write-Warning 'Unable to update ComputerHostAgent service description; continuing installation.'
+    }
     # The firewall must match the actual HTTP listener, not just its default.
     $listenPort = 8765
     if ($null -ne $config.HostAgent.Port) {
