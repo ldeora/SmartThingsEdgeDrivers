@@ -345,7 +345,7 @@ class ShellSelectorParityTests(unittest.TestCase):
             # Python installed on a CI runner could win before our stub.
             for name in ('python3.14', 'python3.13', 'python3.12', 'python3.10'):
                 unavailable = bin_dir / name
-                unavailable.write_text('#!/bin/sh\\nexit 1\\n'.replace('\\n', '\n'))
+                unavailable.write_text('#!/bin/sh\nexit 1\n')
                 unavailable.chmod(0o755)
             newer = bin_dir / 'python3.11'
             newer.write_text(
