@@ -374,7 +374,7 @@ func main() {
 	accessible := flag.Bool("accessible", false, "use ANSI-free plain prompts with Back support")
 	preview := flag.Bool("preview", false, "print a sample plan without starting a TUI")
 	live := flag.Bool("live", false, "read-only inspection/plan from the real Linux installer API; NEVER installs")
-	apiPath := flag.String("api", "../scripts/installer-api.sh", "path to the read-only API launcher (source checkout)")
+	apiPath := flag.String("api", "", "explicit path to trusted read-only API launcher (required with -live)")
 	flag.Parse()
 	if flag.NArg() != 0 {
 		fmt.Fprintln(os.Stderr, "unexpected arguments; use -h for help")
