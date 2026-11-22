@@ -40,6 +40,9 @@ M.FIELD_LAST_SWITCH = "computerhost_last_switch"
 M.FIELD_SWITCH_PUBLISHED = "computerhost_switch_published"
 M.FIELD_PENDING_ACTION = "computerhost_pending_action"
 M.FIELD_PENDING_AT = "computerhost_pending_at"
+-- Inferred terminal state (stopped/suspended) kept after the pending action
+-- is confirmed, until the host shows any sign of life again.
+M.FIELD_SETTLED = "computerhost_settled"
 M.FIELD_LAST_TEMP = "computerhost_last_temperature"
 M.FIELD_LAST_METRICS = "computerhost_metrics_values"
 M.FIELD_PROFILE_UPDATE_SENT = "computerhost_advanced_profile_update_sent"
