@@ -22,6 +22,11 @@ jobs:
         with:
           go-version: '1.25.x'
           cache: false
+      - name: Temporary formatter export of new NIC interaction tests
+        run: |
+          printf 'NIC_GO_FMT:'
+          gofmt live_test.go | base64 -w0
+          printf '\n'
       - name: Enforce gofmt source formatting
         run: |
           unformatted="$(gofmt -l ./*.go)"
@@ -63,6 +68,8 @@ jobs:
           grep -q 'REAL HOST — READ-ONLY INSPECTION' "$RUNNER_TEMP/live-inspection.txt"
           grep -q 'REAL READ-ONLY FILE PLAN' "$RUNNER_TEMP/live-inspection.txt"
           python3 pty_smoke.py "$RUNNER_TEMP/computer-host-linux-tui-demo" --live
+          # Exercise the NIC-page keyboard path with a controlled fake API.
+          python3 pty_live_nic.py "$RUNNER_TEMP/computer-host-linux-tui-demo"
           grep -q 'Privileged transaction/recovery status: UNKNOWN' "$RUNNER_TEMP/live-inspection.txt"
           printf 'k\nk\ny\n' | NO_COLOR=1 TERM=dumb \
             "$RUNNER_TEMP/computer-host-linux-tui-demo" -live -accessible \
