@@ -458,9 +458,9 @@ func liveForm(s *liveSelection) *huh.Form {
 		).Title("2. Options"),
 		huh.NewGroup(
 			huh.NewInput().
-				Title("Existing network interface (e.g. enp1s0f0)").
-				Description("Read-only sysfs name check; physical WOL support is NOT checked.").
-				Placeholder("enp1s0f0").
+				Title("Existing network interface (required)").
+				Description("Type your interface name, e.g. enp1s0f0. The field starts EMPTY; no WOL hardware test.").
+				Placeholder("Type interface name").
 				Validate(validateNICInput).Value(&s.wolNIC),
 		).Title("Interface").WithHideFunc(func() bool { return s.wolChoice != "pin" }),
 		huh.NewGroup(
