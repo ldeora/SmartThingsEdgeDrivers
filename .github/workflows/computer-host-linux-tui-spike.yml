@@ -27,7 +27,7 @@ jobs:
           unformatted="$(gofmt -l ./*.go)"
           if [ -n "$unformatted" ]; then
             echo "Unformatted Go sources:"
-            printf '%s\\n' "$unformatted"
+            printf '%s\n' "$unformatted"
             exit 1
           fi
       - name: Ensure module files are tidy and unchanged
@@ -36,6 +36,8 @@ jobs:
         run: go mod verify
       - name: Unit tests
         run: go test ./...
+      - name: Race detector (Review DescriptionFunc vs Validate)
+        run: go test -race ./...
       - name: Static checks
         run: go vet ./...
       - name: Build and non-interactive smoke test
@@ -56,6 +58,7 @@ jobs:
         run: |
           set -eu
           "$RUNNER_TEMP/computer-host-linux-tui-demo" -live -preview \
+            -api ../scripts/installer-api.sh \
             > "$RUNNER_TEMP/live-inspection.txt"
           grep -q 'REAL HOST — READ-ONLY INSPECTION' "$RUNNER_TEMP/live-inspection.txt"
           grep -q 'REAL READ-ONLY FILE PLAN' "$RUNNER_TEMP/live-inspection.txt"
@@ -63,6 +66,7 @@ jobs:
           grep -q 'Privileged transaction/recovery status: UNKNOWN' "$RUNNER_TEMP/live-inspection.txt"
           printf 'k\nk\ny\n' | NO_COLOR=1 TERM=dumb \
             "$RUNNER_TEMP/computer-host-linux-tui-demo" -live -accessible \
+            -api ../scripts/installer-api.sh \
             > "$RUNNER_TEMP/live-accessible.txt"
           grep -q 'READ-ONLY REVIEW COMPLETE' "$RUNNER_TEMP/live-accessible.txt"
           if python3 -c 'import sys; sys.exit(b"\x1b" not in open(sys.argv[1], "rb").read())' "$RUNNER_TEMP/live-accessible.txt"; then
