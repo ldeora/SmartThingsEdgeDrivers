@@ -33,11 +33,11 @@ type apiCheck struct {
 	Status string `json:"status"`
 }
 type apiInspect struct {
-	SchemaVersion int    `json:"schema_version"`
-	Operation     string `json:"operation"`
-	Mode          string `json:"mode"`
+	SchemaVersion int        `json:"schema_version"`
+	Operation     string     `json:"operation"`
+	Mode          string     `json:"mode"`
 	Checks        []apiCheck `json:"checks"`
-	Python struct {
+	Python        struct {
 		SelectedInterpreter string `json:"selected_interpreter"`
 		VersionSupported    bool   `json:"version_supported"`
 	} `json:"python"`
@@ -46,11 +46,11 @@ type apiInspect struct {
 		DaemonState       string `json:"daemon_state"`
 	} `json:"avahi"`
 	Installation struct {
-		Detected           bool   `json:"detected"`
-		ServiceFile        string `json:"service_file"`
-		PowerDropin        string `json:"power_dropin"`
-		AvahiServiceFile   string `json:"avahi_service_file"`
-		AgentServiceState  string `json:"agent_service_state"`
+		Detected            bool   `json:"detected"`
+		ServiceFile         string `json:"service_file"`
+		PowerDropin         string `json:"power_dropin"`
+		AvahiServiceFile    string `json:"avahi_service_file"`
+		AgentServiceState   string `json:"agent_service_state"`
 		AgentServiceEnabled string `json:"agent_service_enabled"`
 	} `json:"installation"`
 	PrivilegedTransactionState string `json:"privileged_transaction_state"`
@@ -63,24 +63,24 @@ type apiChange struct {
 	Action string `json:"action"`
 }
 type apiPlan struct {
-	SchemaVersion               int         `json:"schema_version"`
-	Operation                   string      `json:"operation"`
-	Mode                        string      `json:"mode"`
-	Changes                     []apiChange `json:"changes"`
-	SelectedPython              string      `json:"selected_python"`
-	PowerOption                 string      `json:"power_option"`
-	WOLInterfaceRequested       bool        `json:"wol_interface_requested"`
-	PrivilegedTransactionState  string      `json:"privileged_transaction_state"`
-	RuntimeVerified             bool        `json:"runtime_verified"`
-	ChangesApplied              bool        `json:"changes_applied"`
-	SecretsIncluded             bool        `json:"secrets_included"`
+	SchemaVersion              int         `json:"schema_version"`
+	Operation                  string      `json:"operation"`
+	Mode                       string      `json:"mode"`
+	Changes                    []apiChange `json:"changes"`
+	SelectedPython             string      `json:"selected_python"`
+	PowerOption                string      `json:"power_option"`
+	WOLInterfaceRequested      bool        `json:"wol_interface_requested"`
+	PrivilegedTransactionState string      `json:"privileged_transaction_state"`
+	RuntimeVerified            bool        `json:"runtime_verified"`
+	ChangesApplied             bool        `json:"changes_applied"`
+	SecretsIncluded            bool        `json:"secrets_included"`
 }
 
 type apiFailure struct {
 	SchemaVersion int    `json:"schema_version"`
 	Operation     string `json:"operation"`
 	Mode          string `json:"mode"`
-	Error struct {
+	Error         struct {
 		Code string `json:"code"`
 	} `json:"error"`
 }
@@ -88,6 +88,7 @@ type apiFailure struct {
 // No raw subprocess stderr, CLI input or unknown error descriptions are ever
 // displayed: the Go UI recognizes only these stable backend error categories.
 type apiError struct{ code string }
+
 func (e apiError) Error() string { return "read-only backend: " + e.code }
 
 func permittedError(code string) bool {
@@ -101,6 +102,7 @@ func permittedError(code string) bool {
 }
 
 type cappedBuffer struct{ bytes.Buffer }
+
 func (b *cappedBuffer) Write(p []byte) (int, error) {
 	if b.Len()+len(p) > maxAPIBytes {
 		return 0, errors.New("read-only API response exceeded size limit")
@@ -173,9 +175,13 @@ func readOneJSON(payload []byte, out any) error {
 
 func (c apiClient) inspect() (apiInspect, error) {
 	raw, err := c.call("inspect")
-	if err != nil { return apiInspect{}, err }
+	if err != nil {
+		return apiInspect{}, err
+	}
 	var value apiInspect
-	if err := readOneJSON(raw, &value); err != nil { return apiInspect{}, err }
+	if err := readOneJSON(raw, &value); err != nil {
+		return apiInspect{}, err
+	}
 	if value.SchemaVersion != 1 || value.Operation != "inspect" || value.Mode != "read_only" ||
 		value.SecretsIncluded || value.PrivilegedTransactionState != "unknown" ||
 		value.IdentityPreserved != "not_verified" || len(value.Checks) == 0 || len(value.Checks) > 20 ||
@@ -186,9 +192,12 @@ func (c apiClient) inspect() (apiInspect, error) {
 	for _, check := range value.Checks {
 		switch check.Status {
 		case "passed", "blocked", "warning", "not_verified":
-		default: return apiInspect{}, apiError{"invalid_response"}
+		default:
+			return apiInspect{}, apiError{"invalid_response"}
 		}
-		if !knownCheck(check.ID) { return apiInspect{}, apiError{"invalid_response"} }
+		if !knownCheck(check.ID) {
+			return apiInspect{}, apiError{"invalid_response"}
+		}
 	}
 	if !fileState(value.Installation.ServiceFile) || !fileState(value.Installation.PowerDropin) ||
 		!fileState(value.Installation.AvahiServiceFile) ||
@@ -231,18 +240,18 @@ func serviceEnabled(s string) bool {
 }
 
 var approvedPaths = map[string]bool{
-	"/opt/linux-host-agent/linux_host_agent.py": true,
-	"/opt/linux-host-agent/power_helper.py": true,
-	"/etc/systemd/system/linux-host-agent.service": true,
-	"/etc/systemd/system/linux-host-agent-power.service": true,
-	"/etc/systemd/system/linux-host-agent-power.socket": true,
-	"/etc/systemd/system/linux-host-agent.service.d/enable-power.conf": true,
+	"/opt/linux-host-agent/linux_host_agent.py":                            true,
+	"/opt/linux-host-agent/power_helper.py":                                true,
+	"/etc/systemd/system/linux-host-agent.service":                         true,
+	"/etc/systemd/system/linux-host-agent-power.service":                   true,
+	"/etc/systemd/system/linux-host-agent-power.socket":                    true,
+	"/etc/systemd/system/linux-host-agent.service.d/enable-power.conf":     true,
 	"/etc/systemd/system/linux-host-agent.service.d/90-wol-interface.conf": true,
-	"/etc/avahi/services/linux-host-agent.service": true,
+	"/etc/avahi/services/linux-host-agent.service":                         true,
 }
 
 type planOptions struct {
-	power string // "keep", "enabled", "disabled"
+	power  string // "keep", "enabled", "disabled"
 	wolNIC string // empty = retain current, non-empty = pin chosen interface
 }
 
@@ -250,12 +259,17 @@ func (o planOptions) args() ([]string, error) {
 	var result []string
 	switch o.power {
 	case "keep", "":
-	case "enabled": result = append(result, "--enable-power")
-	case "disabled": result = append(result, "--disable-power")
-	default: return nil, apiError{"invalid_argument"}
+	case "enabled":
+		result = append(result, "--enable-power")
+	case "disabled":
+		result = append(result, "--disable-power")
+	default:
+		return nil, apiError{"invalid_argument"}
 	}
 	if o.wolNIC != "" {
-		if err := validNICName(o.wolNIC); err != nil { return nil, err }
+		if err := validNICName(o.wolNIC); err != nil {
+			return nil, err
+		}
 		result = append(result, "--wol-interface", o.wolNIC)
 	}
 	return result, nil
@@ -271,14 +285,24 @@ func validNICName(name string) error {
 
 func (c apiClient) plan(o planOptions) (apiPlan, error) {
 	args, err := o.args()
-	if err != nil { return apiPlan{}, err }
+	if err != nil {
+		return apiPlan{}, err
+	}
 	raw, err := c.call("plan", args...)
-	if err != nil { return apiPlan{}, err }
+	if err != nil {
+		return apiPlan{}, err
+	}
 	var value apiPlan
-	if err := readOneJSON(raw, &value); err != nil { return apiPlan{}, err }
+	if err := readOneJSON(raw, &value); err != nil {
+		return apiPlan{}, err
+	}
 	wantPower := "preserve"
-	if o.power == "enabled" { wantPower = "enable" }
-	if o.power == "disabled" { wantPower = "disable" }
+	if o.power == "enabled" {
+		wantPower = "enable"
+	}
+	if o.power == "disabled" {
+		wantPower = "disable"
+	}
 	if value.SchemaVersion != 1 || value.Operation != "plan" ||
 		value.Mode != "read_only" || value.SecretsIncluded || value.ChangesApplied ||
 		value.RuntimeVerified || value.PrivilegedTransactionState != "unknown" ||
@@ -295,7 +319,8 @@ func (c apiClient) plan(o planOptions) (apiPlan, error) {
 		seen[change.Path] = true
 		switch change.Action {
 		case "create", "replace", "remove", "unchanged":
-		default: return apiPlan{}, apiError{"invalid_response"}
+		default:
+			return apiPlan{}, apiError{"invalid_response"}
 		}
 	}
 	return value, nil
@@ -339,20 +364,22 @@ func (p apiPlan) brief() string {
 }
 
 type liveSelection struct {
-	api apiClient
-	inspection apiInspect
+	api         apiClient
+	inspection  apiInspect
 	powerChoice string
-	wolChoice string
-	wolNIC string
-	finished bool
-	cacheKey string
-	cached apiPlan
-	cacheErr error
+	wolChoice   string
+	wolNIC      string
+	finished    bool
+	cacheKey    string
+	cached      apiPlan
+	cacheErr    error
 }
 
 func (s *liveSelection) options() planOptions {
 	nic := ""
-	if s.wolChoice == "pin" { nic = s.wolNIC }
+	if s.wolChoice == "pin" {
+		nic = s.wolNIC
+	}
 	return planOptions{power: s.powerChoice, wolNIC: nic}
 }
 func (s *liveSelection) currentPlan() (apiPlan, error) {
@@ -413,9 +440,13 @@ func liveForm(s *liveSelection) *huh.Form {
 					[]any{&s.powerChoice, &s.wolChoice, &s.wolNIC}).
 				Affirmative("Finish review").Negative("Exit without changes").
 				Validate(func(accepted bool) error {
-					if !accepted { return nil }
+					if !accepted {
+						return nil
+					}
 					_, err := s.currentPlan()
-					if err != nil { return errors.New("plan unavailable; correct the options or cancel") }
+					if err != nil {
+						return errors.New("plan unavailable; correct the options or cancel")
+					}
 					if s.cached.SelectedPython != s.inspection.Python.SelectedInterpreter {
 						return errors.New("selected Python changed; start a new inspection")
 					}
@@ -438,7 +469,9 @@ func runLiveInteractive(w io.Writer, api apiClient, info apiInspect) error {
 		fmt.Fprintln(w, "Cancelled; no changes made.")
 		return nil
 	}
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	if s.finished {
 		fmt.Fprintln(w, "\n"+s.preview())
 		fmt.Fprintln(w, "READ-ONLY REVIEW COMPLETE — nothing installed or modified.")
@@ -462,14 +495,19 @@ func runLiveAccessible(reader io.Reader, writer io.Writer, api apiClient, info a
 		case 1:
 			fmt.Fprint(writer, "WOL interface: [k] preserve (default), [p] preview pin: ")
 		case 2:
-			if s.wolChoice != "pin" { step++; continue }
+			if s.wolChoice != "pin" {
+				step++
+				continue
+			}
 			fmt.Fprint(writer, "Existing NIC name (not WOL hardware validation): ")
 		case 3:
 			fmt.Fprintln(writer, "\n"+s.preview())
 			fmt.Fprint(writer, "Finish read-only review? [y/N]: ")
 		}
 		if !scanner.Scan() {
-			if err := scanner.Err(); err != nil { return err }
+			if err := scanner.Err(); err != nil {
+				return err
+			}
 			fmt.Fprintln(writer, "\nCancelled; no changes made.")
 			return nil
 		}
@@ -479,29 +517,49 @@ func runLiveAccessible(reader io.Reader, writer io.Writer, api apiClient, info a
 			fmt.Fprintln(writer, "Cancelled; no changes made.")
 			return nil
 		case "back":
-			if step > 0 { step-- } else { fmt.Fprintln(writer, "Already at first step.") }
-			if step == 2 && s.wolChoice != "pin" { step-- }
+			if step > 0 {
+				step--
+			} else {
+				fmt.Fprintln(writer, "Already at first step.")
+			}
+			if step == 2 && s.wolChoice != "pin" {
+				step--
+			}
 			continue
 		}
 		accepted := true
 		switch step {
 		case 0:
 			switch input {
-			case "", "k": s.powerChoice = "keep"
-			case "y": s.powerChoice = "enabled"
-			case "n": s.powerChoice = "disabled"
-			default: accepted = false
+			case "", "k":
+				s.powerChoice = "keep"
+			case "y":
+				s.powerChoice = "enabled"
+			case "n":
+				s.powerChoice = "disabled"
+			default:
+				accepted = false
 			}
 		case 1:
 			switch input {
-			case "", "k": s.wolChoice = "keep"
-			case "p": s.wolChoice = "pin"
-			default: accepted = false
+			case "", "k":
+				s.wolChoice = "keep"
+			case "p":
+				s.wolChoice = "pin"
+			default:
+				accepted = false
 			}
 		case 2:
-			if validNICName(input) != nil { accepted = false } else { s.wolNIC = input }
+			if validNICName(input) != nil {
+				accepted = false
+			} else {
+				s.wolNIC = input
+			}
 		case 3:
-			if input != "y" && input != "n" && input != "" { accepted = false; break }
+			if input != "y" && input != "n" && input != "" {
+				accepted = false
+				break
+			}
 			if input == "y" {
 				plan, err := s.currentPlan()
 				if err != nil || plan.SelectedPython != s.inspection.Python.SelectedInterpreter {
@@ -514,26 +572,37 @@ func runLiveAccessible(reader io.Reader, writer io.Writer, api apiClient, info a
 			}
 			return nil
 		}
-		if !accepted { fmt.Fprintln(writer, "Invalid option. Try again."); continue }
+		if !accepted {
+			fmt.Fprintln(writer, "Invalid option. Try again.")
+			continue
+		}
 		step++
 	}
 }
 
 func runLive(preview, accessible bool, apiPath string, r io.Reader, w io.Writer) error {
 	client, err := newAPIClient(apiPath)
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	info, err := client.inspect()
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	if preview {
 		fmt.Fprintln(w, info.brief())
-		plan, err := client.plan(planOptions{power:"keep"})
-		if err != nil { return err }
+		plan, err := client.plan(planOptions{power: "keep"})
+		if err != nil {
+			return err
+		}
 		if plan.SelectedPython != info.Python.SelectedInterpreter {
 			return apiError{"invalid_response"}
 		}
 		fmt.Fprintln(w, "\n"+plan.brief())
 		return nil
 	}
-	if accessible { return runLiveAccessible(r, w, client, info) }
+	if accessible {
+		return runLiveAccessible(r, w, client, info)
+	}
 	return runLiveInteractive(w, client, info)
 }

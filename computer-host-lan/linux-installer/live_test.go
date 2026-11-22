@@ -20,9 +20,13 @@ const fixturePlan = `{"schema_version":1,"operation":"plan","mode":"read_only","
 func scriptClient(t *testing.T, source string) apiClient {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "api.sh")
-	if err := os.WriteFile(path, []byte(source), 0o755); err != nil { t.Fatal(err) }
+	if err := os.WriteFile(path, []byte(source), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	client, err := newAPIClient(path)
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	return client
 }
 
@@ -65,22 +69,26 @@ esac
 func TestLiveBackendInspectAndPlanAreActualTypedData(t *testing.T) {
 	client := fixtureClient(t)
 	info, err := client.inspect()
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !info.Installation.Detected || info.Installation.AgentServiceEnabled != "enabled" ||
 		info.Avahi.DaemonState != "active" || !strings.Contains(info.brief(), "Privileged transaction/recovery status: UNKNOWN") {
 		t.Fatalf("real state not reflected, or protected state falsely claimed: %+v", info)
 	}
-	for _, test := range []struct{
-		opt planOptions
+	for _, test := range []struct {
+		opt   planOptions
 		power string
-		wol bool
+		wol   bool
 	}{
-		{planOptions{power:"keep"}, "preserve", false},
-		{planOptions{power:"enabled"}, "enable", false},
-		{planOptions{power:"disabled", wolNIC:"enp1s0f0"}, "disable", true},
+		{planOptions{power: "keep"}, "preserve", false},
+		{planOptions{power: "enabled"}, "enable", false},
+		{planOptions{power: "disabled", wolNIC: "enp1s0f0"}, "disable", true},
 	} {
 		p, err := client.plan(test.opt)
-		if err != nil { t.Fatal(err) }
+		if err != nil {
+			t.Fatal(err)
+		}
 		if p.PowerOption != test.power || p.WOLInterfaceRequested != test.wol ||
 			p.ChangesApplied || p.RuntimeVerified || p.SecretsIncluded {
 			t.Fatalf("unexpected plan result: %+v", p)
@@ -125,7 +133,9 @@ func TestLiveAccessibleModeAndBack(t *testing.T) {
 	}
 	body := result.String()
 	for _, want := range []string{"READ-ONLY, ANSI-FREE", "Power setting: preserve", "READ-ONLY REVIEW COMPLETE"} {
-		if !strings.Contains(body, want) { t.Errorf("accessible output missing %q: %s", want, body) }
+		if !strings.Contains(body, want) {
+			t.Errorf("accessible output missing %q: %s", want, body)
+		}
 	}
 	if strings.Contains(body, "\x1b") || strings.Contains(body, "DEMO ONLY") {
 		t.Fatalf("unexpected ANSI or demo output: %q", body)
@@ -137,21 +147,25 @@ func TestLiveMissingBackendAndInvalidNamesFailClosed(t *testing.T) {
 		t.Fatal("missing API was silently accepted")
 	}
 	for _, name := range []string{"", ".", "..", "foo/bar", "lo;rm", "very-long-interface-name"} {
-		if validNICName(name) == nil { t.Errorf("should reject NIC %q", name) }
+		if validNICName(name) == nil {
+			t.Errorf("should reject NIC %q", name)
+		}
 	}
-	if validNICName("enp1s0f0") != nil { t.Fatal("valid NIC refused") }
+	if validNICName("enp1s0f0") != nil {
+		t.Fatal("valid NIC refused")
+	}
 	client := fixtureClient(t)
-	_, err := client.plan(planOptions{power: "enabled", wolNIC:"foo/bar"})
+	_, err := client.plan(planOptions{power: "enabled", wolNIC: "foo/bar"})
 	if err == nil || !strings.Contains(err.Error(), "invalid_argument") {
 		t.Fatalf("invalid NIC did not fail closed: %v", err)
 	}
 }
 
 func TestLiveBackendRejectsUnknownFieldsOrUnexpectedChanges(t *testing.T) {
-	for _, change := range []struct{
-		name string
+	for _, change := range []struct {
+		name    string
 		inspect string
-		plan string
+		plan    string
 	}{
 		{"secret-tag", strings.Replace(fixtureInspect, `"secrets_included":false`, `"secrets_included":true`, 1), ""},
 		{"unknown-inspect", strings.Replace(fixtureInspect, `"schema_version":1`, `"unexpected_private_token":"should-never-be-printed","schema_version":1`, 1), ""},
@@ -162,10 +176,17 @@ func TestLiveBackendRejectsUnknownFieldsOrUnexpectedChanges(t *testing.T) {
 		t.Run(change.name, func(t *testing.T) {
 			reply := change.plan
 			op := "plan"
-			if change.inspect != "" { reply = change.inspect; op = "inspect" }
+			if change.inspect != "" {
+				reply = change.inspect
+				op = "inspect"
+			}
 			client := scriptClient(t, "#!/bin/sh\nif [ \"$1\" != \""+op+"\" ]; then exit 2; fi\ncat <<'JSON'\n"+reply+"\nJSON\n")
 			var err error
-			if op == "plan" { _, err = client.plan(planOptions{power:"keep"}) } else { _, err = client.inspect() }
+			if op == "plan" {
+				_, err = client.plan(planOptions{power: "keep"})
+			} else {
+				_, err = client.inspect()
+			}
 			if err == nil || !strings.Contains(err.Error(), "invalid_response") {
 				t.Fatalf("unsafe backend %s accepted: %v", change.name, err)
 			}
@@ -183,8 +204,10 @@ func TestLiveBackendReportsOnlyAllowlistedErrorCodes(t *testing.T) {
 		`{"schema_version":1,"operation":"plan","mode":"read_only","error":{"code":"send_secret"}}`,
 	} {
 		client := scriptClient(t, "#!/bin/sh\ncat <<'JSON' >&2\n"+input+"\nJSON\nexit 2\n")
-		_, err := client.plan(planOptions{power:"keep"})
-		if err == nil { t.Fatal("backend unexpectedly accepted failure") }
+		_, err := client.plan(planOptions{power: "keep"})
+		if err == nil {
+			t.Fatal("backend unexpectedly accepted failure")
+		}
 		if strings.Contains(err.Error(), "SHOULD_NOT_LEAK") || strings.Contains(err.Error(), "send_secret") {
 			t.Fatalf("raw backend error escaped: %v", err)
 		}
@@ -194,18 +217,22 @@ func TestLiveBackendReportsOnlyAllowlistedErrorCodes(t *testing.T) {
 func TestLiveReviewDescriptionInvalidatesWhenSelectionChanges(t *testing.T) {
 	client := fixtureClient(t)
 	ins, err := client.inspect()
-	if err != nil { t.Fatal(err) }
-	s := liveSelection{api:client, inspection:ins, powerChoice:"keep", wolChoice:"keep"}
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := liveSelection{api: client, inspection: ins, powerChoice: "keep", wolChoice: "keep"}
 	form := liveForm(&s).WithWidth(110).WithHeight(40)
 	// Welcome (1 field), options (2 fields), hidden NIC: three NextField
 	// events reach the Review page.
-	for i := 0; i < 3; i++ { deliverFormMessage(t, form, huh.NextField()) }
+	for i := 0; i < 3; i++ {
+		deliverFormMessage(t, form, huh.NextField())
+	}
 	initial := form.View()
 	if !strings.Contains(initial, "Power setting: preserve") {
 		t.Fatalf("initial live Review was not rendered: %s", initial)
 	}
 	s.powerChoice = "enabled"
-	deliverFormMessage(t, form, tea.WindowSizeMsg{Width:110, Height:40})
+	deliverFormMessage(t, form, tea.WindowSizeMsg{Width: 110, Height: 40})
 	if current := form.View(); !strings.Contains(current, "Power setting: enable") ||
 		strings.Contains(current, "Power setting: preserve") {
 		t.Fatalf("live Review cached outdated plan after changing power: %s", current)
