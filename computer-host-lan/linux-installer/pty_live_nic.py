@@ -107,6 +107,14 @@ def exercise(binary: str, api: str) -> None:
         time.sleep(0.15)
         mark = send(b'\r')   # open conditional NIC input group
         wait_for(b'Existing network interface', mark)
+        wait_for(b'Type interface name', mark)
+
+        # The hint is a PLACEHOLDER, never a default value. Pressing Enter
+        # with no input must stay here and explain what needs to be typed.
+        mark = send(b'\r')
+        wait_for(b'Enter an interface name', mark)
+        if b'read-only backend: invalid_argument' in captured[mark:]:
+            raise AssertionError('Local NIC validation falsely reported backend failure')
 
         mark = send(b'enp1s0f0')
         wait_for(b'enp1s0f0', mark)
