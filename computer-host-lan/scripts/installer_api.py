@@ -1,12 +1,9 @@
 #!/usr/bin/env python3
 """Read-only, redacted JSON inspector/planner for the future Linux TUI.
 
-This preliminary *unprivileged* interface does not install, repair, elevate,
-write files, access private identity/token material, or report protected backup
-and transaction-journal contents. It deliberately reuses install_core's plan
-generation and managed-path allowlist to avoid a second installation engine.
-
-Schema 1 is experimental. Only inspect and plan are implemented.
+No installation, repairs, credential reads, protected-journal reads, network
+connections, privilege escalation or filesystem writes. Uses the actual
+installer's Python selection and core change-plan allowlist.
 """
 from __future__ import annotations
 
@@ -24,95 +21,181 @@ import install_core as core
 
 SCHEMA_VERSION = 1
 DEFAULT_SOURCE = Path(__file__).resolve().parents[1]
-READ_ONLY_ACTIONS = ('inspect', 'plan')
 REQUIRED_TOOLS = ('systemctl', 'useradd', 'getent', 'install', 'sed')
-ALLOWED_FILE_STATES = ('absent', 'present', 'unsafe', 'unreadable')
+PYTHON_SELECTOR = DEFAULT_SOURCE / 'scripts/python-selector.sh'
+INTERPRETER_COMMAND = (
+    '. "$1"; linuxhost_select_python "$2" >/dev/null 2>&1 || exit 1; '
+    'printf "%s\\n" "$LINUXHOST_PYTHON"'
+)
+ERROR_CODES = frozenset({
+    'invalid_argument', 'unsafe_managed_path', 'source_unavailable',
+    'prerequisite_missing', 'internal_error',
+})
 
 
-class InvalidRequest(ValueError):
-    pass
+class InvalidArgument(ValueError):
+    code = 'invalid_argument'
 
 
-def valid_interface(value: str | None) -> str | None:
+# Alias kept for existing internal callers/tests; not an exported API promise.
+InvalidRequest = InvalidArgument
+
+
+class UnsafeManagedPath(RuntimeError):
+    code = 'unsafe_managed_path'
+
+
+class SourceUnavailable(RuntimeError):
+    code = 'source_unavailable'
+
+
+class PrerequisiteMissing(RuntimeError):
+    code = 'prerequisite_missing'
+
+
+class JSONArgumentParser(argparse.ArgumentParser):
+    """Never emit argparse's plain-text usage on invalid API requests."""
+    def error(self, message: str) -> None:
+        raise InvalidArgument('invalid CLI argument')
+
+
+def select_python(*, explicit: str | None = None,
+                  source: Path = DEFAULT_SOURCE,
+                  env: dict[str, str] | None = None) -> str | None:
+    """Call the SAME POSIX-shell selector used by install-agent.sh/preflight.sh.
+
+    No user input is interpolated into the shell command; explicit paths are
+    passed in argv and checked by linuxhost_select_python. Output is redacted
+    to a single absolute interpreter path, or None for no compatible version.
+    """
+    selector = source / 'scripts/python-selector.sh'
+    if not selector.is_file():
+        raise SourceUnavailable('Python selector not included in source payload')
+    try:
+        outcome = subprocess.run(
+            ['sh', '-c', INTERPRETER_COMMAND, 'linuxhost-select',
+             str(selector), explicit or ''],
+            capture_output=True, text=True, timeout=8, check=False, env=env,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        raise PrerequisiteMissing('Python selection could not complete') from None
+    if outcome.returncode:
+        if explicit is not None:
+            raise InvalidArgument('incompatible or unsafe --python override')
+        return None
+    selected = outcome.stdout.strip()
+    # The selector guarantees an absolute safe executable path; revalidate
+    # the returned string before embedding it into any generated unit plan.
+    if not re.fullmatch(r'/[A-Za-z0-9_./+-]+', selected):
+        raise SourceUnavailable('Python selection returned an invalid path')
+    return selected
+
+
+def valid_interface(value: str | None, *, root: Path = Path('/')) -> str | None:
     if value is None:
         return None
-    if not re.fullmatch(r'[A-Za-z0-9_.-]{1,15}', value):
-        raise InvalidRequest('invalid Ethernet interface name')
+    if not re.fullmatch(r'[A-Za-z0-9_.-]{1,15}', value) or value in ('.', '..'):
+        raise InvalidArgument('invalid Ethernet interface name')
+    # Match install-agent.sh's read-only /sys/class/net existence check.
+    # The sysfs interface entries are ordinarily symlinks; is_dir() is
+    # intentional here, unlike the managed installation-path safety checks.
+    if not (root / 'sys/class/net' / value).is_dir():
+        raise InvalidArgument('Ethernet interface is not present')
     return value
 
 
-def python_executable(path: str) -> str:
-    """Validate a preview interpreter path, not its future root trust."""
-    if (not os.path.isabs(path) or any(ord(c) < 33 or ord(c) > 126 for c in path)
-            or any(c in path for c in ('"', "'", '\\', ';', '#'))):
-        raise InvalidRequest('Python executable must be an absolute path without shell/unit syntax')
-    return path
-
-
 def managed_file_status(transaction: core.InstallTransaction, path: str) -> str:
-    """Do not follow linked managed paths, and never read their contents."""
+    """Never read or follow managed-file symlinks or protected file content."""
     target = transaction.location(path)
     try:
         transaction.refuse_links(target)
         if target.is_file():
             return 'present'
         return 'absent'
-    except (OSError, PermissionError):
+    except OSError:
         return 'unreadable'
     except core.InstallError:
         return 'unsafe'
 
 
-def service_state(unit: str, *, systemd_present: bool) -> str:
+def service_state(unit: str, command: str, *, systemd_present: bool) -> str:
     if not systemd_present or shutil.which('systemctl') is None:
         return 'unknown'
+    if command not in ('is-active', 'is-enabled'):
+        raise InvalidArgument('unsupported service probe')
     try:
         result = subprocess.run(
-            ['systemctl', 'is-active', unit], capture_output=True,
+            ['systemctl', command, unit], capture_output=True,
             text=True, timeout=3, check=False,
         )
     except (OSError, subprocess.TimeoutExpired):
         return 'unknown'
     value = result.stdout.strip()
-    return value if value in {'active', 'inactive', 'failed', 'activating', 'deactivating'} else 'unknown'
+    allowed = (
+        {'active', 'inactive', 'failed', 'activating', 'deactivating'}
+        if command == 'is-active' else
+        {'enabled', 'disabled', 'static', 'indirect', 'masked', 'linked',
+         'linked-runtime', 'enabled-runtime', 'alias', 'generated', 'transient'}
+    )
+    return value if value in allowed else 'unknown'
 
 
-def inspection(*, root: Path = Path('/'), check_services: bool = True) -> dict:
-    """Minimal allowlisted environment facts, without reading protected data."""
+def inspection(*, root: Path = Path('/'), check_services: bool = True,
+               python_override: str | None = None,
+               source: Path = DEFAULT_SOURCE) -> dict:
+    """Unprivileged inspection; no reading root-private backups or identity."""
     trans = core.InstallTransaction(root)
     systemd_present = (root / 'run/systemd/system').is_dir()
     unit_state = managed_file_status(trans, core.SYSTEMD_PATHS[0])
     power_state = managed_file_status(trans, core.POWER_DROPIN)
     avahi_state = managed_file_status(trans, core.AVAHI_PATH)
-    python_supported = sys.version_info >= (3, 10)
+    avahi_directory = (root / 'etc/avahi/services').is_dir()
+    selected_python = select_python(explicit=python_override, source=source)
+    probe_services = check_services and root == Path('/')
+    def query(unit: str, command: str) -> str:
+        if not probe_services:
+            return 'unknown'
+        return service_state(unit, command, systemd_present=systemd_present)
+
+    avahi_daemon = query('avahi-daemon.service', 'is-active')
+    if not avahi_directory or avahi_daemon in ('inactive', 'failed', 'deactivating'):
+        avahi_status = 'warning'
+    elif avahi_daemon == 'active':
+        avahi_status = 'passed'
+    else:
+        avahi_status = 'not_verified'
     checks = [
         {'id': 'linux', 'status': 'passed' if platform.system() == 'Linux' else 'blocked'},
-        {'id': 'python_3_10_plus', 'status': 'passed' if python_supported else 'blocked'},
+        {'id': 'python_3_10_plus', 'status': 'passed' if selected_python else 'blocked'},
         {'id': 'systemd_pid1', 'status': 'passed' if systemd_present else 'blocked'},
     ]
-    checks += [
+    checks.extend(
         {'id': f'tool_{name}', 'status': 'passed' if shutil.which(name) else 'blocked'}
         for name in REQUIRED_TOOLS
-    ]
-    if avahi_state != 'present':
-        checks.append({'id': 'avahi_advertisement', 'status': 'warning'})
+    )
+    checks.append({'id': 'avahi_discovery', 'status': avahi_status})
     if any(state == 'unsafe' for state in (unit_state, power_state, avahi_state)):
         checks.append({'id': 'managed_path_integrity', 'status': 'blocked'})
+    if any(state == 'unreadable' for state in (unit_state, power_state, avahi_state)):
+        checks.append({'id': 'managed_path_visibility', 'status': 'not_verified'})
     return {
         'schema_version': SCHEMA_VERSION,
         'operation': 'inspect',
         'mode': 'read_only',
         'checks': checks,
+        'python': {'selected_interpreter': selected_python, 'version_supported': bool(selected_python)},
+        'avahi': {
+            'services_directory': 'present' if avahi_directory else 'absent',
+            'daemon_state': avahi_daemon,
+        },
         'installation': {
             'detected': unit_state == 'present',
             'service_file': unit_state,
             'power_dropin': power_state,
             'avahi_service_file': avahi_state,
-            'agent_service_state': service_state('linux-host-agent.service', systemd_present=systemd_present)
-                                   if check_services and root == Path('/') else 'unknown',
+            'agent_service_state': query('linux-host-agent.service', 'is-active') if unit_state == 'present' else 'unknown',
+            'agent_service_enabled': query('linux-host-agent.service', 'is-enabled') if unit_state == 'present' else 'unknown',
         },
-        # These facts live in root-private storage. They must be obtained later
-        # via a separate authenticated/read-only privileged helper, not guessed.
         'privileged_transaction_state': 'unknown',
         'identity_preserved': 'not_verified',
         'secrets_included': False,
@@ -120,33 +203,36 @@ def inspection(*, root: Path = Path('/'), check_services: bool = True) -> dict:
 
 
 def change_plan(*, source: Path = DEFAULT_SOURCE, root: Path = Path('/'),
-                python_bin: str = sys.executable, enable_power: bool = False,
+                python_bin: str | None = None, enable_power: bool = False,
                 disable_power: bool = False, wol_interface: str | None = None) -> dict:
     if enable_power and disable_power:
-        raise InvalidRequest('power enable/disable flags conflict')
-    valid_interface(wol_interface)
-    python_executable(python_bin)
+        raise InvalidArgument('power enable/disable flags conflict')
+    valid_interface(wol_interface, root=root)
+    selected_python = select_python(explicit=python_bin, source=source)
+    if selected_python is None:
+        raise PrerequisiteMissing('No supported Python interpreter available')
     trans = core.InstallTransaction(root)
     power_state = managed_file_status(trans, core.POWER_DROPIN)
     if power_state in ('unsafe', 'unreadable'):
-        raise InvalidRequest('cannot safely determine existing power settings')
+        raise UnsafeManagedPath('cannot safely determine existing power settings')
     avahi_state = managed_file_status(trans, core.AVAHI_PATH)
     if avahi_state in ('unsafe', 'unreadable'):
-        raise InvalidRequest('cannot safely inspect Avahi path')
-    # No copies of the installed persistent UUID, key or service credentials.
-    changes = core.generate_plan(
-        source, python_bin, enable_power=enable_power,
-        disable_power=disable_power, wol_interface=wol_interface,
-        is_existing_power=power_state == 'present',
-        avahi_dir=(root / 'etc/avahi/services').is_dir(),
-    )
+        raise UnsafeManagedPath('cannot safely inspect managed Avahi path')
+    try:
+        changes = core.generate_plan(
+            source, selected_python, enable_power=enable_power,
+            disable_power=disable_power, wol_interface=wol_interface,
+            is_existing_power=power_state == 'present',
+            avahi_dir=(root / 'etc/avahi/services').is_dir(),
+        )
+    except (OSError, UnicodeError, core.InstallError) as exc:
+        raise SourceUnavailable('Unable to generate a plan from the bundled source') from exc
     result = []
     for change in changes:
         status = managed_file_status(trans, change.path)
         if status in ('unsafe', 'unreadable'):
-            raise InvalidRequest('managed path cannot be safely inspected')
+            raise UnsafeManagedPath('managed destination cannot be safely inspected')
         action = 'remove' if change.content is None else ('replace' if status == 'present' else 'create')
-        # Don't say a missing removable file is actually being removed.
         if action == 'remove' and status == 'absent':
             action = 'unchanged'
         result.append({'path': change.path, 'action': action})
@@ -155,6 +241,7 @@ def change_plan(*, source: Path = DEFAULT_SOURCE, root: Path = Path('/'),
         'operation': 'plan',
         'mode': 'read_only',
         'changes': result,
+        'selected_python': selected_python,
         'power_option': 'enable' if enable_power else ('disable' if disable_power else 'preserve'),
         'wol_interface_requested': wol_interface is not None,
         'privileged_transaction_state': 'unknown',
@@ -164,35 +251,43 @@ def change_plan(*, source: Path = DEFAULT_SOURCE, root: Path = Path('/'),
     }
 
 
+def error_response(command: str, code: str) -> str:
+    if code not in ERROR_CODES:
+        code = 'internal_error'
+    return json.dumps({
+        'schema_version': SCHEMA_VERSION, 'operation': command,
+        'mode': 'read_only', 'error': {'code': code},
+    }, sort_keys=True, separators=(',', ':'))
+
+
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description='Experimental read-only Linux installer JSON API')
-    sub = parser.add_subparsers(dest='command', required=True)
-    sub.add_parser('inspect', help='redacted, unprivileged environment summary in JSON')
-    plan = sub.add_parser('plan', help='redacted, read-only prospective managed-file changes in JSON')
-    plan.add_argument('--enable-power', action='store_true')
-    plan.add_argument('--disable-power', action='store_true')
-    plan.add_argument('--wol-interface')
-    args = parser.parse_args(argv)
+    raw = list(argv) if argv is not None else sys.argv[1:]
+    operation = raw[0] if raw and raw[0] in ('inspect', 'plan') else 'unknown'
     try:
+        parser = JSONArgumentParser(description='Experimental read-only Linux installer JSON API')
+        sub = parser.add_subparsers(dest='command', required=True, parser_class=JSONArgumentParser)
+        inspect = sub.add_parser('inspect', help='redacted unprivileged environment summary')
+        inspect.add_argument('--python')
+        plan = sub.add_parser('plan', help='read-only prospective managed changes')
+        plan.add_argument('--enable-power', action='store_true')
+        plan.add_argument('--disable-power', action='store_true')
+        plan.add_argument('--wol-interface')
+        plan.add_argument('--python')
+        args = parser.parse_args(raw)
         if args.command == 'inspect':
-            result = inspection()
-        elif args.command == 'plan':
-            result = change_plan(
-                enable_power=args.enable_power,
-                disable_power=args.disable_power,
-                wol_interface=args.wol_interface,
-            )
+            result = inspection(python_override=args.python)
         else:
-            raise InvalidRequest('unsupported action')
-    except (InvalidRequest, core.InstallError, OSError, UnicodeError, ValueError):
-        # No raw paths or potentially sensitive exception data in the JSON API.
-        print(json.dumps({
-            'schema_version': SCHEMA_VERSION,
-            'operation': args.command,
-            'mode': 'read_only',
-            'error': {'code': 'invalid_or_unsafe_request'},
-        }, sort_keys=True), file=sys.stderr)
+            result = change_plan(
+                python_bin=args.python, enable_power=args.enable_power,
+                disable_power=args.disable_power, wol_interface=args.wol_interface,
+            )
+    except (InvalidArgument, UnsafeManagedPath, SourceUnavailable, PrerequisiteMissing) as exc:
+        print(error_response(operation, exc.code), file=sys.stderr)
         return 2
+    except Exception:
+        # Never include exception details, paths, injected input or secrets.
+        print(error_response(operation, 'internal_error'), file=sys.stderr)
+        return 1
     print(json.dumps(result, sort_keys=True, separators=(',', ':')))
     return 0
 
