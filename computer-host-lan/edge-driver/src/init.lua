@@ -337,6 +337,15 @@ local function turn_off(driver,device)
 end
 local function momentary(driver,device,command)
   local component=command.component or ""
+  -- A momentary Wake/reboot/suspend must not overwrite an acknowledged
+  -- shutdown with a new pending action while shutdown grace is active.
+  if component=="wake" or component=="reboot" or component=="suspend" then
+    local action,age=pending_age(device)
+    if State.shutdown_in_progress(action,age) then
+      log.info("Computer Host "..component.." ignored: shutdown still in progress")
+      return
+    end
+  end
   if component=="wake" then
     local ok,err=Power.wake(device)
     if not ok then log.error("Computer Host Wake rejected: "..tostring(err)); return end
