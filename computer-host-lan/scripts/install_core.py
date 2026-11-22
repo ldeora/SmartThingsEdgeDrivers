@@ -349,6 +349,9 @@ def run_cli(argv=None) -> int:
             print(f'[PLAN] {operation}: {change.path}')
         print('Dry run only: no files, services, firewall or WOL settings changed.')
         return 0
+    # Check before creating/chmodding the backup directory or lockfile. The
+    # read-only guard must not itself mutate a legacy or unknown installation.
+    require_v2_or_clean()
     backup_base = Path(BACKUP_BASE).resolve()
     backup_base.mkdir(parents=True, exist_ok=True, mode=0o700)
     os.chmod(backup_base, 0o700)
