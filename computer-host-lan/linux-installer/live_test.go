@@ -361,7 +361,6 @@ func TestLiveWaitDelayBoundsInheritedPipes(t *testing.T) {
 	}
 }
 
-
 func TestLiveNICInputAcceptsTypedCharactersAndValidation(t *testing.T) {
 	// The full-screen journey is exercised separately under a PTY. This
 	// isolates Huh's text input and checks the exact value that Blur validates
