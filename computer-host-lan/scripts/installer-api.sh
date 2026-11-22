@@ -6,6 +6,10 @@ set -eu
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 . "$ROOT/scripts/python-selector.sh"
 OVERRIDE=''
+operation=unknown
+case "${1-}" in
+  inspect|plan) operation=$1 ;;
+esac
 expect_python=0
 for arg in "$@"; do
   if [ "$expect_python" -eq 1 ]; then
@@ -21,7 +25,7 @@ if ! linuxhost_select_python "$OVERRIDE" 2>/dev/null; then
     error_code=prerequisite_missing
   fi
   # No raw user input in error output. Never fall back to an old interpreter.
-  printf '{"schema_version":1,"operation":"unknown","mode":"read_only","error":{"code":"%s"}}\n' "$error_code" >&2
+  printf '{"schema_version":1,"operation":"%s","mode":"read_only","error":{"code":"%s"}}\n' "$operation" "$error_code" >&2
   exit 2
 fi
 exec "$LINUXHOST_PYTHON" "$ROOT/scripts/installer_api.py" "$@"
