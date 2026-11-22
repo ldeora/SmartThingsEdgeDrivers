@@ -164,8 +164,17 @@ and provisioning UX are investigated.
   grace period: the driver restores ON/running and clears the pending shutdown.
   ON commands and momentary Wake/reboot/suspend controls during shutdown grace
   cannot overwrite the pending shutdown action. Automations that must wait
-  for a finished shutdown should
-  use Host Status = Stopped rather than Switch = Off.
+  for a finished shutdown should use Host Status = Stopped rather than Switch = Off.
+* Switch ON when the host is not responding sends Wake-on-LAN. After a successful
+  packet transmission, the main Switch acknowledges the **commanded** state ON
+  immediately while Host Status stays `starting`. This is not confirmation
+  that the computer booted. A valid matching health reply changes Host Status
+  to `running`; failed starts are reconciled by the existing pending-action
+  timeout (180 seconds) and network-state inference, restoring OFF where the
+  previously settled state was `stopped` or configuration permits OFF inference.
+  If WOL transmission is rejected, the driver does not publish an optimistic ON.
+  The separate momentary Wake command remains unchanged. Automations requiring
+  completed startup should use Host Status = Running, not Switch = On.
 
 The monitoring intervals, power-state inference, WOL metadata persistence,
 identity checks, failure handling, and security limits are inherited from

@@ -114,11 +114,18 @@ class LuaDriverTests(unittest.TestCase):
             assert(device.metadata_update.profile=='computer-host-linux')
             assert(fields.computerhost_advanced_profile_update_sent==true)
             assert(timers['Computer Host health'])
+            local before_initial_wake=#device.events
             TEMPLATE.capability_handlers.switch.on(driver,device)
             assert(wakes==1)  -- not initially confirmed online
-            assert(fields.computerhost_last_switch==nil) -- no optimistic ON
+            assert(fields.computerhost_last_switch=='on') -- accepted WOL ack
+            assert(device.last_status=='starting') -- boot not confirmed
+            assert(#device.events==before_initial_wake+1)
+            assert(device.events[#device.events].value=='on')
+            local before_initial_health=#device.events
             timers['Computer Host health'].fn() -- health success
             assert(fields.computerhost_last_switch=='on')
+            assert(device.last_status=='running')
+            assert(#device.events==before_initial_health) -- no repeated ON
             assert(fields.computerhost_success_count==1)
             assert(fields.computerhost_failures==0)
             assert(device.marked_online)
@@ -149,14 +156,27 @@ class LuaDriverTests(unittest.TestCase):
             assert(#device.events==previous_events+1)
             assert(device.events[#device.events].value=='off')
             wake_failure=false
-            -- A real switch-on command sends WOL and does not immediately
-            -- report ON before the agent is actually reachable.
+            -- Accepted Wake is acknowledged immediately with switch ON,
+            -- but Host Status remains starting until a valid health response.
+            local before_accepted_wake=#device.events
             TEMPLATE.capability_handlers.switch.on(driver,device)
             assert(wakes==4)
-            assert(fields.computerhost_last_switch=='off')
+            assert(fields.computerhost_last_switch=='on')
+            assert(device.last_status=='starting')
+            assert(fields.computerhost_pending_action=='wake')
+            assert(#device.events==before_accepted_wake+1)
+            assert(device.events[#device.events].value=='on')
+            -- A silent poll while booting must not undo the command ack.
+            previous_events=#device.events
+            timers['Computer Host health'].fn()
+            assert(device.last_status=='starting')
+            assert(fields.computerhost_last_switch=='on')
+            assert(#device.events==previous_events)
             healthy=true
             timers['Computer Host health'].fn()
             assert(fields.computerhost_last_switch=='on')
+            assert(device.last_status=='running')
+            assert(#device.events==previous_events) -- health confirms without switch bounce
             assert(fields.computerhost_pending_action==nil)
             assert(fields.computerhost_host_failures==0)
             -- If users disable outage-based OFF inference, stay ON.
@@ -304,22 +324,30 @@ class LuaDriverTests(unittest.TestCase):
             error_message='HTTP transport failed: timeout'
             timers['Computer Host health'].fn()
             assert(device.last_status=='stopped')
-            -- A failed Wake shows 'starting' while pending and returns to the
-            -- settled 'stopped' once the wake action expires (180 s).
+            -- Successful WOL transmission acknowledges ON immediately, but
+            -- if boot never succeeds, 180-second expiry restores settled OFF.
             local wakes_before_settled=wakes
+            local events_before_settled_wake=#device.events
             TEMPLATE.capability_handlers.switch.on(driver,device)
             assert(wakes==wakes_before_settled+1)
             assert(fields.computerhost_pending_action=='wake')
             assert(device.last_status=='starting')
+            assert(fields.computerhost_last_switch=='on')
+            assert(#device.events==events_before_settled_wake+1)
+            assert(device.events[#device.events].value=='on')
+            previous_events=#device.events
             timers['Computer Host health'].fn()
             assert(device.last_status=='starting')
-            assert(fields.computerhost_last_switch=='off')
+            assert(fields.computerhost_last_switch=='on')
+            assert(#device.events==previous_events)
             fields.computerhost_pending_at=os.time()-181
             timers['Computer Host health'].fn()
             assert(fields.computerhost_pending_action==nil)
             assert(device.last_status=='stopped')
             assert(fields.computerhost_last_switch=='off')
             assert(fields.computerhost_settled=='stopped')
+            assert(#device.events==previous_events+1)
+            assert(device.events[#device.events].value=='off')
             -- A refused connection means a TCP stack answered: the inference
             -- is dropped and regular evaluation applies.
             error_message='HTTP transport failed: connection refused'
