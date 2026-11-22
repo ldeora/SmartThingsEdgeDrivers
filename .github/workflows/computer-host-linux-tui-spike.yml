@@ -27,7 +27,7 @@ jobs:
           for f in live.go live_test.go; do
             printf 'SOURCEFMT_%s:' "$f"
             gofmt "$f" | base64 -w0
-            printf '\\n'
+            printf '\n'
           done
       - name: Ensure module files are tidy and unchanged
         run: go mod tidy -diff
