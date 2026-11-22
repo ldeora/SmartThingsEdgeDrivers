@@ -18,6 +18,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"charm.land/huh/v2"
@@ -122,7 +123,12 @@ func newAPIClient(path string) (apiClient, error) {
 	}
 	info, err := os.Lstat(abs)
 	if err != nil || !info.Mode().IsRegular() || info.Mode()&0o111 == 0 {
-		return apiClient{}, errors.New("read-only backend is missing or not executable; run from linux-installer or set -api")
+		return apiClient{}, errors.New("read-only backend is missing or not executable; supply a trusted launcher with -api")
+	}
+	// An explicitly selected launcher must not be writable by another user.
+	// Never turn this source-checkout prototype into a privileged runner.
+	if info.Mode().Perm()&0o022 != 0 {
+		return apiClient{}, errors.New("read-only backend is group/world writable; choose a trusted -api launcher")
 	}
 	return apiClient{executable: abs}, nil
 }
@@ -131,9 +137,13 @@ func (c apiClient) call(operation string, args ...string) ([]byte, error) {
 	if operation != "inspect" && operation != "plan" {
 		return nil, apiError{"invalid_argument"}
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
+	// The shell selector, Python selector, and bounded systemctl probes can
+	// legitimately exceed 12 seconds in series on a slow Linux host.
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
 	command := exec.CommandContext(ctx, c.executable, append([]string{operation}, args...)...)
+	// Prevent orphaned grandchildren holding stdout/stderr open indefinitely.
+	command.WaitDelay = 2 * time.Second
 	// Avoid Python import bytecode caches in the source tree during inspection.
 	command.Env = append(os.Environ(), "PYTHONDONTWRITEBYTECODE=1")
 	// The CLI receives no stdin; there can be no terminal/sudo prompt while
@@ -143,6 +153,9 @@ func (c apiClient) call(operation string, args ...string) ([]byte, error) {
 	command.Stderr = &stderr
 	err := command.Run()
 	if err != nil {
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			return nil, apiError{"backend_timeout"}
+		}
 		if ctx.Err() != nil {
 			return nil, apiError{"backend_unavailable"}
 		}
@@ -370,6 +383,7 @@ type liveSelection struct {
 	wolChoice   string
 	wolNIC      string
 	finished    bool
+	cacheMu     sync.Mutex // Huh invokes DescriptionFunc off the UI goroutine.
 	cacheKey    string
 	cached      apiPlan
 	cacheErr    error
@@ -383,10 +397,17 @@ func (s *liveSelection) options() planOptions {
 	return planOptions{power: s.powerChoice, wolNIC: nic}
 }
 func (s *liveSelection) currentPlan() (apiPlan, error) {
-	key := s.powerChoice + "\x00" + s.wolChoice + "\x00" + s.wolNIC
+	// Huh runs the Review DescriptionFunc on a background command while the
+	// Confirm Validate callback can run on the UI goroutine. Serialize the
+	// entire lookup (including the subprocess) so neither sees partial state
+	// or starts a duplicate plan. The UI inputs themselves remain Huh-owned.
+	s.cacheMu.Lock()
+	defer s.cacheMu.Unlock()
+	options := s.options()
+	key := options.power + "\x00" + options.wolNIC
 	if s.cacheKey != key {
-		s.cacheKey = key
-		s.cached, s.cacheErr = s.api.plan(s.options())
+		plan, err := s.api.plan(options)
+		s.cached, s.cacheErr, s.cacheKey = plan, err, key
 	}
 	return s.cached, s.cacheErr
 }
@@ -443,11 +464,11 @@ func liveForm(s *liveSelection) *huh.Form {
 					if !accepted {
 						return nil
 					}
-					_, err := s.currentPlan()
+					plan, err := s.currentPlan()
 					if err != nil {
 						return errors.New("plan unavailable; correct the options or cancel")
 					}
-					if s.cached.SelectedPython != s.inspection.Python.SelectedInterpreter {
+					if plan.SelectedPython != s.inspection.Python.SelectedInterpreter {
 						return errors.New("selected Python changed; start a new inspection")
 					}
 					return nil
@@ -511,7 +532,9 @@ func runLiveAccessible(reader io.Reader, writer io.Writer, api apiClient, info a
 			fmt.Fprintln(writer, "\nCancelled; no changes made.")
 			return nil
 		}
-		input := strings.ToLower(strings.TrimSpace(scanner.Text()))
+		// Menu commands are case-insensitive; Linux interface names are not.
+		rawInput := strings.TrimSpace(scanner.Text())
+		input := strings.ToLower(rawInput)
 		switch input {
 		case "quit", "exit", "q":
 			fmt.Fprintln(writer, "Cancelled; no changes made.")
@@ -550,10 +573,10 @@ func runLiveAccessible(reader io.Reader, writer io.Writer, api apiClient, info a
 				accepted = false
 			}
 		case 2:
-			if validNICName(input) != nil {
+			if validNICName(rawInput) != nil {
 				accepted = false
 			} else {
-				s.wolNIC = input
+				s.wolNIC = rawInput
 			}
 		case 3:
 			if input != "y" && input != "n" && input != "" {
