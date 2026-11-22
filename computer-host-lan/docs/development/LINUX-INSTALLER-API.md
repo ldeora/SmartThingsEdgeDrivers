@@ -18,11 +18,12 @@ sh scripts/installer-api.sh inspect
 sh scripts/installer-api.sh plan
 sh scripts/installer-api.sh inspect --python /usr/bin/python3.11
 sh scripts/installer-api.sh plan --python /usr/bin/python3.11
+./scripts/installer-api.sh plan --python=/usr/bin/python3.11
 sh scripts/installer-api.sh plan --enable-power
 sh scripts/installer-api.sh plan --disable-power --wol-interface enp1s0f0
 ```
 
-The wrapper sources the **same** `scripts/python-selector.sh` used by
+The wrapper is committed as **executable (Git mode 100755)** and can be\ninvoked directly by the Go wizard or via \`sh\`. Both \`--python /path\` and\n\`--python=/path\` are accepted. Its errors use the Python API's exact\ncompact, sorted-key JSON layout.\n\nThe wrapper sources the **same** `scripts/python-selector.sh` used by
 `install-agent.sh` and `preflight.sh`, and launches the selected interpreter
 without modifying the system `python3` symlink. The Python API also selects
 that interpreter for inspection and planning, rather than interpreting its own
