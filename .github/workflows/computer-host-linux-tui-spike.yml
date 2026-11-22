@@ -22,11 +22,6 @@ jobs:
         with:
           go-version: '1.25.x'
           cache: false
-      - name: Temporary formatter export of new NIC interaction tests
-        run: |
-          printf 'NIC_GO_FMT:'
-          gofmt live_test.go | base64 -w0
-          printf '\n'
       - name: Enforce gofmt source formatting
         run: |
           unformatted="$(gofmt -l ./*.go)"
