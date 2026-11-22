@@ -153,6 +153,15 @@ jobs:
           & ./windows-agent/scripts/Install-WindowsAgent.ps1 -PublishedDirectory (Resolve-Path windows-agent/publish/win-x64).Path -HubIPv4 $hub -EnablePower
           if ($LASTEXITCODE -ne 0) { throw 'Legacy ZIP script install failed' }
           $old = Invoke-RestMethod http://127.0.0.1:8765/v2/info
+          $expectedServiceDescription = 'Provides local computer status and system monitoring to Samsung SmartThings, with optional remote power management.'
+          function AssertServiceDescription([string]$stage) {
+            $installed = Get-CimInstance Win32_Service -Filter "Name='ComputerHostAgent'" -ErrorAction Stop
+            if ($installed.Description -cne $expectedServiceDescription) {
+              throw "Incorrect ComputerHostAgent description after ${stage}: '$($installed.Description)'"
+            }
+            Write-Host "PASS service description after $stage"
+          }
+          AssertServiceDescription 'PowerShell installation'
           # An abandoned snapshot must be detected without stopping a
           # still-working existing service. Simulate an interruption only by
           # creating the marker, never by disrupting a real power operation.
@@ -295,8 +304,12 @@ jobs:
             } finally { $p.Dispose() }
           }
           Write-Host 'TEST: ZIP-to-Setup migration'
+          # Simulate a legacy installation lacking the current service metadata.
+          & sc.exe description ComputerHostAgent 'Legacy description for migration test' | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw 'Could not set legacy service description test fixture' }
           RunSetup "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /HUBIP=$hub /ENABLEPOWER=1"
           $migrated = WaitAgentReady 'ZIP-to-Setup migration'
+          AssertServiceDescription 'ZIP-to-Setup migration'
           if ($migrated.id -ne $old.id) { throw 'Migration changed installation UUID' }
           if ((Get-FileHash $key -Algorithm SHA256).Hash -ne $oldKeyHash) { throw 'Migration changed control key' }
           $keptConfig = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json
@@ -324,6 +337,7 @@ jobs:
           Write-Host 'TEST: preserve power setting during a subsequent silent upgrade'
           RunSetup "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /HUBIP=$hub"
           $upgraded = WaitAgentReady 'silent Setup-to-Setup upgrade'
+          AssertServiceDescription 'Setup-to-Setup upgrade'
           if ($upgraded.id -ne $old.id) { throw 'Upgrade changed UUID' }
           $keptConfig = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json
           if ($keptConfig.HostAgent.DiscoveryEnabled -ne $false -or
@@ -361,6 +375,7 @@ jobs:
           if (Test-Path $originalPath) { Remove-Item -LiteralPath $originalPath -Recurse -Force }
           RunSetup "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /LOCALSUBNET=1"
           $clean = WaitAgentReady 'genuine new installation'
+          AssertServiceDescription 'clean Setup installation'
           if ($clean.id -eq $old.id) { throw 'Clean install reused deleted installation UUID' }
           if ($clean.power_actions.Count -ne 0) { throw 'Clean install enabled power by default' }
           if (Test-Path $key) { throw 'Clean monitoring-only install created a privileged token' }
