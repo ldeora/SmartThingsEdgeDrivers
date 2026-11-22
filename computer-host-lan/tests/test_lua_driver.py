@@ -66,6 +66,7 @@ class LuaDriverTests(unittest.TestCase):
             }
             package.loaded['computerhost.telemetry']={status=function(dev,status) dev.last_status=status; return true end,metrics=function() end}
             local wakes,actions=0,{}
+            local action_error=nil
             local wake_failure=false
             package.loaded['computerhost.power']={
               wake=function(device)
@@ -75,7 +76,9 @@ class LuaDriverTests(unittest.TestCase):
                 device:set_field('computerhost_pending_at',os.time())
                 return true
               end,
-              action=function(device,action) actions[#actions+1]=action;device:set_field('computerhost_pending_action',action);device:set_field('computerhost_pending_at',os.time());return true end,
+              action=function(device,action)
+                if action_error then return false,action_error end
+                actions[#actions+1]=action;device:set_field('computerhost_pending_action',action);device:set_field('computerhost_pending_at',os.time());return true end,
             }
             require 'init'
             local timers={}
@@ -180,13 +183,99 @@ class LuaDriverTests(unittest.TestCase):
             assert(fields.computerhost_pending_action==nil)
             -- A refused TCP connection is NOT proof of a finished shutdown,
             -- even after a signed/acknowledged shutdown action.
+            -- An accepted OFF is acknowledged at once with a real ON->OFF
+            -- change, so the app does not wait for its command timeout.
+            local State=require 'computerhost.state'
+            local sent_actions=#actions
+            previous_events=#device.events
             TEMPLATE.capability_handlers.switch.off(driver,device)
-            assert(actions[#actions]=='shutdown')
+            assert(#actions==sent_actions+1 and actions[#actions]=='shutdown')
+            assert(fields.computerhost_last_switch=='off')
+            assert(#device.events==previous_events+1)
+            assert(device.events[#device.events].value=='off')
+            assert(device.events[#device.events].state_change==nil)
+            assert(device.last_status=='stopping')
+            -- The agent may still answer during the grace period: the switch
+            -- stays OFF and ordinary polling emits no switch event.
+            previous_events=#device.events
+            timers['Computer Host health'].fn()
+            assert(fields.computerhost_last_switch=='off')
+            assert(device.last_status=='stopping')
+            assert(#device.events==previous_events)
+            -- A duplicate OFF while stopping is a no-op: no second request
+            -- (Windows would answer 409) and no switch transition.
+            TEMPLATE.capability_handlers.switch.off(driver,device)
+            assert(#actions==sent_actions+1)
+            assert(fields.computerhost_last_switch=='off')
+            assert(#device.events==previous_events)
+            -- ON while the agent still answers must not replace the pending
+            -- shutdown or send a Wake request.
+            local wakes_before=wakes
+            TEMPLATE.capability_handlers.switch.on(driver,device)
+            assert(wakes==wakes_before)
+            assert(fields.computerhost_pending_action=='shutdown')
+            assert(fields.computerhost_last_switch=='off')
+            -- The separate momentary controls must also be unable to replace
+            -- the shutdown with Wake, reboot or suspend.
+            local actions_before_momentary=#actions
+            for _,component in ipairs({'wake','reboot','suspend'}) do
+              TEMPLATE.capability_handlers.momentary.push(driver,device,{component=component})
+            end
+            assert(wakes==wakes_before)
+            assert(#actions==actions_before_momentary)
+            assert(fields.computerhost_pending_action=='shutdown')
+            assert(device.last_status=='stopping')
+            -- Agent still answering after the grace period: shutdown cancelled
+            -- or blocked. Host is running again and the switch returns to ON.
+            fields.computerhost_pending_at=os.time()-State.SHUTDOWN_GRACE_SECONDS
+            timers['Computer Host health'].fn()
+            assert(device.last_status=='running')
             assert(fields.computerhost_last_switch=='on')
+            assert(device.events[#device.events].value=='on')
+            assert(fields.computerhost_pending_action=='shutdown') -- 180 s bound
+            -- A 409 after the grace period (Windows busy, or a shutdown OR
+            -- reboot in progress) is a rejection, not an accepted shutdown:
+            -- switch stays ON, status stays running, pending is not renewed.
+            local pending_at=fields.computerhost_pending_at
+            action_error='HTTP status 409 (Windows shutdown or reboot is already in progress)'
+            TEMPLATE.capability_handlers.switch.off(driver,device)
+            action_error=nil
+            assert(#actions==sent_actions+1)
+            assert(fields.computerhost_last_switch=='on')
+            assert(device.last_status=='running')
+            assert(fields.computerhost_pending_at==pending_at)
+            -- Once running again, a new OFF is sent even though the earlier
+            -- shutdown is still recorded as pending.
+            TEMPLATE.capability_handlers.switch.off(driver,device)
+            assert(#actions==sent_actions+2 and actions[#actions]=='shutdown')
+            assert(fields.computerhost_last_switch=='off')
+            assert(device.last_status=='stopping')
+            -- A different boot ID proves the computer is running again, even
+            -- inside the shutdown grace period.
+            local events_before_boot=#device.events
+            boot_id='boot-three'
+            timers['Computer Host health'].fn()
+            assert(fields.computerhost_last_switch=='on')
+            assert(device.last_status=='running')
+            assert(fields.computerhost_pending_action==nil)
+            assert(#device.events==events_before_boot+1)
+            -- Start another shutdown to test a conflicting ON after the agent
+            -- becomes unreachable, when the normal path would try Wake.
+            TEMPLATE.capability_handlers.switch.off(driver,device)
+            assert(#actions==sent_actions+3)
+            assert(fields.computerhost_last_switch=='off')
+            assert(fields.computerhost_pending_action=='shutdown')
             healthy=false
             error_message='HTTP transport failed: connection refused'
+            timers['Computer Host health'].fn()
+            assert(fields.computerhost_last_ok==false)
+            wakes_before=wakes
+            TEMPLATE.capability_handlers.switch.on(driver,device)
+            assert(wakes==wakes_before)
+            assert(fields.computerhost_pending_action=='shutdown')
+            assert(fields.computerhost_last_switch=='off')
             for i=1,3 do timers['Computer Host health'].fn() end
-            assert(fields.computerhost_last_switch=='on')
+            assert(fields.computerhost_last_switch=='off')
             assert(device.last_status=='stopping')
             assert(fields.computerhost_pending_action=='shutdown')
             -- Silent host timeouts, unlike refusal, now support OFF inference.
@@ -194,11 +283,58 @@ class LuaDriverTests(unittest.TestCase):
             for i=1,3 do timers['Computer Host health'].fn() end
             assert(fields.computerhost_last_switch=='off')
             assert(device.last_status=='stopped')
+            -- Regression (Gentoo hub test 2026-11-22): once the pending action
+            -- is cleared, further silent checks must keep 'stopped' instead
+            -- of degrading to 'unreachable' one poll later.
+            assert(fields.computerhost_pending_action==nil)
+            assert(fields.computerhost_settled=='stopped')
+            previous_events=#device.events
+            for i=1,3 do timers['Computer Host health'].fn() end
+            assert(device.last_status=='stopped')
+            assert(fields.computerhost_last_switch=='off')
+            assert(#device.events==previous_events)
+            -- An 'unknown' failure (e.g. HTTP/protocol error from whatever now
+            -- answers at the address) is not a life sign: status shows
+            -- unknown, the switch stays OFF, the inference survives.
+            error_message='HTTP status 500 (Internal Server Error)'
+            timers['Computer Host health'].fn()
+            assert(device.last_status=='unknown')
+            assert(fields.computerhost_last_switch=='off')
+            assert(fields.computerhost_settled=='stopped')
+            error_message='HTTP transport failed: timeout'
+            timers['Computer Host health'].fn()
+            assert(device.last_status=='stopped')
+            -- A failed Wake shows 'starting' while pending and returns to the
+            -- settled 'stopped' once the wake action expires (180 s).
+            local wakes_before_settled=wakes
+            TEMPLATE.capability_handlers.switch.on(driver,device)
+            assert(wakes==wakes_before_settled+1)
+            assert(fields.computerhost_pending_action=='wake')
+            assert(device.last_status=='starting')
+            timers['Computer Host health'].fn()
+            assert(device.last_status=='starting')
+            assert(fields.computerhost_last_switch=='off')
+            fields.computerhost_pending_at=os.time()-181
+            timers['Computer Host health'].fn()
+            assert(fields.computerhost_pending_action==nil)
+            assert(device.last_status=='stopped')
+            assert(fields.computerhost_last_switch=='off')
+            assert(fields.computerhost_settled=='stopped')
+            -- A refused connection means a TCP stack answered: the inference
+            -- is dropped and regular evaluation applies.
+            error_message='HTTP transport failed: connection refused'
+            timers['Computer Host health'].fn()
+            assert(fields.computerhost_settled==nil)
+            assert(device.last_status=='unreachable')
+            assert(fields.computerhost_last_switch=='on')
+            error_message='HTTP transport failed: timeout'
             -- Fresh health response turns it back ON, even without a WOL
             -- command (e.g. manual power-on or a scheduled boot).
             healthy=true
             timers['Computer Host health'].fn()
             assert(fields.computerhost_last_switch=='on')
+            assert(device.last_status=='running')
+            assert(fields.computerhost_settled==nil) -- life sign clears it
             -- Suspend has the same command/confirmation semantics.
             TEMPLATE.capability_handlers.momentary.push(driver,device,{component='suspend'})
             assert(actions[#actions]=='suspend')
@@ -206,6 +342,11 @@ class LuaDriverTests(unittest.TestCase):
             for i=1,3 do timers['Computer Host health'].fn() end
             assert(fields.computerhost_last_switch=='off')
             assert(device.last_status=='suspended')
+            -- Same regression for suspend: 'suspended' survives silence.
+            assert(fields.computerhost_settled=='suspended')
+            for i=1,3 do timers['Computer Host health'].fn() end
+            assert(device.last_status=='suspended')
+            assert(fields.computerhost_last_switch=='off')
             -- Unexpected wrong-host responses must not count as power loss.
             healthy=true
             timers['Computer Host health'].fn()

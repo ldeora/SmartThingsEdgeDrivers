@@ -66,6 +66,32 @@ class StateReducerTests(unittest.TestCase):
             assert(a=='stopping' and b==false)
             a,b=S.success('shutdown',false,0,61)
             assert(a=='running' and b==false)
+            -- Grace boundary comes from the named constant.
+            local g=S.SHUTDOWN_GRACE_SECONDS
+            assert(g==60)
+            assert(S.success('shutdown',false,0,g-1)=='stopping')
+            assert(S.success('shutdown',false,0,g)=='running')
+            assert(S.shutdown_in_progress('shutdown',g-1)==true)
+            assert(S.shutdown_in_progress('shutdown',g)==false)
+            -- Settled states survive silence, and unknown errors do not
+            -- invalidate them. Refusal follows regular failure evaluation.
+            a,b,c=S.failure(nil,'host_unreachable',6,6,3,true,'stopped')
+            assert(a=='stopped' and b=='off' and c==false)
+            a,b,c=S.failure(nil,'host_unreachable',6,6,3,false,'suspended')
+            assert(a=='suspended' and b=='off' and c==false)
+            a,b,c=S.failure(nil,'agent_unavailable',6,0,3,true,'stopped')
+            assert(a=='unreachable' and b=='on' and c==false)
+            a,b,c=S.failure(nil,'unknown',6,0,3,true,'stopped')
+            assert(a=='unknown' and b==nil and c==false)
+            a,b=S.failure(nil,'host_unreachable',6,6,3,true,nil)
+            assert(a=='unreachable' and b=='off')
+            a,b=S.failure('wake','host_unreachable',6,6,3,true,'stopped')
+            assert(a=='starting' and b==nil)
+            -- A new boot supersedes grace and confirms recovery.
+            local status,confirmed=S.success('shutdown',true,0,g-1)
+            assert(status=='running' and confirmed==true)
+            assert(S.shutdown_in_progress('reboot',0)==false)
+            assert(S.shutdown_in_progress(nil,0)==false)
         ''' % repr(str(ROOT))
         vm=lib.luaL_newstate()
         try:

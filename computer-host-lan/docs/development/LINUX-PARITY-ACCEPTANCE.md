@@ -71,10 +71,10 @@ physical recovery access. Configure persistent NIC WOL separately.*
 | H21 | Trigger Reboot | `rebooting` while pending, then `running` with changed boot ID, main Switch ON |
 | H22 | Trigger Suspend | `suspending`, then `suspended` only after sufficient silent failures |
 | H23 | Wake after suspend with Switch ON/Wake control | WOL packet sent and agent comes back, Switch ON; no premature running claim |
-| H24 | Trigger Switch OFF | `stopping`, then inferred `stopped` after repeated timeouts; Switch OFF |
+| H24 | Trigger Switch OFF | Switch OFF at once without an app error; `stopping`, then inferred `stopped` after repeated timeouts |
 | H25 | Switch ON after full soft-off | Stored MAC and broadcast permit WOL; machine returns to `running` |
 | H26 | Agent power helper unavailable / invalid key | Safe error, no optimistic OFF and no command execution |
-| H27 | Shutdown accepted but connectivity returns quickly | State reconciled from actual health rather than command acknowledgement alone |
+| H27 | Shutdown accepted but connectivity returns quickly | State reconciled from actual health; a new boot ID restores ON/running even within shutdown grace |
 | H28 | Force network failure during pending action | Wrong/unknown failures must not count as proof of completed shutdown/suspend |
 
 ### Gate 4 — Linux maintenance and rollback
