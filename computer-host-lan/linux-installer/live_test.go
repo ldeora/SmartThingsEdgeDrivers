@@ -360,3 +360,53 @@ func TestLiveWaitDelayBoundsInheritedPipes(t *testing.T) {
 		t.Fatalf("inherited pipe was not bounded: err=%v, duration=%s", err, time.Since(start))
 	}
 }
+
+func TestLiveNICEntryNavigatesToReview(t *testing.T) {
+	client := fixtureClient(t)
+	info, err := client.inspect()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := liveSelection{api: client, inspection: info, powerChoice: "keep", wolChoice: "pin"}
+	form := liveForm(&s).WithWidth(105).WithHeight(35)
+	// Compatibility, power, WOL fields -> conditional NIC input group.
+	for i := 0; i < 3; i++ {
+		deliverFormMessage(t, form, huh.NextField())
+	}
+	if !strings.Contains(form.View(), "Existing network interface") {
+		t.Fatalf("conditional NIC page not visible: %s", form.View())
+	}
+	for _, ch := range "enp1s0f0" {
+		deliverFormMessage(t, form, tea.KeyPressMsg{Code: ch, Text: string(ch)})
+	}
+	if s.wolNIC != "enp1s0f0" {
+		t.Fatalf("Huh input did not bind the typed NIC: %q", s.wolNIC)
+	}
+	deliverFormMessage(t, form, tea.KeyPressMsg{Code: tea.KeyEnter})
+	page := form.View()
+	if !strings.Contains(page, "Finish the REAL read-only file review") ||
+		!strings.Contains(page, "WOL interface pin requested: true") {
+		t.Fatalf("typing valid NIC and pressing Enter did not reach read-only Review: %s", page)
+	}
+}
+
+func TestLiveNICInputDisplaysUsefulValidationErrors(t *testing.T) {
+	client := fixtureClient(t)
+	info, err := client.inspect()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := liveSelection{api: client, inspection: info, powerChoice: "keep", wolChoice: "pin"}
+	form := liveForm(&s).WithWidth(100).WithHeight(35)
+	for i := 0; i < 3; i++ {
+		deliverFormMessage(t, form, huh.NextField())
+	}
+	// Enter is invalid with no interface name. Error must not pretend to
+	// come from the backend, and should explain the format constraint.
+	deliverFormMessage(t, form, tea.KeyPressMsg{Code: tea.KeyEnter})
+	view := form.View()
+	if !strings.Contains(view, "interface name") || !strings.Contains(view, "1–15") ||
+		strings.Contains(view, "read-only backend: invalid_argument") {
+		t.Fatalf("unexpected empty-NIC validation UI: %s", view)
+	}
+}
