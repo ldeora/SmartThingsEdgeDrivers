@@ -296,6 +296,15 @@ func validNICName(name string) error {
 	return nil
 }
 
+// Huh's NIC error must not imply that the Python backend rejected input.
+// This checks only the spelling; Python checks sysfs existence separately.
+func validateNICInput(name string) error {
+	if err := validNICName(name); err != nil {
+		return errors.New("Enter an interface name (1–15 letters, digits, _, . or -; case-sensitive)")
+	}
+	return nil
+}
+
 func (c apiClient) plan(o planOptions) (apiPlan, error) {
 	args, err := o.args()
 	if err != nil {
@@ -452,7 +461,7 @@ func liveForm(s *liveSelection) *huh.Form {
 				Title("Existing network interface (e.g. enp1s0f0)").
 				Description("Read-only sysfs name check; physical WOL support is NOT checked.").
 				Placeholder("enp1s0f0").
-				Validate(validNICName).Value(&s.wolNIC),
+				Validate(validateNICInput).Value(&s.wolNIC),
 		).Title("Interface").WithHideFunc(func() bool { return s.wolChoice != "pin" }),
 		huh.NewGroup(
 			huh.NewConfirm().
