@@ -6,11 +6,24 @@
 planned Go wizard (`linux-installer/`).
 **Evidence:** only Gentoo `hydra` is verified on real hardware. Every other
 row is either tested in CI containers (no systemd PID 1, no Avahi or WOL) or
-is an **expectation derived from the distribution's defaults**. Defaults vary
-by edition, installer choices and image. Run `./scripts/preflight.sh` on the
-actual machine; it is the authority, not this table.
+is an **expectation derived from the distribution's documented defaults**.
+Defaults vary by edition, installer choices, image and upgrade history.
 **Roadmap:** how support is to be extended is described in the
 [Linux distribution support plan](LINUX-DISTRIBUTION-PLAN.md).
+
+**Evidence labels used in the Status column:**
+
+- **Verified on hardware:** installed and exercised on a physical machine
+  with a real SmartThings hub.
+- **CI source tests:** unit tests, shell syntax, `install-agent.sh --dry-run`
+  and a loopback agent smoke test in an unprivileged container. **No**
+  systemd PID 1, service lifecycle, Avahi, firewall, MAC policy or WOL.
+- **Expected:** derived from documented defaults only. Nothing was run.
+
+`./scripts/preflight.sh` on the actual machine checks the **current
+prerequisites** (systemd, tools, Python, interface). A pass does not prove
+that installation is safe or that the distribution is compatible; it does
+not test MAC policy, firewall reachability, service lifecycle or WOL.
 
 ## 1. What the agent and installer actually need
 
@@ -23,10 +36,10 @@ actual machine; it is the authority, not this table.
 | `nologin` (or `/bin/false`) | Service account shell | util-linux / shadow | Falls back to `/bin/false` |
 | Root privileges | Installing, upgrading, uninstalling, applying WOL | `sudo`, `su`, `doas`, `run0`, root shell | See §4. The installer checks the UID, **not** for `sudo` |
 | systemd ≥ 242 | All hardening options in the units | `ProtectHostname=`, `RestrictSUIDSGID=` | Older systemd starts the service but ignores those two directives with a log warning |
-| Avahi (`avahi-daemon`) + `/etc/avahi/services` | Automatic SmartThings discovery | Optional | Monitoring still works; add the device manually by IP in the Edge driver |
+| Avahi (`avahi-daemon`) + `/etc/avahi/services` | Automatic SmartThings discovery | Optional for the agent, but currently **needed for normal onboarding** | The agent still runs, but the hub cannot find it automatically. The Edge driver's manual fallback is a hard-coded list in `edge-driver/src/computerhost/manual_hosts.lua`: adding a host means **editing that file, repackaging and redeploying the driver**. There is no IP field in the SmartThings app yet |
 | `ethtool` | Any WOL check or change | Optional | `configure-wol.sh` exits; WOL cannot be configured |
 | `nmcli` **or** `udevadm` | Persistent WOL | NetworkManager, or systemd-udev `.link` | NetworkManager active without `nmcli` → WOL step fails |
-| `unzip` (or Python) | Extracting the release source ZIP | Optional | Use `python3 -m zipfile -e <zip> <dir>`, then run the scripts with `sh` (see §5) |
+| `unzip` (or Python) | Extracting the release source ZIP | Optional | Use Python's extractor **and restore the executable bits** (see §5) |
 | `curl` | Only the post-install check in the docs | Optional | `python3 -c "import urllib.request as u; print(u.urlopen('http://127.0.0.1:8765/v2/info').read().decode())"` |
 | `avahi-browse` | Only the discovery check in the docs | `avahi-utils` / `avahi-tools` | Skip the check, or install the tools package |
 
@@ -35,10 +48,16 @@ library dependencies, but it calls the same Python engine.
 
 ## 2. Matrix: mainstream systemd distributions
 
-Legend: ✅ present by default · ⚠️ depends on edition or install choices ·
-❌ not present by default (installable) · ⛔ blocks installation.
+Legend: ✅ present by default · ⚠️ depends on edition, image or install
+choices · ❌ not present by default (installable) · ⛔ blocks installation.
 
-| Distribution | Releases | Python ≥ 3.10 by default | Privilege tool by default | Avahi by default | WOL backend | Firewall by default | MAC policy | Status |
+The **Network stack** column lists the typical default only. It is not a
+statement about WOL: working WOL needs a capable NIC and firmware, the
+matching tools, and a persistent configuration in **whichever stack manages
+the selected interface**. Several stacks can be installed at once, so the
+WOL backend has to be determined per interface (see the plan, Step 3).
+
+| Distribution | Releases | Python ≥ 3.10 by default | Privilege tool by default | Avahi by default | Network stack (typical) | Firewall by default | MAC policy | Status |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | **Gentoo** (systemd profile) | rolling | ✅ | ❌ `su` only; `sudo`/`doas` optional | ⚠️ USE/emerge choice | systemd-networkd `.link` (verified) | none | none | **Verified on hardware** (`hydra`) |
 | **Debian** | 12, 13 | ✅ 3.11 / 3.13 | ⚠️ **No `sudo` if a root password was set during install**; use `su -` | ⚠️ desktop tasks yes; server/minimal no | NetworkManager (desktop) or udev `.link` (ifupdown server) | none | AppArmor | CI containers |
@@ -46,7 +65,7 @@ Legend: ✅ present by default · ⚠️ depends on edition or install choices �
 | **Ubuntu** | 22.04 LTS | ✅ 3.10 | ✅ `sudo` | ⚠️ as above | as above | as above | AppArmor | Expected (not in CI) |
 | **Linux Mint / Pop!_OS** | Ubuntu 22.04/24.04 bases | ✅ | ✅ `sudo` | ✅ usually | NetworkManager | ⚠️ check `ufw status` | AppArmor | Expected (Ubuntu base) |
 | **LMDE** | 6, 7 | ✅ (Debian 12/13 base) | ✅ `sudo` | ✅ usually | NetworkManager | ⚠️ check `ufw status` | AppArmor | Expected (Debian base) |
-| **Raspberry Pi OS** | Debian 12/13 bases | ✅ | ✅ `sudo` | ✅ (`raspberrypi.local`) | NetworkManager | none | none | Expected; agent only. Pi Ethernet WOL is generally **not** available |
+| **Raspberry Pi OS** | Debian 12/13 bases | ✅ | ✅ `sudo` | ⚠️ image-dependent; not verified | ⚠️ image-dependent (recent images use NetworkManager) | none | none | Expected; agent only. Pi Ethernet WOL is generally **not** available |
 | **Fedora** Workstation | 43, 44 | ✅ | ✅ `sudo` (admin user) | ✅ active | NetworkManager | firewalld; Workstation zone allows ports 1025–65535 and mDNS | **SELinux enforcing** | CI containers |
 | **Fedora** Server | 43, 44 | ✅ | ✅ `sudo` (admin user) | ⚠️ often not active | NetworkManager | **firewalld blocks 8765/tcp** | **SELinux enforcing** | CI containers (Fedora image) |
 | **RHEL / AlmaLinux / Rocky** | 10 | ✅ 3.12 | ✅ `sudo` (if admin was set) | ❌ install `avahi` | NetworkManager | **firewalld blocks 8765/tcp** | **SELinux enforcing** | Expected |
@@ -54,14 +73,17 @@ Legend: ✅ present by default · ⚠️ depends on edition or install choices �
 | **RHEL / AlmaLinux / Rocky** | 8 | ⚠️ **3.6**; install `python3.11`/`python3.12` | ✅ `sudo` | ❌ | NetworkManager | firewalld | SELinux | Not recommended: systemd 239 skips two hardening options |
 | **Arch Linux** | rolling | ✅ | ❌ **`base` has no `sudo`**; root login or `su` | ❌ install `avahi`, enable daemon | depends on chosen network stack | none | none | Expected |
 | **Manjaro / EndeavourOS** | rolling | ✅ | ✅ `sudo` | ⚠️ often installed, check that the daemon is enabled | NetworkManager | ⚠️ Manjaro may enable `ufw` | none | Expected |
-| **openSUSE Tumbleweed** | rolling | ✅ | ⚠️ `sudo` present but **may ask for the root password** (`targetpw`) | ✅ usually | NetworkManager (desktop) / wicked (server) | **firewalld active** | **SELinux on new installs** | Expected |
-| **openSUSE Leap** | 16.0 | ✅ | ⚠️ as Tumbleweed | ✅ usually | NetworkManager | **firewalld active** | SELinux | Expected |
+| **openSUSE Tumbleweed** | rolling | ✅ | ⚠️ `sudo` present but **may ask for the root password** (`targetpw`) | ⚠️ edition-dependent | NetworkManager (desktop) / wicked (older server installs) | **firewalld active** | ⚠️ **SELinux on new installs**; older installs may still use AppArmor | Expected |
+| **openSUSE Leap** | 16.0 | ✅ | ⚠️ as Tumbleweed | ⚠️ edition-dependent | NetworkManager (the only configuration stack per the release notes) | **firewalld active** | ⚠️ **SELinux on new installs**; hosts upgraded from 15.6 may keep AppArmor | Expected |
 | **openSUSE Leap** | 15.6 | ⚠️ **`python3` is 3.6**; install `python311`/`python312` | ⚠️ as above | ✅ usually | wicked or NetworkManager | **firewalld active** | AppArmor | Expected via parallel Python. Leap 15.6 is at or near end of life: prefer 16.0 |
 | **Debian** | 11 | ⛔ 3.9, no supported 3.10+ package | ⚠️ as Debian | — | — | — | — | Unsupported (end of life) |
 
-**wicked (openSUSE server):** `configure-wol.sh` only knows NetworkManager or
-systemd-udev `.link` files. On a wicked-managed host it falls through to the
-`.link` path. That may work, but it is untested and wicked can override it.
+**wicked:** `configure-wol.sh` only knows NetworkManager or systemd-udev
+`.link` files, and it picks NetworkManager whenever that service is active,
+not by checking which stack manages the chosen interface. On an interface
+managed by wicked (Tumbleweed or Leap 15.6 server installs) it falls through
+to the `.link` path. That may work, but it is untested and wicked can
+override it. Leap 16.0 no longer ships wicked.
 
 ## 3. Unsupported or blocked layouts
 
@@ -100,7 +122,9 @@ chosen not to use it. The methods above are equivalent for the installer.
 
 ## 5. Missing helper packages
 
-Only Python 3.10+ is required beyond the base system. The rest is optional.
+Besides the systemd, account-management and core-utility requirements in
+§1, the only extra package that may be needed is **Python 3.10+**. The
+rest of this table is optional.
 
 | Family | Python (if too old or absent) | Discovery | WOL | Convenience |
 | --- | --- | --- | --- | --- |
@@ -112,16 +136,33 @@ Only Python 3.10+ is required beyond the base system. The rest is optional.
 | openSUSE Leap 15.6 | `python312` (or `python311`) | `avahi` | `ethtool` | `unzip` |
 | Gentoo (systemd) | `dev-lang/python` | `net-dns/avahi` | `sys-apps/ethtool` | `app-arch/unzip` |
 
-**No `unzip`:** Python can extract the release ZIP:
+**No `unzip`:** Python can extract the release ZIP. The archive is named
+`computer-host-lan-v<VERSION>-source.zip` and contains one top-level folder,
+`computer-host-lan-v<VERSION>/`. Replace `<VERSION>` with the release you
+downloaded, for example `1.0.0-rc.2`.
 
 ```sh
-python3 -m zipfile -e /path/to/downloaded-linux-source.zip computer-host-lan
-cd computer-host-lan
-sh scripts/preflight.sh
+# 1. Verify the download (run where the ZIP and the release's SHA256SUMS.txt are).
+sha256sum --ignore-missing -c SHA256SUMS.txt
+# 2. Extract it into the current folder and enter the versioned folder.
+python3 -m zipfile -e computer-host-lan-v<VERSION>-source.zip .
+cd computer-host-lan-v<VERSION>
+# 3. Check the extracted files against the archive's own manifest.
+sha256sum -c FILES.sha256
+# 4. Restore executable bits: Python's extractor drops them.
+find scripts -name '*.sh' -exec chmod 0755 {} +
+./scripts/preflight.sh
 ```
 
-Python's `zipfile` does **not** restore the executable bit, so call the
-scripts with `sh scripts/<name>.sh` (or `chmod +x scripts/*.sh` first).
+Step 4 is **required**, not cosmetic. Running only the top-level script
+with `sh` is not enough: `install-agent.sh` executes
+`scripts/configure-wol.sh` directly when `--configure-wol` is used. Without
+the executable bit that step fails **after** the main installation has
+already finished. `unzip` restores the bits itself, because the release
+archive stores them.
+
+A checksum published next to the download does not prove who published it;
+see `SECURITY.md` for the release's trust notes.
 
 ## 6. Firewall and MAC policy notes
 
@@ -135,9 +176,12 @@ on this host, and mDNS (UDP 5353) must be allowed for automatic discovery.
   allows ports 1025–65535 and mDNS.
 - **ufw (Ubuntu, Mint, Manjaro):** installed but usually inactive. If it is
   active, allow 8765/tcp from the hub and 5353/udp.
-- **SELinux enforcing:** the agent runs from `/opt` as an unconfined service.
-  This is expected to work, but has **not** been tested under enforcing mode.
-  Record `getenforce` and any `ausearch -m avc` output when testing.
+- **SELinux enforcing:** no policy module is shipped. The domain the agent and
+  the power helper actually run in, the labels of the installed files under
+  `/opt` and `/etc`, and any denials have **not** been measured. Nothing in this
+  matrix claims it works under enforcing mode. When testing, record
+  `getenforce`, `ps -eZ | grep linux_host`, `ls -Z /opt/linux-host-agent` and
+  `ausearch -m avc -ts recent`.
 - **AppArmor:** no profile is shipped. Ubuntu/Debian do not confine
   unprofiled services.
 
@@ -156,9 +200,12 @@ use the manual installer.
   terminal-ownership rules from the design (§3, *Elevation*).
 - **Python selection** must stay delegated to `python-selector.sh`, so RHEL 9
   and Leap 15.6 work with parallel interpreters.
-- **Preflight wording:** missing Avahi is a warning with a manual-IP path,
-  missing `ethtool` only disables WOL, and an active firewalld should produce
+- **Preflight wording:** missing Avahi is a warning that explains the current
+  manual fallback honestly (edit `manual_hosts.lua` and redeploy the driver).
+  Missing `ethtool` only disables WOL. An active firewalld should produce
   explicit guidance rather than a silent pass.
+- **Manual discovery:** a user-friendly way to add a host by IP (for example
+  a setting in the Edge driver) is future work, tracked in the plan.
 - **Atomic and NixOS hosts** should be detected and refused with a clear
   message, not reported as a generic "unsafe managed path".
 

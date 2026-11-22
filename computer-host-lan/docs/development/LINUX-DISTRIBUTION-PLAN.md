@@ -1,17 +1,19 @@
 # Linux distribution support plan
 
-**Status:** proposed plan, 2026-11-22. Nothing in this document is implemented yet.
+**Status:** proposed plan, 2026-11-22, revised after review. Nothing in this document is implemented yet.
 **Companion:** [Linux distribution compatibility matrix](LINUX-DISTRIBUTION-MATRIX.md) (current evidence and defaults) and [Linux installer design](LINUX-INSTALLER-DESIGN.md) (wizard architecture and privileged phases).
 
 ## Why
 
-Only Gentoo `hydra` is verified on real hardware. Debian, Ubuntu and Fedora pass container smoke tests that run without systemd as PID 1. The compatibility matrix shows the gaps to close:
+Only Gentoo `hydra` is verified on real hardware. Debian, Ubuntu and Fedora pass container source tests that run without systemd as PID 1. The compatibility matrix shows the gaps:
 
 - no `sudo` on Debian (when a root password was set at install), Arch and Gentoo;
 - an old system `python3` on RHEL 9 (3.9) and openSUSE Leap 15.6 (3.6);
 - firewalld blocking 8765/tcp, and SELinux enforcing;
-- different network stacks for WOL (NetworkManager, systemd-networkd, wicked);
+- several possible network stacks per host, which matters for WOL;
 - missing Avahi, `ethtool` and `unzip`.
+
+Distribution support is mainly **not** about recognizing distribution names or installing packages. It is about making **identical, safe installation decisions** across different combinations of init system, filesystem layout, privilege mechanism, security policy and network manager. This plan is built around that.
 
 ## Scope
 
@@ -20,80 +22,129 @@ Only Gentoo `hydra` is verified on real hardware. Debian, Ubuntu and Fedora pass
   - The **manual installer** (`scripts/install-agent.sh`, which runs `scripts/install_core.py`) stays the expert and fallback path, with identical flags.
 - **Legacy v1** `linux-host-lan` is treated only as a migration source.
 - **Native packages** (DEB, RPM, PKGBUILD, ebuild) are out of scope for this plan.
-- **Target tiers:**
-  - **Tier 1:** Debian, Ubuntu, Fedora, RHEL / AlmaLinux / Rocky.
-  - **Tier 2:** Arch, openSUSE, Mint / Pop!_OS, Raspberry Pi OS.
-  - **Reference:** Gentoo (systemd profile).
-  - **Refused with a clear message:** non-systemd systems and immutable/image-based systems.
+- **Target distributions:**
+  - first wave: Debian, Ubuntu, Fedora, RHEL / AlmaLinux / Rocky;
+  - second wave: Arch, openSUSE, Mint / Pop!_OS, Raspberry Pi OS;
+  - Gentoo (systemd profile) stays the hardware reference;
+  - non-systemd and immutable/image-based systems are refused with a specific message.
 
-**Principle: one engine, two front ends.** All distribution differences live in **one read-only Python module** that both installers use. The Go wizard only renders allowlisted IDs, and the shell installer prints the same facts. No distribution logic is duplicated in Go or shell.
+**Principle: one engine, two front ends.** All distribution handling lives in shared Python code that both installers use. The Go wizard only renders allowlisted IDs, and the shell installer prints the same facts. No distribution logic or safety decision is duplicated in Go or shell.
 
-## Step 0 (blocking safety fix): v1/v2 coexistence guard
+## Order of work
 
-`linux-host-lan/scripts/install_core.py` and `computer-host-lan/scripts/install_core.py` have identical `SYSTEMD_PATHS`, `APP_FILES`, `AVAHI_PATH` and `BACKUP_BASE`. Both use the `linuxhost` user and `/var/lib/linux-host-agent` for state. The v1 agent declares `PROTOCOL = "linux-host-agent"` and advertises `_linuxhost._tcp`. No v2 script detects v1. So the v2 installer would silently replace a v1 agent as an "upgrade", and the v1 Edge driver would then lose the device.
+1. **Correct and merge this documentation** (matrix and plan). No code.
+2. **v1/v2 coexistence guard** (Step 1 below).
+3. **Execution-environment hardening and shared platform detection** (Steps 2 and 3).
+4. **Automated distribution tests:** source tests first, then disposable VMs for the systemd lifecycle and SELinux (Step 4).
+5. **Privileged wizard execution and release builds**, only after the design's crash-safe transaction, recovery and health-gate work (Step 5).
 
-- **`install_core.py`:** add `detect_legacy_v1(root)`.
-  - It reads only `/opt/linux-host-agent/linux_host_agent.py` (looking for `PROTOCOL = "linux-host-agent"`) and `/etc/avahi/services/linux-host-agent.service` (looking for `_linuxhost._tcp`).
-  - It uses the existing `refuse_links` checks and never reads the state directory.
-- **`run_cli`:** refuse `--install` when v1 is detected, unless an explicit future `--migrate-from-v1` flag is given. Migration itself is not part of this step; the design spec requires it to be a separate, explicit operation. `--plan` reports the detection.
-- **`installer_api.py`:**
-  - `inspect` adds the check `legacy_v1_installation` (status `blocked`) and `installation.protocol: "v1" | "v2" | "unknown"`;
-  - `plan` returns the error code `legacy_install_present`.
-- **`linux-installer/live.go`:** add the new check ID and error code to `knownCheck` / `permittedError`, and show the blocked state on the Compatibility page.
-- **Tests:** fixture roots with v1 files for both installers (`tests/test_installer_api.py`, `tests/test_installer_v030.py`, Go `live_test.go`).
+Each numbered item is one or more small PRs that are reviewed separately.
 
-## Step 1: shared platform profile (read-only)
+## Step 1: v1/v2 coexistence guard (blocking safety fix)
 
-New `scripts/platform_profile.py`: pure functions that take a `root: Path`, so fixture roots can be used, as `installer_api.inspection` already does. It detects:
+**The problem.** `linux-host-lan/scripts/install_core.py` and `computer-host-lan/scripts/install_core.py` have identical `SYSTEMD_PATHS`, `APP_FILES`, `AVAHI_PATH` and `BACKUP_BASE`. Both use the `linuxhost` account and `/var/lib/linux-host-agent` for state. The v1 agent declares `PROTOCOL = "linux-host-agent"` and advertises `_linuxhost._tcp`; v2 uses `computer-host-agent` and `_computerhost._tcp`. No v2 script detects v1, so an ordinary v2 install replaces the v1 application files as if it were an upgrade. The v1 Edge driver then loses the device.
 
-- **Distribution:** `ID`, `ID_LIKE`, `VERSION_ID` and `VARIANT_ID` from `/etc/os-release`, mapped to a `family` (debian, fedora, rhel, arch, suse, gentoo, other) and a `support_tier` from one data table that mirrors the matrix.
-- **Blocked layouts:** `/run/ostree-booted`, `ID=nixos`, a read-only `/usr` with transactional updates, and `/opt` as a symlink. Each gets a **specific** `blocked_layout` ID instead of today's generic `unsafe_managed_path`.
-- **systemd version** from `systemctl --version`. Below 242, warn that `ProtectHostname=` and `RestrictSUIDSGID=` are ignored.
-- **Network stack:** active state of `NetworkManager`, `systemd-networkd` and `wicked`, reusing `installer_api.service_state` (read-only `is-active` only).
-- **Firewall:** whether firewalld or ufw is active, and whether nftables is present (read-only).
-- **MAC policy:** SELinux (`/sys/fs/selinux/enforce`) and AppArmor (`/sys/module/apparmor/parameters/enabled`).
-- **Privilege tools on PATH:** `sudo`, `doas`, `run0` (only with systemd 256 or newer), `pkexec`, `su`, and whether the process already runs as UID 0.
+**Where the guard must run.** Before **any** step that can change the host. In today's manual installer that is before `install-agent.sh` creates the `linuxhost` account, which happens *before* `install_core.py` starts. The guard therefore has to run:
 
-Wiring:
+- in `install-agent.sh`, before `useradd`, by calling a read-only classification entry point in Python;
+- again in `install_core.py --install`, before the backup directory is created or changed, the snapshot is taken or any unit is replaced, so that no entry point can bypass it;
+- in `installer_api.py inspect` and `plan`, so the wizard shows the same result;
+- in `rollback-agent.sh` and `uninstall-agent.sh`, which must not act on a v1 installation as if it were v2.
 
-- `installer_api.py inspect` returns a `platform` object containing only enums and booleans: no paths and no raw os-release text.
-- **Bump the API `SCHEMA_VERSION` to 2.** `live.go` decodes with `DisallowUnknownFields` and requires `schema_version == 1`, so it must change in the same PR. Add allowlists for family, tier, layout, network stack, firewall and MAC policy.
-- `scripts/preflight.sh` calls `platform_profile.py` through the existing `python-selector.sh` and prints the same facts, so both installers report the same result.
+**How to classify.** A new read-only function `classify_existing_installation(root)` returns exactly one of:
 
-## Step 2: engine and manual-installer portability
+| Result | Meaning | Install allowed |
+| --- | --- | --- |
+| `none` | No managed path, no `linuxhost` account, no state directory | Yes |
+| `v2` | Every present managed file matches v2 markers | Yes (upgrade) |
+| `v1` | v1 markers found (`PROTOCOL = "linux-host-agent"` in `/opt/linux-host-agent/linux_host_agent.py`, or `_linuxhost._tcp` in the Avahi file) | **No.** Requires a future explicit `--migrate-from-v1` operation |
+| `ambiguous` | Anything else: partial files, mixed v1 and v2 markers, an account or state directory without unit files, unreadable or linked paths | **No.** Stop and explain; never guess |
 
-- **Fixed root PATH:** after the UID check in `install-agent.sh`, `rollback-agent.sh` and `uninstall-agent.sh`, set `PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin`. This fixes the Debian plain-`su` failure (`Required command missing: useradd`) and stops root from trusting a user's PATH.
-- **Not-root message:** replace the bare "Run as root." with the detected methods (`sudo`, `su -`, `doas`, `run0`) and an absolute-path example. Use the Step 1 module, or a small shell `command -v` loop if Python has not been selected yet.
-- **Avahi:** keep the Avahi file optional. Add a preflight hint when the services directory exists but `avahi-daemon` is inactive.
-- **WOL:** when `wicked` is active, `configure-wol.sh` refuses persistent WOL with guidance, instead of falling through to a `.link` file that wicked may override. The netplan/networkd and NetworkManager paths are unchanged.
-- **Firewall:** stays **read-only**. Preflight, `inspect` and the wizard show exact, copyable guidance per backend (firewalld zone, port and mDNS; ufw), limited to the hub IP when one is known. Nothing is applied automatically, as the design spec requires.
-- **SELinux:** add a `restorecon` step on managed paths only if the Step 4 enforcing tests show AVC denials. Do not change policy speculatively.
+Rules:
 
-## Step 3: prerequisite guidance (both front ends)
+- It reads only managed application and Avahi files, using the existing `InstallTransaction.refuse_links` checks. It never reads `installation-id` or `control-token`.
+- Treating `ambiguous` as blocked is deliberate. Incomplete or unknown states must not become a silent overwrite.
+- Migration itself is a separate, explicit operation, as the design spec requires, and is not part of this step.
 
-- `inspect` adds a `missing` list of allowlisted IDs (`python310`, `avahi`, `ethtool`, `nmcli`, `udevadm`, `unzip`) and a `package_manager` enum (apt, dnf, pacman, zypper, emerge).
-- The Go wizard and `preflight.sh` map each ID and package manager to a fixed command string from one table. Example for RHEL 9: `dnf install python3.12 avahi ethtool`.
-- **Never install packages automatically in this phase.** Showing a command is safe; running one as root is a later, explicit decision.
+**Wizard and API.** `inspect` adds a check `existing_installation` (status `blocked` for `v1` and `ambiguous`) and `installation.protocol: "none" | "v1" | "v2" | "ambiguous"`. `plan` returns the new error codes `legacy_install_present` or `ambiguous_installation`. `linux-installer/live.go` adds them to its allowlists (`knownCheck`, `permittedError`) in the same PR.
 
-## Step 4: test infrastructure
+**Tests.** Fixture roots for every classification in both installers' tests (`tests/test_installer_api.py`, `tests/test_installer_v030.py`, Go `live_test.go`). Each blocked case must also prove that **nothing changed**: no account created, no backup directory touched, no unit file written.
 
-1. **Wider unprivileged container matrix** (`.github/workflows/computer-host-linux.yml`, `scripts/ci/run-container-tests.sh`):
-   - add `ubuntu:22.04`, `almalinux:9` (with `python3.12` while `python3` stays 3.9), `almalinux:10`, `archlinux:latest`, `opensuse/tumbleweed` and `opensuse/leap:16.0`;
-   - add a Debian image **without `sudo`** that runs the install path as root.
-2. **Installer parity test:** for each image, compare the actions from `install-agent.sh --dry-run` with `installer-api.sh plan` for the same flags. The two front ends must never disagree.
-3. **systemd-as-PID-1 container job** (new; the main evidence step): boot each Tier 1 image, then each Tier 2 image, with `/sbin/init` in privileged Docker on GitHub runners, with cgroup mounts. In each container:
-   - install for real, then check `systemctl is-active`, `/v2/info` and `/v2/health`;
+## Step 2: execution-environment hardening (manual installer and wizard root helper)
+
+Setting `PATH` after the UID check is too late: `install-agent.sh` already runs `id -u` and other commands before then, resolved through the caller's `PATH`.
+
+- **Trusted `PATH` first.** Immediately after `set -eu`, before any external command, every privileged entry point (`install-agent.sh`, `rollback-agent.sh`, `uninstall-agent.sh`, `configure-wol.sh`, and later the wizard's root helper) sets `PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin` and `export`s it. This also fixes the Debian plain-`su` failure (`Required command missing: useradd`).
+- **Sanitize the rest of the environment.** Unset variables that change how Python or the shell load code: `PYTHONPATH`, `PYTHONHOME`, `PYTHONSTARTUP`, `PYTHONUSERBASE`, `PYTHONINSPECT`, `BASH_ENV`, `ENV`, `IFS` (reset), `LD_PRELOAD`, `LD_LIBRARY_PATH`. Start Python with `-I` (isolated mode) and `-B`, so the user's site-packages and the current directory are never on the import path.
+- **Not-root message.** Replace the bare "Run as root." with the methods actually present (`sudo`, `su -`, `doas`, `run0`) and an absolute-path example.
+- **Acceptance test with a hostile environment.** Run each entry point with a `PATH` whose first folder contains fake `id`, `useradd`, `systemctl`, `python3` and `sed` that record being called, plus a `PYTHONPATH` with a fake `install_core` module. The test passes only if none of the fakes ran and the result is the same as with a clean environment.
+
+## Step 3: shared platform detection
+
+Split into three layers, so detection never pretends to be a support decision:
+
+1. **Facts** (`scripts/platform_facts.py`): read-only observations, each with an explicit `unknown` state. All file access goes through an injectable filesystem root, and every command (`systemctl`, `networkctl`, `nmcli`) goes through an injectable command runner. Unit tests therefore never touch the real host's `/sys`, `/run` or `systemctl`.
+2. **Policy** (`scripts/platform_policy.py`): turns facts into decisions such as `install_allowed`, `blocked_layout`, `wol_backend` and the support wave. One data table, mirroring the matrix.
+3. **Guidance:** fixed, allowlisted message IDs that the wizard and `preflight.sh` render. A message never claims that detection proves compatibility.
+
+**Facts to collect:**
+
+- `/etc/os-release`: `ID`, `ID_LIKE`, `VERSION_ID`, `VARIANT_ID`.
+- Layout markers: `/run/ostree-booted`, `ID=nixos`, a read-only `/usr` with transactional updates, `/opt` as a symlink.
+- systemd version (below 242, `ProtectHostname=` and `RestrictSUIDSGID=` are ignored; `run0` needs 256 or newer).
+- **Per-interface network management.** Which stack manages *the selected interface*, not just which services are active. Several can coexist, and the interface may be managed by a different one than the "main" service:
+  - NetworkManager: `nmcli -g GENERAL.STATE,GENERAL.CON-UUID device show IFACE` (managed or unmanaged);
+  - systemd-networkd: `networkctl status IFACE` (`configured` vs `unmanaged`);
+  - wicked: `wicked ifstatus IFACE`;
+  - result: `nm`, `networkd`, `wicked`, `none` or `unknown`.
+- Firewall: firewalld or ufw active, nftables present.
+- MAC policy: SELinux mode (`/sys/fs/selinux/enforce`) and AppArmor (`/sys/module/apparmor/parameters/enabled`). This is detection only; the effect is measured in Step 4.
+- Privilege tools on `PATH` (`sudo`, `doas`, `run0`, `pkexec`, `su`) and whether the process already runs as UID 0.
+
+**WOL backend per interface.** The persistent WOL backend comes from the selected interface's manager:
+
+- `nm` → the NetworkManager connection;
+- `networkd` or `none` → a systemd-udev `.link` file;
+- `wicked` → **refuse** persistent WOL with guidance;
+- `unknown` → refuse.
+
+`configure-wol.sh` must use the same decision instead of its current "NetworkManager is active" test. Installed tools, a possible persistent configuration and working hardware are reported as three separate things.
+
+**Wiring:**
+
+- `installer_api.py inspect` returns a `platform` object of enums and booleans only: no paths and no raw os-release text.
+- **Bump the API `SCHEMA_VERSION` to 2** in the same PR as `live.go`, which decodes with `DisallowUnknownFields` and requires `schema_version == 1`. Add allowlists for every new enum.
+- `preflight.sh` calls the same Python code through `python-selector.sh`, so both installers print the same facts.
+
+**Prerequisite guidance.** `inspect` adds a `missing` list of allowlisted IDs (`python310`, `avahi`, `ethtool`, `nmcli`, `udevadm`, `unzip`) and a `package_manager` enum (apt, dnf, pacman, zypper, emerge). Both front ends map them to fixed command strings from one table, for example RHEL 9 → `dnf install python3.12 avahi ethtool`. **Packages are never installed automatically in this phase.**
+
+**Firewall guidance** stays read-only: exact, copyable commands per backend (firewalld zone, port and mDNS; ufw), limited to the hub IP when known. Nothing is applied automatically, as the design spec requires.
+
+## Step 4: automated distribution tests
+
+1. **Unprivileged containers, for source compatibility only.** Keep and widen the existing matrix (`.github/workflows/computer-host-linux.yml`, `scripts/ci/run-container-tests.sh`) with `ubuntu:22.04`, `almalinux:9` (with `python3.12` while `python3` stays 3.9), `almalinux:10`, `rockylinux:9`, `archlinux:latest`, `opensuse/tumbleweed` and `opensuse/leap:16.0`, plus a Debian image **without `sudo`**. These cover Python versions, shell parsing, prerequisite detection, platform facts against the real image files, and read-only planning. They do not prove service behavior.
+2. **Behavioral parity between the two front ends.** Normalize both into one structured plan format: `install-agent.sh --dry-run` gains a machine-readable output mode next to `installer-api.sh plan`. Then run a shared scenario list through both and compare the **decision**, not just the listed file operations:
+   - a fresh host, an existing v2 host, a v1 host and an ambiguous host;
+   - a missing prerequisite, an old Python plus a parallel one, and an explicit `--python`;
+   - a symlinked or otherwise unexpected managed file;
+   - power enable, disable and preserve, and an existing custom power drop-in;
+   - an invalid or missing WOL interface.
+
+   Both must agree on allowed vs refused, the error category and the planned actions. This becomes the guard that stops the wizard from making different safety decisions from the shell installer.
+3. **Disposable VMs for the systemd lifecycle.** Privileged Docker with host cgroup mounts is **not** used; it needs its own security and reliability review and gives a weaker isolation boundary. Instead, each run boots a fresh cloud image of the target in a throwaway VM, for example with QEMU/KVM on a runner that offers nested virtualization, or a dedicated self-hosted runner that destroys the VM after each job. In each VM:
+   - fresh install, `systemctl is-active`, `/v2/info` and `/v2/health` on loopback;
    - reinstall/upgrade, checking that the UUID and key are preserved (reported as booleans only);
-   - plan with power disabled, then uninstall, checking that the state is kept;
-   - install the v1 fixture and confirm the v2 install is refused (Step 0).
-
-   The wizard's non-interactive install path joins this job once it exists (design Phase D).
-4. **SELinux enforcing:** containers can't enforce SELinux, so use a Fedora 44 and an AlmaLinux 9 VM (self-hosted, a nested-virtualization runner, or a documented manual checklist). Record `ausearch -m avc` output.
-5. **Hardware acceptance:** volunteers per tier, reported with the fields in `docs/release/RC-ACCEPTANCE.md`, plus the privilege method used.
+   - a preserved, deliberately stopped service;
+   - power disabled, then uninstall, checking that the state is kept;
+   - failure injection during install, checking that recovery works;
+   - a v1 install and an ambiguous install, both refused with no changes (Step 1);
+   - the hostile-environment test (Step 2).
+4. **SELinux enforcing and AppArmor,** in the same VMs: Fedora 44 and AlmaLinux 9 enforcing, and Ubuntu 24.04 with AppArmor. Record the actual process domains (`ps -eZ`), file labels (`ls -Z`) and denials (`ausearch -m avc`). Add a `restorecon` step or a policy change **only** if these measurements show it is needed.
+5. **Hardware acceptance:** volunteers report with the fields in `docs/release/RC-ACCEPTANCE.md`, plus the privilege method used. Hardware covers what a VM cannot: SmartThings discovery on a real LAN, WOL, suspend and the power states.
 
 ## Step 5: the wizard as main installer
 
-This depends on the design spec's privileged phases (C and D): a root-owned staging folder, a crash-safe install log and a health gate. Those stay in separate PRs.
+This waits for the design spec's privileged phases (C and D): a root-owned staging folder, the crash-safe install log, recovery and the post-install health gate. Those stay in separate PRs.
 
 - **Elevation adapters,** tried in this order:
   1. already root;
@@ -103,53 +154,46 @@ This depends on the design spec's privileged phases (C and D): a root-owned stag
   5. `pkexec`;
   6. `su -`.
 
-  The user can override the choice with `--elevate=`. Every adapter follows the design's terminal-handoff rule (pause Bubble Tea, or use `tea.ExecProcess`), passes only validated arguments, and never captures a password.
+  The user can override the choice with `--elevate=`. Every adapter follows the design's terminal-handoff rule (pause Bubble Tea, or use `tea.ExecProcess`), passes only validated arguments, starts the root helper with the Step 2 trusted environment, and never captures a password.
 - **Wizard screens:**
-  - Compatibility shows the tier, or a specific blocked-layout message;
+  - Compatibility shows the support wave, or a specific blocked-layout message;
   - prerequisites, with copyable commands;
   - firewall guidance;
-  - the v1 migration notice.
+  - the v1 or ambiguous-installation notice.
 - **Release (Phase E):** static `linux/amd64` and `linux/arm64` builds (the latter for Raspberry Pi). `QUICK-START.md` and `INSTALLATION.md` switch to the wizard only at that release; the manual installer stays documented as the fallback.
 
-## PR sequence
+## Related future work
 
-Each step is a small PR that can be reviewed on its own:
+- **Manual discovery without Avahi.** Today the Edge driver's fallback is a hard-coded list in `edge-driver/src/computerhost/manual_hosts.lua` that must be edited, repackaged and redeployed. A user-facing way to add a host by IP (for example a driver setting) would make Avahi-less hosts practical. That is an Edge-driver change, planned separately from this installer work.
+- **v1 → v2 migration** as an explicit, reversible operation.
 
-1. v1/v2 coexistence guard (Step 0) for both installers, plus the Go allowlists.
-2. `platform_profile.py`, `inspect` schema v2, `live.go` update, `preflight.sh` parity.
-3. Fixed root PATH and the not-root guidance message.
-4. Wider container matrix and the dry-run/plan parity test.
-5. systemd-as-PID-1 container lifecycle job: Tier 1, then Tier 2.
-6. Firewall/WOL guidance, the `configure-wol.sh` wicked refusal, and prerequisite IDs.
-7. SELinux enforcing VM validation, plus a `restorecon` fix only if it is needed.
-8. Wizard elevation adapters and screens (after the design's Phase C/D privileged PRs).
-9. Hardware acceptance rounds, updated matrix status, and the Phase E release builds.
+## Evidence levels
 
-## Support-tier definitions
+These decide what the matrix may claim for a distribution and release:
 
-These definitions decide what the matrix may claim:
+| Level | Evidence required | What it does not cover |
+| --- | --- | --- |
+| **Source-compatible** | The unprivileged container job passes (Step 4.1), and the parity scenarios pass on that image (Step 4.2) | Service lifecycle, MAC policy, firewall, hardware |
+| **Lifecycle-verified** | The VM lifecycle job passes (Step 4.3), including MAC-policy measurement where the distribution enforces one (Step 4.4) | Real SmartThings LAN discovery, WOL, suspend and power-state hardware behavior |
+| **Hardware-verified** | A physical install with a real SmartThings hub: discovery, monitoring and upgrade; WOL and power reported separately | Other NICs, firmware and networks |
+| **Refused** | Detected and blocked with a specific message | — |
 
-- **Tier 1:** the CI systemd-as-PID-1 lifecycle passes, there is at least one physical install report, and a MAC-policy check (SELinux or AppArmor) was done.
-- **Tier 2:** the CI systemd-as-PID-1 lifecycle passes, and there is a community report.
-- **Reference:** Gentoo `hydra`, with full hardware, power and WOL tests.
-- **Refused:** non-systemd systems, NixOS, ostree/image-based systems, WSL and containers, each with a specific message.
+A fully lifecycle-verified distribution can be documented as compatible even when no volunteer runs it. WOL and SmartThings behavior still need hardware evidence and are labeled separately. Gentoo `hydra` remains the hardware reference.
 
 ## Files involved
 
-- `scripts/install_core.py`, `install-agent.sh`, `rollback-agent.sh`, `uninstall-agent.sh`, `preflight.sh`, `configure-wol.sh`
-- `scripts/installer_api.py`, `installer-api.sh`, and the new `scripts/platform_profile.py`
+- `scripts/install-agent.sh`, `rollback-agent.sh`, `uninstall-agent.sh`, `configure-wol.sh`, `preflight.sh`, `install_core.py`
+- `scripts/installer_api.py`, `installer-api.sh`; new `scripts/platform_facts.py` and `scripts/platform_policy.py`
 - `linux-installer/live.go` and its tests
-- `.github/workflows/computer-host-linux.yml`, `scripts/ci/run-container-tests.sh`
+- `.github/workflows/computer-host-linux.yml`, `scripts/ci/run-container-tests.sh`; a new VM lifecycle workflow
 - `docs/development/LINUX-DISTRIBUTION-MATRIX.md`, `LINUX-INSTALLER-DESIGN.md`, `LINUX-INSTALLER-API.md`
 
 **Reuse rather than rewrite:** `python-selector.sh` (`linuxhost_select_python`), `InstallTransaction.refuse_links`, `installer_api.service_state` and `managed_file_status`, the existing error-code mechanism in `installer_api.py`, and the strict decoding in `live.go`.
 
 ## Verification
 
-- **Unit tests:** fixture roots for every family's os-release, ostree and NixOS markers, v1 files, a missing `sudo` and an old Python. Run `python3 -m unittest discover -s tests`, and `go test -race ./...` in `linux-installer/`.
-- **CI:** the wider container matrix, the parity test and the systemd-as-PID-1 lifecycle job must all pass for an image before its matrix row changes from "Expected" to "CI-tested (PID 1)".
-- **Manual:**
-  - a Gentoo `hydra` regression after each engine PR (install and upgrade with identity preserved, power, WOL);
-  - one physical Tier 1 host per family before any "Tier 1" claim;
-  - the SELinux enforcing VM checklist.
+- **Unit tests:** fixture roots and fake command runners for every family's os-release, layout markers, per-interface network managers, every installation classification, a missing `sudo` and an old Python. Run `python3 -m unittest discover -s tests`, and `go test -race ./...` in `linux-installer/`.
+- **Safety tests:** each refused case proves that nothing changed, and the hostile-environment test proves that no caller-controlled command or module ran.
+- **CI:** a matrix row moves up an evidence level only when the jobs required for that level pass for that distribution and release.
+- **Manual:** a Gentoo `hydra` regression after each engine PR (install and upgrade with identity preserved, power, WOL).
 - **Documentation:** each PR updates `LINUX-DISTRIBUTION-MATRIX.md` only with evidence that PR actually produced.
