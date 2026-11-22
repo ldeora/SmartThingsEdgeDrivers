@@ -130,7 +130,7 @@ class InstallerAPIReadOnlyTests(unittest.TestCase):
         self.assertFalse(result['changes_applied'])
         self.assertNotIn(core.POWER_DROPIN, [item['path'] for item in result['changes']])
         self.assertEqual(old.read_bytes(), b'CUSTOM=preserve\n')
-        self.assertTrue(any(item['path'] == core.APP_FILES[0] and item['action'] == 'create'
+        self.assertTrue(any(item['path'] == core.APP_FILES[0] and item['action'] == 'replace'
                             for item in result['changes']))
         self.assertEqual(result['privileged_transaction_state'], 'unknown')
 
