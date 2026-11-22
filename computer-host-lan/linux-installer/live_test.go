@@ -6,7 +6,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/huh/v2"
@@ -52,7 +54,7 @@ JSON
         --wol-interface)
           wol=true
           shift
-          [ "$1" = "enp1s0f0" ] || exit 2
+          [ "$1" = "enp1s0f0" ] || [ "$1" = "LAN0" ] || exit 2
           ;;
         *) exit 2 ;;
       esac
@@ -243,5 +245,113 @@ func TestLiveDoesNotAcceptUnknownOrMutatingOperations(t *testing.T) {
 	client := fixtureClient(t)
 	if _, err := client.call("install"); err == nil {
 		t.Fatal("a mutating backend verb was accepted")
+	}
+}
+
+func TestLiveReviewPlanCacheConcurrentDescriptionAndValidation(t *testing.T) {
+	// Huh runs DescriptionFunc as a background command and may run Validate
+	// on the UI goroutine before the first subprocess completes. This test
+	// intentionally overlaps 32 lookups and must pass under go test -race.
+	dir := t.TempDir()
+	counter := filepath.Join(dir, "plan-calls")
+	payload := fmt.Sprintf(fixturePlan, "preserve", "false")
+	script := "#!/bin/sh\n" +
+		"if [ \"$1\" != \"plan\" ]; then exit 2; fi\n" +
+		"printf x >> " + counter + "\n" +
+		"sleep 0.1\n" +
+		"cat <<'JSON'\n" + payload + "\nJSON\n"
+	client := scriptClient(t, script)
+	s := liveSelection{api: client, powerChoice: "keep", wolChoice: "keep"}
+	const readers = 32
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+	failures := make(chan error, readers)
+	for i := 0; i < readers; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			<-start
+			if i%2 == 0 {
+				// DescriptionFunc path: preview() -> currentPlan().
+				if !strings.Contains(s.preview(), "Power setting: preserve") {
+					failures <- fmt.Errorf("preview failed for reader %d", i)
+				}
+			} else {
+				// Validate path: currentPlan() returns a complete local value.
+				plan, err := s.currentPlan()
+				if err != nil || plan.SelectedPython != "/usr/bin/python3.11" {
+					failures <- fmt.Errorf("concurrent plan failed for reader %d: %v", i, err)
+				}
+			}
+		}(i)
+	}
+	close(start)
+	wg.Wait()
+	close(failures)
+	for failure := range failures {
+		t.Error(failure)
+	}
+	b, err := os.ReadFile(counter)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(b) != "x" {
+		t.Fatalf("expected one backend plan execution, got %d", len(b))
+	}
+}
+
+func TestLiveAccessiblePreservesCaseSensitiveNIC(t *testing.T) {
+	client := fixtureClient(t) // Accepts LAN0; explicitly rejects lan0.
+	var out bytes.Buffer
+	// Use an uppercase interface spelling that a udev .link rule may create.
+	if err := runLive(false, true, client.executable, strings.NewReader("k\np\nLAN0\ny\n"), &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "READ-ONLY REVIEW COMPLETE") {
+		t.Fatalf("case-sensitive NIC was changed/rejected: %s", out.String())
+	}
+}
+
+func TestLiveRejectsGroupWritableAndSymlinkLaunchers(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "api.sh")
+	if err := os.WriteFile(path, []byte("#!/bin/sh\nexit 2\n"), 0o775); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := newAPIClient(path); err == nil {
+		t.Fatal("group-writable launcher accepted")
+	}
+	if err := os.Chmod(path, 0o757); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := newAPIClient(path); err == nil {
+		t.Fatal("world-writable launcher accepted")
+	}
+	if err := os.Chmod(path, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := newAPIClient(path); err != nil {
+		t.Fatalf("owner-writable launcher rejected: %v", err)
+	}
+	link := filepath.Join(dir, "api-symlink")
+	if err := os.Symlink(path, link); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := newAPIClient(link); err == nil {
+		t.Fatal("symlink launcher accepted")
+	}
+	if _, err := newAPIClient(""); err == nil {
+		t.Fatal("live mode without explicit -api accepted")
+	}
+}
+
+func TestLiveWaitDelayBoundsInheritedPipes(t *testing.T) {
+	// A detached child inheriting stdout/stderr must not hold the parent
+	// forever after the API launcher has exited.
+	client := scriptClient(t, "#!/bin/sh\nsleep 5 &\nexit 0\n")
+	start := time.Now()
+	_, err := client.call("inspect")
+	if err == nil || time.Since(start) > 4*time.Second {
+		t.Fatalf("inherited pipe was not bounded: err=%v, duration=%s", err, time.Since(start))
 	}
 }
