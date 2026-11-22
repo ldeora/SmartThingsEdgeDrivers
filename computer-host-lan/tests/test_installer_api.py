@@ -295,6 +295,30 @@ class ShellSelectorParityTests(unittest.TestCase):
             with self.assertRaises(api.InvalidArgument):
                 api.select_python(explicit=str(bin_dir / 'python3'), source=root, env=env)
 
+    def test_shell_launcher_returns_json_when_no_compatible_python(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            scripts = root / 'scripts'
+            scripts.mkdir()
+            for name in ('installer-api.sh', 'python-selector.sh'):
+                (scripts / name).write_bytes((ROOT / 'scripts' / name).read_bytes())
+            bin_dir = root / 'bin'
+            bin_dir.mkdir()
+            for name in ('python3', 'python3.14', 'python3.13', 'python3.12',
+                         'python3.11', 'python3.10'):
+                stub = bin_dir / name
+                stub.write_text('#!/bin/sh\\nexit 1\\n')
+                stub.chmod(0o755)
+            env = os.environ.copy()
+            env['PATH'] = str(bin_dir) + os.pathsep + env.get('PATH', '')
+            result = subprocess.run(['sh', str(scripts / 'installer-api.sh'), 'plan'],
+                                    text=True, capture_output=True, env=env, timeout=15)
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertEqual(result.stdout, '')
+            self.assertEqual(result.stderr.count('\\n'), 1)
+            self.assertEqual(json.loads(result.stderr)['error']['code'], 'prerequisite_missing')
+            self.assertEqual(json.loads(result.stderr)['operation'], 'plan')
+
     def test_missing_selector_is_source_error(self):
         with tempfile.TemporaryDirectory() as temp:
             with self.assertRaises(api.SourceUnavailable):
