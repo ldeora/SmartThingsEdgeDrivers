@@ -18,8 +18,15 @@ end
 -- Returns status, optional switch state and whether the pending action was
 -- completed by sufficiently strong evidence. Called only after the configured
 -- failure threshold; connection refusal alone must NOT confirm power-off.
-function M.failure(action,kind,failed_polls,host_failures,threshold,assume_off)
+-- settled: a previously confirmed 'stopped' or 'suspended'. Once the pending
+-- action is cleared, continued silence keeps that inferred state instead of
+-- degrading to a generic 'unreachable'. Other failure kinds use the regular
+-- evaluation below; the caller decides which of them invalidate 'settled'.
+function M.failure(action,kind,failed_polls,host_failures,threshold,assume_off,settled)
   if failed_polls<threshold then return nil,nil,false end
+  if not action and settled and kind=="host_unreachable" then
+    return settled,"off",false
+  end
   if action=="shutdown" or action=="suspend" then
     if kind=="host_unreachable" and host_failures>=threshold then
       return action=="shutdown" and "stopped" or "suspended","off",true
