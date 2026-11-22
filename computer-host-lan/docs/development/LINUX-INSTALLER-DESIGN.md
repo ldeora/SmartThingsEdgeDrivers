@@ -37,6 +37,39 @@ The wizard must also provide an expert/noninteractive interface, support in-plac
 
 **Important:** CI/container compatibility is not real distribution or hardware certification. Preserve the documented rc.2 acceptance status and do not treat this work as a new release.
 
+### Cross-distribution guardrails (not a certification matrix)
+
+The wizard and manual installer must use the **same guarded backend**.
+Distribution names alone never prove that installation is safe. These
+constraints are requirements for future Phase E validation, not support
+claims for untested machines:
+
+- **Debian/Ubuntu and derivatives:** handle hosts without `sudo`, root
+  login via `su -`, alternative absolute Python interpreters, and differing
+  network managers across Desktop/Server images.
+- **Fedora/RHEL/Alma/Rocky:** validate SELinux *enforcing* behavior, firewalld,
+  and versioned Python packages; never modify MAC/firewall policy silently.
+- **Arch/Manjaro and Gentoo:** do not require `sudo`, NetworkManager or Avahi;
+  distinguish systemd installations from other init systems.
+- **openSUSE:** don't assume `sudo` requests the current user's password;
+  select WOL persistence by the **specific interface's owner**, not merely
+  whether wicked, NetworkManager or systemd-networkd is active.
+- **Raspberry Pi OS and other ARM Linux:** validate architecture, systemd and
+  agent networking independently from WOL (hardware may not support it).
+- **Image-based/NixOS, non-systemd, WSL/chroot/container:** refuse unsupported
+  install targets explicitly rather than treating a running Python interpreter
+  or a green source-test container as lifecycle acceptance.
+- **Migration:** v1 and v2 Linux agents share managed paths and private state.
+  Existing v1 or ambiguous installations must fail closed before *any*
+  mutation; migration must be a separate, explicitly designed operation.
+- **Evidence:** distinguish source-only container tests, systemd-as-PID1
+  lifecycle tests, SELinux/AppArmor enforcement tests and physical
+  SmartThings/WOL acceptance. Real host findings supersede assumed defaults.
+
+These requirements intentionally replace broad distribution/default tables
+with verifiable checks and are independent of the research-only draft #69.
+They do not expand the list of supported Linux distributions today.
+
 ## 3. Architectural decision
 
 A small **Go application** using **Huh v2** for forms and **Bubble Tea v2** for application-level screen/state management will orchestrate the **existing Python installation engine**. The application, not the normal agent, is compiled to a native binary. Use the maintained `charm.land/huh/v2` and `charm.land/bubbletea/v2` packages; pin exact versions and commit `go.mod`/`go.sum` before build CI is enabled.
