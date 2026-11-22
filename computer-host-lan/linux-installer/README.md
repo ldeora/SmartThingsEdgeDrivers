@@ -2,7 +2,7 @@
 
 > **EXPERIMENT ONLY — NOT AN INSTALLER.** This Go program **does not** install, upgrade, configure, discover or connect anything. It does not inspect services, open a socket, read credentials, use sudo, or modify the host. Everything labeled as compatibility/discovery/installation is simulated.
 
-This branch is stacked on [the Linux installer specification PR](../../docs/development/LINUX-INSTALLER-DESIGN.md) to test the initial forms and keyboard experience before privileged operations are designed. It is **not** part of any release or installation instructions for Computer Host LAN v1.0.0-rc.2.
+This branch is stacked on [the Linux installer specification PR](../docs/development/LINUX-INSTALLER-DESIGN.md) to test the initial forms and keyboard experience before privileged operations are designed. It is **not** part of any release or installation instructions for Computer Host LAN v1.0.0-rc.2.
 
 ## Try the experiment
 
