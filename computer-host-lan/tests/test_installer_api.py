@@ -319,6 +319,62 @@ class ShellSelectorParityTests(unittest.TestCase):
             self.assertEqual(json.loads(result.stderr)['error']['code'], 'prerequisite_missing')
             self.assertEqual(json.loads(result.stderr)['operation'], 'plan')
 
+    def test_launcher_is_directly_executable(self):
+        # GitHub must retain mode 100755. Running 'sh script' would conceal
+        # a 100644 regression and break the Go wizard's direct exec call.
+        self.assertTrue(os.access(ROOT / 'scripts/installer-api.sh', os.X_OK),
+                        'installer-api.sh must have executable mode in Git')
+
+    def test_launcher_python_equals_form_and_json_format(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            scripts = root / 'scripts'
+            scripts.mkdir()
+            for name in ('installer-api.sh', 'python-selector.sh'):
+                target = scripts / name
+                target.write_bytes((ROOT / 'scripts' / name).read_bytes())
+                target.chmod(0o755)
+            bin_dir = root / 'bin'
+            bin_dir.mkdir()
+            # Default python3 is too old. A newer executable is available.
+            # The compatible stub emits deterministic output on exec.
+            old = bin_dir / 'python3'
+            old.write_text('#!/bin/sh\nexit 1\n')
+            old.chmod(0o755)
+            newer = bin_dir / 'python3.11'
+            newer.write_text(
+                '#!/bin/sh\n'
+                'if [ "$1" = "-c" ]; then exit 0; fi\n'
+                'printf \'{"selected":"python3.11","first_arg":"%s","second_arg":"%s"}\\n\' "$2" "$3"\n'
+            )
+            newer.chmod(0o755)
+            env = os.environ.copy()
+            env['PATH'] = str(bin_dir) + os.pathsep + env.get('PATH', '')
+            for override in ([f'--python={newer}'], ['--python', str(newer)]):
+                with self.subTest(override=override):
+                    result = subprocess.run(
+                        [str(scripts / 'installer-api.sh'), 'inspect', *override],
+                        capture_output=True, text=True, env=env, timeout=15,
+                    )
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(result.stderr, '')
+                    output = json.loads(result.stdout)
+                    self.assertEqual(output['selected'], 'python3.11')
+                    self.assertEqual(output['first_arg'], 'inspect')
+                    self.assertEqual(output['second_arg'], override[0])
+
+            for override in ([f'--python={bin_dir / "missing"}'],
+                             ['--python='], ['--python', '--enable-power']):
+                with self.subTest(override=override):
+                    result = subprocess.run(
+                        [str(scripts / 'installer-api.sh'), 'plan', *override],
+                        capture_output=True, text=True, env=env, timeout=15,
+                    )
+                    self.assertEqual(result.returncode, 2, result.stderr)
+                    self.assertEqual(result.stdout, '')
+                    self.assertEqual(result.stderr,
+                                     api.error_response('plan', 'invalid_argument') + '\n')
+
     def test_missing_selector_is_source_error(self):
         with tempfile.TemporaryDirectory() as temp:
             with self.assertRaises(api.SourceUnavailable):
