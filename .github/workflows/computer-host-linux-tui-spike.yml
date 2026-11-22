@@ -22,13 +22,14 @@ jobs:
         with:
           go-version: '1.25.x'
           cache: false
-      - name: Temporary Go formatter export for source normalization
+      - name: Enforce gofmt source formatting
         run: |
-          for f in live.go live_test.go; do
-            printf 'SOURCEFMT_%s:' "$f"
-            gofmt "$f" | base64 -w0
-            printf '\n'
-          done
+          unformatted="$(gofmt -l ./*.go)"
+          if [ -n "$unformatted" ]; then
+            echo "Unformatted Go sources:"
+            printf '%s\\n' "$unformatted"
+            exit 1
+          fi
       - name: Ensure module files are tidy and unchanged
         run: go mod tidy -diff
       - name: Verify cached module checksums
