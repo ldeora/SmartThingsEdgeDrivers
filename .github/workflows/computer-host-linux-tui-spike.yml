@@ -40,7 +40,7 @@ jobs:
           python3 pty_smoke.py "$RUNNER_TEMP/computer-host-linux-tui-demo"
           printf '1\n4\nk\nk\ny\n' | NO_COLOR=1 TERM=dumb "$RUNNER_TEMP/computer-host-linux-tui-demo" -accessible > "$RUNNER_TEMP/accessibility.txt"
           grep -q 'DEMO COMPLETE' "$RUNNER_TEMP/accessibility.txt"
-          if python3 -c 'import sys; sys.exit(b"\\x1b" not in open(sys.argv[1], "rb").read())' "$RUNNER_TEMP/accessibility.txt"; then
+          if python3 -c 'import sys; sys.exit(b"\x1b" not in open(sys.argv[1], "rb").read())' "$RUNNER_TEMP/accessibility.txt"; then
             echo 'Accessible output contains ANSI escape bytes' >&2
             exit 1
           fi
@@ -56,7 +56,7 @@ jobs:
             "$RUNNER_TEMP/computer-host-linux-tui-demo" -live -accessible \
             > "$RUNNER_TEMP/live-accessible.txt"
           grep -q 'READ-ONLY REVIEW COMPLETE' "$RUNNER_TEMP/live-accessible.txt"
-          if python3 -c 'import sys; sys.exit(b"\\x1b" not in open(sys.argv[1], "rb").read())' "$RUNNER_TEMP/live-accessible.txt"; then
+          if python3 -c 'import sys; sys.exit(b"\x1b" not in open(sys.argv[1], "rb").read())' "$RUNNER_TEMP/live-accessible.txt"; then
             echo 'Live accessible output contains ANSI escape bytes' >&2
             exit 1
           fi
