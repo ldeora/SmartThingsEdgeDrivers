@@ -120,6 +120,7 @@ class InstallerAPIReadOnlyTests(unittest.TestCase):
         )
 
     def test_plan_monitoring_by_default_and_preserves_power(self):
+        self.put(core.APP_FILES[0], b'PROTOCOL = "computer-host-agent"\n')
         old = self.put(core.POWER_DROPIN, b'CUSTOM=preserve\n')
         result = api.change_plan(root=self.root, source=ROOT)
         self.assertEqual(result['operation'], 'plan')
@@ -134,6 +135,7 @@ class InstallerAPIReadOnlyTests(unittest.TestCase):
         self.assertEqual(result['privileged_transaction_state'], 'unknown')
 
     def test_plan_disabling_power_does_not_mutate(self):
+        self.put(core.APP_FILES[0], b'PROTOCOL = "computer-host-agent"\n')
         old = self.put(core.POWER_DROPIN, b'old')
         result = api.change_plan(root=self.root, source=ROOT, disable_power=True)
         dropin = next(item for item in result['changes'] if item['path'] == core.POWER_DROPIN)
@@ -169,6 +171,7 @@ class InstallerAPIReadOnlyTests(unittest.TestCase):
         self.assertIn(core.WOL_DROPIN, [c['path'] for c in plan['changes']])
 
     def test_plan_does_not_touch_protected_state(self):
+        self.put(core.APP_FILES[0], b'PROTOCOL = "computer-host-agent"\n')
         secret = self.put('/var/lib/linux-host-agent/control-token', b'SECRET-EXISTING-CONTROL-TOKEN')
         uuid = self.put('/var/lib/linux-host-agent/installation-id', b'UUID-EXISTING')
         before = [(secret, secret.stat().st_mtime_ns), (uuid, uuid.stat().st_mtime_ns)]
@@ -181,6 +184,18 @@ class InstallerAPIReadOnlyTests(unittest.TestCase):
         self.assertNotIn('UUID-EXISTING', serialized)
         for path, mtime in before:
             self.assertEqual(path.stat().st_mtime_ns, mtime)
+
+
+    def test_plan_refuses_legacy_or_orphaned_install_without_schema_change(self):
+        old = self.put(core.APP_FILES[0], b'PROTOCOL = "linux-host-agent"\n')
+        with self.assertRaises(api.PrerequisiteMissing):
+            api.change_plan(root=self.root, source=ROOT)
+        self.assertEqual(old.read_bytes(), b'PROTOCOL = "linux-host-agent"\n')
+        old.unlink()
+        self.put('/var/lib/linux-host-agent/installation-id', b'old-private-identity')
+        with self.assertRaises(api.PrerequisiteMissing):
+            api.change_plan(root=self.root, source=ROOT)
+        self.assertEqual(api.SCHEMA_VERSION, 1)
 
     def test_service_probe_uses_only_read_only_systemctl(self):
         with mock.patch.object(api.shutil, 'which', return_value='/usr/bin/systemctl'), \
