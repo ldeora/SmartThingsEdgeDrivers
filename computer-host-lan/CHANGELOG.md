@@ -1,5 +1,12 @@
 # Computer Host LAN — change log
 
+## Unreleased (planned v1.0.0-rc.3)
+
+- Switch OFF: acknowledge an accepted shutdown immediately. Previously the driver only set Host Status to `stopping`, so the SmartThings app waited for its command timeout, showed "A network or server error occurred", and the switch went Off only after repeated host timeouts. The switch now turns Off when the agent answers HTTP 202 and stays Off while the agent may still answer during the 60-second shutdown grace period (new `State.SHUTDOWN_GRACE_SECONDS`). A cancelled or blocked shutdown returns the switch to On after the grace period, as before for Host Status.
+- Duplicate OFF commands during `stopping` are ignored instead of re-sent, so a Windows HTTP 409 can no longer flip the switch back On. A new OFF after the host is `running` again is sent normally. ON during shutdown grace cannot overwrite the pending shutdown with a Wake request. A new boot ID restores ON/running immediately even within the grace period. Rejections, including Windows HTTP 409 (another power operation pending, or a shutdown or reboot already in progress), keep their existing handling.
+- **Important for automations:** The main switch now turns Off as soon as the computer accepts a shutdown request. The actual shutdown progress is reported separately through Host Status. Automations that must wait until the computer has shut down should use Host Status = Stopped rather than Switch = Off.
+- Known limitation (unchanged, deferred): rejected commands (failed Wake, rejected Off) and On during `stopping` can still end in the app's generic timeout message.
+
 ## v1.0.0-rc.2 (published prerelease 2026-11-21 UTC) — post-rc.1 stabilization
 
 - Published [GitHub prerelease](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v1.0.0-rc.2) from commit `72e4a99c4b2e8f958ce771152826319318d0d537`: integration **1.0.0-rc.2**, Linux/Edge **0.4.6-rc.2**, Windows agent **0.2.7-rc.2**, protocol v2 unchanged. Four unsigned deliverables plus `SHA256SUMS.txt`; SmartThings channel assignment is separately verified.
