@@ -373,10 +373,19 @@ func runAccessible(reader io.Reader, writer io.Writer) error {
 func main() {
 	accessible := flag.Bool("accessible", false, "use ANSI-free plain prompts with Back support")
 	preview := flag.Bool("preview", false, "print a sample plan without starting a TUI")
+	live := flag.Bool("live", false, "read-only inspection/plan from the real Linux installer API; NEVER installs")
+	apiPath := flag.String("api", "../scripts/installer-api.sh", "path to the read-only API launcher (source checkout)")
 	flag.Parse()
 	if flag.NArg() != 0 {
 		fmt.Fprintln(os.Stderr, "unexpected arguments; use -h for help")
 		os.Exit(2)
+	}
+	if *live {
+		if err := runLive(*preview, *accessible, *apiPath, os.Stdin, os.Stdout); err != nil {
+			fmt.Fprintln(os.Stderr, "Read-only inspection failed:", err)
+			os.Exit(1)
+		}
+		return
 	}
 	if *preview {
 		fmt.Println((selection{action: "install", hubChoice: "none"}).preview())
