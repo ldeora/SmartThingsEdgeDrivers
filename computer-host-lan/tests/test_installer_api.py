@@ -307,7 +307,7 @@ class ShellSelectorParityTests(unittest.TestCase):
             for name in ('python3', 'python3.14', 'python3.13', 'python3.12',
                          'python3.11', 'python3.10'):
                 stub = bin_dir / name
-                stub.write_text('#!/bin/sh\\nexit 1\\n')
+                stub.write_text('#!/bin/sh\nexit 1\n')
                 stub.chmod(0o755)
             env = os.environ.copy()
             env['PATH'] = str(bin_dir) + os.pathsep + env.get('PATH', '')
@@ -315,7 +315,7 @@ class ShellSelectorParityTests(unittest.TestCase):
                                     text=True, capture_output=True, env=env, timeout=15)
             self.assertEqual(result.returncode, 2, result.stderr)
             self.assertEqual(result.stdout, '')
-            self.assertEqual(result.stderr.count('\\n'), 1)
+            self.assertEqual(result.stderr.count('\n'), 1)
             self.assertEqual(json.loads(result.stderr)['error']['code'], 'prerequisite_missing')
             self.assertEqual(json.loads(result.stderr)['operation'], 'plan')
 
