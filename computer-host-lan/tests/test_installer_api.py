@@ -205,7 +205,8 @@ class InstallerAPIReadOnlyTests(unittest.TestCase):
 
     def test_json_cli_success_without_host_access(self):
         output = StringIO()
-        with mock.patch.object(api, 'inspection', side_effect=self.inspect_fixture_cli) as inspect, \
+        fixture = self.inspect_fixture_cli()
+        with mock.patch.object(api, 'inspection', return_value=fixture) as inspect, \
              contextlib.redirect_stdout(output):
             code = api.main(['inspect'])
         inspect.assert_called_once()
