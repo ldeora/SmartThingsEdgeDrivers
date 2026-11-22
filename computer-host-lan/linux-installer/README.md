@@ -1,50 +1,132 @@
-# Linux installer — non-privileged UX experiment
+# Computer Host LAN — Linux wizard preview (development only)
 
-> **EXPERIMENT ONLY — NOT AN INSTALLER.** This Go program does not install, upgrade, configure, discover or connect anything. It does not inspect services, open a socket, read credentials, use sudo, or modify the host. All compatibility, discovery, installation and upgrade information is simulated.
+> **NO INSTALLATION POSSIBLE.** This Go program is an experimental installer
+> frontend. It has two modes:
+> - **Demo (default):** all information is simulated. No inspection occurs.
+> - **Live read-only (`-live`):** runs the versioned JSON `inspect` / `plan`
+>   operations from the merged Python `scripts/installer-api.sh`. It reports
+>   real Linux/service/Avahi/interpreter state and prospective *file* changes.
+>   No installation or upgrades, network discovery, power changes, WOL
+>   configuration, sudo, credentials or root-private recovery inspection.
 
-This draft PR is stacked on the [Linux installer design specification](../docs/development/LINUX-INSTALLER-DESIGN.md). It tests wizard interaction and accessibility before privileged operations are designed. It is **not** part of any Computer Host LAN v1.0.0-rc.2 release.
+Neither mode installs, repairs, upgrades, removes or configures an agent. The
+existing `scripts/install-agent.sh` remains the supported installer.
+The wizard is **not** part of Computer Host LAN v1.0.0-rc.2.
 
-## Try the experiment
+## Development and preview
 
-Requires **Go 1.25+** and network access to download pinned dependencies on the first build. From the linux-installer directory:
+In a **source checkout containing merged PR #68** and the current PR #67
+branch, with Go 1.25+:
 
-    go mod verify
-    go mod tidy -diff
-    go run .
-    go run . -accessible
-    go run . -preview
-    go test ./...
+```sh
+cd computer-host-lan/linux-installer
+go mod verify
+go test ./...
 
-The interactive wizard uses **one Huh v2 form with several groups**. Shift+Tab goes back to previous pages; manual IPv4 and nonlocal-address acknowledgement groups are conditional. All values are demonstrations and are never applied.
+# Original inert UI demo
+go run . -preview
+go run .
+go run . -accessible
 
-For -accessible, the program intentionally uses **ANSI-free line prompts** rather than Huh's built-in accessible runner: in v2.0.3 the latter can emit ANSI styling and does not respect WithHideFunc in accessible mode. The plain path supports typing 'back' and 'quit', accepts piped input, and never activates raw terminal mode. Full-screen mode requires a TTY; -preview never requires interaction.
+# Actual read-only data, no terminal required
+go run . -live -preview
 
-Manual input must be a canonical literal IPv4 address, not an IPv4-mapped IPv6 representation. Addresses outside RFC1918 and 100.64.0.0/10 require explicit acknowledgement. This is NOT firewall-rule validation; real installation will need stronger checks.
+# Real inspection + editable prospective file plan
+go run . -live
+go run . -live -accessible
+```
 
-## Automated pseudo-terminal smoke
+The default backend is `../scripts/installer-api.sh` **relative to the current
+working directory**. If you start the compiled binary elsewhere, pass
+`-api /absolute/path/to/computer-host-lan/scripts/installer-api.sh`.
+The launcher must be executable (`100755`). The Go controller uses
+`exec.CommandContext` with an absolute resolved executable path, argv
+(not shell-composed strings), a 12-second timeout, bounded JSON output
+and disabled Python bytecode writes.
 
-The experiment also runs a non-privileged Python-stdlib PTY check in CI
-(`pty_smoke.py`). It starts the actual compiled full-screen wizard inside
-80x24 and 60x20 terminals, waits for the Welcome page, sends Ctrl+C, and
-asserts a clean zero-exit cancellation. This checks that the TUI can enter
-and leave raw terminal mode without installing anything. It **does not**
-replace manual keyboard navigation, terminal compatibility, SSH or
-screen-reader acceptance tests on real machines.
+`-live` refuses wrong JSON schemas, unknown fields, unsupported error codes,
+paths outside the existing installer allowlist, `secrets_included: true`,
+`changes_applied: true` or `runtime_verified: true`. Backend failures are
+shown only as safe codes, never as unfiltered subprocess output.
 
-## Dependency and CI policy
+The live wizard displays **real compatibility status**, then offers power
+settings *for the prospective plan only*: preserve (default), enable and
+disable. It can optionally preview a **systemd WOL interface pin** after
+validating the NIC via the Python API. Pinning is **not** the same as
+configuring persistent WOL or testing physical hardware support. Hub
+discovery and manual pairing are not implemented in live mode; the simulated
+hub-selection UI remains in the demo only.
 
-Both go.mod and go.sum are committed from a successful Go 1.25 resolution. CI uses 'go mod tidy -diff' and 'go mod verify' to detect drift, then runs tests, go vet, a build, and an ANSI-free accessible smoke test. Third-party license and supply-chain reviews remain open before release packaging.
+The initial read-only inspection **does not claim** recovery state:
+`privileged_transaction_state` is always `unknown`. A missing service
+file does not prove uninstallation, and existing service status does not
+prove a healthy HTTP endpoint. All planned files are prospective,
+**none are written**. No service restarts, WOL settings, network sockets
+or firewall changes are performed by this program.
 
-## What to evaluate
+## Test on Gentoo (`hydra`)
 
-- New/upgrade selections, Shift+Tab Back, cancel/quit, and conditional manual IP.
-- Monitoring-only default and preservation of current power settings in upgrade mode.
-- Narrow and monochrome terminals, SSH, screen readers and non-TTY fallback.
-- Explicit warnings for nonlocal hub addresses without claiming reachability.
-- Confirm that abort/preview never invoke sudo or access system state.
+Since Linux has only one current tester, the first actual-machine acceptance
+target is Gentoo + systemd. This is *safe even with your existing live agent*:
 
-## Future work (out of scope)
+1. Fetch the latest PR #67 branch and confirm it includes merged PR #68.
+2. In `computer-host-lan/linux-installer`, either build locally with Go
+   1.25+, or get the **test-only** statically linked `linux/amd64`
+   executable from the PR's successful GitHub Actions `Computer Host LAN
+   Linux TUI spike` workflow. The CI artifact is named
+   `computer-host-linux-readonly-wizard-test-only` and includes a
+   SHA-256 file. It is *not* a signed release.
+3. Execute read-only commands (never use sudo):
 
-Privileged/unprivileged controller API; root-owned verified payload staging; actual preflight and mDNS discovery; protected transaction-state inspection; crash recovery and health checks; config preservation and custom ports; SmartThings onboarding; then hardware and distribution acceptance.
+   ```sh
+   cd computer-host-lan/linux-installer
+   go run . -live -preview
+   go run . -live
+   ```
 
-The existing manual Linux installation remains unchanged and supported.
+   For a downloaded test-only binary instead:
+
+   ```sh
+   sha256sum -c computer-host-linux-readonly-test.sha256
+   ./computer-host-linux-readonly-test -live -preview \
+     -api /absolute/path/to/computer-host-lan/scripts/installer-api.sh
+   ./computer-host-linux-readonly-test -live \
+     -api /absolute/path/to/computer-host-lan/scripts/installer-api.sh
+   ```
+
+4. Compare `-live -preview` against
+   `sh ../scripts/installer-api.sh inspect` and
+   `sh ../scripts/installer-api.sh plan`. Verify it reports the actual
+   installed service, enabled and running states, Python, Avahi and
+   power-drop-in correctly. Try Back, Esc/Ctrl+C, a narrower terminal,
+   `-live -accessible` and SSH. Verify nothing was restarted or changed.
+
+**Please do not use this preview to perform an installation.** The Go binary
+has no installation command and should never be run as root. If a JSON
+report shows an unsafe path or missing prerequisite, inspect manually;
+do not bypass the read-only checks.
+
+## Existing demo and accessibility
+
+The original demo remains available unchanged and **does not** run the real
+API. It still has simulated TEST-NET hubs, canonical IPv4 validation,
+conditional address warnings, and simulated feature settings.
+
+Both modes support `-accessible`, an ANSI-free, plain-text interaction
+with `back` and `quit` for machines without a functional full-screen
+terminal. Huh v2.0.3's built-in accessible runner currently does not
+correctly hide conditional pages. Full-screen mode uses a single
+Huh multi-group form and requires a real TTY.
+
+CI tests the original demo on a pseudo-terminal at 80×24 and 60×20,
+tests the live API and ANSI-free flow on a real unprivileged GitHub runner,
+checks Go unit tests and static analysis, and uploads a **7-day-retained,
+non-release test binary** for Gentoo hardware acceptance.
+
+## Deliberately deferred
+
+A privileged read-only recovery-status helper, durable root-owned journal
+and safe recovery, trusted bundled payload and sudo boundary, post-install
+health/identity checks, real SmartThings hub discovery/onboarding,
+custom-port preservation and hardware WOL remain separate future work.
+Those are **not** implied by successful read-only inspection.
