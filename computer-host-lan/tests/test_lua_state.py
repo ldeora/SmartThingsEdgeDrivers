@@ -73,6 +73,20 @@ class StateReducerTests(unittest.TestCase):
             assert(S.success('shutdown',false,0,g)=='running')
             assert(S.shutdown_in_progress('shutdown',g-1)==true)
             assert(S.shutdown_in_progress('shutdown',g)==false)
+            -- Settled states survive silence, and unknown errors do not
+            -- invalidate them. Refusal follows regular failure evaluation.
+            a,b,c=S.failure(nil,'host_unreachable',6,6,3,true,'stopped')
+            assert(a=='stopped' and b=='off' and c==false)
+            a,b,c=S.failure(nil,'host_unreachable',6,6,3,false,'suspended')
+            assert(a=='suspended' and b=='off' and c==false)
+            a,b,c=S.failure(nil,'agent_unavailable',6,0,3,true,'stopped')
+            assert(a=='unreachable' and b=='on' and c==false)
+            a,b,c=S.failure(nil,'unknown',6,0,3,true,'stopped')
+            assert(a=='unknown' and b==nil and c==false)
+            a,b=S.failure(nil,'host_unreachable',6,6,3,true,nil)
+            assert(a=='unreachable' and b=='off')
+            a,b=S.failure('wake','host_unreachable',6,6,3,true,'stopped')
+            assert(a=='starting' and b==nil)
             -- A new boot supersedes grace and confirms recovery.
             local status,confirmed=S.success('shutdown',true,0,g-1)
             assert(status=='running' and confirmed==true)
