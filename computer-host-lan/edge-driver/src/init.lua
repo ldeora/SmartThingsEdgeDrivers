@@ -88,15 +88,24 @@ local function failure(driver,device,reason)
   device:set_field(C.FIELD_HOST_FAILURES,host_failures)
   log.warn(string.format("Computer Host %s failed health check #%d (%s; %s)",
     tostring(device.label),n,tostring(reason),kind))
+  -- Keep an inferred stopped/suspended only while failures stay consistent
+  -- with a powered-off host. A refused connection means a TCP stack answered,
+  -- which invalidates the inference (a health reply clears it in poll()).
+  -- 'unknown' failures (unknown address, another installation ID at the
+  -- address, protocol/HTTP errors) are not evidence either way: they show
+  -- 'unknown' but keep the inference for the next silent check.
+  if kind=="agent_unavailable" then device:set_field(C.FIELD_SETTLED,nil,{persist=true}) end
   if n>=U.failure_threshold(device) then
     local action=pending(device)
     local status,new_switch,confirmed=State.failure(action,kind,n,host_failures,
-      U.failure_threshold(device),U.assume_off_when_unreachable(device))
+      U.failure_threshold(device),U.assume_off_when_unreachable(device),
+      device:get_field(C.FIELD_SETTLED))
     if new_switch then switch_state(device,new_switch) end
     host_status(device,status)
     if confirmed then
       log.info("Computer Host "..tostring(device.label).." inferred "..status..
         " after acknowledged "..tostring(action).." and host timeouts")
+      device:set_field(C.FIELD_SETTLED,status,{persist=true})
       clear_pending(device)
     elseif n==U.failure_threshold(device) and not action then
       log.info("Computer Host "..tostring(device.label).." "..status..
@@ -138,6 +147,7 @@ poll=function(driver,device,reason)
     device:set_field(C.FIELD_FAILURES,0)
     device:set_field(C.FIELD_HOST_FAILURES,0)
     device:set_field(C.FIELD_LAST_OK,true)
+    device:set_field(C.FIELD_SETTLED,nil,{persist=true})
     device:online() -- The hub-side controller stays usable regardless of host state.
     local action,action_age=pending_age(device)
     local status,confirmed=State.success(action,boot_changed,failed_polls,action_age)
