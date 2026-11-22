@@ -21,6 +21,16 @@ For -accessible, the program intentionally uses **ANSI-free line prompts** rathe
 
 Manual input must be a canonical literal IPv4 address, not an IPv4-mapped IPv6 representation. Addresses outside RFC1918 and 100.64.0.0/10 require explicit acknowledgement. This is NOT firewall-rule validation; real installation will need stronger checks.
 
+## Automated pseudo-terminal smoke
+
+The experiment also runs a non-privileged Python-stdlib PTY check in CI
+(`pty_smoke.py`). It starts the actual compiled full-screen wizard inside
+80x24 and 60x20 terminals, waits for the Welcome page, sends Ctrl+C, and
+asserts a clean zero-exit cancellation. This checks that the TUI can enter
+and leave raw terminal mode without installing anything. It **does not**
+replace manual keyboard navigation, terminal compatibility, SSH or
+screen-reader acceptance tests on real machines.
+
 ## Dependency and CI policy
 
 Both go.mod and go.sum are committed from a successful Go 1.25 resolution. CI uses 'go mod tidy -diff' and 'go mod verify' to detect drift, then runs tests, go vet, a build, and an ANSI-free accessible smoke test. Third-party license and supply-chain reviews remain open before release packaging.
