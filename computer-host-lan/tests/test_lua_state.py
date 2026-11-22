@@ -66,6 +66,18 @@ class StateReducerTests(unittest.TestCase):
             assert(a=='stopping' and b==false)
             a,b=S.success('shutdown',false,0,61)
             assert(a=='running' and b==false)
+            -- Grace boundary comes from the named constant.
+            local g=S.SHUTDOWN_GRACE_SECONDS
+            assert(g==60)
+            assert(S.success('shutdown',false,0,g-1)=='stopping')
+            assert(S.success('shutdown',false,0,g)=='running')
+            assert(S.shutdown_in_progress('shutdown',g-1)==true)
+            assert(S.shutdown_in_progress('shutdown',g)==false)
+            -- A new boot supersedes grace and confirms recovery.
+            local status,confirmed=S.success('shutdown',true,0,g-1)
+            assert(status=='running' and confirmed==true)
+            assert(S.shutdown_in_progress('reboot',0)==false)
+            assert(S.shutdown_in_progress(nil,0)==false)
         ''' % repr(str(ROOT))
         vm=lib.luaL_newstate()
         try:
