@@ -9,6 +9,8 @@ row is either tested in CI containers (no systemd PID 1, no Avahi or WOL) or
 is an **expectation derived from the distribution's defaults**. Defaults vary
 by edition, installer choices and image. Run `./scripts/preflight.sh` on the
 actual machine; it is the authority, not this table.
+**Roadmap:** how support is to be extended is described in the
+[Linux distribution support plan](LINUX-DISTRIBUTION-PLAN.md).
 
 ## 1. What the agent and installer actually need
 
