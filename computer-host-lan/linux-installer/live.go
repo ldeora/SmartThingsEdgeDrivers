@@ -13,7 +13,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -50,6 +49,7 @@ type apiInspect struct {
 		Detected           bool   `json:"detected"`
 		ServiceFile        string `json:"service_file"`
 		PowerDropin        string `json:"power_dropin"`
+		AvahiServiceFile   string `json:"avahi_service_file"`
 		AgentServiceState  string `json:"agent_service_state"`
 		AgentServiceEnabled string `json:"agent_service_enabled"`
 	} `json:"installation"`
@@ -132,6 +132,8 @@ func (c apiClient) call(operation string, args ...string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
 	defer cancel()
 	command := exec.CommandContext(ctx, c.executable, append([]string{operation}, args...)...)
+	// Avoid Python import bytecode caches in the source tree during inspection.
+	command.Env = append(os.Environ(), "PYTHONDONTWRITEBYTECODE=1")
 	// The CLI receives no stdin; there can be no terminal/sudo prompt while
 	// Bubble Tea owns the TTY. Arguments are never composed into a shell.
 	var stdout, stderr cappedBuffer
@@ -189,6 +191,7 @@ func (c apiClient) inspect() (apiInspect, error) {
 		if !knownCheck(check.ID) { return apiInspect{}, apiError{"invalid_response"} }
 	}
 	if !fileState(value.Installation.ServiceFile) || !fileState(value.Installation.PowerDropin) ||
+		!fileState(value.Installation.AvahiServiceFile) ||
 		!serviceActivity(value.Installation.AgentServiceState) ||
 		!serviceEnabled(value.Installation.AgentServiceEnabled) ||
 		(value.Avahi.ServicesDirectory != "present" && value.Avahi.ServicesDirectory != "absent") ||
@@ -534,7 +537,3 @@ func runLive(preview, accessible bool, apiPath string, r io.Reader, w io.Writer)
 	if accessible { return runLiveAccessible(r, w, client, info) }
 	return runLiveInteractive(w, client, info)
 }
-
-// Compile-time check that using this mode does not require a network socket:
-// no network access occurs; the 'net' import is intentionally not needed.
-var _ = net.IPv4len
