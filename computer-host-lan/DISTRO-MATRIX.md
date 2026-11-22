@@ -9,6 +9,6 @@ See [the live evidence matrix](docs/beta/COMPATIBILITY-STATUS.md). This page is 
 | Windows Server 2025 x64 | .NET 10 build, local HTTP, native service install and opt-in/out CI |
 | Windows 11 x64 | Requires volunteer hardware testing, especially mDNS and WOL |
 | Windows ARM64 | Build/publish only, no hardware execution |
-| Other Linux distros | Unsupported until suitable testing |
+| Other Linux distros | Unsupported until suitable testing; see the [Linux distribution compatibility matrix](docs/development/LINUX-DISTRIBUTION-MATRIX.md) for expected prerequisites, hosts without `sudo` and blocked layouts |
 
 Windows WOL depends on NIC, firmware, power policy, and actual sleep/shutdown state. Linux WOL depends on NIC, network manager, firmware and persistence across reboot. Neither platform supports an unqualified “wake every PC” claim.
