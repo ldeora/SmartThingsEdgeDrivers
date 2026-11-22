@@ -29,20 +29,23 @@ go run .
 go run . -accessible
 
 # Actual read-only data, no terminal required
-go run . -live -preview
+go run . -live -preview -api ../scripts/installer-api.sh
 
 # Real inspection + editable prospective file plan
-go run . -live
-go run . -live -accessible
+go run . -live -api ../scripts/installer-api.sh
+go run . -live -accessible -api ../scripts/installer-api.sh
 ```
 
-The default backend is `../scripts/installer-api.sh` **relative to the current
-working directory**. If you start the compiled binary elsewhere, pass
-`-api /absolute/path/to/computer-host-lan/scripts/installer-api.sh`.
-The launcher must be executable (`100755`). The Go controller uses
-`exec.CommandContext` with an absolute resolved executable path, argv
-(not shell-composed strings), a 12-second timeout, bounded JSON output
-and disabled Python bytecode writes.
+The `-live` mode **requires an explicitly selected backend** via `-api`.
+For a downloaded binary run outside the checkout, supply an absolute path,
+for example `-api /absolute/path/to/computer-host-lan/scripts/installer-api.sh`.
+The unprivileged controller rejects missing, symlinked, non-executable, or
+group/world-writable launcher files. Keep the script and its parent checkout
+in a trusted directory. The Go controller uses `exec.CommandContext` with a
+resolved executable path and argv (no shell-composed command), a **45-second
+outer timeout** (covering chained Python and systemctl probes), a **2-second
+WaitDelay** for inherited output pipes, bounded JSON output and disabled
+Python bytecode writes. All code paths remain strictly read-only.
 
 `-live` refuses wrong JSON schemas, unknown fields, unsupported error codes,
 paths outside the existing installer allowlist, `secrets_included: true`,
@@ -80,8 +83,8 @@ target is Gentoo + systemd. This is *safe even with your existing live agent*:
 
    ```sh
    cd computer-host-lan/linux-installer
-   go run . -live -preview
-   go run . -live
+   go run . -live -preview -api ../scripts/installer-api.sh
+   go run . -live -api ../scripts/installer-api.sh
    ```
 
    For a downloaded test-only binary instead:
@@ -120,8 +123,11 @@ Huh multi-group form and requires a real TTY.
 
 CI tests the original demo on a pseudo-terminal at 80×24 and 60×20,
 tests the live API and ANSI-free flow on a real unprivileged GitHub runner,
-checks Go unit tests and static analysis, and uploads a **7-day-retained,
-non-release test binary** for Gentoo hardware acceptance.
+checks Go unit tests, **`go test -race ./...`**, gofmt and static analysis;
+coverage includes concurrent Huh background review/foreground validation,
+case-sensitive interface names such as `LAN0`, unsafe launcher permissions,
+and child-process pipe timeouts. CI uploads a **7-day-retained, non-release
+test binary** for Gentoo hardware acceptance.
 
 ## Deliberately deferred
 
