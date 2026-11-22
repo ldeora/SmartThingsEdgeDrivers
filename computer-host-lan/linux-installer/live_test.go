@@ -316,7 +316,11 @@ func TestLiveAccessiblePreservesCaseSensitiveNIC(t *testing.T) {
 func TestLiveRejectsGroupWritableAndSymlinkLaunchers(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "api.sh")
-	if err := os.WriteFile(path, []byte("#!/bin/sh\nexit 2\n"), 0o775); err != nil {
+	if err := os.WriteFile(path, []byte("#!/bin/sh\nexit 2\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// os.WriteFile permissions are masked by the process umask.
+	if err := os.Chmod(path, 0o775); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := newAPIClient(path); err == nil {
