@@ -159,9 +159,9 @@ func interactiveForm(s *selection) *huh.Form {
 		huh.NewGroup(
 			huh.NewConfirm().
 				Title("Acknowledge that this is not a private/local IPv4 address?").
-				Description("No firewall changes will be made; actual installer must check LAN policy.").
+				Description("No firewall changes will be made. Use Shift+Tab to change the address.").
 				Affirmative("I understand").
-				Negative("Go back").
+				Negative("Not yet").
 				Validate(func(accepted bool) error {
 					if !accepted {
 						return errors.New("review the address or explicitly acknowledge the warning")
@@ -197,7 +197,11 @@ func interactiveForm(s *selection) *huh.Form {
 		huh.NewGroup(
 			huh.NewConfirm().
 				Title("Review the SIMULATED plan and show the demo result?").
-				DescriptionFunc(func() string { return s.preview() }, s).
+				// Huh hashes bound inputs to invalidate cached descriptions.
+				// Binding the unexported selection struct would always hash to
+				// the same value; bind the individual field pointers instead.
+				DescriptionFunc(func() string { return s.preview() },
+					[]any{&s.action, &s.hubChoice, &s.manualHub, &s.powerChoice, &s.wolChoice}).
 				Affirmative("Show result").
 				Negative("Exit without changes").
 				Value(&s.showResult),
