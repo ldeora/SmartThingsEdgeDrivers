@@ -60,7 +60,11 @@ Operations: `inspect`, `plan`, `install`, `upgrade`, `repair`, `verify`, `rollba
 
 ### Elevation
 
-The UI, discovery and read-only preflight run as the invoking **unprivileged user**. The actual install/repair/uninstall invokes a narrowly defined root helper after explicit review and a `sudo`/polkit authorization appropriate to the host; passing validated argv and a protected request file/pipe is preferred over composing commands for `sh -c`. No `curl | sudo sh`, no permanent privilege escalation and no TUI drawing as root. If credentials are unavailable or authorization is declined, stop without partial mutation.
+The UI, discovery and ordinary read-only preflight run as the invoking **unprivileged user**. The actual install/repair/uninstall invokes a narrowly defined root helper after explicit review and a `sudo`/polkit authorization appropriate to the host; passing validated argv and a protected request file/pipe is preferred over composing commands for `sh -c`. No `curl | sudo sh`, no permanent privilege escalation and no TUI drawing as root. If credentials are unavailable or authorization is declined, stop without partial mutation.
+
+**Terminal ownership during elevation:** The interactive flow must **pause the Huh/Bubble Tea program and restore the terminal's canonical mode** before a password prompt, then resume the wizard after completion. In Bubble Tea v2 use the framework's process-execution/suspend mechanism (`tea.ExecProcess` where supported), or end the form before a separately managed `sudo -v` prompt; do not invoke `sudo` while the TUI retains the terminal in raw mode. Do not cache or capture a password in application memory. In `--non-interactive`/no-TTY mode use an explicit supported already-authorized context or `sudo -n`, and **fail clearly without blocking** if authorization is unavailable. An interactive TUI must refuse a non-TTY terminal or use a documented plain-prompt fallback.
+
+**Root-side execution and extraction:** Bundled Python code must **never be executed as root from a user-writable temporary directory**. Elevation must first establish a root-owned staging/execution directory (0700) using trusted OS primitives and safe no-follow/ownership checks, copy the version-matched allowlisted embedded payload into it, verify against a fixed trusted embedded manifest on the root side, fsync and execute only the root-owned files. Ensure the privileged launcher/executable itself is staged without a user-writable pathname race before crossing the privilege boundary; hash verification inside an attacker-replaceable launcher is insufficient. Keep the staging area root-owned through rollback/cleanup, reject links and hardlink surprises, and do not accept arbitrary staged paths. Distinguish payload-integrity checks from authenticating the downloaded release; the latter requires independent publisher provenance/signature verification before running the unprivileged installer.
 
 Root-side state inspection must itself be secure: fail closed on suspicious ownership, symlinks/reparse-like redirects, non-regular files, attacker-controlled parent directories and untrusted backup/transaction manifests. Preserve the existing managed-path allowlist. Do not copy secret tokens into logs, plan JSON, metrics, crash dumps or public diagnostics.
 
@@ -71,12 +75,14 @@ Only show relevant steps. `Back`, `Cancel`, `Help` and keyboard shortcuts work c
 | Stage | New install | Existing install / upgrade |
 | --- | --- | --- |
 | 1. Welcome | Install, documentation | Upgrade (default when appropriate), configure, repair, diagnose, uninstall |
-| 2. Compatibility | OS/arch, systemd PID1, Python >=3.10, standard tools, Avahi status, port conflict, network | Same checks + current installation, installed version, ownership and incomplete-transaction state |
+| 2. Compatibility | OS/arch, systemd PID1, Python >=3.10, standard tools, Avahi status, port conflict, network | Same public checks + current installation and installed version where safely readable; privileged ownership/abandoned-transaction details only after authorized read-only inspection |
 | 3. SmartThings hub | Browse `_smartthings._tcp.local.`, retry, select hub, or enter IPv4; continue without discovery | Existing hub preference proposed; ability to change intentionally |
 | 4. Features | Monitoring always on; optional remote power; optional WOL with chosen **physical Ethernet** NIC | Preserve existing selections by default; change only requested features |
 | 5. Review | Exact proposed changes including paths, firewall policy and service effects; authorization | Highlight preserved identity, key, port, service state, existing WOL and pending recovery |
 | 6. Execute | Show truthful phase-by-phase results, classify partial optional feature failures separately | Use transaction, restore previous state on failed gate; show recovery options |
 | 7. Connect | Verify loopback agent; show driver channel link and SmartThings pairing steps; offer guarded key reveal only if enabled | Verify existing SmartThings device continuity; **do not suggest re-pairing** |
+
+**Visibility of protected state:** Non-root `inspect --json` must not try to read the protected transaction journal or backup directory under `/var/backups/linux-host-agent`. It can report `privileged_transaction_state: "unknown"`; a separate, strictly **read-only** root status action may return an allowlisted/redacted `none | incomplete | recovery_required` result, with no secret data, journal contents or raw paths. That action must perform ownership/link validation before reporting and must not mutate state.
 
 **Hub selection is not pairing.** Discovery of a hub is unauthenticated mDNS and should be confirmed by the user. Hub IPv4 is used for network/firewall guidance and optional allow rules, not proof of cloud authorization or actual SmartThings pairing. The agent's own Avahi advertisement is a different service (`_computerhost._tcp`) and needs its own verification.
 
@@ -121,7 +127,7 @@ Initially implement **read-only** detection/guidance for common host firewalls; 
 
 Phase 1 is a **proof of interaction** (no root access, no real installation, no release build). After the interaction is accepted:
 
-1. Pin audited Huh/Bubble Tea releases in `go.mod` **and `go.sum`**; review license/transitive dependency inventory and Go toolchain version.
+1. Pin audited Huh/Bubble Tea releases in `go.mod` **and `go.sum`** **before mergeable build CI**; review license/transitive dependency inventory and Go toolchain version. A short-lived draft UX experiment may run `go mod tidy` in explicitly labeled dependency-discovery CI, but must not be described as reproducibly locked until its generated lockfile is committed. Once committed, use `go mod tidy -diff` and `go mod verify` as gates; CI must not silently rewrite module manifests.
 2. Produce reproducible, version-matched installer assets for tested `linux/amd64`, later `linux/arm64`; try `CGO_ENABLED=0` and verify the result actually runs on the target systems.
 3. Embed a minimal allowlisted agent/power-helper/systemd/Avahi/Python installer payload from the **same fixed source commit**; do not bundle Windows binaries, private state or unrelated repository files.
 4. Provide independent artifact hashes and build provenance/signature verification instructions. A checksum downloaded from the same untrusted origin alone does not authenticate the publisher. The TUI cannot retroactively prove its own signature.
@@ -174,15 +180,15 @@ Use the existing `docs/development/LINUX-PARITY-ACCEPTANCE.md` checklist as the 
 
 ## 10. Delivery sequence and boundaries
 
-**PR A — design specification (this PR).** Documentation only; no runtime or release changes.
+**Phase A — design specification.** Documentation only; no runtime or release changes.
 
-**PR B — isolated TUI UX spike.** A standalone `linux-installer/` Go module with simulated preflight/hub/results, no privilege escalation, no embedded production agent, no mutation of system state, no publishing. Validate user experience, accessibility, terminal behavior and dependency lockfile before adopting API decisions.
+**Phase B — isolated TUI UX spike.** A standalone `linux-installer/` Go module with simulated preflight/hub/results, no privilege escalation, no embedded production agent, no mutation of system state, no publishing. Validate user experience, accessibility, terminal behavior and dependency lockfile before adopting API decisions.
 
-**PR C — engine hardening.** Structured plan/status API, durable transaction recovery, post-install health verification, config/custom-port preservation; dedicated Python tests and real systemd fixture tests. Existing CLI remains functional.
+**Phase C — engine hardening.** Structured plan/status API, durable transaction recovery, post-install health verification, config/custom-port preservation; dedicated Python tests and real systemd fixture tests. Existing CLI remains functional.
 
-**PR D — live wizard integration.** Read-only detection and mDNS, privileged transaction API, selected hub/power/WOL/options, guarded key reveal, onboarding and clean error handling.
+**Phase D — live wizard integration.** Read-only detection and mDNS, privileged transaction API, selected hub/power/WOL/options, guarded key reveal, onboarding and clean error handling.
 
-**PR E — distribution and acceptance.** Fixed-source embedded payload, pinned Go deps, checksums/provenance and release packaging CI, test matrix, hardware acceptance. Publish a **new** version only after separate release approval.
+**Phase E — distribution and acceptance.** Fixed-source embedded payload, pinned Go deps, checksums/provenance and release packaging CI, test matrix, hardware acceptance. Publish a **new** version only after separate release approval.
 
 ### Explicit non-goals for first release
 
