@@ -64,6 +64,14 @@ local function pending(device)
   return action
 end
 
+-- Pending action and its age in seconds (0 when nothing is pending).
+local function pending_age(device)
+  local action=pending(device)
+  local raw_pending_at=device:get_field(C.FIELD_PENDING_AT)
+  local age=action and math.max(0,os.time()-(tonumber(raw_pending_at) or os.time())) or 0
+  return action,age
+end
+
 local function clear_pending(device)
   device:set_field(C.FIELD_PENDING_ACTION,nil,{persist=true})
   device:set_field(C.FIELD_PENDING_AT,nil,{persist=true})
@@ -131,15 +139,17 @@ poll=function(driver,device,reason)
     device:set_field(C.FIELD_HOST_FAILURES,0)
     device:set_field(C.FIELD_LAST_OK,true)
     device:online() -- The hub-side controller stays usable regardless of host state.
-    switch_state(device,"on")
+    local action,action_age=pending_age(device)
+    local status,confirmed=State.success(action,boot_changed,failed_polls,action_age)
+    -- Keep commanded OFF during shutdown grace, except when a different boot
+    -- ID proves the host has restarted. In that case clear the stale action.
+    if boot_changed or not State.shutdown_in_progress(action,action_age) then
+      switch_state(device,"on")
+    end
     if failed_polls>0 then
       log.info(string.format("Computer Host %s connection restored after %d failed check(s)",
         tostring(device.label),failed_polls))
     end
-    local action=pending(device)
-    local raw_pending_at=device:get_field(C.FIELD_PENDING_AT)
-    local action_age=action and math.max(0,os.time()-(tonumber(raw_pending_at) or os.time())) or 0
-    local status,confirmed=State.success(action,boot_changed,failed_polls,action_age)
     host_status(device,status)
     if confirmed then clear_pending(device) end
     -- Edge get_field() may return zero values when an unset field is queried.
@@ -273,6 +283,13 @@ local function refresh(driver,device)
   metrics_poll(driver,device,"manual refresh")
 end
 local function turn_on(driver,device)
+  local action,age=pending_age(device)
+  if State.shutdown_in_progress(action,age) then
+    -- Do not replace the persisted shutdown action with a Wake request while
+    -- the host is still powering down. Command-ack UX remains deferred.
+    log.info("Computer Host switch ON ignored: shutdown still in progress")
+    return
+  end
   if device:get_field(C.FIELD_LAST_OK) then
     poll(driver,device,"on command: already reachable")
     return
@@ -291,6 +308,13 @@ local function turn_on(driver,device)
   schedule_poll(driver,device,5)
 end
 local function turn_off(driver,device)
+  local action,age=pending_age(device)
+  if State.shutdown_in_progress(action,age) then
+    -- Idempotent: never send a second request while the accepted shutdown is
+    -- in progress. A rejection (e.g. Windows 409) must not flip the switch ON.
+    log.info("Computer Host switch OFF ignored: shutdown already in progress")
+    return
+  end
   if not device:get_field(C.FIELD_LAST_OK) then
     log.warn("Computer Host switch OFF not sent: the agent is unreachable")
     -- Do not claim to have shut the computer down; reassert known state.
@@ -305,6 +329,10 @@ local function turn_off(driver,device)
     return
   end
   host_status(device,"stopping")
+  -- Acknowledge the command: without a switch event the app waits until its
+  -- command timeout and shows a generic network/server error. The switch shows
+  -- the commanded state; host status shows stopping -> stopped (inferred).
+  switch_state(device,"off")
   schedule_poll(driver,device,5)
 end
 local function momentary(driver,device,command)
