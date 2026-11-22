@@ -51,6 +51,7 @@ jobs:
             > "$RUNNER_TEMP/live-inspection.txt"
           grep -q 'REAL HOST — READ-ONLY INSPECTION' "$RUNNER_TEMP/live-inspection.txt"
           grep -q 'REAL READ-ONLY FILE PLAN' "$RUNNER_TEMP/live-inspection.txt"
+          python3 pty_smoke.py "$RUNNER_TEMP/computer-host-linux-tui-demo" --live
           grep -q 'Privileged transaction/recovery status: UNKNOWN' "$RUNNER_TEMP/live-inspection.txt"
           printf 'k\nk\ny\n' | NO_COLOR=1 TERM=dumb \
             "$RUNNER_TEMP/computer-host-linux-tui-demo" -live -accessible \
