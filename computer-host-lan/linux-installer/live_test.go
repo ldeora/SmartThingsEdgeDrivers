@@ -262,6 +262,7 @@ func TestLiveReviewPlanCacheConcurrentDescriptionAndValidation(t *testing.T) {
 		"cat <<'JSON'\n" + payload + "\nJSON\n"
 	client := scriptClient(t, script)
 	s := liveSelection{api: client, powerChoice: "keep", wolChoice: "keep"}
+	s.inspection.Python.SelectedInterpreter = "/usr/bin/python3.11"
 	const readers = 32
 	var wg sync.WaitGroup
 	start := make(chan struct{})
