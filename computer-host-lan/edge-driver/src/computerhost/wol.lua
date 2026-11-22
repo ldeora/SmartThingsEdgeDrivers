@@ -23,8 +23,9 @@ function M.send(mac,broadcast,port)
     udp:settimeout(2)
     local enabled,enable_err=udp:setoption("broadcast",true)
     if not enabled then return false,"cannot enable broadcast: "..tostring(enable_err) end
-    -- Three immediate packets help with occasional packet loss. Verification
-    -- happens in the regular health poll loop, never by optimistic switch ON.
+    -- Three immediate packets help with occasional packet loss. Sending a
+    -- packet can acknowledge the requested switch ON, but only subsequent
+    -- health polls can verify that the computer actually booted.
     for _=1,3 do
       local sent,send_err=udp:sendto(payload,broadcast,port)
       if not sent then return false,"UDP send error: "..tostring(send_err) end

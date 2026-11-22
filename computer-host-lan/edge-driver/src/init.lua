@@ -315,6 +315,10 @@ local function turn_on(driver,device)
   end
 
   host_status(device,"starting")
+  -- A successfully transmitted magic packet acknowledges the requested ON,
+  -- not a completed boot. Host Status remains 'starting' until health confirms
+  -- 'running'; existing timeout/inference may later restore OFF.
+  switch_state(device,"on")
   schedule_poll(driver,device,5)
 end
 local function turn_off(driver,device)
