@@ -24,7 +24,7 @@ def smoke(binary: str, width: int, height: int, *, live: bool = False) -> None:
         try:
             env = os.environ.copy()
             env.update(TERM='xterm-256color', NO_COLOR='1')
-            os.execve(binary, [binary, *(['-live'] if live else [])], env)
+            os.execve(binary, [binary, *(['-live', '-api', '../scripts/installer-api.sh'] if live else [])], env)
         except Exception as exc:
             print(f'PTY exec failed: {exc}', file=sys.stderr)
             os._exit(127)
