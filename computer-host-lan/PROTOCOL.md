@@ -150,6 +150,21 @@ and provisioning UX are investigated.
 * Switch OFF currently means authenticated **shutdown**. This is appropriate
   for verified Linux behavior. The Windows agent does not claim wake-from-shutdown works universally;
   successful WOL depends on NIC, firmware and Windows S0/S3/S4/S5 behavior.
+* After an accepted shutdown (HTTP 202) the main Switch shows the **commanded**
+  state OFF at once, which acknowledges the command in the SmartThings app.
+  Host Status carries the actual progress: `stopping`, then `stopped` once
+  repeated silent timeouts make completion likely (an inference, not a
+  power measurement). If the agent still answers after 60 seconds
+  (`SHUTDOWN_GRACE_SECONDS`), the shutdown was cancelled or is blocked: status
+  returns to `running` and the Switch to ON. Further OFF commands during
+  `stopping` are not sent again. A rejected request, including HTTP 409, is
+  never read as an accepted shutdown: the Windows agent uses 409 both when
+  another power operation is pending and when a shutdown or reboot is already
+  in progress. A matching agent responding with a new boot ID supersedes the
+  grace period: the driver restores ON/running and clears the pending shutdown.
+  ON commands during the shutdown grace period cannot overwrite the pending
+  action with Wake. Automations that must wait for a finished shutdown should
+  use Host Status = Stopped rather than Switch = Off.
 
 The monitoring intervals, power-state inference, WOL metadata persistence,
 identity checks, failure handling, and security limits are inherited from
