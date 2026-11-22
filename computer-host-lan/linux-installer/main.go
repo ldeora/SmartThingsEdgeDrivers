@@ -95,7 +95,8 @@ func run(accessible bool) error {
 	// Future: replace this explicitly simulated screen with read-only probes.
 	fmt.Println("\nDEMO ONLY — compatibility preview (not probed):")
 	fmt.Println("  systemd: simulated; Python 3.10+: simulated; Avahi: simulated.")
-	fmt.Println("  No network checks or system modifications have occurred.")\n\tfmt.Println()
+	fmt.Println("  No network checks or system modifications have occurred.")
+	fmt.Println()
 
 	err = form(accessible,
 		huh.NewSelect[string]().
