@@ -64,7 +64,24 @@ avahi-browse -rt _computerhost._tcp
 
 Power control is separate and opt-in: `sudo ./scripts/install-agent.sh --enable-power --wol-interface YOUR_ETHERNET_INTERFACE`. Do not change persistent WOL configuration unless deliberately choosing the existing `--configure-wol` path. Keep the key in `/var/lib/linux-host-agent/control-token` private. Read [Linux parity acceptance](docs/development/LINUX-PARITY-ACCEPTANCE.md) before physical tests.
 
-The earlier Linux Host LAN uses protocol v1 and a different discovery namespace; do not install it alongside the new agent on the same listener. Record a rollback snapshot and the driver choice before migration.
+**Legacy installation safety:** v1 Linux Host LAN and v2 Computer Host LAN
+use the same Linux managed-file paths, service account and retained identity
+directory. Before attempting an installation, run `./scripts/preflight.sh`
+or `./scripts/install-agent.sh --dry-run`. The installer now refuses an
+identifiable v1 installation, unknown/partial managed files, or a leftover
+state directory without an identifiable v2 agent. The guard runs before
+account creation and any installation snapshot, service restart or file
+replacement. It also applies to v2 uninstall and rollback operations.
+This is deliberately fail-closed; there is **no automatic v1 migration**.
+Do not uninstall v1, delete `/var/lib/linux-host-agent`, remove the
+SmartThings device, or delete a backup just to bypass a refusal. Preserve
+your existing state and seek an explicitly planned migration/repair.
+
+A pre-existing **recognized v2** installation can still be updated normally.
+The read-only JSON planner returns the existing `prerequisite_missing`
+error code on legacy/unknown installations (schema v1 remains unchanged).
+The wizard can therefore block unsafe plans; richer explanatory UI requires
+a future coordinated API/frontend change.
 
 ## Updates and caveats
 
