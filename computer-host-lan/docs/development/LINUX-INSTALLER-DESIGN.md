@@ -188,6 +188,19 @@ Use the existing `docs/development/LINUX-PARITY-ACCEPTANCE.md` checklist as the 
 
 **Phase D — live wizard integration.** Read-only detection and mDNS, privileged transaction API, selected hub/power/WOL/options, guarded key reveal, onboarding and clean error handling.
 
+**Implementation update (November 22, 2026):** Delivery is intentionally
+incremental rather than a strict A→B→C→D gate. PR #68 completed the
+**unprivileged, read-only** `inspect`/`plan` portion of Phase C; draft PR #67
+uses that backend for the **read-only inspection and prospective file-plan
+subset of Phase D**, alongside its original inert Phase B demonstration.
+This is not a full Phase D implementation: live hub discovery, privileged
+transaction execution, recovery/rollback, identity checks, activation health
+gates and onboarding remain blocked on future Phase C hardening and secure
+privileged execution. The Go wizard still **cannot install, modify services,
+or write agent configuration**. Its current explicit `-api` checkout path is
+only for development; release packaging must use a trusted, version-matched
+payload and must not inherit a working-directory-relative launcher.
+
 **Phase E — distribution and acceptance.** Fixed-source embedded payload, pinned Go deps, checksums/provenance and release packaging CI, test matrix, hardware acceptance. Publish a **new** version only after separate release approval.
 
 ### Explicit non-goals for first release
