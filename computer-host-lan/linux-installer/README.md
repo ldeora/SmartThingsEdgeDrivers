@@ -55,7 +55,13 @@ shown only as safe codes, never as unfiltered subprocess output.
 The live wizard displays **real compatibility status**, then offers power
 settings *for the prospective plan only*: preserve (default), enable and
 disable. It can optionally preview a **systemd WOL interface pin** after
-validating the NIC via the Python API. Pinning is **not** the same as
+validating the NIC via the Python API. When the full-screen wizard displays
+the interface input, **you must type the NIC name** (for example
+`enp1s0f0`) and press Enter. The field is initially **empty**; explanatory
+placeholder text is **not a preselected value**. A missing or incorrectly
+spelled NIC now produces a user-friendly local validation message. The
+Python planner also checks that the interface exists in `/sys/class/net`.
+Pinning is **not** the same as
 configuring persistent WOL or testing physical hardware support. Hub
 discovery and manual pairing are not implemented in live mode; the simulated
 hub-selection UI remains in the demo only.
