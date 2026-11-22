@@ -16,6 +16,7 @@ import fcntl
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import stat
 import subprocess
@@ -144,6 +145,97 @@ class InstallTransaction:
         return data.get('previous', {})
 
 
+# v1 and v2 install into the SAME paths and use the same state account. A
+# normal upgrade is only safe when the existing payload is clearly v2.
+# These are read-only *identity hints*, not authentication of source code.
+# Never read installation-id, control-token, or backup snapshot contents.
+PROTOCOL_MARKER = re.compile(rb"""(?m)^\s*PROTOCOL\s*=\s*['"](linux-host-agent|computer-host-agent)['"]\s*(?:\#.*)?$""")
+MAX_PROTOCOL_BYTES = 128 * 1024
+
+
+def _managed_bytes(transaction: InstallTransaction, absolute: str) -> bytes | None:
+    target = transaction.location(absolute)
+    transaction.refuse_links(target)
+    if not target.exists():
+        return None
+    # A no-follow, non-blocking descriptor also refuses a symlink/special-file
+    # swap between the initial path check and the read.
+    try:
+        fd = os.open(target, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
+        with os.fdopen(fd, 'rb') as stream:
+            if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
+                raise InstallError('Existing managed path is not a regular file')
+            content = stream.read(MAX_PROTOCOL_BYTES + 1)
+    except (OSError, ValueError) as exc:
+        raise InstallError('Existing managed installation could not be inspected safely') from exc
+    if len(content) > MAX_PROTOCOL_BYTES:
+        raise InstallError('Existing managed installation marker is unexpectedly large')
+    return content
+
+
+def detect_installed_protocol(root: Path = Path('/')) -> str:
+    """Return absent/v1/v2/unknown; do not trust ambiguous existing layouts.
+
+    No state-directory *contents* are ever opened. The caller must re-check
+    under the exclusive installation lock before mutating anything.
+    """
+    trans = InstallTransaction(root)
+    agent = _managed_bytes(trans, APP_FILES[0])
+    avahi = _managed_bytes(trans, AVAHI_PATH)
+    if agent is None:
+        app_version = None
+    else:
+        names = set(PROTOCOL_MARKER.findall(agent))
+        app_version = ({b'linux-host-agent': 'v1',
+                        b'computer-host-agent': 'v2'}.get(next(iter(names)))
+                       if len(names) == 1 else 'unknown')
+    if avahi is None:
+        avahi_version = None
+    else:
+        old = b'_linuxhost._tcp' in avahi
+        new = b'_computerhost._tcp' in avahi
+        avahi_version = 'v1' if old and not new else 'v2' if new and not old else 'unknown'
+    if app_version == 'unknown' or avahi_version == 'unknown':
+        return 'unknown'
+    if app_version is not None and avahi_version is not None and app_version != avahi_version:
+        return 'unknown'
+    if app_version == 'v1' or avahi_version == 'v1':
+        return 'v1'
+    if app_version == 'v2':
+        return 'v2'
+    # A leftover v2 advertisement without an agent is not a verified v2
+    # install. Other managed files or a retained state directory may belong
+    # to v1, so a fresh install is unsafe until explicitly investigated.
+    if avahi_version is not None:
+        return 'unknown'
+    for path in MANAGED_PATHS - {APP_FILES[0], AVAHI_PATH}:
+        target = trans.location(path)
+        trans.refuse_links(target)
+        if target.exists():
+            return 'unknown'
+    state = root / 'var/lib/linux-host-agent'
+    try:
+        if state.is_symlink() or state.exists():
+            return 'unknown'
+    except OSError as exc:
+        raise InstallError('Cannot safely inspect existing agent state directory') from exc
+    return 'absent'
+
+
+def require_v2_or_clean(root: Path = Path('/')) -> str:
+    """Fail closed before install, uninstall, rollback, or preview."""
+    state = detect_installed_protocol(root)
+    if state == 'v1':
+        raise InstallError(
+            'Legacy v1 Linux Host LAN installation detected; refusing to replace it. '
+            'An explicit, reviewed migration is required.')
+    if state == 'unknown':
+        raise InstallError(
+            'Existing Linux Host Agent files or state could not be identified as v2. '
+            'Refusing automatic changes; investigate before migration or repair.')
+    return state
+
+
 def generate_plan(source: Path, python_bin: str, *, enable_power: bool,
                   disable_power: bool, wol_interface: str | None,
                   is_existing_power: bool, avahi_dir: bool,
@@ -222,6 +314,8 @@ def run_cli(argv=None) -> int:
     action = parser.add_mutually_exclusive_group(required=True)
     action.add_argument('--install', action='store_true')
     action.add_argument('--plan', action='store_true', help='preview file changes; no root needed')
+    action.add_argument('--check-existing', action='store_true',
+                        help='read-only v1/v2 coexistence guard; no root needed')
     action.add_argument('--rollback', type=Path)
     action.add_argument('--uninstall', action='store_true')
     parser.add_argument('--source', type=Path)
@@ -230,7 +324,7 @@ def run_cli(argv=None) -> int:
     parser.add_argument('--disable-power', action='store_true')
     parser.add_argument('--wol-interface', default=None)
     args = parser.parse_args(argv)
-    if os.geteuid() != 0 and not args.plan:
+    if os.geteuid() != 0 and not (args.plan or args.check_existing):
         parser.error('must run as root')
     if (args.install or args.plan) and (not args.source or not args.python_bin):
         parser.error('installation needs --source and --python')
@@ -238,7 +332,11 @@ def run_cli(argv=None) -> int:
         parser.error('power enable/disable flags conflict')
     if args.wol_interface and (len(args.wol_interface) > 15 or not args.wol_interface.replace('-', '').replace('_', '').replace('.', '').isalnum()):
         parser.error('invalid Ethernet interface name')
+    if args.check_existing:
+        require_v2_or_clean()
+        return 0
     if args.plan:
+        require_v2_or_clean()
         trans = InstallTransaction()
         changes = generate_plan(args.source, args.python_bin, enable_power=args.enable_power,
                                 disable_power=args.disable_power, wol_interface=args.wol_interface,
@@ -259,6 +357,9 @@ def run_cli(argv=None) -> int:
     lockfile.parent.mkdir(parents=True, exist_ok=True)
     with lockfile.open('a+') as lock:
         fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        # Check again after acquiring the lock. Nothing is removed, backed up,
+        # or restarted if the payload is v1 or its owner is ambiguous.
+        require_v2_or_clean()
         if args.rollback:
             # Reject symlink input *before* resolving it, and constrain the
             # resulting path to a direct child of the root-only backup base.
