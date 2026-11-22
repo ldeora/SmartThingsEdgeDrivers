@@ -107,7 +107,7 @@ def exercise(binary: str, api: str) -> None:
         time.sleep(0.15)
         mark = send(b'\r')   # open conditional NIC input group
         wait_for(b'Existing network interface', mark)
-        wait_for(b'Type interface name', mark)
+        wait_for(b'field starts EMPTY', mark)
 
         # The hint is a PLACEHOLDER, never a default value. Pressing Enter
         # with no input must stay here and explain what needs to be typed.
