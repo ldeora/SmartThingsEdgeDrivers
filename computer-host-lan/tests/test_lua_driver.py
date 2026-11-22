@@ -215,6 +215,16 @@ class LuaDriverTests(unittest.TestCase):
             assert(wakes==wakes_before)
             assert(fields.computerhost_pending_action=='shutdown')
             assert(fields.computerhost_last_switch=='off')
+            -- The separate momentary controls must also be unable to replace
+            -- the shutdown with Wake, reboot or suspend.
+            local actions_before_momentary=#actions
+            for _,component in ipairs({'wake','reboot','suspend'}) do
+              TEMPLATE.capability_handlers.momentary.push(driver,device,{component=component})
+            end
+            assert(wakes==wakes_before)
+            assert(#actions==actions_before_momentary)
+            assert(fields.computerhost_pending_action=='shutdown')
+            assert(device.last_status=='stopping')
             -- Agent still answering after the grace period: shutdown cancelled
             -- or blocked. Host is running again and the switch returns to ON.
             fields.computerhost_pending_at=os.time()-State.SHUTDOWN_GRACE_SECONDS
