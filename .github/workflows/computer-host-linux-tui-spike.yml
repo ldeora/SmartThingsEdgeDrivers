@@ -1,10 +1,6 @@
 name: Computer Host LAN Linux TUI spike
 
 on:
-  push:
-    paths:
-      - 'computer-host-lan/linux-installer/**'
-      - '.github/workflows/computer-host-linux-tui-spike.yml'
   pull_request:
     paths:
       - 'computer-host-lan/linux-installer/**'
@@ -21,21 +17,15 @@ jobs:
       run:
         working-directory: computer-host-lan/linux-installer
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-go@v6
         with:
           go-version: '1.25.x'
           cache: false
-      - name: Resolve experimental dependencies
-        run: go mod tidy
-      - name: Export dependency resolution for review (temporary)
-        run: |
-          echo 'BEGIN_GO_MOD_LOCK'
-          cat go.mod
-          echo 'END_GO_MOD_LOCK'
-          echo 'BEGIN_GO_SUM_LOCK'
-          cat go.sum
-          echo 'END_GO_SUM_LOCK'
+      - name: Ensure module files are tidy and unchanged
+        run: go mod tidy -diff
+      - name: Verify cached module checksums
+        run: go mod verify
       - name: Unit tests
         run: go test ./...
       - name: Static checks
@@ -47,3 +37,9 @@ jobs:
           grep -q 'DEMO ONLY — NO CHANGES WILL BE MADE' "$RUNNER_TEMP/tui-preview.txt"
           grep -q 'Power management: false' "$RUNNER_TEMP/tui-preview.txt"
           grep -q 'Persistent Wake-on-LAN: false' "$RUNNER_TEMP/tui-preview.txt"
+          printf '1\n4\nk\nk\ny\n' | NO_COLOR=1 TERM=dumb "$RUNNER_TEMP/computer-host-linux-tui-demo" -accessible > "$RUNNER_TEMP/accessibility.txt"
+          grep -q 'DEMO COMPLETE' "$RUNNER_TEMP/accessibility.txt"
+          if LC_ALL=C grep -q $'\e' "$RUNNER_TEMP/accessibility.txt"; then
+            echo 'Accessible output contains ANSI escape bytes' >&2
+            exit 1
+          fi
