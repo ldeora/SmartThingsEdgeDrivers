@@ -38,6 +38,9 @@ PYTHON_BIN=$LINUXHOST_PYTHON
 # Preflight ALL sources and Python syntax before creating an account or writing services.
 "$PYTHON_BIN" -c 'import ast,sys,pathlib; [ast.parse(pathlib.Path(p).read_text()) for p in sys.argv[1:]]' \
   "$ROOT/agent/linux_host_agent.py" "$ROOT/agent/power_helper.py" "$ROOT/scripts/install_core.py" || exit 1
+# Refuse legacy v1 or ambiguous paths before creating linuxhost or touching
+# backup/service state. The engine rechecks under its lock before all writes.
+"$PYTHON_BIN" "$ROOT/scripts/install_core.py" --check-existing || exit 1
 NOLOGIN_BIN=$(command -v nologin || true)
 if [ -z "$NOLOGIN_BIN" ]; then
   for candidate in /usr/sbin/nologin /sbin/nologin /bin/false; do
