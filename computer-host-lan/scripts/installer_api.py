@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 from pathlib import Path
 import platform
 import re
@@ -22,7 +21,6 @@ import install_core as core
 SCHEMA_VERSION = 1
 DEFAULT_SOURCE = Path(__file__).resolve().parents[1]
 REQUIRED_TOOLS = ('systemctl', 'useradd', 'getent', 'install', 'sed')
-PYTHON_SELECTOR = DEFAULT_SOURCE / 'scripts/python-selector.sh'
 INTERPRETER_COMMAND = (
     '. "$1"; linuxhost_select_python "$2" >/dev/null 2>&1 || exit 1; '
     'printf "%s\\n" "$LINUXHOST_PYTHON"'
