@@ -341,6 +341,12 @@ class ShellSelectorParityTests(unittest.TestCase):
             old = bin_dir / 'python3'
             old.write_text('#!/bin/sh\nexit 1\n')
             old.chmod(0o755)
+            # Mask all remaining selector candidates. Otherwise a newer
+            # Python installed on a CI runner could win before our stub.
+            for name in ('python3.14', 'python3.13', 'python3.12', 'python3.10'):
+                unavailable = bin_dir / name
+                unavailable.write_text('#!/bin/sh\\nexit 1\\n'.replace('\\n', '\n'))
+                unavailable.chmod(0o755)
             newer = bin_dir / 'python3.11'
             newer.write_text(
                 '#!/bin/sh\n'
