@@ -283,11 +283,58 @@ class LuaDriverTests(unittest.TestCase):
             for i=1,3 do timers['Computer Host health'].fn() end
             assert(fields.computerhost_last_switch=='off')
             assert(device.last_status=='stopped')
+            -- Regression (Gentoo hub test 2026-11-22): once the pending action
+            -- is cleared, further silent checks must keep 'stopped' instead
+            -- of degrading to 'unreachable' one poll later.
+            assert(fields.computerhost_pending_action==nil)
+            assert(fields.computerhost_settled=='stopped')
+            previous_events=#device.events
+            for i=1,3 do timers['Computer Host health'].fn() end
+            assert(device.last_status=='stopped')
+            assert(fields.computerhost_last_switch=='off')
+            assert(#device.events==previous_events)
+            -- An 'unknown' failure (e.g. HTTP/protocol error from whatever now
+            -- answers at the address) is not a life sign: status shows
+            -- unknown, the switch stays OFF, the inference survives.
+            error_message='HTTP status 500 (Internal Server Error)'
+            timers['Computer Host health'].fn()
+            assert(device.last_status=='unknown')
+            assert(fields.computerhost_last_switch=='off')
+            assert(fields.computerhost_settled=='stopped')
+            error_message='HTTP transport failed: timeout'
+            timers['Computer Host health'].fn()
+            assert(device.last_status=='stopped')
+            -- A failed Wake shows 'starting' while pending and returns to the
+            -- settled 'stopped' once the wake action expires (180 s).
+            local wakes_before_settled=wakes
+            TEMPLATE.capability_handlers.switch.on(driver,device)
+            assert(wakes==wakes_before_settled+1)
+            assert(fields.computerhost_pending_action=='wake')
+            assert(device.last_status=='starting')
+            timers['Computer Host health'].fn()
+            assert(device.last_status=='starting')
+            assert(fields.computerhost_last_switch=='off')
+            fields.computerhost_pending_at=os.time()-181
+            timers['Computer Host health'].fn()
+            assert(fields.computerhost_pending_action==nil)
+            assert(device.last_status=='stopped')
+            assert(fields.computerhost_last_switch=='off')
+            assert(fields.computerhost_settled=='stopped')
+            -- A refused connection means a TCP stack answered: the inference
+            -- is dropped and regular evaluation applies.
+            error_message='HTTP transport failed: connection refused'
+            timers['Computer Host health'].fn()
+            assert(fields.computerhost_settled==nil)
+            assert(device.last_status=='unreachable')
+            assert(fields.computerhost_last_switch=='on')
+            error_message='HTTP transport failed: timeout'
             -- Fresh health response turns it back ON, even without a WOL
             -- command (e.g. manual power-on or a scheduled boot).
             healthy=true
             timers['Computer Host health'].fn()
             assert(fields.computerhost_last_switch=='on')
+            assert(device.last_status=='running')
+            assert(fields.computerhost_settled==nil) -- life sign clears it
             -- Suspend has the same command/confirmation semantics.
             TEMPLATE.capability_handlers.momentary.push(driver,device,{component='suspend'})
             assert(actions[#actions]=='suspend')
@@ -295,6 +342,11 @@ class LuaDriverTests(unittest.TestCase):
             for i=1,3 do timers['Computer Host health'].fn() end
             assert(fields.computerhost_last_switch=='off')
             assert(device.last_status=='suspended')
+            -- Same regression for suspend: 'suspended' survives silence.
+            assert(fields.computerhost_settled=='suspended')
+            for i=1,3 do timers['Computer Host health'].fn() end
+            assert(device.last_status=='suspended')
+            assert(fields.computerhost_last_switch=='off')
             -- Unexpected wrong-host responses must not count as power loss.
             healthy=true
             timers['Computer Host health'].fn()
