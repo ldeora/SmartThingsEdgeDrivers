@@ -22,6 +22,11 @@ const (
 	bootstrapLock = "/run/lock/computer-host-lan-bootstrap.lock"
 )
 
+var (
+	errInstallerBusy            = errors.New("another installer is running")
+	errInstallerRecoveryPending = errors.New("recover previous installer transaction before changing the trusted helper")
+)
+
 var interfacePattern = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,15}$`)
 
 type privilegedRequest struct {
@@ -225,7 +230,7 @@ func lockInstaller(path string, ownerUID int) (*os.File, error) {
 	}
 	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
 		f.Close()
-		return nil, errors.New("another installation is running")
+		return nil, errInstallerBusy
 	}
 	return f, nil
 }
@@ -296,7 +301,7 @@ func prepareTrustedVersion(root, lock string, uid int, status func() (string, er
 			return false, err
 		}
 		if state != "none" {
-			return false, errors.New("recover the existing transaction with its matching helper before upgrading")
+			return false, errInstallerRecoveryPending
 		}
 		hasPrevious = true
 	} else if !os.IsNotExist(err) {
@@ -410,6 +415,46 @@ func completeTrustedVersion(root string, ownerUID int, restore bool) error {
 	return syncDirectory(filepath.Dir(root))
 }
 
+// A root-side Python failure is a valid result, even though it exits
+// non-zero. Forward the sanitized schema-v1 envelope rather than discarding
+// it in Go and reducing everything to an authorization failure.
+func relayHelperResponse(writer io.Writer, action string, reply privilegedResult, helperErr error) error {
+	if reply.SchemaVersion != 1 {
+		return helperErr
+	}
+	if reply.Status == "error" && reply.Operation == "" {
+		// The Python root helper deliberately omits operation from its
+		// fixed error envelope. The validated Go request supplies it.
+		reply.Operation = action
+	}
+	if reply.Operation != action || reply.SecretsIncluded {
+		return errors.New("invalid privileged helper reply")
+	}
+	if reply.Status == "error" && !knownPrivilegedError(reply.ErrorCode) {
+		return errors.New("unexpected privileged helper error")
+	}
+	if err := json.NewEncoder(writer).Encode(reply); err != nil {
+		return err
+	}
+	return helperErr
+}
+
+func relayBootstrapFailure(writer io.Writer, action string, failure error) error {
+	// These Go-only failures occur before Python can return its own JSON.
+	// Keep the response schema stable without exposing filesystem paths,
+	// environment contents, helper stderr or any credentials.
+	code := "bootstrap_failed"
+	if errors.Is(failure, errInstallerBusy) {
+		code = "installation_busy"
+	} else if errors.Is(failure, errInstallerRecoveryPending) {
+		code = "recovery_required"
+	}
+	_ = json.NewEncoder(writer).Encode(privilegedResult{
+		SchemaVersion: 1, Operation: action, Status: "error", ErrorCode: code,
+	})
+	return failure
+}
+
 func rootBootstrap(reader io.Reader, writer io.Writer) error {
 	if os.Geteuid() != 0 {
 		return errors.New("privileged bootstrap requires explicit sudo authorization")
@@ -419,7 +464,7 @@ func rootBootstrap(reader io.Reader, writer io.Writer) error {
 		return err
 	}
 	if err := validateEmbeddedBundle(); err != nil {
-		return err
+		return relayBootstrapFailure(writer, request.Action, err)
 	}
 	// Unlike the manual lock, this dedicated root-owned lifetime lock is
 	// held across Go helper promotion AND Python execution. It prevents a
@@ -427,22 +472,22 @@ func rootBootstrap(reader io.Reader, writer io.Writer) error {
 	// process while allowing Python to reacquire the manual install lock.
 	bootstrapGuard, err := lockInstaller(bootstrapLock, 0)
 	if err != nil {
-		return err
+		return relayBootstrapFailure(writer, request.Action, err)
 	}
 	defer bootstrapGuard.Close()
 	if request.Action == "status" || request.Action == "recover" {
-		response, err := runInstalledHelper(trustedDir, request)
-		if err != nil {
-			return err
+		response, helperErr := runInstalledHelper(trustedDir, request)
+		if response.SchemaVersion == 1 {
+			return relayHelperResponse(writer, request.Action, response, helperErr)
 		}
-		return json.NewEncoder(writer).Encode(response)
+		return relayBootstrapFailure(writer, request.Action, helperErr)
 	}
 	old, err := prepareTrustedVersion(trustedDir, trustedLock, 0, func() (string, error) {
 		response, err := runInstalledHelper(trustedDir, privilegedRequest{SchemaVersion: 1, Action: "status"})
 		return response.PrivilegedTransactionState, err
 	})
 	if err != nil {
-		return err
+		return relayBootstrapFailure(writer, request.Action, err)
 	}
 	response, err := runInstalledHelper(trustedDir, request)
 	if err != nil {
@@ -452,10 +497,14 @@ func rootBootstrap(reader io.Reader, writer io.Writer) error {
 			privilegedRequest{SchemaVersion: 1, Action: "status"})
 		if old && statusErr == nil && state.PrivilegedTransactionState == "none" {
 			if restoreErr := completeTrustedVersion(trustedDir, 0, true); restoreErr != nil {
-				return errors.New("installation failed; previous helper could not be restored")
+				return relayBootstrapFailure(writer, request.Action,
+					errors.New("previous trusted helper could not be restored"))
 			}
 		}
-		return err
+		if response.SchemaVersion == 1 {
+			return relayHelperResponse(writer, request.Action, response, err)
+		}
+		return relayBootstrapFailure(writer, request.Action, err)
 	}
 	// Once verified success and cleanup is complete the old helper may be
 	// retired. A retained previous copy is never executed automatically.
@@ -466,7 +515,7 @@ func rootBootstrap(reader io.Reader, writer io.Writer) error {
 			response.Status = "installed_cleanup_required"
 		}
 	}
-	return json.NewEncoder(writer).Encode(response)
+	return relayHelperResponse(writer, request.Action, response, nil)
 }
 
 func discardTrustedStage(stage string, ownerUID int) error {
@@ -485,6 +534,21 @@ func restorePreviousTrustedVersion(root string, ownerUID int) error {
 		return err
 	}
 	failed := root + ".failed"
+	if err := protectedPath(failed, ownerUID, true); err == nil {
+		// Only a previously created root-owned failed *helper bundle*
+		// is deleted. No agent state, backups or secret directories live
+		// here. A second failed upgrade must not collide with stale files.
+		if err := os.RemoveAll(failed); err != nil {
+			return err
+		}
+		if err := syncDirectory(filepath.Dir(root)); err != nil {
+			return err
+		}
+	} else if !os.IsNotExist(err) {
+		// Refuse symlinks, other owners and unsafe modes; never blindly
+		// rename over an unvalidated path.
+		return err
+	}
 	if err := os.Rename(root, failed); err != nil {
 		return err
 	}

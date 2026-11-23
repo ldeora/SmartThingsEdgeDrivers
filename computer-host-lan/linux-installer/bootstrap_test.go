@@ -167,6 +167,49 @@ func TestBootstrapLifetimeLockBlocksConcurrentVersionReplacement(t *testing.T) {
 	again.Close()
 }
 
+func TestRepeatedFailedUpgradeDiscardsOnlyOldRootOwnedFailedBundle(t *testing.T) {
+	parent := t.TempDir()
+	root := filepath.Join(parent, "computer-host-lan")
+	previous := root + ".previous"
+	failed := root + ".failed"
+	for _, path := range []string{root, previous, failed} {
+		if err := os.Mkdir(path, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_ = os.WriteFile(filepath.Join(root, "new"), []byte("new"), 0o600)
+	_ = os.WriteFile(filepath.Join(previous, "old"), []byte("old"), 0o600)
+	_ = os.WriteFile(filepath.Join(failed, "stale"), []byte("stale"), 0o600)
+	if err := restorePreviousTrustedVersion(root, os.Geteuid()); err != nil {
+		t.Fatal(err)
+	}
+	if content, err := os.ReadFile(filepath.Join(root, "old")); err != nil || string(content) != "old" {
+		t.Fatalf("Previous helper was not restored: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(failed, "stale")); !os.IsNotExist(err) {
+		t.Fatal("Stale failed helper was not removed before the second restore")
+	}
+	if content, err := os.ReadFile(filepath.Join(failed, "new")); err != nil || string(content) != "new" {
+		t.Fatalf("Failed live helper was not safely moved aside: %v", err)
+	}
+}
+
+func TestFailedHelperSymlinkIsNotRemovedOnRestore(t *testing.T) {
+	parent := t.TempDir()
+	root := filepath.Join(parent, "computer-host-lan")
+	previous := root + ".previous"
+	failed := root + ".failed"
+	if err := os.Mkdir(root, 0o700); err != nil { t.Fatal(err) }
+	if err := os.Mkdir(previous, 0o700); err != nil { t.Fatal(err) }
+	if err := os.Symlink(t.TempDir(), failed); err != nil { t.Fatal(err) }
+	if err := restorePreviousTrustedVersion(root, os.Geteuid()); err == nil {
+		t.Fatal("Symlinked failed helper was incorrectly removed")
+	}
+	if _, err := os.Lstat(failed); err != nil {
+		t.Fatal("Refused symlink should remain untouched", err)
+	}
+}
+
 func TestTrustedHelperVersionReplacementFixture(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("temporary non-root test fixture; never redirect a live root installation")

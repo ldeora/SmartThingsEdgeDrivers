@@ -34,13 +34,24 @@ remote-power setting unless changed.
 
 After the form **has exited and restored the terminal**, the user must
 type the literal `INSTALL` confirmation (including plain-text mode).
-Only then does the normal-user process call `sudo` to start a separate
-one-shot `-root-bootstrap` process. It never renders the TUI as root,
-captures a password or feeds the sudo password on stdin. The root
-process reads only an allowlisted schema-v1 JSON object. Plain-text
-accessible mode permits the normal sudo password prompt **when a real
-TTY exists**. Noninteractive/no-TTY sudo uses `-n` and cannot wait for a
-password prompt.
+Only then does the normal-user process select an installed
+administrator authorization method and start a separate one-shot
+`-root-bootstrap` process. The preference order is **sudo**, **doas**,
+**run0** (systemd/polkit), then **interactive `su root -c`**. It uses
+fixed executable paths, never interpolates the JSON into shell arguments,
+and never runs the TUI as root or collects an administrator password.
+A declined authorization does **not** silently cause an automatic retry
+with a different provider.
+
+All providers forward the same bounded schema-v1 JSON on stdin while
+authentication is handled by the controlling TTY or polkit. `run0`
+uses `--pipe` for correct standard input forwarding; `doas` and
+`sudo` use `-n` in noninteractive mode, while `run0` uses
+`--no-ask-password`. The `su` fallback is offered only with a real
+TTY and uses a correctly shell-quoted executable path, relying on PAM
+to prompt through `/dev/tty` while leaving the piped JSON for the
+authenticated process. This behavior needs the planned real-host test
+for the distribution's `su` implementation and PAM configuration.
 
 No source checkout is needed to inspect or plan: the executable also
 embeds a **separate read-only Python inspection bundle** and runs that
@@ -64,7 +75,7 @@ copies. The Go binary calculates its **root-installed manifest** from the
 embedded ten-file agent payload; no manifest supplied from an arbitrary
 checkout can change the expected hashes.
 
-After explicit sudo authorization the trusted Go bootstrap:
+After explicit administrator authorization the trusted Go bootstrap:
 
 1. Validates its fixed JSON schema. The caller may request only
    `install`, `upgrade`, `repair`, `status` or `recover`. It cannot
@@ -109,18 +120,60 @@ After explicit sudo authorization the trusted Go bootstrap:
    rechecking the protected journal. If a failed install leaves a pending
    journal the **new** matching helper remains for explicit recovery.
    An error with a fully clean journal restores the previous helper
-   version under that same lock. Helper retirement failure after a
-   successful install is `installed_cleanup_required`, never a false
-   installation failure.
+   version under that same lock. A stale root-owned
+   `computer-host-lan.failed` is safely checked and retired before
+   the next unsuccessful upgrade needs that name. Helper retirement
+   failure after a successful install is `installed_cleanup_required`,
+   never a false installation failure.
 
 A verified installation can still finish with an optional
 `installed_cleanup_required` status. That is **not** a failed agent
 install; the terminal journal must be cleaned using the matching helper.
 
+## Structured failure and user guidance
+
+The installed Python helper already returns a redacted schema-v1 JSON
+error envelope on stdout even with a nonzero process exit. The Go root
+bootstrap now forwards that JSON **before** returning nonzero, and
+fills the known requested operation (which Python intentionally omits
+on failures). The normal-user wizard **parses stdout first**, even if
+the elevation process exited unsuccessfully, and provides specific
+help for:
+
+- `installation_busy`: another installation/recovery holds the lock
+- `rolled_back`: previous files/service state were restored; review
+  prerequisites before retrying
+- `recovery_required`: explicitly run the wizard with `-recover`;
+  never delete its protected journal or backup to bypass the guard
+- `adoption_required`: inspect older retained v2 state, then use the
+  manual `--adopt-retained-state` recovery option
+- `unsupported_python`: install a compatible system Python
+  (3.10 or later) without changing the distribution's default symlink
+
+If elevation was denied, the helper returned no valid JSON, or a
+response is unrecognized/secret-bearing, the wizard shows a **generic
+authorization/bootstrap failure** without printing arbitrary stderr,
+UUIDs, control keys, backups or other private content. Go-only
+preparation failures use fixed error codes such as
+`bootstrap_failed` and `installation_busy`.
+
+## SmartThings discovery and firewall warnings
+
+The installation **Review and completion screens** show an explicit
+warning whenever `avahi_discovery` is not `passed`: merely starting
+a local HTTP listener does not prove that the hub can discover its
+`_computerhost._tcp` service. The wizard also makes a bounded
+**read-only** `systemctl is-active --quiet firewalld.service` probe.
+If firewalld is active, both screens warn that inbound TCP 8765 might
+need an explicit hub-scoped firewall rule before the user relies on
+**Add device → Scan nearby**. The wizard **never** adds a firewall rule
+without separate explicit consent. If the probe is unavailable, it
+does not assert that no firewall is present.
+
 ## Scope and remaining parity work
 
 This milestone enables a first real **install/upgrade** path, including
-review, sudo handoff, fixed bootstrap, payload staging, durable
+review, explicit elevation handoff, fixed bootstrap, payload staging, durable
 rollback, crash recovery and first-use onboarding instructions. It
 does **not** yet provide full Windows Setup feature parity:
 

@@ -92,6 +92,48 @@ func TestInstallWithoutCompatibleInterpreterBlockedBeforePrivilege(t *testing.T)
 	}
 }
 
+func TestInstallationReviewAndCompletionWarnAboutDiscoveryAndFirewall(t *testing.T) {
+	client := fixtureClient(t)
+	info, err := client.inspect()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := newLiveSelection(client, info, nil)
+	s.hubChoice = "skip"
+	s.recordHubChoice("skip")
+	s.firewalldActive = true
+	for i := range s.inspection.Checks {
+		if s.inspection.Checks[i].ID == "avahi_discovery" {
+			s.inspection.Checks[i].Status = "warning"
+		}
+	}
+	review := s.installPreview()
+	for _, phrase := range []string{
+		"WARNING: Avahi discovery is not confirmed",
+		"WARNING: firewalld is active",
+		"TCP 8765 may be blocked",
+	} {
+		if !strings.Contains(review, phrase) {
+			t.Errorf("Review missing warning %q: %s", phrase, review)
+		}
+	}
+	var completion bytes.Buffer
+	s.showNetworkWarnings(&completion)
+	if !strings.Contains(completion.String(), "Scan nearby may not find") ||
+		!strings.Contains(completion.String(), "firewalld is active") {
+		t.Fatalf("Completion hid network warnings: %s", completion.String())
+	}
+	s.firewalldActive = false
+	for i := range s.inspection.Checks {
+		if s.inspection.Checks[i].ID == "avahi_discovery" {
+			s.inspection.Checks[i].Status = "passed"
+		}
+	}
+	if warnings := s.networkWarnings(); len(warnings) != 0 {
+		t.Fatalf("Healthy network should not have warnings: %+v", warnings)
+	}
+}
+
 func TestPrivilegedActionRejectsUnconfirmedSettings(t *testing.T) {
 	cases := []privilegedRequest{
 		{SchemaVersion: 0, Action: "install", Power: "preserve"},

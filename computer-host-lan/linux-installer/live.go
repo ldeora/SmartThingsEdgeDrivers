@@ -397,6 +397,7 @@ type liveSelection struct {
 	powerChoice        string
 	wolChoice          string
 	wolNIC             string
+	firewalldActive    bool // Read once before installation review; never changes policy.
 	finished           bool
 	cacheMu            sync.Mutex // Huh invokes DescriptionFunc off the UI goroutine.
 	cacheKey           string
@@ -708,6 +709,7 @@ func runLiveAccessibleWithHubsMode(reader io.Reader, writer io.Writer, api apiCl
 	hubs []discoveredHub, installing bool, onConfirm func(*liveSelection) error) error {
 	s := newLiveSelection(api, info, hubs)
 	if installing {
+		s.firewalldActive = firewalldRunning()
 		fmt.Fprintln(writer, "COMPUTER HOST LAN — LINUX INSTALLATION (PLAIN TEXT)")
 		fmt.Fprintln(writer, s.installationSummary())
 	} else {
