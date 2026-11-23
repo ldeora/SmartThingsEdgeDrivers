@@ -36,6 +36,10 @@ APP_FILES = (
 AVAHI_PATH = '/etc/avahi/services/linux-host-agent.service'
 MANAGED_PATHS = frozenset((*SYSTEMD_PATHS, POWER_DROPIN, WOL_DROPIN, *APP_FILES, AVAHI_PATH))
 BACKUP_BASE = '/var/backups/linux-host-agent'
+OWNER_DIR = '/var/lib/linux-host-agent-installer'
+OWNER_FILE = OWNER_DIR + '/protocol'
+OWNER_CONTENT = b'v2\n'
+MAX_BACKUP_MANIFEST_BYTES = 256 * 1024
 
 
 @dataclass(frozen=True)
@@ -185,9 +189,9 @@ def detect_installed_protocol(root: Path = Path('/')) -> str:
     if agent is None:
         app_version = None
     else:
-        names = set(PROTOCOL_MARKER.findall(agent))
+        names = PROTOCOL_MARKER.findall(agent)
         app_version = ({b'linux-host-agent': 'v1',
-                        b'computer-host-agent': 'v2'}.get(next(iter(names)))
+                        b'computer-host-agent': 'v2'}.get(names[0])
                        if len(names) == 1 else 'unknown')
     if avahi is None:
         avahi_version = None
@@ -214,25 +218,114 @@ def detect_installed_protocol(root: Path = Path('/')) -> str:
         if target.exists():
             return 'unknown'
     state = root / 'var/lib/linux-host-agent'
-    try:
-        if state.is_symlink() or state.exists():
-            return 'unknown'
-    except OSError as exc:
-        raise InstallError('Cannot safely inspect existing agent state directory') from exc
+    if state.is_symlink() or (state.exists() and not state.is_dir()):
+        raise InstallError('Unsafe existing agent state directory')
+    # The owner record is only decisive if NO managed files remain. It can
+    # never override a v1 marker, a mixed installation, or unknown files.
+    if owner_record_exists(root):
+        return 'v2'
+    if state.exists() or (root / OWNER_DIR.lstrip('/')).exists():
+        return 'unknown'
     return 'absent'
 
 
-def require_v2_or_clean(root: Path = Path('/')) -> str:
-    """Fail closed before install, uninstall, rollback, or preview."""
+def _owner_paths(root: Path) -> tuple[Path, Path]:
+    folder = root / OWNER_DIR.lstrip('/')
+    file = root / OWNER_FILE.lstrip('/')
+    InstallTransaction.refuse_links(file)
+    if folder.exists() and not folder.is_dir():
+        raise InstallError('Unsafe installer ownership directory')
+    return folder, file
+
+
+def owner_record_exists(root: Path = Path('/')) -> bool:
+    """Read only a protected, non-secret v2 ownership marker, never state."""
+    folder, file = _owner_paths(root)
+    if not file.exists():
+        return False
+    if folder.stat().st_mode & 0o077 or file.stat().st_mode & 0o077:
+        raise InstallError('Insecure installer ownership marker permissions')
+    if root == Path('/') and (folder.stat().st_uid != 0 or file.stat().st_uid != 0):
+        raise InstallError('Installer ownership marker must be root-owned')
+    try:
+        fd = os.open(file, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
+        with os.fdopen(fd, 'rb') as inp:
+            st = os.fstat(inp.fileno())
+            if not stat.S_ISREG(st.st_mode) or st.st_size != len(OWNER_CONTENT) or \
+                    (root == Path('/') and st.st_uid != 0):
+                raise InstallError('Invalid installer ownership record')
+            if inp.read(len(OWNER_CONTENT) + 1) != OWNER_CONTENT:
+                raise InstallError('Unknown installer ownership record version')
+    except OSError as exc:
+        raise InstallError('Cannot inspect installer ownership record safely') from exc
+    return True
+
+
+def write_owner_record(root: Path = Path('/')) -> None:
+    """Durably record root-authorized v2 installation intent BEFORE activation.
+
+    Retain after uninstall or an interrupted/rolled-back fresh installation.
+    This protects v2 retained-state reinstall without adopting legacy v1.
+    Must only be called after the coexistence guard while holding the lock.
+    """
+    folder, file = _owner_paths(root)
+    if owner_record_exists(root):
+        return
+    if folder.exists():
+        raise InstallError('Installer ownership directory exists without a valid record')
+    folder.parent.mkdir(parents=True, exist_ok=True)
+    # The checked-out v2 installer is root-run; no secret is stored here.
+    folder.mkdir(mode=0o700)
+    os.chmod(folder, 0o700)
+    try:
+        fd = os.open(file, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+        with os.fdopen(fd, 'wb') as out:
+            out.write(OWNER_CONTENT)
+            out.flush()
+            os.fsync(out.fileno())
+        dirfd = os.open(folder, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(dirfd)
+        finally:
+            os.close(dirfd)
+    except OSError as exc:
+        raise InstallError('Cannot safely write installer ownership record') from exc
+
+
+def _retained_state_only(root: Path) -> bool:
+    """True only for legacy-ambiguous state WITHOUT any managed files."""
+    if owner_record_exists(root):
+        return False
+    state = root / 'var/lib/linux-host-agent'
+    if state.is_symlink() or not state.is_dir():
+        return False
+    trans = InstallTransaction(root)
+    for managed in MANAGED_PATHS:
+        target = trans.location(managed)
+        trans.refuse_links(target)
+        if target.exists():
+            return False
+    return True
+
+
+def require_v2_or_clean(root: Path = Path('/'), *, adopt_retained_state: bool = False) -> str:
+    """Refuse v1 and ambiguity; explicit expert adoption only for orphan state."""
     state = detect_installed_protocol(root)
     if state == 'v1':
         raise InstallError(
             'Legacy v1 Linux Host LAN installation detected; refusing to replace it. '
             'An explicit, reviewed migration is required.')
     if state == 'unknown':
+        if adopt_retained_state and _retained_state_only(root):
+            return 'adopted'
         raise InstallError(
             'Existing Linux Host Agent files or state could not be identified as v2. '
-            'Refusing automatic changes; investigate before migration or repair.')
+            'Refusing automatic changes; investigate before migration or repair. '
+            'If no managed files remain and you independently confirmed retained '
+            'state belongs to v2, the manual installer supports --adopt-retained-state.')
+    if adopt_retained_state:
+        raise InstallError('--adopt-retained-state is only for a retained state directory '
+                           'with no installed managed files and no v2 ownership record')
     return state
 
 
