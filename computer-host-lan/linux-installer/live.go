@@ -689,144 +689,179 @@ func runLiveAccessible(reader io.Reader, writer io.Writer, api apiClient, info a
 }
 
 func runLiveAccessibleWithHubs(reader io.Reader, writer io.Writer, api apiClient, info apiInspect, hubs []discoveredHub) error {
-	fmt.Fprintln(writer, "COMPUTER HOST LAN — LIVE READ-ONLY, ANSI-FREE MODE")
-	fmt.Fprintln(writer, info.brief())
-	fmt.Fprintln(writer, "No installation or configuration is possible here. Type back or quit.")
-	s := liveSelection{api: api, inspection: info, hubs: hubs, hubChoice: "skip", powerChoice: "keep", wolChoice: "keep"}
+	s := newLiveSelection(api, info, hubs)
+	fmt.Fprintln(writer, "COMPUTER HOST LAN — SETUP PREVIEW (PLAIN TEXT)")
+	fmt.Fprintln(writer, s.inspectionSummary())
+	fmt.Fprintln(writer, "Type back to return to a previous step, or quit to cancel.")
 	scanner := bufio.NewScanner(reader)
 	step := 0
 	for {
 		switch step {
 		case 0:
-			fmt.Fprint(writer, "Power: [k] preserve (default), [y] request enable, [n] request disable: ")
-		case 1:
-			fmt.Fprint(writer, "WOL interface: [k] preserve (default), [p] preview pin: ")
-		case 2:
-			if s.wolChoice != "pin" {
-				step++
-				continue
-			}
-			fmt.Fprint(writer, "Existing NIC name (not WOL hardware validation): ")
-		case 3:
-			fmt.Fprintln(writer, "SmartThings hub selection (read-only; no hub connection):")
+			fmt.Fprintln(writer, "\n1. Which SmartThings hub do you use?")
 			for i, hub := range hubs {
-				fmt.Fprintf(writer, "  [%d] Avahi candidate %s (unverified)\n", i+1, hub.IPv4)
+				selected := ""
+				if s.hubChoice == "discovered:"+hub.IPv4 {
+					selected = " (selected)"
+				}
+				fmt.Fprintf(writer, "  [%d] Hub at %s%s\n", i+1, hub.IPv4, selected)
 			}
-			fmt.Fprint(writer, "Hub: [k] skip (default), [m] enter IPv4 manually, or candidate number: ")
-		case 4:
+			if len(hubs) == 0 {
+				fmt.Fprintln(writer, "No hub found automatically. You can enter its IP address.")
+			}
+			fmt.Fprint(writer, "Press Enter for selected/default, [m] manual IP, [s] choose later: ")
+		case 1:
 			if s.hubChoice != "manual" {
 				step++
 				continue
 			}
-			fmt.Fprint(writer, "SmartThings hub IPv4 (literal address, not contacted): ")
+			fmt.Fprint(writer, "Enter your SmartThings hub IP address: ")
+		case 2:
+			fmt.Fprintln(writer, "\n2. Power control")
+			fmt.Fprintln(writer, "Monitoring does not require shutdown or restart permissions.")
+			if s.inspection.Installation.PowerDropin == "present" {
+				fmt.Fprint(writer, "[k] keep existing power control (default), [n] turn off: ")
+			} else {
+				fmt.Fprint(writer, "[k] monitor only (default), [y] allow shutdown/restart/suspend: ")
+			}
+		case 3:
+			fmt.Fprint(writer, "Advanced networking: [k] leave unchanged (default), [p] review network interface: ")
+		case 4:
+			if s.wolChoice != "pin" {
+				step++
+				continue
+			}
+			if s.wolNIC != "" {
+				fmt.Fprintf(writer, "Suggested interface: %s. Press Enter to accept, or type another: ", s.wolNIC)
+			} else {
+				fmt.Fprint(writer, "Network interface name (e.g. enp1s0f0): ")
+			}
 		case 5:
 			fmt.Fprintln(writer, "\n"+s.preview())
-			fmt.Fprint(writer, "Finish read-only review? [y/N]: ")
+			fmt.Fprint(writer, "Finish preview? [Y/n]: ")
 		}
 		if !scanner.Scan() {
 			if err := scanner.Err(); err != nil {
 				return err
 			}
-			fmt.Fprintln(writer, "\nCancelled; no changes made.")
+			fmt.Fprintln(writer, "\nSetup preview cancelled. No changes made.")
 			return nil
 		}
-		rawInput := strings.TrimSpace(scanner.Text())
-		input := strings.ToLower(rawInput)
-		switch input {
+		raw := strings.TrimSpace(scanner.Text())
+		answer := strings.ToLower(raw)
+		switch answer {
 		case "quit", "exit", "q":
-			fmt.Fprintln(writer, "Cancelled; no changes made.")
+			fmt.Fprintln(writer, "Setup preview cancelled. No changes made.")
 			return nil
 		case "back":
 			if step > 0 {
 				step--
 			} else {
-				fmt.Fprintln(writer, "Already at first step.")
+				fmt.Fprintln(writer, "Already at the first step.")
 			}
-			if step == 4 && s.hubChoice != "manual" {
+			if step == 4 && s.wolChoice != "pin" {
 				step--
 			}
-			if step == 2 && s.wolChoice != "pin" {
+			if step == 1 && s.hubChoice != "manual" {
 				step--
 			}
 			continue
 		}
-		accepted := true
+		valid := true
 		switch step {
 		case 0:
-			switch input {
+			switch answer {
+			case "":
+				// Keep the automatically selected hub, or ask for manual
+				// entry when none was found.
+			case "m":
+				s.hubChoice = "manual"
+			case "s":
+				s.hubChoice = "skip"
+			default:
+				if len(answer) != 1 || answer[0] < '1' || answer[0] > '8' {
+					valid = false
+				} else if index := int(answer[0] - '1'); index >= len(hubs) {
+					valid = false
+				} else {
+					s.hubChoice = "discovered:" + hubs[index].IPv4
+				}
+			}
+			if valid {
+				s.recordHubChoice(s.hubChoice)
+				if strings.HasPrefix(s.hubChoice, "discovered:") {
+					if name := suggestedNIC(strings.TrimPrefix(s.hubChoice, "discovered:")); name != "" && s.wolChoice == "keep" {
+						s.wolNIC = name
+					}
+				}
+			}
+		case 1:
+			if validHubIPv4(raw) != nil {
+				valid = false
+			} else {
+				s.hubManual = raw
+				s.recordHubManual(raw)
+				if name := suggestedNIC(raw); name != "" && s.wolChoice == "keep" {
+					s.wolNIC = name
+				}
+			}
+		case 2:
+			switch answer {
 			case "", "k":
 				s.powerChoice = "keep"
 			case "y":
-				s.powerChoice = "enabled"
+				if s.inspection.Installation.PowerDropin == "present" {
+					valid = false
+				} else {
+					s.powerChoice = "enabled"
+				}
 			case "n":
-				s.powerChoice = "disabled"
+				if s.inspection.Installation.PowerDropin != "present" {
+					valid = false
+				} else {
+					s.powerChoice = "disabled"
+				}
 			default:
-				accepted = false
+				valid = false
 			}
-		case 1:
-			switch input {
+		case 3:
+			switch answer {
 			case "", "k":
 				s.wolChoice = "keep"
 			case "p":
 				s.wolChoice = "pin"
 			default:
-				accepted = false
-			}
-		case 2:
-			if validNICName(rawInput) != nil {
-				accepted = false
-			} else {
-				s.wolNIC = rawInput
-			}
-		case 3:
-			switch input {
-			case "", "k":
-				s.hubChoice = "skip"
-			case "m":
-				s.hubChoice = "manual"
-			default:
-				index := -1
-				if len(input) == 1 && input[0] >= '1' && input[0] <= '8' {
-					index = int(input[0] - '1')
-				}
-				if index < 0 || index >= len(hubs) {
-					accepted = false
-				} else {
-					s.hubChoice = "discovered:" + hubs[index].IPv4
-				}
+				valid = false
 			}
 		case 4:
-			if validHubIPv4(rawInput) != nil {
-				accepted = false
+			if raw == "" && s.wolNIC != "" {
+				break // Accept prefilled NIC.
+			}
+			if validNICName(raw) != nil {
+				valid = false
 			} else {
-				s.hubManual = rawInput
+				s.wolNIC = raw // Preserve case.
 			}
 		case 5:
-			if input != "y" && input != "n" && input != "" {
-				accepted = false
+			if answer != "" && answer != "y" && answer != "n" {
+				valid = false
 				break
 			}
-			if input == "y" {
-				plan, err := s.currentPlan()
-				if err != nil || plan.SelectedPython != s.inspection.Python.SelectedInterpreter {
-					fmt.Fprintln(writer, "Cannot finish: read-only plan invalid or unavailable. Type back to change options, or quit.")
-					continue
-				}
-				fmt.Fprintln(writer, "READ-ONLY REVIEW COMPLETE — nothing installed or modified.")
-			} else {
-				fmt.Fprintln(writer, "Exited; no changes made.")
+			if answer == "n" {
+				fmt.Fprintln(writer, "Exited without changes.")
+				return nil
 			}
+			plan, err := s.currentPlan()
+			if err != nil || plan.SelectedPython != s.inspection.Python.SelectedInterpreter {
+				fmt.Fprintln(writer, "The preview could not be verified. Type back to change a setting or quit.")
+				continue
+			}
+			fmt.Fprintln(writer, "SETUP PREVIEW COMPLETE — no changes made.")
 			return nil
 		}
-		if !accepted {
-			fmt.Fprintln(writer, "Invalid option. Try again.")
+		if !valid {
+			fmt.Fprintln(writer, "Please select a listed choice or enter a valid value.")
 			continue
-		}
-		// Maintain the same immutable review snapshots as full-screen Huh.
-		if step == 3 {
-			s.recordHubChoice(s.hubChoice)
-		} else if step == 4 {
-			s.recordHubManual(s.hubManual)
 		}
 		step++
 	}
