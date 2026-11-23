@@ -431,6 +431,24 @@ class ProtectedJournal:
             os.close(directory)
             raise
 
+    def reconcile_orphaned_staging(self, verify_no_changes: Callable[[], bool]) -> None:
+        """Resolve an interrupted *first journal write*, after trusted checks.
+
+        Only valid with NO persistent journal and with leftover staged files.
+        The future root-side recovery engine must prove no managed mutation
+        occurred. No unverified or automatic cleanup is permitted.
+        """
+        directory, lockfd = self._acquire(create=False)
+        try:
+            if _read(directory, self.owner_uid) is not None or not _leftovers(directory):
+                raise JournalConflict('not an orphaned initial journal write')
+            if not callable(verify_no_changes) or verify_no_changes() is not True:
+                raise JournalConflict('unchanged installation has not been verified')
+            _remove_leftovers(directory, self.owner_uid)
+        finally:
+            os.close(lockfd)
+            os.close(directory)
+
     def resume_recovery(self) -> TransactionHandle:
         """Trusted caller obtains exclusive recovery ownership after crash."""
         directory, lockfd = self._acquire(create=False)
