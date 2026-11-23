@@ -1,7 +1,8 @@
 // Computer Host LAN Linux installer UX spike.
 //
-// This experiment performs no installation, system probes, privilege escalation,
-// network discovery, credential access, downloads or filesystem modifications.
+// Demo mode performs no installation, inspection, network discovery or writes.
+// Live preview still cannot install or elevate, but may explicitly browse local
+// mDNS via Avahi for SmartThings hub candidates. No endpoint is contacted.
 // The demo IPs are reserved documentation addresses and are never contacted.
 package main
 
