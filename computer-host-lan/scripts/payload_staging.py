@@ -640,3 +640,59 @@ def finish_retirement(transaction: TransactionHandle, *, root: Path = Path('/'),
     finally:
         os.close(lock)
         os.close(base)
+
+
+def finish_terminal_stage(transaction: TransactionHandle, *,
+                          root: Path = Path('/'), owner_uid: int = 0) -> None:
+    """Idempotently remove this terminal transaction's safe pending/ready tree.
+
+    This is for COMPLETED or VERIFIED-ROLLED-BACK operations only. It does
+    not authenticate payload code or claim successful installation.
+    It allows a later wizard version to finish cleanup without knowing an
+    old release's trusted hashes, while refusing foreign/suspicious entries.
+    """
+    root = Path(root)
+    if os.geteuid() != owner_uid:
+        raise StagingError('trusted staging owner required')
+    identifier = _transaction_id(transaction, root, owner_uid,
+                                 phases=('COMMITTED', 'ABORTED', 'ROLLED_BACK'))
+    try:
+        base, lock = _lock_stage(root, owner_uid, create=False)
+    except StagingConflict as exc:
+        if str(exc) == 'trusted staging root missing':
+            # A digest rejection or early failure may not have staged data.
+            return
+        raise
+    try:
+        entries = set(os.listdir(base)) - {_LOCK}
+        if not entries:
+            os.fsync(base)
+            return
+        if len(entries) != 1:
+            raise StagingConflict('unexpected terminal staging state')
+        name = next(iter(entries))
+        if name not in (_PENDING + identifier, _READY + identifier):
+            raise StagingConflict('stage does not belong to terminal journal')
+        fd = os.open(name, _DIR_FLAGS, dir_fd=base)
+        try:
+            _check_directory(fd, owner_uid, private=True)
+            # Interrupted pending writes and interrupted retirement can both
+            # contain an incomplete but strictly allowlisted file tree.
+            _inspect_tree(fd, owner_uid, None)
+            visible = os.stat(name, dir_fd=base, follow_symlinks=False)
+            opened = os.fstat(fd)
+            if ((visible.st_dev, visible.st_ino) !=
+                    (opened.st_dev, opened.st_ino)):
+                raise StagingError('stage identity changed during cleanup')
+            _delete_tree(fd, owner_uid)
+        finally:
+            os.close(fd)
+        os.rmdir(name, dir_fd=base)
+        os.fsync(base)
+    except (StagingError, StagingConflict):
+        raise
+    except OSError:
+        raise StagingError('unsafe terminal staged payload cleanup') from None
+    finally:
+        os.close(lock)
+        os.close(base)

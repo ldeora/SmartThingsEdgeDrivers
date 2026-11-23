@@ -8,13 +8,15 @@ WOL_INTERFACE=''
 CONFIGURE_WOL=0
 PYTHON_OVERRIDE=''
 DRY_RUN=0
-usage() { echo "Usage: $0 [--enable-power|--disable-power] [--wol-interface IFNAME] [--configure-wol] [--python /absolute/path] [--dry-run]" >&2; exit 2; }
+ADOPT_RETAINED_STATE=0
+usage() { echo "Usage: $0 [--enable-power|--disable-power] [--wol-interface IFNAME] [--configure-wol] [--python /absolute/path] [--dry-run] [--adopt-retained-state]" >&2; exit 2; }
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --enable-power) ENABLE_POWER=1; shift ;;
     --disable-power) DISABLE_POWER=1; shift ;;
     --configure-wol) CONFIGURE_WOL=1; shift ;;
     --dry-run) DRY_RUN=1; shift ;;
+    --adopt-retained-state) ADOPT_RETAINED_STATE=1; shift ;;
     --python) [ "$#" -ge 2 ] || usage; PYTHON_OVERRIDE=$2; shift 2 ;;
     --wol-interface) [ "$#" -ge 2 ] || usage; WOL_INTERFACE=$2; shift 2 ;;
     *) usage ;;
@@ -38,6 +40,16 @@ PYTHON_BIN=$LINUXHOST_PYTHON
 # Preflight ALL sources and Python syntax before creating an account or writing services.
 "$PYTHON_BIN" -c 'import ast,sys,pathlib; [ast.parse(pathlib.Path(p).read_text()) for p in sys.argv[1:]]' \
   "$ROOT/agent/linux_host_agent.py" "$ROOT/agent/power_helper.py" "$ROOT/scripts/install_core.py" || exit 1
+# Read-only v1/v2 guard BEFORE useradd. The engine repeats it after taking
+# the common installation lock, along with the wizard journal check.
+if [ "$ADOPT_RETAINED_STATE" -eq 1 ]; then
+  "$PYTHON_BIN" "$ROOT/scripts/install_core.py" --check-existing --adopt-retained-state || exit 1
+else
+  "$PYTHON_BIN" "$ROOT/scripts/install_core.py" --check-existing || exit 1
+fi
+if [ "$DRY_RUN" -eq 0 ]; then
+  "$PYTHON_BIN" "$ROOT/scripts/install_core.py" --check-wizard-journal || exit 1
+fi
 NOLOGIN_BIN=$(command -v nologin || true)
 if [ -z "$NOLOGIN_BIN" ]; then
   for candidate in /usr/sbin/nologin /sbin/nologin /bin/false; do
@@ -53,6 +65,7 @@ if [ "$DRY_RUN" -eq 1 ]; then set -- --plan --source "$ROOT" --python "$PYTHON_B
 [ "$ENABLE_POWER" -eq 0 ] || set -- "$@" --enable-power
 [ "$DISABLE_POWER" -eq 0 ] || set -- "$@" --disable-power
 [ -z "$WOL_INTERFACE" ] || set -- "$@" --wol-interface "$WOL_INTERFACE"
+[ "$ADOPT_RETAINED_STATE" -eq 0 ] || set -- "$@" --adopt-retained-state
 "$PYTHON_BIN" "$ROOT/scripts/install_core.py" "$@"
 if [ -n "$WOL_INTERFACE" ]; then
   printf 'Pinned WOL interface: %s\n' "$WOL_INTERFACE"

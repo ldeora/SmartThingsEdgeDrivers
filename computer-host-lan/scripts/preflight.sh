@@ -39,6 +39,12 @@ for tool in systemctl useradd getent install sed; do
 done
 if linuxhost_select_python "$PYTHON_OVERRIDE"; then
   printf '[OK] Interpreter: %s (%s)\n' "$LINUXHOST_PYTHON" "$("$LINUXHOST_PYTHON" --version 2>&1)"
+  if "$LINUXHOST_PYTHON" "$ROOT/scripts/install_core.py" --check-existing; then
+    echo '[OK] Existing Linux agent is v2 or no prior installation exists'
+  else
+    echo '[FAIL] Legacy v1 or ambiguous Linux agent must be investigated before installing v2'
+    fail=1
+  fi
 else
   echo '[FAIL] No compatible Python 3.10+ interpreter found'
   fail=1
