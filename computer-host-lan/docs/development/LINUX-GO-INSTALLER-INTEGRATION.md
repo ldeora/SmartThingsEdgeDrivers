@@ -226,15 +226,36 @@ is rejected, not echoed. The UI labels the failing *stage*, not a
 guessed root cause. Older helper responses without the optional field
 remain compatible.
 
-**Do not infer physical success from CI alone.** This test has not yet
-reported a clean post-abort journal status. Before a fourth authorized
-install, use the already installed root-owned Python entrypoint with
-the exact read-only `status` action to check
-`privileged_transaction_state`, and inspect just service state,
-backup/staging directory types, modes and disk space. Never manually
-delete the retained `.failed` helper, private snapshots, or transaction
-journal. A further install is for supervised diagnosis only after
-review, a verified backup and a clean protected state.
+### Fourth-attempt blocker reproduced: stale Btrfs directory enumeration
+
+The next `hydra` attempt (commit `62596c7`) returned
+`aborted` with the new fixed `failure_stage: payload` classification.
+Before further installation, the installed root-only `status` command
+reported `privileged_transaction_state: none`. All **10/10** embedded
+payload SHA-256 hashes matched the root manifest; staging ownership,
+permissions and the empty `stage.lock` were correct, with no leftover
+entries. The existing agent and power socket were active.
+
+An **isolated root-owned fixture in /var/tmp**, without changing live
+agent files, reproduced `StagingError: incomplete staged payload`.
+Inspection of the pending directory proved that **all 10 files were
+physically present**. Opening a **new directory descriptor** and
+running the same `_inspect_tree` verification succeeded. The
+implementation previously enumerated the stage through a descriptor
+opened before the files were populated; that directory stream could
+return an incomplete listing on the tested Gentoo/Btrfs host.
+
+The repair reopens an independent, descriptor-relative directory stream
+with `openat(fd, ".")` for both verification and retirement, retaining
+the no-follow, fixed-path and ownership checks. A portable regression
+test simulates the stale original descriptor and checks staging, repeated
+verification, retirement and journal cleanup. The authoritative Python
+module and embedded Go bundle are synchronized.
+
+**Physical acceptance is still pending.** Before any next authorized
+installation, require green tests, independent review, a verified backup
+and clean protected status. Never manually delete the retained `.failed`
+helper, private snapshots or transaction journal.
 
 ## Version-pinned Go binary as the bootstrap trust anchor
 
