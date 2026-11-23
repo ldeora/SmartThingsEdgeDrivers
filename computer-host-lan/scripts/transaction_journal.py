@@ -449,6 +449,27 @@ class ProtectedJournal:
             os.close(lockfd)
             os.close(directory)
 
+    def finish_terminal(self) -> None:
+        """Complete interrupted cleanup for a previously terminal journal.
+
+        This does NOT certify recovery; ABORTED/ROLLED_BACK/COMMITTED was
+        already durably recorded by a trusted transaction owner.
+        """
+        directory, lockfd = self._acquire(create=False)
+        try:
+            current = _read(directory, self.owner_uid)
+            if current is None or current['phase'] not in _TERMINAL:
+                raise JournalConflict('cannot clean an unfinished transaction')
+            _remove_leftovers(directory, self.owner_uid)
+            try:
+                os.unlink(_JOURNAL, dir_fd=directory)
+                os.fsync(directory)
+            except OSError:
+                raise UnsafeJournal('journal cleanup failed') from None
+        finally:
+            os.close(lockfd)
+            os.close(directory)
+
     def resume_recovery(self) -> TransactionHandle:
         """Trusted caller obtains exclusive recovery ownership after crash."""
         directory, lockfd = self._acquire(create=False)
