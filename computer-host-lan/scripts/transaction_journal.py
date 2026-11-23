@@ -251,8 +251,17 @@ def _read(directory: int, owner_uid: int) -> dict | None:
 
 
 def _leftovers(directory: int) -> list[str]:
+    # TransactionHandle keeps its descriptor for the whole transaction.
+    # On some Btrfs kernels a directory stream opened before temp files
+    # were created can omit those new entries. Always inspect a freshly
+    # opened stream relative to the trusted, already-open directory inode.
     try:
-        return [entry for entry in os.listdir(directory) if entry.startswith(_TEMP_PREFIX)]
+        fresh = os.open('.', _DIR_FLAGS, dir_fd=directory)
+        try:
+            return [entry for entry in os.listdir(fresh)
+                    if entry.startswith(_TEMP_PREFIX)]
+        finally:
+            os.close(fresh)
     except OSError:
         raise UnsafeJournal('unable to inspect journal staging') from None
 
@@ -285,16 +294,25 @@ def _write(directory: int, data: dict) -> None:
 
 
 def _remove_leftovers(directory: int, owner_uid: int) -> None:
-    for name in _leftovers(directory):
-        if not _TEMP_NAME.fullmatch(name):
-            raise UnsafeJournal('unexpected journal staging entry')
-        fd = os.open(name, _FILE_FLAGS, dir_fd=directory)
+    # Anchor cleanup to a fresh directory descriptor too. Do not trust
+    # an enumeration cached before an interrupted journal write.
+    try:
+        fresh = os.open('.', _DIR_FLAGS, dir_fd=directory)
         try:
-            _checked_regular(fd, owner_uid)
+            for name in _leftovers(fresh):
+                if not _TEMP_NAME.fullmatch(name):
+                    raise UnsafeJournal('unexpected journal staging entry')
+                fd = os.open(name, _FILE_FLAGS, dir_fd=fresh)
+                try:
+                    _checked_regular(fd, owner_uid)
+                finally:
+                    os.close(fd)
+                os.unlink(name, dir_fd=fresh)
+            os.fsync(fresh)
         finally:
-            os.close(fd)
-        os.unlink(name, dir_fd=directory)
-    os.fsync(directory)
+            os.close(fresh)
+    except OSError:
+        raise UnsafeJournal('unable to remove journal staging') from None
 
 
 class TransactionHandle:
