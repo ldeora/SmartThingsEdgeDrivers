@@ -512,11 +512,11 @@ class InstallerBackendTests(unittest.TestCase):
         self.assertEqual(leftover.read_text(), UUID + '\n')
 
     def test_manual_rollback_path_checks_journal_under_shared_lock(self):
-        # The guard was already present in the CLI under its flock;
-        # retain a cheap regression assertion rather than editing it.
+        # Retain the invariant: the manual CLI must check the wizard
+        # journal only AFTER taking the same hardened cross-installer lock.
         import inspect
         source = inspect.getsource(core.run_cli)
-        under_lock = source[source.index("with lockfile.open('a+') as lock:"):]
+        under_lock = source[source.index('with open_manual_install_lock(lockfile) as lock:'):]
         self.assertLess(under_lock.index('require_no_wizard_transaction()'),
                         under_lock.index('if args.rollback:'))
 
