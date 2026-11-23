@@ -1,133 +1,185 @@
-# Linux installer PR #75 — protected payload staging boundary
+# Linux installer PR #75 — protected, transaction-bound payload staging
 
-**Status:** independent DATA-ONLY milestone (not a working privileged installer).  
+**Status:** isolated DATA-ONLY milestone, not a working privileged installer.  
 **Production behavior:** unchanged. No sudo/polkit, installed agent/service,
 systemd, persistent UUID, token, firewall, networking, WOL or hub interaction.
 
-## Why the distinction matters
+## Trust boundary
 
-The source-installed Linux agent and `install_core.py` already perform useful
-systemd installation and exception-triggered rollback. But running those
-scripts as root out of an ordinary user's checkout, untrusted temp directory,
-or an unverified unpacked binary is **not safe**. A root-side hash comparison
-is also meaningless if the attacker can supply **both** the code and its
-"expected" hashes.
+PR #73 adds bounded runtime verification; PR #74 adds a durable private
+transaction journal. The Linux installer still must not execute
+`install_core.py` as root from a user-writable source checkout. This PR
+provides the narrow, non-executing primitive for moving a verified payload
+into a protected installer namespace with guarded cleanup.
 
-PR #73 provides bounded runtime health checks. PR #74 provides a private
-transaction journal. PR #75 introduces an isolated **data-only** foundation
-for placing a hash-matched source payload under root control before any
-privileged engine is permitted to execute it.
+`scripts/payload_staging.py` is a library without a CLI, subprocess, shell,
+service manager or elevation path. It is **never appropriate to run it as root
+from an ordinary checkout**. It requires a **live exclusive
+`TransactionHandle`** from PR #74, bound to the *same protected root and
+owner* as the staging directory.
 
-`scripts/payload_staging.py` is a library module, **not** a command-line
-program, authorized installer, privileged wrapper, shell script, or service.
-Do **not** run it with `sudo` from a repository checkout. No application
-files or services are installed by calling it.
+### Chosen installer namespace
 
-## Fixed payload allowlist
+- **Installer staging and its lock:**
+  `/var/lib/computer-host-installer/staging` (root-owned 0700)
+- **Installer transaction journal and recovery snapshots:**
+  `/var/backups/linux-host-agent/wizard-transactions`
+- **Existing persistent agent identity/key:**
+  `/var/lib/linux-host-agent` (never staged, copied or cleared here)
 
-Only the ten specific files referenced in `PAYLOAD_FILES` may be staged:
+These paths are now the intentional installer namespaces for future
+uninstall/repair/recovery implementation. The installer state and private
+agent runtime state remain separate. Nothing in this PR creates a service or
+user, or changes current installation or uninstall behavior.
 
-- `agent/linux_host_agent.py` and `agent/power_helper.py`
-- the five exact `agent/systemd/` agent/power/Avahi templates
-- `scripts/install_core.py`, `scripts/runtime_verify.py`,
-  and `scripts/transaction_journal.py`
+## Fixed payload, integrity, and source policy
 
-No arbitrary extra files, shell hooks, Windows binaries, credential state,
-installation identity, control tokens, backups or device configuration.
-The manifest must name **exactly** this allowlist; every expected digest
-must be a lowercase 64-character SHA-256 hex string. Files are capped
-at 1 MiB each and 4 MiB total. All content is read and validated in bounded
-memory **before** any destination directory is created.
+The allowlist contains exactly ten files: the two agent Python files, the
+three systemd units, optional power drop-in, Avahi template, and
+`install_core.py`, `runtime_verify.py`, `transaction_journal.py`.
+The caller supplies expected lowercase SHA-256 hashes for **exactly**
+those names. Individual files are limited to 1 MiB and the total payload
+to 4 MiB; content is checked in memory **before** staging directories
+are created.
 
-Untrusted source path components are opened with `O_NOFOLLOW` and
-directory file descriptors; source payload files must be regular, singly
-linked and digest-matched. All source bytes are retained after validation,
-so later tampering with the unprivileged source tree cannot affect the bytes
-written to the protected stage. There is no shell interpolation or code
-execution of source payload.
+Source folders/files are opened with no-follow dirfds. Symlinks, FIFOs,
+special files, missing files and size/digest mismatches fail closed.
+**Source hardlinks are intentionally allowed:** because the bytes are
+authenticated and kept in bounded memory before staging, another link
+does not weaken source integrity. The **staged** files retain strict
+single-link mode 0600 and trusted ownership. Files copied from the source
+cannot be swapped after verification: only the verified bytes are written.
 
-## Root-owned staging and crash behavior
+Destination traversal is fixed, no-follow, and checks owner/mode. Shared
+parents `/var` and `/var/lib` are accepted with ordinary root-owned
+permissions; newly created ones get exactly 0755, independently of umask.
+Installer-private directories get exactly 0700, existing directory modes
+are not normalized. Each output file is created exclusively, written,
+fsynced and rehashed; directories are synced before and after rename
+from `pending-<transaction-id>` to `ready-<transaction-id>`.
 
-Future production root-only path (constant, never from a wizard argument):
+## The journal and staging binding
 
-`/var/lib/computer-host-installer/staging/`
+**Stage ID = the journal's existing random 128-bit transaction ID.** This
+is an intentional schema-compatible binding: PR #74 already durably
+records `transaction_id` before `STAGED`. The stage does **not** invent
+a second independent ID, and the journal schema need not change merely
+to name a staged payload. Its filesystem name is deterministically
+`ready-<transaction-id>`, never selected by an untrusted caller.
 
-No-follow directory-fd traversal checks the trusted owner and prevents
-group/other writes on `/var` and `/var/lib`. New shared system folders
-are mode 0755; the application-specific root directories and pending/ready
-payload directories are 0700. Modes are set with `fchmod` and `fsync`
-independently of process umask. Existing administrator-owned directories
-are checked, not normalized.
+The journal handle exposes the validated ID only to protected code.
+`stage_payload(source, trusted_hashes, transaction)` requires an active
+journal at phase `INSPECTED`, and verifies the transaction owner/root.
+Staging holds its own **exclusive lifetime lock** and directory handles
+until its `StagedPayload` receipt is explicitly closed or retired. The
+same active journal handle must remain alive in the caller.
 
-A private 0600 lock prevents concurrent staging. A uniquely named,
-root-only `pending-...` directory receives all staged files as 0600,
-with file/directory durability barriers. Each output file is reread from
-the protected stage and hashed again. Only after all bytes are verified
-does the stage get atomically renamed to `ready-...` and its parent synced.
+The receipt provides:
+- `stage_id` — the same private ID as the held journal transaction
+- `directory_fd` — `CLOEXEC` open handle to the verified ready folder
+- `verify(trusted_hashes)` — compare stage path's `st_dev/st_ino` to
+  the held handle, require strict file tree/ownership/mode/link checks,
+  and rehash **every** file against the trusted caller's hashes
+- `verified_source_path(trusted_hashes)` — an absolute source path only
+  after those identity and content checks, for the future trusted engine
 
-The return value is a verified *open directory file descriptor*, **not
-an execution or installation authorization**. It must be closed by the
-trusted caller. There is deliberately no `exec`, `sudo`, `subprocess`,
-`systemctl` or installation entry point in this PR.
+The receipt is process-bound. An inherited receipt in a forked child
+cannot retire or use the parent's stage. Do not fork while holding it:
+the child can inherit lock references until it exits. Never call
+`LOCK_UN` on a shared inherited lock description.
 
-Any abandoned `pending-...` marker or existing `ready-...` stage
-blocks a new stage. The module does **not** silently remove root state or
-offer an unsafe recursive cleanup API. Cleanup and reuse must be part of
-a later trusted transaction-recovery design. A failing digest requires
-zero destination writes; a disk/write failure after creation may leave
-an explicit incomplete stage and must not be called success.
+**A directory named `ready-*` is only verified data, never executable
+authorization.** After a crash, a trusted caller must reacquire the
+journal transaction (or `resume_finished_cleanup()` for terminal state),
+independently authenticate the same payload manifest, and call
+`recover_ready(manifest, transaction)` to re-open and recheck the
+specific folder tied to that transaction. No stage from a different
+transaction or with unexpected entries is accepted. The result is still
+not authorization to execute anything.
 
-## Trust boundary: intentionally *not* implemented yet
+### Cleanup: no manual root deletion needed for a valid staged tree
 
-The `trusted_hashes` argument is a dependency provided by a **trusted,
-root-owned caller**. The module proves equality to that argument but
-**does not authenticate the manifest, the publisher or a downloaded
-release**. Tests inject hashes for disposable fixtures only.
+- `discard_pending(transaction)`: under an exclusive stage lock, delete
+  **only** `pending-<this journal transaction ID>`. The contents may
+  be partial but must consist entirely of the expected allowlisted
+  directory/file names with correct root ownership/modes and no links
+  or special files. It refuses extra entries, symlinks, hardlinked files,
+  unsafe owners or a stage belonging to another transaction. It is only
+  permitted while the journal is `INSPECTED`, `STAGED` or `ABORTED`.
+- `retire_ready(receipt, trusted_hashes)`: the original receipt's
+  process must still own the exclusive stage lock and a **terminal**
+  journal (`COMMITTED`, `ABORTED`, `ROLLED_BACK`). It checks the
+  visible folder's inode/device against the receipt and verifies the
+  full payload again before unlinking any files using directory fds.
+- `finish_retirement(transaction)`: a dedicated recovery path after a
+  crash in the middle of deleting an already terminal stage. It is
+  available only with the matching **terminal journal** and permits an
+  incomplete allowlisted file tree, never execution or source reuse.
+  It rejects unsafe or unexpected files. Unlike `recover_ready`,
+  this operation is for deletion **only**. Future root-side controller
+  must invoke it before clearing terminal journal state.
 
-Before production installation is enabled, a future separately reviewed
-root-owned launcher must:
+Every cleanup operation holds the staging lock, validates the fixed
+allowlist and types, unlinks files via parent directory descriptors, and
+fsyncs the containing directory. No recursive walk outside the fixed
+payload structure is permitted. A suspicious root-owned tree is an
+explicit stop-and-diagnose condition; never erase it indiscriminately.
+Missing stage files or unknown crash semantics must be handled by the
+future recovery controller rather than presented as a successful install.
 
-1. Be installed/authorized through a documented, verified distribution
-   path, not executed as root from the user's writable Go/source folder.
-2. Pin or independently authenticate the **exact** payload hashes,
-   version, bundle identity and publisher provenance. A self-reported
-   hash file within the same attacker-writable bundle is insufficient.
-3. Require explicit user authorization (sudo/polkit) with the TUI paused,
-   without capturing credentials, shell-interpolating input or starting
-   a privileged program from a writable parent.
-4. Accept only a bounded, versioned request schema (operation and
-   allowlisted options), never arbitrary root destinations, Python
-   executables, script paths, shell text or systemd unit names.
-5. Check the finished staged files **again** under trusted directory
-   handles before executing; keep the stage private until transaction
-   completion or validated recovery.
-6. Coordinate with the existing manual installation lock
-   `/run/lock/linux-host-agent-install.lock` and PR #74 journal for
-   both staged and pre-existing installs.
-7. Preserve the original install/upgrade/rollback semantics, including
-   disabled/stopped services, private key/UUID and feature opt-ins.
-   Integrate PR #73's read-only verifier only after the recovery gate
-   and trusted comparison have been implemented.
+## Required future privileged launcher: separate trust contract
 
-A separately downloaded file and its checksum from the *same untrusted
-origin* do not prove authenticity. Release provenance/signature and
-offline verification remain mandatory acceptance work.
+**No elevated code or execution is introduced by this PR.** The caller's
+`trusted_hashes` are NOT intrinsically trustworthy; a downloaded manifest
+beside a downloaded archive can be replaced together with the payload.
 
-## Tests and expected limitations
+A root-owned launcher added later must:
 
-`tests/test_payload_staging.py` uses only a temporary non-root fixture
-tree. No host root path, agent process or systemd service is modified.
+1. Be independently authenticated/distributed and pinned as a trusted
+   executable before user authorization. Never elevate a script, Go binary
+   or Python entrypoint from a user-writable checkout or temp directory.
+2. Use a **fixed trusted system Python interpreter**, launching it with
+   `-I -B`, a controlled `PATH`, cleaned environment, deterministic
+   arguments and a root-owned working directory. Do not inherit
+   `PYTHONPATH`, `PYTHONHOME`, `LD_PRELOAD` or untrusted search paths.
+3. Use only separately authenticated, version-matched SHA-256 hashes.
+   Protect the launcher's own code and any importable helpers: staged
+   files remain 0600, private, never imported through an untrusted path.
+4. Pause the unprivileged TUI before a password prompt. Use a narrowly
+   versioned request with no arbitrary root paths, shell fragments,
+   Python interpreters, service names or executable arguments.
+5. Bind the active journal, staged receipt, exact trusted manifest and
+   request to **one** transaction. Reverify ready inode/device and
+   every file immediately before invoking the existing engine, and
+   preserve stage privacy through completion/recovery.
+6. Share the existing manual installer exclusion lock at
+   `/run/lock/linux-host-agent-install.lock`. Keep journal and stage
+   locks under a documented global lock order to avoid deadlock.
+7. Perform actual snapshot validation/rollback, preserve persistent
+   key/UUID and existing stopped/disabled service state, and run PR #73
+   runtime verification before recording `COMMITTED`.
+8. Stage cleanup must complete before clearing the terminal journal.
+   Recovery must resolve interrupted `pending-*` or `ready-*`
+   before starting another operation; don't accidentally reap a
+   completed journal while its staged payload remains.
+9. Publisher provenance/signature verification is a **separate**
+   prerequisite from content hash matching.
 
-Tests cover the complete payload, exact allowlist and digest validation,
-source changes after validation, missing/oversized/tampered files,
-symlinks/hardlinks/FIFOs, parent directory permission checks, umask 077,
-preexisting parent modes, concurrent-stage lock refusal, interrupted
-writes/pending markers and descriptor lifecycle.
+A verified `ready` folder alone never satisfies these requirements.
 
-GitHub CI exercises Python 3.10–3.14 and source-only distro tests;
-it does **not** certify actual Linux distribution privilege policies,
-systemd PID1, hardware WOL, SmartThings pairing or sudden power-loss
-durability.
+## Validation
 
-**Do not treat this PR as a full root privilege handoff or release the Go
-wizard as an installing product based on this milestone alone.**
+`tests/test_payload_staging.py` uses disposable non-root filesystem
+fixtures; no user service, agent process or system paths are modified.
+Tests cover exact source digest/allowlist, untrusted source mutation,
+symlinks, authenticated source hardlinks, hardlink refusal on staged
+outputs, FIFO/special file size checks, exact modes under umask,
+exclusive staging lock, pending marker failures, guarded pending
+cleanup (including refusal of symlinked contents), complete
+stage→retire→stage-again, full receipt re-verification, inode-swap
+detection, crash reopen by journal identity, terminal cleanup after
+interruption, and a forked child's inability to retire the parent stage.
+
+CI on Debian/Ubuntu/Fedora and Python 3.10–3.14 remains a
+source-level safety check; it does not prove hardware power-loss
+durability, privileged runtime behavior or SmartThings pairing.
