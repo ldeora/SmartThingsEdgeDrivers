@@ -108,7 +108,7 @@ func TestHubSelectionReviewAndAccessibleManualFallback(t *testing.T) {
 func TestHubSelectionNeverInfersPairingOrContact(t *testing.T) {
 	s := liveSelection{
 		hubChoice: "discovered:192.168.1.11",
-		hubs: []discoveredHub{{"192.168.1.10", 8765}},
+		hubs:      []discoveredHub{{"192.168.1.10", 8765}},
 	}
 	if got := s.selectedHub(); !strings.Contains(got, "Not selected") {
 		t.Fatalf("unlisted address trusted by UI: %s", got)

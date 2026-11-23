@@ -17,7 +17,7 @@ import (
 )
 
 const (
-	maxHubs            = 8
+	maxHubs             = 8
 	hubDiscoveryTimeout = 3 * time.Second
 )
 
