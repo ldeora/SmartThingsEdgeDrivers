@@ -6,6 +6,7 @@ inside a disposable private temporary root.
 """
 from __future__ import annotations
 
+import errno
 import fcntl
 import hashlib
 import json
@@ -362,6 +363,46 @@ class InstallerBackendTests(unittest.TestCase):
                 self.fail('Foreign-owned lock must never be acquired')
         self.assertEqual(raised.exception.code, 'unsafe_lock')
         self.assertEqual(str(raised.exception), 'unsafe_lock')
+
+    def test_manual_and_wizard_lock_open_errors_are_classified_correctly(self):
+        # Unsafe lock objects are actionable. Disk-full/read-only/missing
+        # directories are not evidence of an attacker-planted lock.
+        unsafe = (errno.ELOOP, errno.EACCES, errno.EPERM, errno.EISDIR,
+                  errno.ENOTDIR, errno.ENXIO)
+        operational = (errno.ENOSPC, errno.EROFS, errno.ENOENT, errno.EIO)
+        for number in unsafe + operational:
+            with self.subTest(errno=number):
+                failure = OSError(number, 'simulated lock open failure')
+                with mock.patch.object(core.os, 'open', side_effect=failure):
+                    if number in unsafe:
+                        with self.assertRaises(core.InstallError) as err:
+                            core.open_manual_install_lock(self.manual_lock,
+                                                          owner_uid=self.uid)
+                        self.assertIn('Unsafe manual installer lock',
+                                      str(err.exception))
+                    else:
+                        with self.assertRaises(OSError) as err:
+                            core.open_manual_install_lock(self.manual_lock,
+                                                          owner_uid=self.uid)
+                        self.assertEqual(err.exception.errno, number)
+
+                with mock.patch.object(installer.os, 'open', side_effect=failure):
+                    with self.assertRaises(installer.ControllerError) as err:
+                        with installer.manual_install_lock(self.manual_lock,
+                                                           owner_uid=self.uid):
+                            self.fail('Cannot acquire a mocked failing lock')
+                self.assertEqual(err.exception.code, (
+                    'unsafe_lock' if number in unsafe
+                    else 'unsupported_environment'))
+
+    def test_errors_inside_held_wizard_lock_are_not_mislabelled(self):
+        # Only failure to OPEN or ACQUIRE the lock can be a lock error.
+        # Runtime filesystem failures inside a transaction must propagate.
+        with self.assertRaises(OSError) as err:
+            with installer.manual_install_lock(self.manual_lock,
+                                               owner_uid=self.uid):
+                raise OSError(errno.ENOSPC, 'simulated disk full in payload')
+        self.assertEqual(err.exception.errno, errno.ENOSPC)
 
     def test_manual_cli_lock_rejects_symlink_hardlink_and_fifo(self):
         # Manual and Go installs use the same lock in /run/lock. The manual
