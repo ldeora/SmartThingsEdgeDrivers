@@ -224,9 +224,9 @@ func TestLiveReviewDescriptionInvalidatesWhenSelectionChanges(t *testing.T) {
 	}
 	s := liveSelection{api: client, inspection: ins, powerChoice: "keep", wolChoice: "keep"}
 	form := liveForm(&s).WithWidth(110).WithHeight(40)
-	// Welcome (1 field), options (2 fields), hidden NIC: three NextField
-	// events reach the Review page.
-	for i := 0; i < 3; i++ {
+	// Welcome (1), options (2), hidden NIC, hub selector (1):
+	// four NextField events now reach the Review page.
+	for i := 0; i < 4; i++ {
 		deliverFormMessage(t, form, huh.NextField())
 	}
 	initial := form.View()
@@ -305,7 +305,7 @@ func TestLiveAccessiblePreservesCaseSensitiveNIC(t *testing.T) {
 	client := fixtureClient(t) // Accepts LAN0; explicitly rejects lan0.
 	var out bytes.Buffer
 	// Use an uppercase interface spelling that a udev .link rule may create.
-	if err := runLive(false, true, client.executable, strings.NewReader("k\np\nLAN0\ny\n"), &out); err != nil {
+	if err := runLive(false, true, client.executable, strings.NewReader("k\np\nLAN0\nk\ny\n"), &out); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(out.String(), "READ-ONLY REVIEW COMPLETE") {
