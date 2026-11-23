@@ -43,21 +43,41 @@ and never runs the TUI as root or collects an administrator password.
 A declined authorization does **not** silently cause an automatic retry
 with a different provider.
 
-All providers forward the same bounded schema-v1 JSON on stdin while
-authentication is handled by the controlling TTY or polkit. `run0`
-uses `--pipe` for correct standard input forwarding; `doas` and
-`sudo` use `-n` in noninteractive mode, while `run0` uses
-`--no-ask-password`. The `su` fallback is offered only with a real
-TTY and uses a correctly shell-quoted executable path, relying on PAM
-to prompt through `/dev/tty` while leaving the piped JSON for the
-authenticated process. This behavior needs the planned real-host test
-for the distribution's `su` implementation and PAM configuration.
+`sudo`, `doas`, and `run0` forward the same bounded schema-v1
+JSON on stdin; authentication happens via TTY or polkit. `run0`
+uses `--pipe`, `doas` and `sudo` use `-n` without a terminal,
+and `run0` uses `--no-ask-password` in noninteractive mode.
+
+**`su` is different:** on util-linux, PAM may read the root password
+from *stdin*, even when the user has a controlling TTY. Feeding the
+installation JSON there would fail authentication without a usable
+password prompt. Therefore the interactive `su root -c` fallback
+leaves **stdin attached to the user's terminal** and passes only the
+small, non-secret request using
+`-root-bootstrap -request '<strictly shell-quoted JSON>'`.
+The normal Go process verifies the request schema before elevating.
+The root Go process decodes this argument through the **same bounded,
+strict schema-v1 JSON decoder** (4096 bytes maximum, allowlisted keys)
+used for piped requests. The command-line argument can be visible in
+process listings: it contains **only** operation, power option and
+interface name. The private UUID and control key are explicitly
+excluded from schema v1 and must *never* be added to this path.
+The `su` fallback is only available with a real terminal; the local
+distribution's PAM conversation must be verified in the first live test.
+Its password prompt and input are never buffered as application
+diagnostics.
 
 No source checkout is needed to inspect or plan: the executable also
 embeds a **separate read-only Python inspection bundle** and runs that
 bundle unprivileged from a disposable 0700 directory. The privileged
 `installer_root.py` is **never** extracted or invoked from that preview
 location.
+
+The regression test executes the shell-quoted `su -c` payload
+against an unprivileged test script (no real authentication), checks
+that the exact JSON survives quoting, and ensures the terminal is
+reserved for PAM rather than the request. CI does not enter a real root
+password or make any host changes.
 
 ## Version-pinned Go binary as the bootstrap trust anchor
 

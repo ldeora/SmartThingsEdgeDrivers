@@ -379,7 +379,14 @@ func main() {
 	install := flag.Bool("install", false, "guided real installation; explicit final approval and sudo required")
 	rootMode := flag.Bool("root-bootstrap", false, "internal: fixed privileged bootstrap, never run the UI as root")
 	recoverMode := flag.Bool("recover", false, "explicitly recover an interrupted privileged installation")
+	requestArg := flag.String("request", "", "internal: bounded non-secret JSON input for su-only root bootstrap")
 	flag.Parse()
+	requestFlagProvided := false
+	flag.Visit(func(f *flag.Flag) {
+		if f.Name == "request" {
+			requestFlagProvided = true
+		}
+	})
 	if flag.NArg() != 0 {
 		fmt.Fprintln(os.Stderr, "unexpected arguments; use -h for help")
 		os.Exit(2)
@@ -389,11 +396,22 @@ func main() {
 			fmt.Fprintln(os.Stderr, "Invalid privileged bootstrap invocation.")
 			os.Exit(2)
 		}
-		if err := rootBootstrap(os.Stdin, os.Stdout); err != nil {
+		bootstrapInput := io.Reader(os.Stdin)
+		if requestFlagProvided {
+			// util-linux su consumes stdin to authenticate via PAM.
+			// The same strict 4096-byte decoder validates this argument
+			// instead; stdin stays attached to the user's terminal.
+			bootstrapInput = strings.NewReader(*requestArg)
+		}
+		if err := rootBootstrap(bootstrapInput, os.Stdout); err != nil {
 			fmt.Fprintln(os.Stderr, "Privileged bootstrap failed:", err)
 			os.Exit(1)
 		}
 		return
+	}
+	if requestFlagProvided {
+		fmt.Fprintln(os.Stderr, "-request is supported only by the privileged bootstrap")
+		os.Exit(2)
 	}
 	if *recoverMode {
 		if *install || *live || *preview || *accessible || *apiPath != "" {

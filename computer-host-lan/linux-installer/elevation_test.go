@@ -4,11 +4,16 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"io"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 )
 
 func TestElevationFallbackOrderAndNoninteractiveRules(t *testing.T) {
+	payload := []byte(`{"schema_version":1,"action":"status"}`)
 	cases := []struct {
 		name        string
 		available   []string
@@ -32,7 +37,7 @@ func TestElevationFallbackOrderAndNoninteractiveRules(t *testing.T) {
 			for _, entry := range test.available {
 				found[entry] = true
 			}
-			got, err := findElevationCommand("/home/user/installer", test.interactive,
+			got, err := findElevationCommand("/home/user/installer", test.interactive, payload,
 				func(path string) bool { return found[path] })
 			if test.wantMethod == "" {
 				if err == nil {
@@ -58,7 +63,8 @@ func TestElevationFallbackOrderAndNoninteractiveRules(t *testing.T) {
 
 func TestSuFallbackQuotesTheFixedGoExecutablePath(t *testing.T) {
 	available := func(path string) bool { return path == "/bin/su" }
-	got, err := findElevationCommand("/home/test/user's/wizard", true, available)
+	got, err := findElevationCommand("/home/test/user's/wizard", true,
+		[]byte(`{"schema_version":1,"action":"status"}`), available)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,8 +72,75 @@ func TestSuFallbackQuotesTheFixedGoExecutablePath(t *testing.T) {
 		t.Fatalf("Bad su invocation: %+v", got)
 	}
 	if !strings.Contains(got.args[2], `'\''`) ||
-		!strings.HasSuffix(got.args[2], " -root-bootstrap") {
+		!strings.Contains(got.args[2], " -root-bootstrap -request ") {
 		t.Fatalf("Executable shell path was not safely quoted: %q", got.args[2])
+	}
+}
+
+func TestSuPassesRequestAsQuotedArgumentAndKeepsStdinForPassword(t *testing.T) {
+	// Execute the constructed su -c command WITHOUT su or elevation,
+	// using a test script as the fixed Go executable. This verifies that
+	// shell quoting delivers one exact JSON argument even with an
+	// apostrophe and spaces in the executable path.
+	dir := t.TempDir()
+	binary := filepath.Join(dir, "my user's installer")
+	script := "#!/bin/sh\nprintf '%s\\n' \"$@\"\n"
+	if err := os.WriteFile(binary, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	nic := "enp1s0f0"
+	request := privilegedRequest{
+		SchemaVersion: 1, Action: "upgrade", Power: "enable",
+		WOLInterface: &nic,
+	}
+	payload, err := json.Marshal(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := findElevationCommand(binary, true, payload,
+		func(path string) bool { return path == "/bin/su" })
+	if err != nil {
+		t.Fatal(err)
+	}
+	output, err := exec.Command("/bin/sh", "-c", got.args[2]).Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSuffix(string(output), "\n"), "\n")
+	if len(lines) != 3 || lines[0] != "-root-bootstrap" || lines[1] != "-request" ||
+		lines[2] != string(payload) {
+		t.Fatalf("su command did not preserve the JSON argument: %q", lines)
+	}
+	parsed, err := decodePrivilegedRequest(strings.NewReader(lines[2]))
+	if err != nil || parsed.Action != "upgrade" || parsed.Power != "enable" ||
+		parsed.WOLInterface == nil || *parsed.WOLInterface != nic {
+		t.Fatalf("root input decoder rejected quoted su request: %+v, %v", parsed, err)
+	}
+
+	// In the su case, stdin MUST remain the terminal for PAM's password
+	// conversation. All other providers continue to pipe only JSON.
+	terminal := strings.NewReader("simulated-password\n")
+	if elevationInput("su", payload, terminal) != terminal {
+		t.Fatal("su would consume the piped JSON as its root password")
+	}
+	for _, method := range []string{"sudo", "doas", "run0"} {
+		read, err := io.ReadAll(elevationInput(method, payload, terminal))
+		if err != nil || !bytes.Equal(read, payload) {
+			t.Fatalf("%s no longer forwards bounded request via stdin: %v", method, err)
+		}
+	}
+}
+
+func TestSuStillUsesStrictBoundedDecoder(t *testing.T) {
+	for _, raw := range []string{
+		"", strings.Repeat("x", 4097),
+		\`{"schema_version":1,"action":"status","control_token":"secret"}\`,
+		\`{"schema_version":2,"action":"reveal_power_key"}\`,
+		\`{"schema_version":1,"action":"status","action":"upgrade"}\`,
+	} {
+		if _, err := decodePrivilegedRequest(strings.NewReader(raw)); err == nil {
+			t.Fatalf("Untrusted or oversized CLI request was accepted")
+		}
 	}
 }
 

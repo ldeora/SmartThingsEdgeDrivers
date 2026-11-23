@@ -164,7 +164,7 @@ type elevationCommand struct {
 	args   []string
 }
 
-func findElevationCommand(binary string, interactive bool, available func(string) bool) (elevationCommand, error) {
+func findElevationCommand(binary string, interactive bool, payload []byte, available func(string) bool) (elevationCommand, error) {
 	if !filepath.IsAbs(binary) {
 		return elevationCommand{}, errors.New("installer executable must have an absolute path")
 	}
@@ -197,11 +197,14 @@ func findElevationCommand(binary string, interactive bool, available func(string
 		}
 		return elevationCommand{"run0", run0, args}, nil
 	}
-	// su may need the root password, so only use it with a real TTY.
-	// PAM must prompt on /dev/tty, not consume the piped JSON request.
+	// util-linux su/PAM may read the root password from standard input,
+	// unlike sudo/doas. Never pipe the JSON request into su: attach the
+	// user's terminal and supply only the non-secret schema-v1 options
+	// via a shell-quoted -request argument to the same Go root decoder.
 	if interactive {
 		if su := find("/usr/bin/su", "/bin/su"); su != "" {
-			command := "exec " + quotePOSIXShell(binary) + " -root-bootstrap"
+			command := "exec " + quotePOSIXShell(binary) +
+				" -root-bootstrap -request " + quotePOSIXShell(string(payload))
 			return elevationCommand{"su", su, []string{"root", "-c", command}}, nil
 		}
 	}
@@ -308,9 +311,16 @@ func interpretPrivilegedExecution(stdout []byte, runErr error, action string) (p
 	return privilegedResult{}, errors.New("privileged helper returned an invalid or incomplete response")
 }
 
-// The privileged process reads only the bounded request on stdin. The
-// selected authenticator prompts on /dev/tty or via polkit, after the Huh
-// form has released the terminal. The password never enters the JSON pipe.
+// The root helper decodes the same bounded schema-v1 request in both cases:
+// sudo/doas/run0 pass it through stdin; su receives it as a non-secret,
+// shell-quoted argument while keeping stdin on the terminal for PAM.
+func elevationInput(method string, payload []byte, terminal io.Reader) io.Reader {
+	if method == "su" {
+		return terminal
+	}
+	return bytes.NewReader(payload)
+}
+
 func executeAuthorizedBootstrap(request privilegedRequest, interactive bool) (privilegedResult, error) {
 	if err := request.validate(); err != nil {
 		return privilegedResult{}, err
@@ -327,20 +337,28 @@ func executeAuthorizedBootstrap(request privilegedRequest, interactive bool) (pr
 	if err != nil || !filepath.IsAbs(binary) {
 		return privilegedResult{}, errors.New("cannot resolve installer executable")
 	}
-	elevate, err := findElevationCommand(binary, interactive, isExecutableFile)
+	elevate, err := findElevationCommand(binary, interactive, payload, isExecutableFile)
 	if err != nil {
 		return privilegedResult{}, err
 	}
 	cmd := exec.Command(elevate.path, elevate.args...)
 	cmd.Dir = "/"
-	cmd.Stdin = bytes.NewReader(payload)
+	cmd.Stdin = elevationInput(elevate.method, payload, os.Stdin)
 	cmd.Env = []string{
 		"PATH=/usr/sbin:/usr/bin:/sbin:/bin", "HOME=/root",
 		"LANG=C", "LC_ALL=C", "TERM=dumb",
 	}
 	cmd.WaitDelay = 2 * time.Second
 	var stdout, stderr cappedBuffer
-	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	cmd.Stdout = &stdout
+	if elevate.method == "su" {
+		// PAM writes its Password: prompt to stderr on some distributions.
+		// Leave it visible to the user; never parse or copy stderr into
+		// the structured error response.
+		cmd.Stderr = os.Stderr
+	} else {
+		cmd.Stderr = &stderr
+	}
 	runErr := cmd.Run()
 	return interpretPrivilegedExecution(stdout.Bytes(), runErr, request.Action)
 }
