@@ -178,8 +178,10 @@ func installSelection(s *liveSelection, w io.Writer, interactive bool) error {
 	fmt.Fprintln(w, "\nComputer Host LAN:", result.Status)
 	if result.IdentityPreserved == "verified" {
 		fmt.Fprintln(w, "Existing agent identity verified.")
+	} else if req.Action != "install" {
+		fmt.Fprintln(w, "Existing identity was not verified because the agent was intentionally stopped.")
 	} else {
-		fmt.Fprintln(w, "Identity verification not available for a previously stopped agent.")
+		fmt.Fprintln(w, "A new agent was installed; there is no previous identity to compare.")
 	}
 	fmt.Fprintln(w, "Open SmartThings, install the Computer Host LAN Edge driver, then Add device → Scan nearby.")
 	fmt.Fprintln(w, "Automatic hub pairing, firewall changes and persistent WOL configuration were not performed.")

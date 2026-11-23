@@ -263,25 +263,25 @@ func prepareTrustedVersion(root, lock string, uid int, status func() (string, er
 	}
 	defer guard.Close()
 	previous, next := root+".previous", root+".next"
+	hadPreviousArtifact := false
 	if _, err := os.Lstat(previous); err == nil {
+		hadPreviousArtifact = true
+		if err := protectedPath(previous, uid, true); err != nil {
+			return false, err
+		}
 		if _, missing := os.Lstat(root); os.IsNotExist(missing) {
-			if err := protectedPath(previous, uid, true); err != nil {
-				return false, err
-			}
+			// Crash after moving the old helper aside but before
+			// promoting the complete new helper. Restore the old one.
 			if err := os.Rename(previous, root); err != nil {
 				return false, err
 			}
+			hadPreviousArtifact = false
 			if err := syncDirectory(parent); err != nil {
 				return false, err
 			}
-		} else {
-			return false, errors.New("previous trusted launcher requires reconciliation")
+		} else if missing != nil {
+			return false, missing
 		}
-	} else if !os.IsNotExist(err) {
-		return false, err
-	}
-	if _, err := os.Lstat(next); err == nil {
-		return false, errors.New("interrupted launcher staging requires reconciliation")
 	} else if !os.IsNotExist(err) {
 		return false, err
 	}
@@ -295,9 +295,30 @@ func prepareTrustedVersion(root, lock string, uid int, status func() (string, er
 			return false, err
 		}
 		if state != "none" {
-			return false, errors.New("recover the existing transaction with its original helper before upgrading")
+			return false, errors.New("recover the existing transaction with its matching helper before upgrading")
 		}
 		hasPrevious = true
+	} else if !os.IsNotExist(err) {
+		return false, err
+	}
+	// The installed helper just confirmed no protected transaction is
+	// outstanding. These version-swap artifacts are now safe to retire;
+	// leaving them indefinitely would prevent every subsequent upgrade.
+	if hadPreviousArtifact {
+		if err := retirePreviousTrustedVersion(root, uid); err != nil {
+			return false, err
+		}
+		if err := syncDirectory(parent); err != nil {
+			return false, err
+		}
+	}
+	if _, err := os.Lstat(next); err == nil {
+		if err := discardTrustedStage(next, uid); err != nil {
+			return false, err
+		}
+		if err := syncDirectory(parent); err != nil {
+			return false, err
+		}
 	} else if !os.IsNotExist(err) {
 		return false, err
 	}
@@ -404,10 +425,22 @@ func rootBootstrap(reader io.Reader, writer io.Writer) error {
 	// retired. A retained previous copy is never executed automatically.
 	if old && response.Status == "installed" {
 		if err := retirePreviousTrustedVersion(trustedDir, 0); err != nil {
-			return errors.New("agent installed; old helper cleanup needs attention")
+			// A committed installation must never be presented as failed
+			// solely because the previous launcher cleanup could not finish.
+			response.Status = "installed_cleanup_required"
 		}
 	}
 	return json.NewEncoder(writer).Encode(response)
+}
+
+func discardTrustedStage(stage string, ownerUID int) error {
+	// Only fixed root-owned staging directories created by this bootstrap
+	// are recyclable. Go's RemoveAll never traverses a symbolic link;
+	// this check also rejects a symlink at the top-level stage path.
+	if err := protectedPath(stage, ownerUID, true); err != nil {
+		return err
+	}
+	return os.RemoveAll(stage)
 }
 
 func restorePreviousTrustedVersion(root string, ownerUID int) error {

@@ -178,6 +178,59 @@ func TestTrustedHelperVersionReplacementFixture(t *testing.T) {
 	}
 }
 
+func TestTrustedHelperReconcilesInterruptedPromotion(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("temporary non-root bootstrap fixture")
+	}
+	parent := t.TempDir()
+	root := filepath.Join(parent, "computer-host-lan")
+	lock := filepath.Join(parent, "install.lock")
+	status := func() (string, error) { return "none", nil }
+	if _, err := prepareTrustedVersion(root, lock, os.Geteuid(), status); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(root, root+".previous"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(root+".next", 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root+".next", "partial"), []byte("discard"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := prepareTrustedVersion(root, lock, os.Geteuid(), status); err != nil {
+		t.Fatalf("Crash between old/new directory swap was not recovered: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "installer_root.py")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(root + ".next"); !os.IsNotExist(err) {
+		t.Fatal("interrupted stage must not block future upgrades")
+	}
+}
+
+func TestTrustedHelperReconcilesPreviousWithCurrentWhenJournalClean(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("temporary non-root bootstrap fixture")
+	}
+	parent := t.TempDir()
+	root := filepath.Join(parent, "computer-host-lan")
+	lock := filepath.Join(parent, "install.lock")
+	status := func() (string, error) { return "none", nil }
+	if _, err := prepareTrustedVersion(root, lock, os.Geteuid(), status); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := prepareTrustedVersion(root, lock, os.Geteuid(), status); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := prepareTrustedVersion(root, lock, os.Geteuid(), status); err != nil {
+		t.Fatalf("Old helper left after a successful swap blocked next install: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "trusted-payload.json")); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestTrustedHelperRefusesUpgradeWithPendingTransaction(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("temporary non-root test fixture")

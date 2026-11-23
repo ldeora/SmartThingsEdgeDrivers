@@ -84,8 +84,10 @@ After explicit sudo authorization the trusted Go bootstrap:
    fails. A crash with the older directory temporarily renamed away is
    reconciled on the next bootstrap attempt, before another installation.
    If both old and new locations remain after an interrupted swap,
-   the bootstrap refuses an ambiguous update rather than deleting a
-   potentially necessary recovery helper.
+   the bootstrap first requires the **currently installed helper** to
+   confirm no transaction is pending before retiring the older copy.
+   A root-owned partial `.next` stage is safely discarded and rewritten
+   on retry; an incomplete journal is never bypassed.
 5. **Releases the shared manual lock** before executing the installed
    `installer-entry.sh`, because the Python transaction backend must
    reacquire the same lock itself. It uses a fixed system PATH and
