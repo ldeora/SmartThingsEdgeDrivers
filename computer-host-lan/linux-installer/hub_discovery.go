@@ -7,7 +7,6 @@ package main
 import (
 	"bytes"
 	"context"
-	"errors"
 	"net/netip"
 	"os"
 	"os/exec"
@@ -49,7 +48,8 @@ func parseAvahiHubResults(raw []byte) []discoveredHub {
 		}
 		addr, err := netip.ParseAddr(fields[7])
 		if err != nil || !addr.Is4() || addr.String() != fields[7] ||
-			validHubIPv4(fields[7]) != nil {
+			validHubIPv4(fields[7]) != nil ||
+			(!addr.IsPrivate() && !cgnat.Contains(addr)) {
 			continue
 		}
 		port, err := strconv.Atoi(fields[8])
@@ -83,7 +83,7 @@ func discoverHubsWith(executable string) []discoveredHub {
 	var stdout, stderr cappedBuffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil && !errors.Is(err, exec.ErrNotFound) {
+	if err := cmd.Run(); err != nil {
 		return nil // No unfiltered errors or Avahi output shown in UI.
 	}
 	return parseAvahiHubResults(stdout.Bytes())
