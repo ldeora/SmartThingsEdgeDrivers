@@ -3,14 +3,23 @@
 > **PR #78 integration (draft, not a published installer):** The wizard now
 > has an explicitly confirmed `-live -install` mode. All original demo,
 > `-live -preview` and plain `-live` paths remain read-only. The real
-> installation path is **NOT YET CERTIFIED ON PHYSICAL LINUX HARDWARE**.
+> installation path has passed a supervised upgrade on Gentoo/Btrfs hardware,
+> but is still **NOT RELEASE-CERTIFIED** or independently signed.
 > Read [the Go installation/privilege contract](../docs/development/LINUX-GO-INSTALLER-INTEGRATION.md)
 > before considering a supervised test on a reversible host.
 
 ## Actual install/upgrade entry point (new, review pending)
 
 The standalone Go executable embeds the version-matched Linux agent,
-privileged transaction engine, manifest, and read-only inspector. After
+privileged transaction engine, manifest, and read-only inspector.
+
+**Binary trust boundary:** The elevated process executes the very Go
+binary selected by the normal user. As with `sudo ./installer`, a process
+running under that same account could replace a user-writable binary before
+administrator authorization. Keep the executable and its parent directory
+protected, and use an independently authenticated release binary when one
+becomes available. A SHA-256 file shipped beside an unsigned CI artifact
+does **not** authenticate the publisher. After
 presenting the familiar hub, power and advanced-network choices, it
 requires typing `INSTALL`, then requests administrator authorization
 **after the terminal form has closed**. The bootstrap installs its own
@@ -58,8 +67,10 @@ Read the integration document for recovery and first-live-test gates.
 
 Neither original preview mode installs, repairs, upgrades, removes
 or configures an agent. `-live -install` is a **draft** real installer
-whose privileged backend has passed review and CI; it still needs a
-successful supervised physical upgrade and acceptance before a release.
+whose privileged backend has passed CI and completed a supervised physical
+Gentoo/Btrfs upgrade with preserved identity and clean protected journal.
+Independent review and additional failure/recovery acceptance remain required
+before a release.
 The existing `scripts/install-agent.sh` remains the supported
 production installer. The Go wizard is **not** part of v1.0.0-rc.2.
 
