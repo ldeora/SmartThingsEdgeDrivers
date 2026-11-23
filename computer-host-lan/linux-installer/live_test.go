@@ -222,7 +222,8 @@ func TestLiveReviewDescriptionInvalidatesWhenSelectionChanges(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s := liveSelection{api: client, inspection: ins, powerChoice: "keep", wolChoice: "keep"}
+	s := liveSelection{api: client, inspection: ins, hubChoice: "skip", powerChoice: "keep", wolChoice: "keep"}
+	s.recordHubChoice("skip")
 	form := liveForm(&s).WithWidth(110).WithHeight(40)
 	// Welcome (1), hub (1), power choices (2): four NextField
 	// events reach Review with the optional fields hidden.
@@ -233,9 +234,9 @@ func TestLiveReviewDescriptionInvalidatesWhenSelectionChanges(t *testing.T) {
 	if !strings.Contains(initial, "Power control: Keep power control enabled") {
 		t.Fatalf("initial live Review was not rendered: %s", initial)
 	}
-	s.powerChoice = "enabled"
+	s.powerChoice = "disabled"
 	deliverFormMessage(t, form, tea.WindowSizeMsg{Width: 110, Height: 40})
-	if current := form.View(); !strings.Contains(current, "Power control: Allow shutdown, restart and suspend") ||
+	if current := form.View(); !strings.Contains(current, "Power control: Monitoring only (power control off)") ||
 		strings.Contains(current, "Power control: Keep power control enabled") {
 		t.Fatalf("live Review cached outdated plan after changing power: %s", current)
 	}
@@ -274,7 +275,7 @@ func TestLiveReviewPlanCacheConcurrentDescriptionAndValidation(t *testing.T) {
 			<-start
 			if i%2 == 0 {
 				// DescriptionFunc path: preview() -> currentPlan().
-				if !strings.Contains(s.preview(), "Power control: Keep power control enabled") {
+				if !strings.Contains(s.preview(), "Power control: Monitoring only (power control off)") {
 					failures <- fmt.Errorf("preview failed for reader %d", i)
 				}
 			} else {
