@@ -113,7 +113,8 @@ class InstallTransaction:
                 record.update(file=f'{index}.original', mode=stat.S_IMODE(st.st_mode),
                               uid=st.st_uid, gid=st.st_gid)
             records.append(record)
-        manifest = {'schema': 1, 'items': records, 'previous': previous or {}}
+        manifest = {'schema': 1, 'installer_protocol': 'v2',
+                    'items': records, 'previous': previous or {}}
         (backup / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
         (backup / 'manifest.json').chmod(0o600)
         return backup
@@ -327,6 +328,90 @@ def require_v2_or_clean(root: Path = Path('/'), *, adopt_retained_state: bool = 
         raise InstallError('--adopt-retained-state is only for a retained state directory '
                            'with no installed managed files and no v2 ownership record')
     return state
+
+
+def _read_backup_file(path: Path, limit: int) -> bytes:
+    """Read only a regular root-controlled snapshot file, never a link/pipe."""
+    if path.is_symlink() or not path.is_file():
+        raise InstallError('Backup snapshot contains a linked or non-regular file')
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
+        with os.fdopen(fd, 'rb') as inp:
+            if not stat.S_ISREG(os.fstat(inp.fileno()).st_mode):
+                raise InstallError('Backup item is not a regular file')
+            contents = inp.read(limit + 1)
+    except OSError as exc:
+        raise InstallError('Backup snapshot could not be inspected safely') from exc
+    if len(contents) > limit:
+        raise InstallError('Backup snapshot file exceeds inspection bound')
+    return contents
+
+
+def validate_v2_backup(backup: Path, *, root: Path = Path('/')) -> None:
+    """Validate the RESTORE SOURCE, not the possibly damaged current install.
+
+    Refuses legacy v1/unknown snapshot payloads. Snapshot files contain
+    managed code/units only; persistent identity and credentials are untouched.
+    """
+    if backup.is_symlink() or not backup.is_dir() or backup.stat().st_mode & 0o077:
+        raise InstallError('Backup snapshot folder is missing or insecure')
+    if root == Path('/') and backup.stat().st_uid != 0:
+        raise InstallError('Backup snapshot must be root-owned')
+    manifest_path = backup / 'manifest.json'
+    data_bytes = _read_backup_file(manifest_path, MAX_BACKUP_MANIFEST_BYTES)
+    if manifest_path.stat().st_mode & 0o077 or (
+            root == Path('/') and manifest_path.stat().st_uid != 0):
+        raise InstallError('Backup manifest permissions or owner are unsafe')
+    try:
+        manifest = json.loads(data_bytes.decode('utf-8'))
+    except (ValueError, UnicodeError) as exc:
+        raise InstallError('Backup manifest is malformed') from exc
+    if not isinstance(manifest, dict) or manifest.get('schema') != 1 or (
+            not isinstance(manifest.get('items'), list)):
+        raise InstallError('Unrecognized backup manifest')
+    seen = set()
+    existing = {}
+    for index, item in enumerate(manifest['items']):
+        if not isinstance(item, dict) or item.get('path') not in MANAGED_PATHS or (
+                type(item.get('existed')) is not bool):
+            raise InstallError('Invalid backup manifest item')
+        path = item['path']
+        if path in seen:
+            raise InstallError('Duplicate backup manifest item')
+        seen.add(path)
+        if item['existed']:
+            file_name = f'{index}.original'
+            if item.get('file') != file_name or (
+                    not isinstance(item.get('mode'), int)) or (
+                    not isinstance(item.get('uid'), int)) or (
+                    not isinstance(item.get('gid'), int)):
+                raise InstallError('Invalid backed-up file metadata')
+            source = backup / file_name
+            # Read each payload before any rollback writes, to avoid a
+            # partially restored host due to a missing source/special file.
+            content = _read_backup_file(source, 2 * 1024 * 1024)
+            existing[path] = content
+        else:
+            existing[path] = None
+    if APP_FILES[0] not in seen:
+        raise InstallError('Backup has no agent entry; origin cannot be established')
+    agent = existing[APP_FILES[0]]
+    if agent is None:
+        # A first-install snapshot has NO agent to identify. We only accept
+        # snapshots explicitly issued by this v2 engine with a durable
+        # protected v2 owner record. Old v1 snapshots lack this provenance.
+        if manifest.get('installer_protocol') != 'v2' or not owner_record_exists(root):
+            raise InstallError('Unverifiable empty-agent backup; refusing v1 adoption')
+    else:
+        markers = PROTOCOL_MARKER.findall(agent)
+        if markers != [b'computer-host-agent']:
+            raise InstallError('Backup contains legacy v1 or unknown agent; refusing rollback')
+    if AVAHI_PATH in existing and existing[AVAHI_PATH] is not None:
+        avahi = existing[AVAHI_PATH]
+        if b'_computerhost._tcp' not in avahi or b'_linuxhost._tcp' in avahi:
+            raise InstallError('Backup contains legacy or unrecognized Avahi service')
+    if not isinstance(manifest.get('previous', {}), dict):
+        raise InstallError('Backup service-state metadata is invalid')
 
 
 def generate_plan(source: Path, python_bin: str, *, enable_power: bool,
