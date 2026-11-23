@@ -1,0 +1,110 @@
+name: Computer Host LAN Linux installer integration
+
+on:
+  pull_request:
+    paths:
+      - 'computer-host-lan/linux-installer/**'
+      - '.github/workflows/computer-host-linux-installer.yml'
+      - 'computer-host-lan/scripts/**'
+      - 'computer-host-lan/agent/**'
+
+permissions:
+  contents: read
+
+jobs:
+  wizard-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: computer-host-lan/linux-installer
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.25.x'
+          cache: false
+      - name: Enforce gofmt source formatting
+        run: |
+          unformatted="$(gofmt -l ./*.go)"
+          if [ -n "$unformatted" ]; then
+            echo "Unformatted Go sources:"
+            printf '%s\n' "$unformatted"
+            exit 1
+          fi
+      - name: Ensure module files are tidy and unchanged
+        run: go mod tidy -diff
+      - name: Verify cached module checksums
+        run: go mod verify
+      - name: Verify embedded privileged payload matches authoritative source
+        run: go test -run 'TestEmbedded' ./...
+      - name: Unit tests
+        run: go test ./...
+      - name: Race detector (Review DescriptionFunc vs Validate)
+        run: go test -race ./...
+      - name: Static checks
+        run: go vet ./...
+      - name: Build and non-interactive smoke test
+        run: |
+          go build -o "$RUNNER_TEMP/computer-host-linux-tui-demo" .
+          "$RUNNER_TEMP/computer-host-linux-tui-demo" -preview > "$RUNNER_TEMP/tui-preview.txt"
+          grep -q 'DEMO ONLY — NO CHANGES WILL BE MADE' "$RUNNER_TEMP/tui-preview.txt"
+          grep -q 'Power management: false' "$RUNNER_TEMP/tui-preview.txt"
+          grep -q 'Persistent Wake-on-LAN: false' "$RUNNER_TEMP/tui-preview.txt"
+          python3 pty_smoke.py "$RUNNER_TEMP/computer-host-linux-tui-demo"
+          printf '1\n4\nk\nk\ny\n' | NO_COLOR=1 TERM=dumb "$RUNNER_TEMP/computer-host-linux-tui-demo" -accessible > "$RUNNER_TEMP/accessibility.txt"
+          grep -q 'DEMO COMPLETE' "$RUNNER_TEMP/accessibility.txt"
+          if python3 -c 'import sys; sys.exit(b"\x1b" not in open(sys.argv[1], "rb").read())' "$RUNNER_TEMP/accessibility.txt"; then
+            echo 'Accessible output contains ANSI escape bytes' >&2
+            exit 1
+          fi
+      - name: Real unprivileged read-only backend smoke test
+        run: |
+          set -eu
+          "$RUNNER_TEMP/computer-host-linux-tui-demo" -live -preview \
+            -api ../scripts/installer-api.sh \
+            > "$RUNNER_TEMP/live-inspection.txt"
+          grep -q 'REAL HOST — READ-ONLY INSPECTION' "$RUNNER_TEMP/live-inspection.txt"
+          grep -q 'REAL READ-ONLY FILE PLAN' "$RUNNER_TEMP/live-inspection.txt"
+          python3 pty_smoke.py "$RUNNER_TEMP/computer-host-linux-tui-demo" --live
+          # Exercise the NIC-page keyboard path with a controlled fake API.
+          python3 pty_live_nic.py "$RUNNER_TEMP/computer-host-linux-tui-demo"
+          grep -q 'Privileged transaction/recovery status: UNKNOWN' "$RUNNER_TEMP/live-inspection.txt"
+          printf 's\nk\nk\ny\n' | NO_COLOR=1 TERM=dumb \
+            "$RUNNER_TEMP/computer-host-linux-tui-demo" -live -accessible \
+            -api ../scripts/installer-api.sh \
+            > "$RUNNER_TEMP/live-accessible.txt"
+          grep -q 'SETUP PREVIEW COMPLETE' "$RUNNER_TEMP/live-accessible.txt"
+          if python3 -c 'import sys; sys.exit(b"\x1b" not in open(sys.argv[1], "rb").read())' "$RUNNER_TEMP/live-accessible.txt"; then
+            echo 'Live accessible output contains ANSI escape bytes' >&2
+            exit 1
+          fi
+      - name: Refuse implicit installation or sudo in preview/test modes
+        run: |
+          set -eu
+          if "$RUNNER_TEMP/computer-host-linux-tui-demo" -live -install -preview \
+            -api ../scripts/installer-api.sh > "$RUNNER_TEMP/invalid-install.txt" 2>&1; then
+            echo "Install accepted an ambiguous preview combination" >&2
+            exit 1
+          fi
+          if "$RUNNER_TEMP/computer-host-linux-tui-demo" -root-bootstrap \
+            </dev/null > "$RUNNER_TEMP/invalid-root.txt" 2>&1; then
+            echo "Root helper ran unprivileged" >&2
+            exit 1
+          fi
+      - name: Build static x86_64 test-only binary for Gentoo acceptance
+        run: |
+          set -eu
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath \
+            -o "$RUNNER_TEMP/computer-host-linux-installer-test" .
+          cd "$RUNNER_TEMP"
+          sha256sum computer-host-linux-installer-test > computer-host-linux-installer-test.sha256
+      - name: Upload test-only Linux integration binary (not a release)
+        uses: actions/upload-artifact@v7
+        with:
+          name: computer-host-linux-wizard-integration-test-only
+          path: |
+            ${{ runner.temp }}/computer-host-linux-installer-test
+            ${{ runner.temp }}/computer-host-linux-installer-test.sha256
+          if-no-files-found: error
+          retention-days: 7

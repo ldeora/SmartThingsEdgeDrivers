@@ -1,0 +1,26 @@
+[Unit]
+Description=Linux Host restricted power helper
+Requires=linux-host-agent-power.socket
+After=linux-host-agent-power.socket
+
+[Service]
+Type=simple
+User=root
+Group=root
+ExecStart=/usr/bin/python3 /opt/linux-host-agent/power_helper.py
+NoNewPrivileges=yes
+ProtectHome=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX
+UMask=0077
+TasksMax=24
+LimitNOFILE=128
+MemoryMax=96M
+RestrictSUIDSGID=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+ProtectHostname=yes
