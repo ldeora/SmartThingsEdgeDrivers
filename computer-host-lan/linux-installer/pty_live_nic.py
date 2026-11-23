@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Drive the *actual* Huh full-screen NIC page into Review using a fake API.
+"""End-to-end novice flow: preselected hub -> power -> Review -> cancel.
 
-No host network, systemd service, privileged helper, or hardware access.
-Unlike a unit test, this sends actual terminal key sequences via a PTY.
+Uses a fake Avahi executable and read-only API, never real host services,
+SmartThings hub packets or system changes.
 """
 from __future__ import annotations
 
@@ -30,11 +30,10 @@ INSPECT = ('{"schema_version":1,"operation":"inspect","mode":"read_only",'
 PLAN = ('{"schema_version":1,"operation":"plan","mode":"read_only",'
         '"changes":[{"path":"/etc/systemd/system/linux-host-agent.service","action":"replace"}],'
         '"selected_python":"/usr/bin/python3","power_option":"preserve",'
-        '"wol_interface_requested":true,"privileged_transaction_state":"unknown",'
+        '"wol_interface_requested":false,"privileged_transaction_state":"unknown",'
         '"runtime_verified":false,"changes_applied":false,"secrets_included":false}')
 
-# A tiny strict test launcher; proving --wol-interface was passed unchanged
-# prevents the mock from returning a successful response for a wrong argument.
+# Strict fake plan: the normal path must not select an advanced NIC.
 SCRIPT = """#!/bin/sh
 case "$1" in
 inspect)
@@ -43,7 +42,7 @@ inspect)
 JSON
     ;;
 plan)
-    [ "$2" = "--wol-interface" ] && [ "$3" = "enp1s0f0" ] && [ "$#" -eq 3 ] || exit 2
+    [ "$#" -eq 1 ] || exit 2
     cat <<'JSON'
 %s
 JSON
@@ -60,7 +59,8 @@ def exercise(binary: str, api: str) -> None:
     if pid == 0:
         try:
             env = os.environ.copy()
-            env.update(TERM='xterm-256color', NO_COLOR='1')
+            env.update(TERM='xterm-256color', NO_COLOR='1',
+                       PATH=str(Path(api).parent) + os.pathsep + env.get('PATH', ''))
             os.execve(binary, [binary, '-live', '-api', api], env)
         except Exception as exc:
             print(f'PTY execution failed: {exc}', file=sys.stderr)
@@ -97,42 +97,25 @@ def exercise(binary: str, api: str) -> None:
         return mark
 
     try:
-        wait_for(b'1. Compatibility')
-        mark = send(b'\r')   # accept the only Compatibility option
-        wait_for(b'2. Options', mark)
-
-        send(b'\r')          # power: preserve default
-        time.sleep(0.15)
-        send(b'\x1b[B')      # WOL: select the second option (pin)
-        time.sleep(0.15)
-        mark = send(b'\r')   # open conditional NIC input group
-        wait_for(b'Existing network interface', mark)
-        wait_for(b'field starts EMPTY', mark)
-
-        # The hint is a PLACEHOLDER, never a default value. Pressing Enter
-        # with no input must stay here and explain what needs to be typed.
+        wait_for(b'1. Welcome')
         mark = send(b'\r')
-        wait_for(b'Enter an interface name', mark)
-        if b'read-only backend: invalid_argument' in captured[mark:]:
-            raise AssertionError('Local NIC validation falsely reported backend failure')
+        wait_for(b'2. SmartThings hub', mark)
+        wait_for(b'192.168.1.103', mark)
 
-        mark = send(b'enp1s0f0')
-        wait_for(b'enp1s0f0', mark)
-        mark = send(b'\r')   # submit the real typed name
-        wait_for(b'3. SmartThings hub', mark)
-        send(b'\x1b[B')    # select manual IPv4 (second choice)
-        time.sleep(0.15)
+        # A single discovered hub must be preselected: Enter should advance,
+        # not force a user to choose an IP or hunt for a network interface.
         mark = send(b'\r')
-        wait_for(b'SmartThings hub IPv4', mark)
-        mark = send(b'192.168.1.20')
-        wait_for(b'192.168.1.20', mark)
-        mark = send(b'\r')
+        wait_for(b'3. Power control', mark)
+
+        mark = send(b'\r')  # Keep the existing (enabled) power-control state.
+        wait_for(b'Advanced network setup', mark)
+        mark = send(b'\r')  # Leave network settings unchanged.
         wait_for(b'4. Review', mark)
-        wait_for(b'WOL interface pin requested: true', mark)
-        wait_for(b'192.168.1.20 (entered manually', mark)
+        wait_for(b'192.168.1.103 (found automatically)', mark)
+        wait_for(b'Keep power control enabled', mark)
 
         mark = send(b'\x03')
-        wait_for(b'Cancelled; no changes made.', mark, 6)
+        wait_for(b'Setup preview cancelled. No changes made.', mark, 6)
         deadline = time.monotonic() + 4
         while time.monotonic() < deadline:
             done, status = os.waitpid(pid, os.WNOHANG)
@@ -142,7 +125,7 @@ def exercise(binary: str, api: str) -> None:
             time.sleep(0.05)
         if child_status is None or not os.WIFEXITED(child_status) or os.WEXITSTATUS(child_status):
             raise AssertionError(f'Expected clean cancellation, got status={child_status}')
-        print('PASS live PTY: compatibility -> power -> WOL pin -> NIC -> manual hub -> Review -> cancel')
+        print('PASS novice live PTY: welcome -> preselected hub -> power -> Review -> cancel')
     except Exception:
         print('Captured terminal tail:', bytes(captured[-9000:]).decode(errors='replace'), file=sys.stderr)
         raise
@@ -167,6 +150,12 @@ def main() -> int:
         api = Path(directory) / 'installer-api.sh'
         api.write_text(SCRIPT, encoding='utf-8')
         api.chmod(0o755)
+        avahi = Path(directory) / 'avahi-browse'
+        avahi.write_text(
+            '#!/bin/sh\n'
+            'printf "=;eth0;IPv4;Test Hub;_smartthings._tcp;local;hub.local;192.168.1.103;5000;txt\\n"\n',
+            encoding='utf-8')
+        avahi.chmod(0o755)
         exercise(sys.argv[1], str(api))
     return 0
 
