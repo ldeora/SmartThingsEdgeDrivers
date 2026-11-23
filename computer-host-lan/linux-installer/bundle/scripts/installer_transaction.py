@@ -297,26 +297,71 @@ class SystemdOperations:
             time.sleep(min(0.5, remaining))
 
     def stop_for_uninstall(self) -> None:
-        # Stop the socket first to prevent another power-helper activation,
-        # then stop the HTTP agent BEFORE removing any managed executable.
-        core.systemctl('disable', '--now', 'linux-host-agent-power.socket', check=False)
-        core.systemctl('disable', '--now', 'linux-host-agent.service', check=False)
+        # Stop socket activation first, then explicitly stop the static
+        # power-helper service as well as the HTTP agent. Require successful
+        # commands: a failed disable must not leave dangling wants links
+        # after the corresponding unit file is removed.
+        core.systemctl('disable', '--now', 'linux-host-agent-power.socket')
+        core.systemctl('stop', 'linux-host-agent-power.service')
+        core.systemctl('disable', '--now', 'linux-host-agent.service')
+
+    @staticmethod
+    def _uninstall_unit_state(unit: str) -> dict[str, str] | None:
+        # Unlike a negated is-active/is-enabled return code, an explicit
+        # state cannot mistake a timeout, missing bus, or query failure for
+        # proof that a unit has stopped or is disabled. Request empty fields
+        # too: after deletion systemd reports an empty UnitFileState.
+        try:
+            result = subprocess.run(
+                ['systemctl', 'show', '--all', '--no-pager',
+                 '--property=LoadState,ActiveState,UnitFileState', '--', unit],
+                check=False, stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                text=True, timeout=10)
+        except (OSError, subprocess.TimeoutExpired):
+            return None
+        if result.returncode != 0 or not isinstance(result.stdout, str):
+            return None
+        properties = {}
+        for line in result.stdout.splitlines():
+            key, separator, value = line.partition('=')
+            if not separator or key in properties:
+                return None
+            properties[key] = value
+        if set(properties) != {'LoadState', 'ActiveState', 'UnitFileState'}:
+            return None
+        return properties
 
     def verify_uninstall_stopped(self) -> bool:
-        return (
-            not core.state('linux-host-agent-power.socket', 'is-active') and
-            not core.state('linux-host-agent.service', 'is-active')
-        )
+        # Check enablement while the unit files still exist, before systemd
+        # can report "not found" and obscure a failed disable operation.
+        for unit, allowed in (
+            ('linux-host-agent-power.socket', ('disabled',)),
+            ('linux-host-agent.service', ('disabled',)),
+            ('linux-host-agent-power.service', ('static', 'disabled')),
+        ):
+            state = self._uninstall_unit_state(unit)
+            if (state is None or state['LoadState'] != 'loaded' or
+                    state['ActiveState'] != 'inactive' or
+                    state['UnitFileState'] not in allowed):
+                return False
+        return True
 
     def reload_after_uninstall(self) -> None:
         core.systemctl('daemon-reload')
 
     def verify_uninstall_services(self) -> bool:
-        return (
-            self.verify_uninstall_stopped() and
-            not core.state('linux-host-agent-power.socket', 'is-enabled') and
-            not core.state('linux-host-agent.service', 'is-enabled')
-        )
+        # After reload, all three removed unit files must be absent and
+        # their runtime state explicitly inactive, including the helper.
+        for unit in ('linux-host-agent-power.socket',
+                     'linux-host-agent.service',
+                     'linux-host-agent-power.service'):
+            state = self._uninstall_unit_state(unit)
+            if (state is None or state['LoadState'] != 'not-found' or
+                    state['ActiveState'] != 'inactive' or
+                    state['UnitFileState'] not in ('', 'not-found')):
+                return False
+        return True
 
     def restore_services(self, previous: dict) -> None:
         core.restore_services(previous)
