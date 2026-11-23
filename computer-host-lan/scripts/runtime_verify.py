@@ -55,7 +55,7 @@ def _read_json(port: int, path: str, *,
         response = conn.getresponse()
         if response.status != 200:
             return None
-        content_type = response.getheader('Content-Type', '')
+        content_type = response.getheader('Content-Type', '') or ''
         if not content_type.lower().startswith('application/json'):
             return None
         raw = response.read(MAX_RESPONSE + 1)
@@ -104,11 +104,12 @@ def verify_runtime(*, port: int = 8765, expected_version: str | None = None,
     failed = False
     not_verified = False
 
-    def check(name: str, state: str) -> None:
+    def check(name: str, state: str, *, required: bool = True) -> None:
         nonlocal failed, not_verified
         checks.append({'id': name, 'status': state})
-        failed |= state == 'failed'
-        not_verified |= state == 'not_verified'
+        if required:
+            failed |= state == 'failed'
+            not_verified |= state == 'not_verified'
 
     check('systemd_agent_active', 'passed' if service_status == 'active' else
           'not_verified' if service_status == 'unknown' else 'failed')
@@ -134,7 +135,7 @@ def verify_runtime(*, port: int = 8765, expected_version: str | None = None,
         check('identity_preserved',
               'passed' if consistent and info_id == expected_identity else 'failed')
     else:
-        check('identity_preserved', 'not_verified')
+        check('identity_preserved', 'not_verified', required=False)
 
     version = info.get('agent_version') if isinstance(info, dict) else None
     valid_version = isinstance(version, str) and len(version) <= 40 and bool(_VERSION.fullmatch(version))
@@ -142,7 +143,7 @@ def verify_runtime(*, port: int = 8765, expected_version: str | None = None,
     if expected_version is not None:
         check('expected_version', 'passed' if valid_version and version == expected_version else 'failed')
     else:
-        check('expected_version', 'not_verified')
+        check('expected_version', 'not_verified', required=False)
 
     features = info.get('features') if isinstance(info, dict) else None
     valid_features = (isinstance(features, list) and len(features) <= 32
@@ -152,7 +153,7 @@ def verify_runtime(*, port: int = 8765, expected_version: str | None = None,
     if expected_power is not None:
         check('expected_power', 'passed' if valid_features and power_enabled == expected_power else 'failed')
     else:
-        check('expected_power', 'not_verified')
+        check('expected_power', 'not_verified', required=False)
 
     status = 'failed' if failed else 'not_verified' if not_verified else 'passed'
     return {
