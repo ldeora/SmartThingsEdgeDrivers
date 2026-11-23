@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -452,6 +453,23 @@ func TestDirectoryAtInstallerLockPathGetsFixedUnsafeLock(t *testing.T) {
 			file.Close()
 		}
 		t.Fatalf("Nonregular lock must produce fixed unsafe_lock: %v", err)
+	}
+}
+
+func TestUnixSocketAtLockPathProducesFixedUnsafeLock(t *testing.T) {
+	lock := filepath.Join(t.TempDir(), "install.lock")
+	server, err := net.Listen("unix", lock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer server.Close()
+
+	if f, err := lockInstaller(lock, os.Geteuid()); err == nil ||
+		!errors.Is(err, errUnsafeInstallerLock) {
+		if f != nil {
+			f.Close()
+		}
+		t.Fatalf("Unix socket at lock path must be unsafe_lock: %v", err)
 	}
 }
 
