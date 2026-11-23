@@ -4,6 +4,7 @@ No sudo, no real backups, no systemd, no installed agent or service changes.
 """
 from __future__ import annotations
 
+import fcntl
 import json
 import os
 from pathlib import Path
@@ -11,6 +12,8 @@ import stat
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 import unittest
 from unittest import mock
 
@@ -69,6 +72,103 @@ class ProtectedJournalTests(unittest.TestCase):
         self.assertTrue(all(not c.args[1] & os.O_CREAT for c in calls))
         self.assertTrue(all(c.args[1] & os.O_ACCMODE == os.O_RDONLY for c in calls))
         self.assertEqual(before, lock.stat().st_mtime_ns)
+
+    def test_status_readers_share_locks_without_false_in_progress(self):
+        # A status call owns SH, not EX: another concurrent SH-status must
+        # report the journal state rather than misclassifying a live writer.
+        with self.store.begin('install'):
+            pass  # An incomplete journal with no active transaction owner.
+        lock = self.directory / 'lock'
+        fd1 = os.open(lock, os.O_RDONLY | os.O_CLOEXEC)
+        fd2 = os.open(lock, os.O_RDONLY | os.O_CLOEXEC)
+        try:
+            fcntl.flock(fd1, fcntl.LOCK_SH | fcntl.LOCK_NB)
+            fcntl.flock(fd2, fcntl.LOCK_SH | fcntl.LOCK_NB)
+            statuses = []
+            barrier = threading.Barrier(3)
+
+            def query():
+                barrier.wait(timeout=3)
+                statuses.append(self.store.public_status()['privileged_transaction_state'])
+
+            readers = [threading.Thread(target=query) for _ in range(2)]
+            for reader in readers:
+                reader.start()
+            barrier.wait(timeout=3)
+            for reader in readers:
+                reader.join(timeout=5)
+                self.assertFalse(reader.is_alive())
+            self.assertEqual(statuses, ['incomplete', 'incomplete'])
+        finally:
+            os.close(fd1)
+            os.close(fd2)
+
+    def test_begin_retries_boundedly_behind_status_reader(self):
+        # Set up a harmless status-side SH lock with no journal. begin()
+        # must wait for this reader rather than report a running install.
+        with self.store.begin('install') as tx:
+            tx.abort()
+            tx.clear_finished()
+        lock = self.directory / 'lock'
+        reader_fd = os.open(lock, os.O_RDONLY | os.O_CLOEXEC)
+        fcntl.flock(reader_fd, fcntl.LOCK_SH | fcntl.LOCK_NB)
+        reader_closed = threading.Event()
+
+        def release_reader():
+            try:
+                time.sleep(0.15)
+            finally:
+                os.close(reader_fd)
+                reader_closed.set()
+
+        release = threading.Thread(target=release_reader)
+        release.start()
+        try:
+            self.assertEqual(self.store.public_status()['privileged_transaction_state'],
+                             'none')
+            started = time.monotonic()
+            with self.store.begin('upgrade') as tx:
+                elapsed = time.monotonic() - started
+                self.assertGreaterEqual(elapsed, 0.09)
+                self.assertLess(elapsed, journal._LOCK_WAIT_SECONDS + 1.0)
+                tx.abort()
+                tx.clear_finished()
+        finally:
+            release.join(timeout=3)
+        self.assertTrue(reader_closed.is_set())
+
+    def test_existing_exclusive_transaction_still_fails_in_bounded_time(self):
+        with self.store.begin('install'):
+            started = time.monotonic()
+            with self.assertRaises(journal.JournalConflict):
+                self.store.begin('upgrade')
+            elapsed = time.monotonic() - started
+            self.assertGreaterEqual(elapsed, journal._LOCK_WAIT_SECONDS - 0.05)
+            self.assertLess(elapsed, journal._LOCK_WAIT_SECONDS + 1.0)
+
+    def test_new_directory_modes_are_independent_of_umask(self):
+        previous = os.umask(0o077)
+        try:
+            with self.store.begin('install') as tx:
+                tx.abort()
+                tx.clear_finished()
+        finally:
+            os.umask(previous)
+        self.assertEqual(stat.S_IMODE((self.root / 'var').stat().st_mode), 0o755)
+        self.assertEqual(stat.S_IMODE((self.root / 'var/backups').stat().st_mode),
+                         0o755)
+        self.assertEqual(stat.S_IMODE((self.root / 'var/backups/linux-host-agent').stat().st_mode),
+                         0o700)
+        self.assertEqual(stat.S_IMODE(self.directory.stat().st_mode), 0o700)
+
+    def test_existing_backup_parent_permissions_are_never_normalized(self):
+        parent = self.root / 'var/backups'
+        parent.mkdir(parents=True)
+        parent.chmod(0o700)
+        with self.store.begin('install') as tx:
+            tx.abort()
+            tx.clear_finished()
+        self.assertEqual(stat.S_IMODE(parent.stat().st_mode), 0o700)
 
     def test_lifetime_handle_and_complete_sequence(self):
         with self.store.begin('install') as tx:
