@@ -341,6 +341,64 @@ class InstallerBackendTests(unittest.TestCase):
         self.assertEqual(self.store.public_status()['privileged_transaction_state'],
                          'none')
 
+    def test_uninstall_failure_after_removing_files_restores_snapshot(self):
+        old = self.existing_install()
+        original = old.read_bytes()
+        trans_type = core.InstallTransaction
+        original_apply = trans_type.apply
+
+        def remove_then_fail(instance, changes):
+            original_apply(instance, changes)
+            raise OSError('simulated disk error after all deletes')
+
+        with mock.patch.object(trans_type, 'apply', new=remove_then_fail):
+            with self.assertRaises(installer.ControllerError) as error:
+                self.backend.uninstall()
+        self.assertEqual(error.exception.code, 'rolled_back')
+        self.assertEqual(old.read_bytes(), original)
+        self.assertEqual(self.services.restore_calls, 1)
+        self.assertEqual(self.store.public_status()['privileged_transaction_state'],
+                         'none')
+
+    def test_uninstall_committed_cleanup_failure_does_not_restore_agent(self):
+        self.existing_install()
+        with mock.patch.object(staging, 'finish_terminal_stage',
+                               side_effect=staging.StagingError('fixture failure')):
+            result = self.backend.uninstall()
+        self.assertEqual(result.status, 'uninstalled_cleanup_required')
+        self.assertFalse(self.installed_paths().location(core.APP_FILES[0]).exists())
+        self.assertEqual(self.store.public_status()['privileged_transaction_state'],
+                         'none')
+        # A finished COMMITTED journal requires explicit cleanup, not
+        # reapplication or rollback. Public status may still say none
+        # because COMMITTED is terminal, but it must remain on disk.
+        folder = self.root / 'var/backups/linux-host-agent/wizard-transactions'
+        self.assertTrue((folder / 'journal.json').exists())
+        # Terminal journal cleanup is exposed through the existing
+        # finish_terminal_cleanup method, without reinstalling or rollback.
+        self.backend.finish_terminal_cleanup()
+        self.assertFalse((folder / 'journal.json').exists())
+        self.assertFalse(self.installed_paths().location(core.APP_FILES[0]).exists())
+        self.assertEqual(self.services.restore_calls, 0)
+
+    def test_uninstall_preapply_crash_does_not_remove_managed_files(self):
+        old = self.existing_install()
+        previous_bytes = old.read_bytes()
+        trans = self.installed_paths()
+        changes = [core.Change(path, None) for path in sorted(core.MANAGED_PATHS)]
+        with self.store.begin('uninstall') as journal:
+            journal.advance('INSPECTED', 'STAGED')
+            previous = self.services.capture_previous(trans)
+            snapshot = trans.snapshot(changes, previous=previous)
+            installer._sync_snapshot(snapshot)
+            journal.advance('STAGED', 'SNAPSHOTTED', snapshot_name=snapshot.name)
+        recovered = self.backend.recover_interrupted()
+        self.assertEqual(recovered.status, 'aborted')
+        self.assertEqual(old.read_bytes(), previous_bytes)
+        self.assertEqual(self.services.uninstall_stops, 0)
+        self.assertEqual(self.store.public_status()['privileged_transaction_state'],
+                         'none')
+
     def test_uninstall_systemd_stops_services_before_unlinking(self):
         ops = installer.SystemdOperations()
         from unittest.mock import call
