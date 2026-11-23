@@ -122,6 +122,12 @@ class InstallOutcome:
 
 
 @dataclass(frozen=True)
+class UninstallOutcome:
+    status: str  # 'uninstalled' or 'uninstalled_cleanup_required'
+    identity_preserved: str  # 'verified' or 'not_verified'
+
+
+@dataclass(frozen=True)
 class RecoveryOutcome:
     """Public, redacted summary; never include journal IDs or secret state."""
     status: str       # aborted, rolled_back, cleaned
@@ -182,6 +188,10 @@ class ServiceOperations(Protocol):
                        power_enabled: bool, transaction: core.InstallTransaction) -> bool: ...
     def restore_services(self, previous: dict) -> None: ...
     def verify_restored_services(self, previous: dict) -> bool: ...
+    def stop_for_uninstall(self) -> None: ...
+    def verify_uninstall_stopped(self) -> bool: ...
+    def reload_after_uninstall(self) -> None: ...
+    def verify_uninstall_services(self) -> bool: ...
 
 
 class SystemdOperations:
@@ -285,6 +295,73 @@ class SystemdOperations:
             if remaining <= 0:
                 return False
             time.sleep(min(0.5, remaining))
+
+    def stop_for_uninstall(self) -> None:
+        # Stop socket activation first, then explicitly stop the static
+        # power-helper service as well as the HTTP agent. Require successful
+        # commands: a failed disable must not leave dangling wants links
+        # after the corresponding unit file is removed.
+        core.systemctl('disable', '--now', 'linux-host-agent-power.socket')
+        core.systemctl('stop', 'linux-host-agent-power.service')
+        core.systemctl('disable', '--now', 'linux-host-agent.service')
+
+    @staticmethod
+    def _uninstall_unit_state(unit: str) -> dict[str, str] | None:
+        # Unlike a negated is-active/is-enabled return code, an explicit
+        # state cannot mistake a timeout, missing bus, or query failure for
+        # proof that a unit has stopped or is disabled. Request empty fields
+        # too: after deletion systemd reports an empty UnitFileState.
+        try:
+            result = subprocess.run(
+                ['systemctl', 'show', '--all', '--no-pager',
+                 '--property=LoadState,ActiveState,UnitFileState', '--', unit],
+                check=False, stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                text=True, timeout=10)
+        except (OSError, subprocess.TimeoutExpired):
+            return None
+        if result.returncode != 0 or not isinstance(result.stdout, str):
+            return None
+        properties = {}
+        for line in result.stdout.splitlines():
+            key, separator, value = line.partition('=')
+            if not separator or key in properties:
+                return None
+            properties[key] = value
+        if set(properties) != {'LoadState', 'ActiveState', 'UnitFileState'}:
+            return None
+        return properties
+
+    def verify_uninstall_stopped(self) -> bool:
+        # Check enablement while the unit files still exist, before systemd
+        # can report "not found" and obscure a failed disable operation.
+        for unit, allowed in (
+            ('linux-host-agent-power.socket', ('disabled',)),
+            ('linux-host-agent.service', ('disabled',)),
+            ('linux-host-agent-power.service', ('static', 'disabled')),
+        ):
+            state = self._uninstall_unit_state(unit)
+            if (state is None or state['LoadState'] != 'loaded' or
+                    state['ActiveState'] != 'inactive' or
+                    state['UnitFileState'] not in allowed):
+                return False
+        return True
+
+    def reload_after_uninstall(self) -> None:
+        core.systemctl('daemon-reload')
+
+    def verify_uninstall_services(self) -> bool:
+        # After reload, all three removed unit files must be absent and
+        # their runtime state explicitly inactive, including the helper.
+        for unit in ('linux-host-agent-power.socket',
+                     'linux-host-agent.service',
+                     'linux-host-agent-power.service'):
+            state = self._uninstall_unit_state(unit)
+            if (state is None or state['LoadState'] != 'not-found' or
+                    state['ActiveState'] != 'inactive' or
+                    state['UnitFileState'] not in ('', 'not-found')):
+                return False
+        return True
 
     def restore_services(self, previous: dict) -> None:
         core.restore_services(previous)
@@ -441,7 +518,7 @@ def _files_match_snapshot(backup: Path, transaction: core.InstallTransaction) ->
 
 
 class InstallerBackend:
-    """Transactional install/upgrade/repair engine; no public root entrypoint."""
+    """Transactional install/upgrade/repair/uninstall engine; no public root entrypoint."""
 
     def __init__(self, *, root: Path = Path('/'), owner_uid: int = 0,
                  manual_lock_path: Path = _MANUAL_LOCK,
@@ -484,6 +561,116 @@ class InstallerBackend:
                     'adoption_required' if adoptable else 'unsupported_environment'
                 ) from None
             return self._run_locked(request, source, trusted_hashes)
+
+    def uninstall(self) -> UninstallOutcome:
+        """Journaled v2 uninstall of managed files and services only.
+
+        This backend method is intentionally not yet exposed by the root
+        request router or the Go wizard. The separate explicit-confirmation
+        integration must be reviewed before authorizing an uninstall.
+        Retain the protected UUID/token, owner record, user, WOL NIC policy,
+        recovery snapshots, and installed root helper (for -recover).
+        """
+        self._check_context()
+        with manual_install_lock(self.manual_lock_path, owner_uid=self.owner_uid):
+            try:
+                # A retained v2 owner record after uninstall is NOT proof
+                # that an agent remains installed. Refuse absent, v1 and
+                # ambiguous states before starting any durable transaction.
+                if core.require_v2_or_clean(self.root) != 'v2':
+                    raise ControllerError('unsupported_environment')
+                transaction = core.InstallTransaction(self.root)
+                agent = transaction.location(core.APP_FILES[0])
+                transaction.refuse_links(agent)
+                if not agent.is_file():
+                    raise ControllerError('unsupported_environment')
+            except core.InstallError:
+                raise ControllerError('unsupported_environment') from None
+            return self._uninstall_locked(transaction)
+
+    def _uninstall_locked(self, transaction: core.InstallTransaction) -> UninstallOutcome:
+        store = ProtectedJournal(root=self.root, owner_uid=self.owner_uid)
+        changes = [core.Change(name, None) for name in sorted(core.MANAGED_PATHS)]
+        with store.begin('uninstall') as journal:
+            backup = None
+            previous = None
+            identity_state = 'not_verified'
+            failure_stage = 'existing_state'
+            try:
+                # No embedded payload is needed: uninstall can only remove
+                # the fixed managed-file allowlist. Keep the existing journal
+                # phase ordering and recovery format, without staging files.
+                journal.advance('INSPECTED', 'STAGED')
+                previous = self.services.capture_previous(transaction)
+                _check_previous(previous)
+                if previous['first_install']:
+                    raise ControllerError('unsupported_environment')
+                saved_identity = read_saved_identity(self.root)
+                identity_state = 'verified' if saved_identity else 'not_verified'
+                failure_stage = 'snapshot'
+                backup = transaction.snapshot(changes, previous=previous)
+                _sync_snapshot(backup)
+                journal.advance('STAGED', 'SNAPSHOTTED',
+                                snapshot_name=backup.name)
+                # All changes, including stopping units and creating an
+                # ownership marker, require this durable APPLYING entry.
+                journal.advance('SNAPSHOTTED', 'APPLYING')
+                core.write_owner_record(self.root)
+                self.services.stop_for_uninstall()
+                if self.services.verify_uninstall_stopped() is not True:
+                    raise ControllerError('recovery_required')
+                transaction.apply(changes)
+                _sync_managed_directories(changes, transaction)
+                journal.advance('APPLYING', 'ACTIVATING')
+                self.services.reload_after_uninstall()
+                journal.advance('ACTIVATING', 'VERIFYING')
+                if (self.services.verify_uninstall_services() is not True or
+                        any(transaction.location(c.path).exists()
+                            for c in changes) or
+                        not core.owner_record_exists(self.root) or
+                        read_saved_identity(self.root) != saved_identity):
+                    raise ControllerError('recovery_required')
+                journal.advance('VERIFYING', 'COMMITTED')
+            except Exception:
+                try:
+                    phase = journal._record()['phase']
+                    if phase == 'COMMITTED':
+                        return UninstallOutcome('uninstalled_cleanup_required',
+                                                identity_state)
+                    if phase in _PREAPPLY:
+                        journal.abort(lambda _: True)
+                        outcome = 'aborted'
+                    elif phase in _APPLIED and backup is not None and previous is not None:
+                        core.validate_v2_backup(backup, root=self.root)
+                        restored = transaction.restore(backup)
+                        self.services.restore_services(restored)
+                        _sync_managed_directories(changes, transaction)
+                        verified = (_files_match_snapshot(backup, transaction) and
+                                    self.services.verify_restored_services(restored) is True)
+                        journal.mark_rolled_back(lambda _: verified)
+                        outcome = 'rolled_back'
+                    else:
+                        raise ControllerError('recovery_required')
+                    staging.finish_terminal_stage(
+                        journal, root=self.root, owner_uid=self.owner_uid)
+                    journal.clear_finished()
+                except Exception:
+                    raise ControllerError('recovery_required') from None
+                raise ControllerError(
+                    outcome,
+                    failure_stage=failure_stage if outcome == 'aborted' else None
+                ) from None
+
+            # A committed uninstall is final; only clean its journal.
+            # A crash here is resolved by -recover, never by reinstalling.
+            try:
+                staging.finish_terminal_stage(
+                    journal, root=self.root, owner_uid=self.owner_uid)
+                journal.clear_finished()
+            except Exception:
+                return UninstallOutcome('uninstalled_cleanup_required',
+                                        identity_state)
+        return UninstallOutcome('uninstalled', identity_state)
 
     def _run_locked(self, request: InstallRequest, source: Path,
                     trusted_hashes: Mapping[str, str]) -> InstallOutcome:
