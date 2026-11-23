@@ -13,7 +13,6 @@ import hmac
 import os
 from pathlib import Path
 import re
-import secrets
 import stat
 from typing import Mapping
 
@@ -226,6 +225,9 @@ def _write_file(stage_fd: int, relative: str, content: bytes,
                 os.mkdir(component, 0o700, dir_fd=directory)
                 os.fsync(directory)
                 child = os.open(component, _DIR_FLAGS, dir_fd=directory)
+                if os.fstat(child).st_uid != uid:
+                    os.close(child)
+                    raise StagingError('unsafe staged directory owner')
                 os.fchmod(child, 0o700)
                 os.fsync(child)
             _check_directory(child, uid, private=True)
@@ -541,7 +543,12 @@ def discard_pending(transaction: TransactionHandle, *, root: Path = Path('/'),
         pending = _PENDING + identifier
         if any(name not in (_LOCK, pending) for name in os.listdir(base)):
             raise StagingConflict('unrelated stage blocks reconciliation')
-        fd = os.open(pending, _DIR_FLAGS, dir_fd=base)
+        try:
+            fd = os.open(pending, _DIR_FLAGS, dir_fd=base)
+        except FileNotFoundError:
+            # Safe replay after a crash following rmdir but before fsync.
+            os.fsync(base)
+            return
         try:
             _check_directory(fd, owner_uid, private=True)
             _inspect_tree(fd, owner_uid, None)
@@ -600,7 +607,13 @@ def finish_retirement(transaction: TransactionHandle, *, root: Path = Path('/'),
         name = _READY + identifier
         if any(value not in (_LOCK, name) for value in os.listdir(base)):
             raise StagingConflict('unrelated stage blocks retirement')
-        fd = os.open(name, _DIR_FLAGS, dir_fd=base)
+        try:
+            fd = os.open(name, _DIR_FLAGS, dir_fd=base)
+        except FileNotFoundError:
+            # The last rmdir may already have completed before a crash,
+            # while the containing directory's durability was uncertain.
+            os.fsync(base)
+            return
         try:
             _validate_identity(base, fd, name, owner_uid)
             _inspect_tree(fd, owner_uid, None)
