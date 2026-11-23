@@ -259,7 +259,7 @@ def verify_live(*, port: int = 8765, expected_version: str | None = None,
     """
     if not runtime_verify.valid_port(port):
         raise InvalidArgument('port must be an allowed unprivileged HTTP port')
-    if expected_version is not None and not runtime_verify._VERSION.fullmatch(expected_version):
+    if expected_version is not None and not runtime_verify.valid_version(expected_version):
         raise InvalidArgument('invalid expected agent version')
     systemd_present = Path('/run/systemd/system').is_dir()
     service = (service_state('linux-host-agent.service', 'is-active',
