@@ -331,7 +331,11 @@ class InstalledProtocolTests(unittest.TestCase):
     def test_shell_checks_prior_to_account_creation(self):
         source = (ROOT / 'scripts/install-agent.sh').read_text()
         self.assertLess(source.index('--check-existing'), source.index('getent passwd linuxhost'))
+        self.assertLess(source.index('--check-wizard-journal'), source.index('getent passwd linuxhost'))
         self.assertIn('--check-existing', (ROOT / 'scripts/preflight.sh').read_text())
+        self.assertIn('--adopt-retained-state) ADOPT_RETAINED_STATE=1', source)
+        self.assertIn('--check-existing --adopt-retained-state', source)
+        self.assertIn('set -- "$@" --adopt-retained-state', source)
 
 
 if __name__ == '__main__':
