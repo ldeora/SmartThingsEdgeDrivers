@@ -17,8 +17,8 @@ import (
 )
 
 const (
-	trustedDir    = "/usr/libexec/computer-host-lan"
-	trustedLock   = "/run/lock/linux-host-agent-install.lock"
+	trustedDir  = "/usr/libexec/computer-host-lan"
+	trustedLock = "/run/lock/linux-host-agent-install.lock"
 	// Only the Go wizard uses this lifetime lock; unlike the legacy manual
 	// install lock it can live in a private root-owned runtime directory.
 	bootstrapLock = "/run/computer-host-lan/bootstrap.lock"
