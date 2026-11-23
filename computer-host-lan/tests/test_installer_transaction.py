@@ -507,6 +507,150 @@ class InstallerBackendTests(unittest.TestCase):
                 power_enabled=True, transaction=self.installed_paths()))
         ops.health_probe.assert_not_called()
 
+    def _simulate_crash_at(self, phase, *, fresh=False):
+        """Create an authentic, protected journal/stage/snapshot then exit.
+
+        The test process does NOT fork or execute a real installer; closing
+        the handles reproduces abrupt process exit and released flocks.
+        """
+        if not fresh:
+            old = self.existing_install(active=True, enabled=True)
+            original = old.read_bytes()
+            action = 'upgrade'
+        else:
+            old = None
+            original = None
+            action = 'install'
+        trans = self.installed_paths()
+        with self.store.begin(action) as journal:
+            receipt = staging.stage_payload(
+                ROOT, self.hashes, journal, root=self.root, owner_uid=self.uid)
+            try:
+                journal.advance('INSPECTED', 'STAGED')
+                if phase == 'STAGED':
+                    return (old, original, None)
+                previous = self.services.capture_previous(trans)
+                source = receipt.verified_source_path(self.hashes)
+                plan = core.generate_plan(source, '/usr/bin/python3',
+                                          enable_power=False, disable_power=False,
+                                          wol_interface=None,
+                                          is_existing_power=False, avahi_dir=False)
+                snapshot = trans.snapshot(plan, previous=previous)
+                installer._sync_snapshot(snapshot)
+                journal.advance('STAGED', 'SNAPSHOTTED',
+                                snapshot_name=snapshot.name)
+                if phase == 'SNAPSHOTTED':
+                    return (old, original, snapshot)
+                journal.advance('SNAPSHOTTED', 'APPLYING')
+                # Crash window: first install may NOT have written owner
+                # record before the power loss, despite APPLYING journal.
+                trans.apply(plan)
+                if phase == 'APPLYING':
+                    return (old, original, snapshot)
+                journal.advance('APPLYING', 'ACTIVATING')
+                if phase == 'ACTIVATING':
+                    return (old, original, snapshot)
+                journal.advance('ACTIVATING', 'VERIFYING')
+                return (old, original, snapshot)
+            finally:
+                receipt.close()
+
+    def test_recovery_on_clean_host_is_an_explicit_no_op(self):
+        result = self.backend.recover_interrupted()
+        self.assertEqual(result.status, 'nothing_to_recover')
+        self.assertFalse((self.root / 'var/backups').exists())
+
+    def test_recover_staged_preapply_does_not_mutate_managed_files(self):
+        old, original, _ = self._simulate_crash_at('STAGED')
+        result = self.backend.recover_interrupted()
+        self.assertEqual(result.status, 'aborted')
+        self.assertEqual(result.previous_phase, 'STAGED')
+        self.assertEqual(old.read_bytes(), original)
+        self.assertFalse(self.stage_entries())
+        self.assertEqual(self.store.public_status()['privileged_transaction_state'],
+                         'none')
+
+    def test_recover_snapshotted_preapply(self):
+        old, original, _ = self._simulate_crash_at('SNAPSHOTTED')
+        result = self.backend.recover_interrupted()
+        self.assertEqual(result.status, 'aborted')
+        self.assertEqual(old.read_bytes(), original)
+        self.assertFalse(self.stage_entries())
+        self.assertEqual(self.store.public_status()['privileged_transaction_state'],
+                         'none')
+
+    def test_recover_applied_interruption_restores_previous_files(self):
+        for phase in ('APPLYING', 'ACTIVATING', 'VERIFYING'):
+            with self.subTest(phase=phase):
+                old, original, _ = self._simulate_crash_at(phase)
+                self.assertNotEqual(old.read_bytes(), original)
+                with self.assertRaises(journal.JournalConflict):
+                    self.store.begin('repair')
+                result = self.backend.recover_interrupted()
+                self.assertEqual(result.status, 'rolled_back')
+                self.assertEqual(result.previous_phase, phase)
+                self.assertEqual(old.read_bytes(), original)
+                self.assertEqual(self.services.restore_calls, 1)
+                self.assertEqual(self.stage_entries(), [])
+                self.assertEqual(self.store.public_status()['privileged_transaction_state'],
+                                 'none')
+
+    def test_recover_first_install_crash_before_owner_record(self):
+        _, _, _ = self._simulate_crash_at('APPLYING', fresh=True)
+        self.assertFalse(core.owner_record_exists(self.root))
+        self.assertTrue(self.installed_paths().location(core.APP_FILES[0]).exists())
+        done = self.backend.recover_interrupted()
+        self.assertEqual(done.status, 'rolled_back')
+        self.assertFalse(self.installed_paths().location(core.APP_FILES[0]).exists())
+        self.assertTrue(core.owner_record_exists(self.root))
+        self.assertFalse(self.stage_entries())
+        self.assertEqual(self.store.public_status()['privileged_transaction_state'],
+                         'none')
+        # Retry is permitted without adopting an unknown retained state.
+        self.assertEqual(self.backend.run(self.request(), ROOT, self.hashes).status,
+                         'installed')
+
+    def test_recovery_refuses_missing_or_unsafe_snapshot_without_mutating(self):
+        old, _, snapshot = self._simulate_crash_at('ACTIVATING')
+        damaged = old.read_bytes()
+        (snapshot / 'manifest.json').unlink()
+        with self.assertRaises(installer.ControllerError) as error:
+            self.backend.recover_interrupted()
+        self.assertEqual(error.exception.code, 'recovery_required')
+        self.assertEqual(old.read_bytes(), damaged)
+        self.assertEqual(self.store.public_status()['privileged_transaction_state'],
+                         'recovery_required')
+        self.assertEqual(len(self.stage_entries()), 1)
+
+    def test_recovery_failure_does_not_clear_applied_journal(self):
+        old, original, _ = self._simulate_crash_at('VERIFYING')
+        damaged = old.read_bytes()
+        self.services.fail_restore = True
+        with self.assertRaises(installer.ControllerError) as error:
+            self.backend.recover_interrupted()
+        self.assertEqual(error.exception.code, 'recovery_required')
+        # File restoration may have succeeded before systemd restoration
+        # failed. It must retain the journal until BOTH are verified.
+        self.assertNotEqual(damaged, original)
+        self.assertEqual(old.read_bytes(), original)
+        self.assertEqual(self.store.public_status()['privileged_transaction_state'],
+                         'recovery_required')
+        self.services.fail_restore = False
+        self.assertEqual(self.backend.recover_interrupted().status, 'rolled_back')
+        self.assertEqual(self.store.public_status()['privileged_transaction_state'],
+                         'none')
+
+    def test_recovery_only_cleans_terminal_stage_without_reinstalling(self):
+        with mock.patch.object(staging, 'finish_terminal_stage',
+                               side_effect=staging.StagingError('fixture failure')):
+            result = self.backend.run(self.request(), ROOT, self.hashes)
+        self.assertEqual(result.status, 'installed_cleanup_required')
+        before = self.services.verify_calls
+        completed = self.backend.recover_interrupted()
+        self.assertEqual(completed.status, 'cleaned')
+        self.assertEqual(self.services.verify_calls, before)
+        self.assertFalse(self.stage_entries())
+
     def test_legacy_manual_lock_mode_0644_is_accepted(self):
         self.manual_lock.touch(mode=0o600)
         self.manual_lock.chmod(0o644)

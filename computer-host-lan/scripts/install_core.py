@@ -364,11 +364,15 @@ def _read_backup_file(path: Path, limit: int) -> bytes:
     return contents
 
 
-def validate_v2_backup(backup: Path, *, root: Path = Path('/')) -> None:
+def validate_v2_backup(backup: Path, *, root: Path = Path('/'),
+                       journal_owned_fresh_install: bool = False) -> None:
     """Validate the RESTORE SOURCE, not the possibly damaged current install.
 
-    Refuses legacy v1/unknown snapshot payloads. Snapshot files contain
-    managed code/units only; persistent identity and credentials are untouched.
+    Normal manual rollback requires a persistent v2 ownership record for an
+    empty-agent backup. A trusted root-side controller may set the explicit
+    exception ONLY after acquiring the matching protected APPLYING+ journal:
+    first-install crashes can precede publication of the owner record.
+    This exception still requires v2 snapshot provenance; it never adopts v1.
     """
     if backup.is_symlink() or not backup.is_dir() or backup.stat().st_mode & 0o077:
         raise InstallError('Backup snapshot folder is missing or insecure')
@@ -417,7 +421,8 @@ def validate_v2_backup(backup: Path, *, root: Path = Path('/')) -> None:
         # A first-install snapshot has NO agent to identify. We only accept
         # snapshots explicitly issued by this v2 engine with a durable
         # protected v2 owner record. Old v1 snapshots lack this provenance.
-        if manifest.get('installer_protocol') != 'v2' or not owner_record_exists(root):
+        if (manifest.get('installer_protocol') != 'v2' or
+                not (owner_record_exists(root) or journal_owned_fresh_install)):
             raise InstallError('Unverifiable empty-agent backup; refusing v1 adoption')
     else:
         markers = PROTOCOL_MARKER.findall(agent)

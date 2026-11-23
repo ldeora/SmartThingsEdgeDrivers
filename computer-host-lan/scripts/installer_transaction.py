@@ -25,7 +25,7 @@ from typing import Mapping, Protocol, Callable
 import install_core as core
 import payload_staging as staging
 import runtime_verify
-from transaction_journal import ProtectedJournal
+from transaction_journal import ProtectedJournal, JournalConflict
 
 _MANUAL_LOCK = Path('/run/lock/linux-host-agent-install.lock')
 _PREAPPLY = frozenset(('INSPECTED', 'STAGED', 'SNAPSHOTTED'))
@@ -105,6 +105,13 @@ class InstallOutcome:
     operation: str
     identity_preserved: str  # 'verified' or 'not_verified'
     source_verified: bool = True
+
+
+@dataclass(frozen=True)
+class RecoveryOutcome:
+    """Public, redacted summary; never include journal IDs or secret state."""
+    status: str       # aborted, rolled_back, cleaned
+    previous_phase: str | None = None
 
 
 @contextmanager
@@ -573,6 +580,94 @@ class InstallerBackend:
                                       identity_state)
         return InstallOutcome('installed', request.operation,
                               identity_state)
+
+    def _recover_locked(self, journal, transaction: core.InstallTransaction) -> RecoveryOutcome:
+        """Resolve a durable nonterminal transaction, never resume an install.
+
+        Recovery restores the PREVIOUS installation rather than trying to
+        reconstruct interrupted feature choices. Both locks remain held.
+        """
+        phase = journal._record()['phase']
+        if phase in _PREAPPLY:
+            # No managed mutation occurs before the APPLYING record was
+            # durably written. Even an interrupted APPLYING journal temp
+            # cannot authorize writes that the controller has not begun.
+            journal.abort(lambda _snapshot_name: True)
+            staging.finish_terminal_stage(journal, root=self.root,
+                                          owner_uid=self.owner_uid)
+            journal.clear_finished()
+            return RecoveryOutcome('aborted', phase)
+
+        if phase not in _APPLIED:
+            raise ControllerError('recovery_required')
+
+        snapshot_name = journal._record()['snapshot_name']
+        backup_base = self.root / core.BACKUP_BASE.lstrip('/')
+        if (not backup_base.is_dir() or backup_base.is_symlink() or
+                stat.S_IMODE(backup_base.stat().st_mode) & 0o077 or
+                (self.root == Path('/') and backup_base.stat().st_uid != 0)):
+            raise ControllerError('recovery_required')
+        backup = backup_base / snapshot_name
+        # The protected APPLYING+ journal is the authority for the limited
+        # first-install exception. An interruption may predate the v2 marker.
+        core.validate_v2_backup(
+            backup, root=self.root, journal_owned_fresh_install=True)
+        manifest = json.loads(core._read_backup_file(
+            backup / 'manifest.json', core.MAX_BACKUP_MANIFEST_BYTES))
+        previous = manifest.get('previous')
+        _check_previous(previous)
+        if previous['first_install']:
+            # A journal-bound v2 snapshot lets a first install be retried
+            # even if systemd created private state before the crash.
+            core.write_owner_record(self.root)
+
+        restored = transaction.restore(backup)
+        _check_previous(restored)
+        self.services.restore_services(restored)
+        changes = [core.Change(item['path'], None) for item in manifest['items']]
+        _sync_managed_directories(changes, transaction)
+        verified = (_files_match_snapshot(backup, transaction) and
+                    self.services.verify_restored_services(restored) is True)
+        journal.mark_rolled_back(lambda _snapshot_name: verified)
+        staging.finish_terminal_stage(journal, root=self.root,
+                                      owner_uid=self.owner_uid)
+        journal.clear_finished()
+        return RecoveryOutcome('rolled_back', phase)
+
+    def recover_interrupted(self) -> RecoveryOutcome:
+        """Explicitly recover after power loss, SIGKILL or helper crash.
+
+        No implicit rollback on a new install request. The snapshot is
+        independently checked as v2 before any managed file is overwritten.
+        """
+        self._check_context()
+        with manual_install_lock(self.manual_lock_path, owner_uid=self.owner_uid):
+            store = ProtectedJournal(root=self.root, owner_uid=self.owner_uid)
+            if store.public_status()['privileged_transaction_state'] == 'none':
+                return RecoveryOutcome('nothing_to_recover')
+            try:
+                handle = store.resume_recovery()
+            except JournalConflict:
+                # Terminal transactions may have died after commit/rollback
+                # while retiring their stage. Clean, never reinstall.
+                try:
+                    handle = store.resume_finished_cleanup()
+                except Exception:
+                    raise ControllerError('recovery_required') from None
+                with handle as journal:
+                    try:
+                        staging.finish_terminal_stage(
+                            journal, root=self.root, owner_uid=self.owner_uid)
+                        journal.clear_finished()
+                        return RecoveryOutcome('cleaned')
+                    except Exception:
+                        raise ControllerError('recovery_required') from None
+            with handle as journal:
+                try:
+                    return self._recover_locked(journal, core.InstallTransaction(self.root))
+                except Exception:
+                    # Keep the journal/snapshot if rollback wasn't verified.
+                    raise ControllerError('recovery_required') from None
 
     def finish_terminal_cleanup(self) -> None:
         """Finish COMMITTED/ABORTED/ROLLED_BACK staging without reinstalling."""
