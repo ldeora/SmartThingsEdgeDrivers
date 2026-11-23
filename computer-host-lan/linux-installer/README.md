@@ -14,6 +14,9 @@
 Neither mode installs, repairs, upgrades, removes or configures an agent. The
 existing `scripts/install-agent.sh` remains the supported installer.
 The wizard is **not** part of Computer Host LAN v1.0.0-rc.2.
+The Windows-like page sequence is UX development only; installation,
+health validation, SmartThings onboarding and protected keys still require
+the separate privileged backend and a full end-to-end acceptance test.
 
 ## Development and preview
 
@@ -54,29 +57,39 @@ paths outside the existing installer allowlist, `secrets_included: true`,
 `changes_applied: true` or `runtime_verified: true`. Backend failures are
 shown only as safe codes, never as unfiltered subprocess output.
 
-The live wizard displays **real compatibility status**, then offers power
-settings *for the prospective plan only*: preserve (default), enable and
-disable. It can optionally preview a **systemd WOL interface pin** after
-validating the NIC via the Python API. When the full-screen wizard displays
-the interface input, **you must type the NIC name** (for example
-`enp1s0f0`) and press Enter. The field is initially **empty**; explanatory
-placeholder text is **not a preselected value**. A missing or incorrectly
-spelled NIC now produces a user-friendly local validation message. The
-Python planner also checks that the interface exists in `/sys/class/net`.
-Pinning is **not** the same as
-configuring persistent WOL or testing physical hardware support.
+## Beginner-friendly Linux setup preview
 
-The live interactive wizard now offers **SmartThings hub selection** as a
-read-only onboarding preparation step. If `avahi-browse` is installed and the
-local daemon can browse `_smartthings._tcp`, it lists up to eight private-LAN
-IPv4 candidates. Discovery is bounded to 3 seconds, ignores untrusted
-service labels/TXT records, and **does not contact or authenticate** any
-candidate. If Avahi or the tool is unavailable, the user can **enter the
-hub's canonical IPv4 manually**; skipping hub selection is always possible.
-Hub choice is shown in Review, but it is not an installation option sent to
-the Python planner, nor proof that the hub has been paired or reached.
-Accessible mode supports skip, manual IPv4 and discovered-candidate choices.
-The original demo's simulated TEST-NET hubs remain entirely separate.
+Following the same sequence as the Windows installer, the normal Linux flow
+now asks only:
+
+1. **Welcome.** The wizard quietly checks Linux/Python and tells you whether
+   an agent is already installed. Full internal diagnostics are available
+   separately with `-live -preview`.
+2. **SmartThings hub.** Discovery via Avahi happens automatically (when the
+   optional `avahi-browse` tool is available). The first discovered hub is
+   **preselected**; with one hub, press Enter. With several, choose the right
+   one. If none are found, manual IPv4 entry is the default; choosing later
+   remains possible. The `_smartthings._tcp` advertisement is not an
+   authenticated pairing.
+3. **Power control.** Monitoring-only is the default on new systems. Existing
+   opt-in power control remains enabled by default on upgrades. Users can
+   deliberately change this setting. **Advanced network setup** defaults
+   to leaving everything unchanged.
+4. **Review.** The normal summary lists the selected hub, monitoring/power
+   choice and any advanced interface change in plain language. It does
+   **not** show managed-file paths, Python internals or an installation log.
+   Diagnostic `-live -preview` retains the technical file-operation plan.
+
+The **network interface input is not shown in the ordinary workflow**.
+Choosing advanced networking opens the field with a suggested interface when
+one can be identified from the local route table or a single active hardware
+interface. Press Enter to accept it, or edit the case-sensitive name. This
+suggestion is not proof of wired Ethernet or Wake-on-LAN hardware support;
+the preview cannot enable WOL or alter the computer.
+
+This is still a **read-only setup preview**, not an installer. Completion
+prints `SETUP PREVIEW COMPLETE — no changes made.` It does not install,
+pair, restart the agent, change the firewall or display a power-control key.
 
 The `-live -preview` noninteractive command makes no discovery query.
 Full-screen and accessible live modes may send a local mDNS browse request
