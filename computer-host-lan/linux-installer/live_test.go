@@ -108,7 +108,7 @@ func TestLivePreviewUsesRealBackendWithoutTTY(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := result.String()
-	for _, want := range []string{"REAL HOST", "existing installation", "Power setting: preserve",
+	for _, want := range []string{"REAL HOST", "existing installation", "Power control: Keep power control enabled",
 		"replace: /opt/linux-host-agent/linux_host_agent.py",
 		"No runtime check", "Privileged transaction/recovery status: UNKNOWN"} {
 		if !strings.Contains(body, want) {
@@ -125,7 +125,7 @@ func TestLiveAccessibleModeAndBack(t *testing.T) {
 	var result bytes.Buffer
 	// Change the default power selection, go back, restore preserve;
 	// leave WOL unchanged, review, finish.
-	input := "y\nback\nk\nk\nk\ny\n"
+	input := "s\nback\ns\nk\nk\ny\n"
 	if err := runLive(true, true, client.executable, strings.NewReader(""), &result); err != nil {
 		t.Fatal(err)
 	}
@@ -134,7 +134,7 @@ func TestLiveAccessibleModeAndBack(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := result.String()
-	for _, want := range []string{"READ-ONLY, ANSI-FREE", "Power setting: preserve", "READ-ONLY REVIEW COMPLETE"} {
+	for _, want := range []string{"SETUP PREVIEW (PLAIN TEXT)", "Power control: Keep power control enabled", "SETUP PREVIEW COMPLETE"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("accessible output missing %q: %s", want, body)
 		}
@@ -224,19 +224,19 @@ func TestLiveReviewDescriptionInvalidatesWhenSelectionChanges(t *testing.T) {
 	}
 	s := liveSelection{api: client, inspection: ins, powerChoice: "keep", wolChoice: "keep"}
 	form := liveForm(&s).WithWidth(110).WithHeight(40)
-	// Welcome (1), options (2), hidden NIC, hub selector (1):
-	// four NextField events now reach the Review page.
+	// Welcome (1), hub (1), power choices (2): four NextField
+	// events reach Review with the optional fields hidden.
 	for i := 0; i < 4; i++ {
 		deliverFormMessage(t, form, huh.NextField())
 	}
 	initial := form.View()
-	if !strings.Contains(initial, "Power setting: preserve") {
+	if !strings.Contains(initial, "Power control: Keep power control enabled") {
 		t.Fatalf("initial live Review was not rendered: %s", initial)
 	}
 	s.powerChoice = "enabled"
 	deliverFormMessage(t, form, tea.WindowSizeMsg{Width: 110, Height: 40})
-	if current := form.View(); !strings.Contains(current, "Power setting: enable") ||
-		strings.Contains(current, "Power setting: preserve") {
+	if current := form.View(); !strings.Contains(current, "Power control: Allow shutdown, restart and suspend") ||
+		strings.Contains(current, "Power control: Keep power control enabled") {
 		t.Fatalf("live Review cached outdated plan after changing power: %s", current)
 	}
 }
@@ -274,7 +274,7 @@ func TestLiveReviewPlanCacheConcurrentDescriptionAndValidation(t *testing.T) {
 			<-start
 			if i%2 == 0 {
 				// DescriptionFunc path: preview() -> currentPlan().
-				if !strings.Contains(s.preview(), "Power setting: preserve") {
+				if !strings.Contains(s.preview(), "Power control: Keep power control enabled") {
 					failures <- fmt.Errorf("preview failed for reader %d", i)
 				}
 			} else {
@@ -305,10 +305,10 @@ func TestLiveAccessiblePreservesCaseSensitiveNIC(t *testing.T) {
 	client := fixtureClient(t) // Accepts LAN0; explicitly rejects lan0.
 	var out bytes.Buffer
 	// Use an uppercase interface spelling that a udev .link rule may create.
-	if err := runLive(false, true, client.executable, strings.NewReader("k\np\nLAN0\nk\ny\n"), &out); err != nil {
+	if err := runLive(false, true, client.executable, strings.NewReader("s\nk\np\nLAN0\ny\n"), &out); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), "READ-ONLY REVIEW COMPLETE") {
+	if !strings.Contains(out.String(), "SETUP PREVIEW COMPLETE") {
 		t.Fatalf("case-sensitive NIC was changed/rejected: %s", out.String())
 	}
 }
