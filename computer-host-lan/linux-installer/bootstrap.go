@@ -264,7 +264,7 @@ func lockInstaller(path string, ownerUID int) (*os.File, error) {
 	if err != nil {
 		if errors.Is(err, syscall.ELOOP) || errors.Is(err, syscall.EISDIR) ||
 			errors.Is(err, syscall.ENOTDIR) || errors.Is(err, syscall.EACCES) ||
-			errors.Is(err, syscall.EPERM) {
+			errors.Is(err, syscall.EPERM) || errors.Is(err, syscall.ENXIO) {
 			return nil, errUnsafeInstallerLock
 		}
 		return nil, err
