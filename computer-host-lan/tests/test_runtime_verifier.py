@@ -210,6 +210,9 @@ class RuntimeVerifierTests(unittest.TestCase):
     def test_real_loopback_transport_has_absolute_deadline_on_slow_drip(self):
         # This listener is created only inside the test, on loopback, with
         # an ephemeral port; it cannot contact a real hub or modify services.
+        # Send a byte every 40 ms, ALWAYS faster than the 200 ms deadline.
+        # A per-recv timeout would incorrectly allow the full ~1.2 seconds;
+        # the absolute deadline must terminate while bytes still arrive.
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
             listener.bind(('127.0.0.1', 0))
             listener.listen(1)
@@ -221,28 +224,28 @@ class RuntimeVerifierTests(unittest.TestCase):
                 try:
                     peer, _ = listener.accept()
                     with peer:
-                        peer.settimeout(1)
+                        peer.settimeout(2)
                         request = peer.recv(4096)
                         if b'GET /v2/health HTTP/1.1' not in request:
                             error.append('wrong fixed path')
-                        peer.sendall(response[:-1])
-                        time.sleep(0.28)  # slower than the verifier deadline
-                        try:
-                            peer.sendall(response[-1:])
-                        except (BrokenPipeError, ConnectionResetError):
-                            pass
+                        for byte in response[:32]:
+                            try:
+                                peer.sendall(bytes([byte]))
+                            except (BrokenPipeError, ConnectionResetError):
+                                break
+                            time.sleep(0.04)
                 except OSError as exc:
                     error.append(type(exc).__name__)
 
             worker = threading.Thread(target=server, daemon=True)
             worker.start()
             start = time.monotonic()
-            with mock.patch.object(rv, 'REQUEST_DEADLINE_SECONDS', 0.12):
+            with mock.patch.object(rv, 'REQUEST_DEADLINE_SECONDS', 0.20):
                 answer = rv._read_json(port, '/v2/health')
             elapsed = time.monotonic() - start
-            worker.join(timeout=1.0)
+            worker.join(timeout=2.0)
             self.assertIsNone(answer)
-            self.assertLess(elapsed, 0.40)
+            self.assertLess(elapsed, 0.65)
             self.assertFalse(error, error)
 
     def test_real_loopback_transport_accepts_correct_fixed_path(self):
