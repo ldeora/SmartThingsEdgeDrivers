@@ -441,6 +441,20 @@ func TestInstallerLockRefusesSymlinkHardlinkAndFIFO(t *testing.T) {
 	}
 }
 
+func TestDirectoryAtInstallerLockPathGetsFixedUnsafeLock(t *testing.T) {
+	lock := filepath.Join(t.TempDir(), "install.lock")
+	if err := os.Mkdir(lock, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if file, err := lockInstaller(lock, os.Geteuid()); err == nil ||
+		!errors.Is(err, errUnsafeInstallerLock) {
+		if file != nil {
+			file.Close()
+		}
+		t.Fatalf("Nonregular lock must produce fixed unsafe_lock: %v", err)
+	}
+}
+
 func TestInstallerLockAcceptsExisting0644WithoutChangingMode(t *testing.T) {
 	lock := filepath.Join(t.TempDir(), "manual.lock")
 	if err := os.WriteFile(lock, nil, 0o600); err != nil {
