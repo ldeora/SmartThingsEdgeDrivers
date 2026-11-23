@@ -177,6 +177,9 @@ class PayloadStagingTests(unittest.TestCase):
         staging.discard_pending(self.transaction, root=self.root,
                                 owner_uid=self.expected_uid)
         self.assertFalse(self.stage_files()[0])
+        # Repeating after rmdir but before parent fsync is safe.
+        staging.discard_pending(self.transaction, root=self.root,
+                                owner_uid=self.expected_uid)
         with self.stage():
             pass
 
@@ -316,6 +319,8 @@ class PayloadStagingTests(unittest.TestCase):
         staging.finish_retirement(self.transaction, root=self.root,
                                   owner_uid=self.expected_uid)
         self.assertFalse(self.stage_files()[1])
+        staging.finish_retirement(self.transaction, root=self.root,
+                                  owner_uid=self.expected_uid)  # Idempotent replay
 
     @unittest.skipUnless(hasattr(os, 'fork'), 'requires POSIX fork')
     def test_forked_child_cannot_retire_parent_receipt(self):
