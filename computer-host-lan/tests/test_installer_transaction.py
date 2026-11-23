@@ -332,6 +332,37 @@ class InstallerBackendTests(unittest.TestCase):
         self.assertEqual(self.stage_entries(), [])
         self.assertEqual(self.services.verify_calls, 1)  # No reinstallation.
 
+    def test_wizard_shared_lock_reports_fixed_unsafe_lock_code(self):
+        # An invalid shared lock must be diagnosed as unsafe, rather than
+        # conflated with unrelated unsupported Linux environments.
+        target = self.root / 'existing-owned-lock'
+        target.write_bytes(b'KEEP')
+        target.chmod(0o600)
+        self.manual_lock.symlink_to(target)
+        with self.assertRaises(installer.ControllerError) as raised:
+            with installer.manual_install_lock(self.manual_lock,
+                                               owner_uid=self.uid):
+                self.fail('Symlinked shared lock must never be acquired')
+        self.assertEqual(raised.exception.code, 'unsafe_lock')
+        self.assertEqual(target.read_bytes(), b'KEEP')
+        self.manual_lock.unlink()
+
+        self.manual_lock.touch(mode=0o600)
+        self.manual_lock.chmod(0o666)
+        with self.assertRaises(installer.ControllerError) as raised:
+            with installer.manual_install_lock(self.manual_lock,
+                                               owner_uid=self.uid):
+                self.fail('World-writable lock must never be acquired')
+        self.assertEqual(raised.exception.code, 'unsafe_lock')
+        self.manual_lock.chmod(0o600)
+
+        with self.assertRaises(installer.ControllerError) as raised:
+            with installer.manual_install_lock(self.manual_lock,
+                                               owner_uid=self.uid + 1):
+                self.fail('Foreign-owned lock must never be acquired')
+        self.assertEqual(raised.exception.code, 'unsafe_lock')
+        self.assertEqual(str(raised.exception), 'unsafe_lock')
+
     def test_manual_cli_lock_rejects_symlink_hardlink_and_fifo(self):
         # Manual and Go installs use the same lock in /run/lock. The manual
         # CLI must not follow a planted symlink even if its target is safe.
