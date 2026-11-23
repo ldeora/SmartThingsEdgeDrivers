@@ -178,6 +178,30 @@ Noninteractive operations require explicit parameters for potentially destructiv
 
 Use the existing `docs/development/LINUX-PARITY-ACCEPTANCE.md` checklist as the functional regression baseline. Green container CI is not proof of physical systemd/network/SmartThings/WOL behavior.
 
+### Linux distribution readiness — track without blocking the wizard
+
+**Priority:** deliver a safe, usable Linux installer with Windows Setup feature
+parity first, using Gentoo/systemd as the physical reference. Before claiming
+support for other distributions, verify **actual host capabilities**, not a
+distribution-name table. The research-only draft #69 contains leads, not a
+verified requirements list or release claim.
+
+| Target | Portability and acceptance gate |
+| --- | --- |
+| Debian / Ubuntu and derivatives | No mandatory `sudo`; recognize login-root/`su -` paths, alternative Python 3.10+ interpreters, systemd, optional Avahi, and desktop/server network configurations |
+| Fedora / RHEL / Alma / Rocky | Python version selection, SELinux **enforcing** lifecycle tests, firewalld guidance (no automatic rule edits), systemd and service identity preservation |
+| Arch / Gentoo | `sudo` and NetworkManager are optional; explicitly distinguish systemd from unsupported init implementations; don't make Avahi mandatory for manual-IP onboarding |
+| openSUSE | Evaluate the selected NIC's actual network manager (NetworkManager, wicked, etc.), not only the distro name; verify WOL persistence and actual MAC policy |
+| Raspberry Pi OS / ARM Linux | Cross-build tested `linux/arm64` UI and Python agent; verify systemd and connectivity independently; **do not** assume physical Wake-on-LAN support |
+| Image-based systems / NixOS / non-systemd / WSL / containers | No automatic support claims; refuse unsafe layouts clearly until lifecycle and ownership are explicitly designed |
+
+Use **graduated evidence labels**: documented expectation → source-only CI →
+isolated systemd-PID1 installation/upgrade/recovery tests →
+SELinux/AppArmor enforcement tests where applicable → real hub/hardware
+acceptance. These gates are deferred to distribution/release acceptance
+(Phase E) and must not delay completion of the core wizard for its current
+Gentoo reference tester.
+
 ## 10. Delivery sequence and boundaries
 
 **Phase A — design specification.** Documentation only; no runtime or release changes.
