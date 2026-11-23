@@ -262,7 +262,9 @@ func lockInstaller(path string, ownerUID int) (*os.File, error) {
 	// The legacy regular lock may legitimately have mode 0644; do not chmod.
 	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|syscall.O_NOFOLLOW|syscall.O_NONBLOCK|syscall.O_CLOEXEC, 0o600)
 	if err != nil {
-		if errors.Is(err, syscall.ELOOP) {
+		if errors.Is(err, syscall.ELOOP) || errors.Is(err, syscall.EISDIR) ||
+			errors.Is(err, syscall.ENOTDIR) || errors.Is(err, syscall.EACCES) ||
+			errors.Is(err, syscall.EPERM) {
 			return nil, errUnsafeInstallerLock
 		}
 		return nil, err
