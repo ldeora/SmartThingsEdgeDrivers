@@ -44,6 +44,7 @@ class FakeSystemd:
         self.verify_calls = 0
         self.fail_verify = False
         self.fail_restore = False
+        self.received_request = None
 
     def capture_previous(self, transaction):
         return dict(self.original)
@@ -55,15 +56,14 @@ class FakeSystemd:
         self.activations.append((power_enabled, disable_power))
         self.states['agent_active'] = previous['first_install'] or previous['agent_active']
         self.states['agent_enabled'] = previous['first_install'] or previous['agent_enabled']
-        if not power_enabled:
-            self.states['socket_active'] = False
-            self.states['socket_enabled'] = False
-        elif previous['first_install'] or previous['newly_enabled_power']:
-            self.states['socket_active'] = True
-            self.states['socket_enabled'] = True
+        socket_active, socket_enabled = core.expected_socket_state(
+            previous, power_enabled=power_enabled)
+        self.states['socket_active'] = socket_active
+        self.states['socket_enabled'] = socket_enabled
 
     def verify_install(self, request, previous, changes, *, power_enabled, transaction):
         self.verify_calls += 1
+        self.received_request = request
         for change in changes:
             target = transaction.location(change.path)
             if change.content is None:
@@ -120,6 +120,15 @@ class InstallerBackendTests(unittest.TestCase):
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text('ORIGINAL-UNIT-CONTENTS')
         target.chmod(0o644)
+        # Real v2 installation has an identifiable v2 Python agent.
+        agent = self.installed_paths().location(core.APP_FILES[0])
+        agent.parent.mkdir(parents=True, exist_ok=True)
+        agent.write_bytes((ROOT / 'agent/linux_host_agent.py').read_bytes())
+        agent.chmod(0o755)
+        private = self.root / 'var/lib/linux-host-agent/installation-id'
+        private.parent.mkdir(parents=True, exist_ok=True)
+        private.write_text(UUID + '\n')
+        private.chmod(0o600)
         return target
 
     def stage_entries(self):
@@ -131,8 +140,6 @@ class InstallerBackendTests(unittest.TestCase):
         # The new agent files and the unit templates are REALLY installed
         # by install_core into the fake root, with no real systemd call.
         private = self.root / 'var/lib/linux-host-agent/installation-id'
-        private.parent.mkdir(parents=True)
-        private.write_text(UUID)
         result = self.backend.run(self.request(), ROOT, self.hashes)
         self.assertEqual(result.status, 'installed')
         self.assertEqual(result.identity_preserved, 'not_verified')
@@ -140,7 +147,7 @@ class InstallerBackendTests(unittest.TestCase):
         self.assertEqual(self.services.activations, [(False, False)])
         self.assertEqual(self.services.user_preflights, 1)
         self.assertEqual(self.services.verify_calls, 1)
-        self.assertEqual(private.read_text(), UUID)
+        self.assertFalse(private.exists())  # Only the real started agent creates an ID.
         paths = self.installed_paths()
         for name in ('linux_host_agent.py', 'power_helper.py'):
             installed = paths.location('/opt/linux-host-agent/' + name)
@@ -166,7 +173,8 @@ class InstallerBackendTests(unittest.TestCase):
         result = self.backend.run(
             self.request('upgrade', expected_identity=UUID), ROOT, self.hashes)
         self.assertEqual(result.status, 'installed')
-        self.assertEqual(result.identity_preserved, 'verified')
+        self.assertEqual(result.identity_preserved, 'not_verified')
+        self.assertEqual(self.services.received_request.expected_identity, UUID)
         self.assertEqual(self.services.states['agent_active'], False)
         self.assertEqual(self.services.states['agent_enabled'], False)
         self.assertEqual(self.services.restore_calls, 0)
@@ -274,6 +282,7 @@ class InstallerBackendTests(unittest.TestCase):
             self.request(enable_power=True, disable_power=True),
             self.request(wol_interface='../wlan'),
             self.request(port=80),
+            self.request(port=8766),
         ]
         for request in bad:
             with self.subTest(request=str(request)):
@@ -282,12 +291,25 @@ class InstallerBackendTests(unittest.TestCase):
                 self.assertEqual(error.exception.code, 'invalid_request')
         self.assertFalse((self.root / 'var/backups').exists())
 
-    def test_existing_install_requires_trusted_expected_identity(self):
+    def test_upgrade_reads_private_uuid_without_exposing_it_to_wizard(self):
         self.existing_install()
-        with self.assertRaises(installer.ControllerError) as error:
-            self.backend.run(self.request(), ROOT, self.hashes)
-        self.assertEqual(error.exception.code, 'aborted')
-        self.assertFalse(self.stage_entries())
+        result = self.backend.run(self.request('upgrade'), ROOT, self.hashes)
+        self.assertEqual(result.status, 'installed')
+        self.assertEqual(result.identity_preserved, 'verified')
+        self.assertEqual(self.services.received_request.expected_identity, UUID)
+        self.assertEqual(
+            (self.root / 'var/lib/linux-host-agent/installation-id').read_text(),
+            UUID + '\n')
+
+    def test_wrong_internal_identity_hint_is_rejected_before_applying(self):
+        unit = self.existing_install()
+        before = unit.read_bytes()
+        with self.assertRaises(installer.ControllerError) as caught:
+            self.backend.run(self.request('upgrade', expected_identity=
+                'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'), ROOT, self.hashes)
+        self.assertEqual(caught.exception.code, 'aborted')
+        self.assertEqual(unit.read_bytes(), before)
+        self.assertEqual(self.services.verify_calls, 0)
 
     def test_stopped_agent_skips_http_but_checks_files_and_service_state(self):
         old = self.existing_install(active=False, enabled=False)
@@ -365,6 +387,84 @@ class InstallerBackendTests(unittest.TestCase):
                                return_value=mock.Mock(returncode=0)) as calls:
             operations.ensure_agent_user()
         self.assertEqual(calls.call_count, 1)
+
+    def test_legacy_v1_installation_is_blocked_before_staging(self):
+        app = self.installed_paths().location(core.APP_FILES[0])
+        app.parent.mkdir(parents=True, exist_ok=True)
+        app.write_bytes(b'PROTOCOL = "linux-host-agent"\nAPI_VERSION = 1\n')
+        with self.assertRaises(installer.ControllerError) as caught:
+            self.backend.run(self.request(), ROOT, self.hashes)
+        self.assertEqual(caught.exception.code, 'unsupported_environment')
+        self.assertEqual(app.read_bytes(),
+                         b'PROTOCOL = "linux-host-agent"\nAPI_VERSION = 1\n')
+        self.assertEqual(self.stage_entries(), [])
+        self.assertFalse((self.root / 'var/backups').exists())
+
+    def test_orphaned_state_is_blocked_but_v2_owner_record_allows_reinstall(self):
+        private = self.root / 'var/lib/linux-host-agent/installation-id'
+        private.parent.mkdir(parents=True, exist_ok=True)
+        private.write_text(UUID + '\n')
+        private.chmod(0o600)
+        with self.assertRaises(installer.ControllerError) as caught:
+            self.backend.run(self.request(), ROOT, self.hashes)
+        self.assertEqual(caught.exception.code, 'unsupported_environment')
+        core.write_owner_record(self.root)  # Provenance from an earlier v2 install.
+        self.assertEqual(self.backend.run(self.request(), ROOT, self.hashes).status,
+                         'installed')
+        self.assertEqual(private.read_text(), UUID + '\n')
+
+    def test_manual_installer_guard_refuses_after_wizard_crash(self):
+        self.assertEqual(core.require_no_wizard_transaction(
+            root=self.root, owner_uid=self.uid), None)
+        with self.store.begin('install') as transaction:
+            with self.assertRaises(core.InstallError):
+                core.require_no_wizard_transaction(root=self.root, owner_uid=self.uid)
+            transaction.abort()
+            transaction.clear_finished()
+        self.assertIsNone(core.require_no_wizard_transaction(
+            root=self.root, owner_uid=self.uid))
+
+    def test_shared_core_power_activation_matches_socket_verification(self):
+        from unittest.mock import call
+        # Enabled but intentionally stopped power socket: enable --now
+        # activates AND enables, rather than preserving an inactive socket.
+        before = dict(first_install=False, agent_active=False,
+                      agent_enabled=False, socket_active=False,
+                      socket_enabled=True, newly_enabled_power=False)
+        self.assertEqual(core.expected_socket_state(before, power_enabled=True),
+                         (True, True))
+        with mock.patch.object(core, 'systemctl') as systemctl:
+            core.activate(before, power_enabled=True, disable_power=False)
+        self.assertIn(call('enable', '--now', 'linux-host-agent-power.socket'),
+                      systemctl.call_args_list)
+        # A first install with a leftover enabled-power drop-in follows
+        # the same rule; the coexistence guard decides if such a partial
+        # installation is safe before a real transaction reaches activation.
+        fresh = dict(before, first_install=True, socket_enabled=False)
+        self.assertEqual(core.expected_socket_state(fresh, power_enabled=True),
+                         (True, True))
+        with mock.patch.object(core, 'systemctl') as systemctl:
+            core.activate(fresh, power_enabled=True, disable_power=False)
+        self.assertIn(call('enable', '--now', 'linux-host-agent-power.socket'),
+                      systemctl.call_args_list)
+
+    def test_verifier_accepts_existing_enabled_but_stopped_power_socket(self):
+        old = self.existing_install(active=False, enabled=False)
+        before = dict(first_install=False, agent_active=False,
+                      agent_enabled=False, socket_active=False,
+                      socket_enabled=True, newly_enabled_power=False)
+        ops = installer.SystemdOperations(
+            health_probe=mock.Mock(side_effect=AssertionError('stopped agent must not be probed')))
+        change = core.Change(core.SYSTEMD_PATHS[0], old.read_bytes())
+        def state(unit, command):
+            if unit == 'linux-host-agent-power.socket':
+                return True
+            return False
+        with mock.patch.object(core, 'state', side_effect=state):
+            self.assertTrue(ops.verify_install(
+                self.request('upgrade'), before, [change],
+                power_enabled=True, transaction=self.installed_paths()))
+        ops.health_probe.assert_not_called()
 
     def test_legacy_manual_lock_mode_0644_is_accepted(self):
         self.manual_lock.touch(mode=0o600)

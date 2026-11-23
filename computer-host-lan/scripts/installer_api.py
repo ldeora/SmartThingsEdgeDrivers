@@ -211,6 +211,15 @@ def change_plan(*, source: Path = DEFAULT_SOURCE, root: Path = Path('/'),
     if selected_python is None:
         raise PrerequisiteMissing('No supported Python interpreter available')
     trans = core.InstallTransaction(root)
+    # Retain the established unsafe_managed_path JSON error for symlinked
+    # managed targets; incompatible v1/ambiguous layouts are a prerequisite.
+    if any(managed_file_status(trans, p) == 'unsafe'
+           for p in core.MANAGED_PATHS):
+        raise UnsafeManagedPath('unsafe managed target')
+    try:
+        core.require_v2_or_clean(root)
+    except core.InstallError as exc:
+        raise PrerequisiteMissing('legacy or ambiguous agent installation') from exc
     power_state = managed_file_status(trans, core.POWER_DROPIN)
     if power_state in ('unsafe', 'unreadable'):
         raise UnsafeManagedPath('cannot safely determine existing power settings')

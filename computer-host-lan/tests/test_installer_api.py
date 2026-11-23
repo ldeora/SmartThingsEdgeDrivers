@@ -120,6 +120,7 @@ class InstallerAPIReadOnlyTests(unittest.TestCase):
         )
 
     def test_plan_monitoring_by_default_and_preserves_power(self):
+        self.put(core.APP_FILES[0], (ROOT / 'agent/linux_host_agent.py').read_bytes())
         old = self.put(core.POWER_DROPIN, b'CUSTOM=preserve\n')
         result = api.change_plan(root=self.root, source=ROOT)
         self.assertEqual(result['operation'], 'plan')
@@ -129,16 +130,27 @@ class InstallerAPIReadOnlyTests(unittest.TestCase):
         self.assertFalse(result['changes_applied'])
         self.assertNotIn(core.POWER_DROPIN, [item['path'] for item in result['changes']])
         self.assertEqual(old.read_bytes(), b'CUSTOM=preserve\n')
-        self.assertTrue(any(item['path'] == core.APP_FILES[0] and item['action'] == 'create'
+        self.assertTrue(any(item['path'] == core.APP_FILES[0] and item['action'] == 'replace'
                             for item in result['changes']))
         self.assertEqual(result['privileged_transaction_state'], 'unknown')
 
     def test_plan_disabling_power_does_not_mutate(self):
+        self.put(core.APP_FILES[0], (ROOT / 'agent/linux_host_agent.py').read_bytes())
         old = self.put(core.POWER_DROPIN, b'old')
         result = api.change_plan(root=self.root, source=ROOT, disable_power=True)
         dropin = next(item for item in result['changes'] if item['path'] == core.POWER_DROPIN)
         self.assertEqual(dropin['action'], 'remove')
         self.assertEqual(old.read_bytes(), b'old')
+
+    def test_plan_refuses_legacy_or_ambiguous_layout_before_offering_install(self):
+        agent = self.put(core.APP_FILES[0], b'PROTOCOL = "linux-host-agent"\n')
+        with self.assertRaises(api.PrerequisiteMissing) as legacy:
+            api.change_plan(root=self.root, source=ROOT)
+        self.assertEqual(legacy.exception.code, 'prerequisite_missing')
+        agent.unlink()
+        self.put(core.POWER_DROPIN, b'leftover unknown drop-in')
+        with self.assertRaises(api.PrerequisiteMissing):
+            api.change_plan(root=self.root, source=ROOT)
 
     def test_plan_absent_remove_is_unchanged(self):
         result = api.change_plan(root=self.root, source=ROOT, disable_power=True)
@@ -169,6 +181,7 @@ class InstallerAPIReadOnlyTests(unittest.TestCase):
         self.assertIn(core.WOL_DROPIN, [c['path'] for c in plan['changes']])
 
     def test_plan_does_not_touch_protected_state(self):
+        self.put(core.APP_FILES[0], (ROOT / 'agent/linux_host_agent.py').read_bytes())
         secret = self.put('/var/lib/linux-host-agent/control-token', b'SECRET-EXISTING-CONTROL-TOKEN')
         uuid = self.put('/var/lib/linux-host-agent/installation-id', b'UUID-EXISTING')
         before = [(secret, secret.stat().st_mtime_ns), (uuid, uuid.stat().st_mtime_ns)]

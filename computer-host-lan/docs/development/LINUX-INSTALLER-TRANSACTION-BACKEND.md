@@ -17,8 +17,12 @@ boundary is a separate adapter so tests do not touch real services.
 ## Supported operations
 
 - **Install:** monitoring-only by default, optionally remote power.
-- **Upgrade and repair:** require independently obtained expected device
-  UUID and preserve enabled/active service intent.
+- **Upgrade and repair:** the trusted root-side backend reads the existing
+  private installation UUID before applying, without asking the unprivileged
+  wizard to read a protected file. It compares the stored identity after a
+  running agent restarts and preserves enabled/active service intent.
+  For an intentionally stopped agent, HTTP verification is skipped and
+  identity preservation is explicitly **not_verified**, not guessed.
 - **Finish terminal cleanup:** remove a leftover pending/ready stage after
   COMMITTED, ABORTED or ROLLED_BACK without installing again.
 
@@ -36,13 +40,16 @@ blocks the wizard with a clear 'installation_busy' result, without
 creating a journal or touching managed files.
 
 1. Validate a fixed-schema install/upgrade/repair request, trusted
-   system Python path, version, expected identity and explicit features.
+   system Python path, version and explicit features. The only supported
+   listener port is **8765** until the service unit becomes configurable.
 2. Record journal INSPECTED.
 3. Stage all ten files from a manifest authenticated independently by
    the future root-owned launcher. Record STAGED.
 4. Obtain the verified staged source while the stage receipt remains
-   open. Generate the actual install_core plan, including preserved power
-   and stopped/disabled service settings.
+   open. Read the existing UUID from root-protected state, only inside
+   the backend; never echo or return it in public JSON. Generate the actual
+   install_core plan, including preserved power and stopped/disabled
+   service settings.
 5. Snapshot managed files and previous unit states. Sync original files,
    backup manifest, snapshot and backup parent **before SNAPSHOTTED**.
 6. Record APPLYING **before any managed mutation**. Idempotently
@@ -51,7 +58,11 @@ creating a journal or touching managed files.
    using the existing installation engine and sync managed directories.
    The service account is deliberately retained on rollback, matching
    the manual installer's existing behavior.
-7. Record ACTIVATING and use the existing service behavior.
+7. Record ACTIVATING and use the existing service behavior. The expected
+   power-socket active and enabled states use the **same calculation**
+   as install_core.activate(): when power is on, an enabled-but-stopped
+   socket is enabled **and started** by enable --now. The gate must not
+   falsely rollback that successful upgrade.
 8. Record VERIFYING and require correct files, service state, and a
    passing PR #73 runtime check if the agent is meant to be running.
    A previously stopped agent remains stopped and is verified without
@@ -59,8 +70,44 @@ creating a journal or touching managed files.
 9. Record COMMITTED; retire the stage; clear the terminal journal.
    Only then release the manual lock.
 
-Monitoring does not require power-control opt-in. Merely choosing a WOL
-interface does not change the host's persistent WOL or network settings.
+Monitoring does not require power-control opt-in. The backend's WOL
+option is **only a physical interface pin in the unit environment**.
+It does not enable persistent WOL through configure-wol.sh, adjust
+NetworkManager/systemd-udev, or change firewall/network settings.
+The wizard must **not** offer a persistent-WOL setup operation through
+this backend until that opt-in path exists.
+
+## Legacy installation and manual CLI coordination
+
+The legacy v1 linux-host-lan agent and the new computer-host-lan v2 agent
+share managed paths. We selectively integrated the **compatibility guard
+and recovery fixes from closed, unmerged PR #70** rather than reopening
+the old PR wholesale. Both the backend and manual installer now refuse
+a recognized v1, mixed or unrecognized installation **before installing**.
+There is no automatic v1 migration. A bounded signature check looks at
+the managed agent's declared protocol and the existing Avahi service,
+never the private UUID or control key.
+
+A small root-owned **v2 ownership marker** survives uninstall and a failed
+fresh install, allowing a legitimate v2 reinstall when only the private
+agent state remains. An orphan state directory without a proven v2 marker
+does not get silently adopted: the manual installer alone has an explicit
+expert --adopt-retained-state route, and can never use it to override
+recognizable v1 files. Snapshot provenance and the v2-specific backup
+validator avoid restoring an accidental v1 backup over v2.
+
+The existing manual installer still holds its original OS flock. It now
+also reads the wizard journal status under that lock and refuses
+--install, --uninstall and --rollback unless the journal and protected
+staging report 'none'. The shell front-end performs an early read-only
+v1 and journal check before useradd. A wizard crash therefore cannot
+be overwritten by a later sequential manual install, which would
+otherwise invalidate the wizard's recovery snapshot.
+
+The read-only JSON plan rejects v1/ambiguous hosts with its existing
+prerequisite_missing error; dedicated migration UI/status is deferred
+until the installer API and Go decoder change together (issue #71).
+Source-only parity tests use clean hosts and recognizable v2 fixtures.
 
 ## Errors and recovery behavior
 
@@ -111,7 +158,14 @@ never invokes systemd/sudo or changes the host. It covers:
 - clean default install; explicit remote-power opt-in;
 - account preflight only after APPLYING, including missing-user creation,
   existing-user preservation and failure-triggered rollback;
-- upgrade and repair, preserving stopped and disabled service intent;
+- upgrade and repair, preserving stopped and disabled service intent,
+  with the root backend obtaining the current UUID and declining to
+  claim verification for intentionally stopped agents;
+- existing power socket enabled but stopped, including first-install
+  power activation semantics: no false rollback;
+- legacy v1 and ambiguous-layout refusal for both backend and manual
+  commands, retained v2 ownership/reinstall and snapshot checks;
+- manual installer refusal when the wizard journal is incomplete;
 - a failed live health gate and verified restoration of previous bytes;
 - refusal to claim successful rollback if service restoration fails;
 - bad source hash, interrupted staging and snapshot failures;

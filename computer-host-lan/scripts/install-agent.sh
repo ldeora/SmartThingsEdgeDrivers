@@ -38,6 +38,12 @@ PYTHON_BIN=$LINUXHOST_PYTHON
 # Preflight ALL sources and Python syntax before creating an account or writing services.
 "$PYTHON_BIN" -c 'import ast,sys,pathlib; [ast.parse(pathlib.Path(p).read_text()) for p in sys.argv[1:]]' \
   "$ROOT/agent/linux_host_agent.py" "$ROOT/agent/power_helper.py" "$ROOT/scripts/install_core.py" || exit 1
+# Read-only v1/v2 guard BEFORE useradd. The engine repeats it after taking
+# the common installation lock, along with the wizard journal check.
+"$PYTHON_BIN" "$ROOT/scripts/install_core.py" --check-existing || exit 1
+if [ "$DRY_RUN" -eq 0 ]; then
+  "$PYTHON_BIN" "$ROOT/scripts/install_core.py" --check-wizard-journal || exit 1
+fi
 NOLOGIN_BIN=$(command -v nologin || true)
 if [ -z "$NOLOGIN_BIN" ]; then
   for candidate in /usr/sbin/nologin /sbin/nologin /bin/false; do

@@ -9,7 +9,7 @@ Do not run/import this module as root from an untrusted checkout.
 from __future__ import annotations
 
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import fcntl
 import json
 import os
@@ -85,7 +85,7 @@ class InstallRequest:
             self.wol_interface in ('.', '..')
         ):
             raise ControllerError('invalid_request')
-        if not runtime_verify.valid_port(self.port):
+        if self.port != 8765 or type(self.port) is not int:
             raise ControllerError('invalid_request')
 
 
@@ -210,11 +210,8 @@ class SystemdOperations:
                 return False
         should_run = previous['first_install'] or previous['agent_active']
         should_enable = previous['first_install'] or previous['agent_enabled']
-        if power_enabled:
-            socket_active = bool(request.enable_power or previous['socket_active'])
-            socket_enabled = bool(request.enable_power or previous['socket_enabled'])
-        else:
-            socket_active = socket_enabled = False
+        socket_active, socket_enabled = core.expected_socket_state(
+            previous, power_enabled=power_enabled)
         def services_match() -> bool:
             return (
                 core.state('linux-host-agent.service', 'is-active') == should_run and
@@ -258,6 +255,38 @@ class SystemdOperations:
                 if core.state(unit, method) != previous[prefix + suffix]:
                     return False
         return True
+
+
+def read_saved_identity(root: Path = Path('/')) -> str | None:
+    """Read only the host's protected UUID; never return it in public JSON.
+
+    A missing identity on an agent that has never started is legitimate.
+    An existing but invalid identity must never be silently replaced.
+    """
+    filename = root / 'var/lib/linux-host-agent/installation-id'
+    if filename.is_symlink():
+        raise ControllerError('unsupported_environment')
+    try:
+        fd = os.open(filename, os.O_RDONLY | os.O_NOFOLLOW |
+                     os.O_NONBLOCK | os.O_CLOEXEC)
+    except FileNotFoundError:
+        return None
+    except OSError:
+        raise ControllerError('unsupported_environment') from None
+    try:
+        info = os.fstat(fd)
+        if (not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or
+                info.st_size < 36 or info.st_size > 38 or
+                stat.S_IMODE(info.st_mode) & 0o022):
+            raise ControllerError('unsupported_environment')
+        raw = os.read(fd, 64).decode('ascii').strip()
+        if str(uuid.UUID(raw)) != raw:
+            raise ControllerError('unsupported_environment')
+        return raw
+    except (UnicodeError, ValueError, OSError):
+        raise ControllerError('unsupported_environment') from None
+    finally:
+        os.close(fd)
 
 
 def _check_previous(previous: dict) -> None:
@@ -383,6 +412,12 @@ class InstallerBackend:
         request.validate()
         self._check_context()
         with manual_install_lock(self.manual_lock_path, owner_uid=self.owner_uid):
+            # Do not stage a v2 agent over a v1/partial installation.
+            # Use the same read-only classification as the manual CLI.
+            try:
+                core.require_v2_or_clean(self.root)
+            except core.InstallError:
+                raise ControllerError('unsupported_environment') from None
             return self._run_locked(request, source, trusted_hashes)
 
     def _run_locked(self, request: InstallRequest, source: Path,
@@ -402,10 +437,20 @@ class InstallerBackend:
                 _check_previous(previous)
                 if (request.operation == 'install') != previous['first_install']:
                     raise ControllerError('invalid_request')
-                if not previous['first_install'] and request.expected_identity is None:
-                    # Never claim to preserve a SmartThings device identity
-                    # without an authenticated expected value in memory.
+                # Only root-side code reads the protected UUID. The wizard
+                # cannot supply or read it. A provided internal hint must
+                # match the actual persisted ID, or we reject pre-apply.
+                saved_identity = read_saved_identity(self.root)
+                if (request.expected_identity is not None and
+                        request.expected_identity != saved_identity):
                     raise ControllerError('invalid_request')
+                # No identity on a never-started agent is valid: keep
+                # monitoring usable but report preservation not verified.
+                effective_request = replace(request, expected_identity=saved_identity)
+                identity_state = ('verified' if
+                                  saved_identity is not None and
+                                  (previous['first_install'] or previous['agent_active'])
+                                  else 'not_verified')
                 previous['newly_enabled_power'] = request.enable_power
                 power_dropin = transaction.location(core.POWER_DROPIN)
                 transaction.refuse_links(power_dropin)
@@ -430,6 +475,7 @@ class InstallerBackend:
                 # before install_core. The backend must do so as well,
                 # but only AFTER journaling the first system mutation.
                 self.services.ensure_agent_user()
+                core.write_owner_record(self.root)
                 transaction.apply(changes)
                 _sync_managed_directories(changes, transaction)
                 journal.advance('APPLYING', 'ACTIVATING')
@@ -437,7 +483,7 @@ class InstallerBackend:
                                        disable_power=request.disable_power)
                 journal.advance('ACTIVATING', 'VERIFYING')
                 if self.services.verify_install(
-                    request, previous, changes, power_enabled=power_enabled,
+                    effective_request, previous, changes, power_enabled=power_enabled,
                     transaction=transaction
                 ) is not True:
                     raise ControllerError('recovery_required')
@@ -450,12 +496,14 @@ class InstallerBackend:
                     if phase == 'COMMITTED':
                         return InstallOutcome('installed_cleanup_required',
                                               request.operation,
-                                              'verified' if request.expected_identity else 'not_verified')
+                                              identity_state if previous is not None and
+                                              'identity_state' in locals() else 'not_verified')
                     if phase in _PREAPPLY:
                         # This controller has not touched managed targets.
                         journal.abort(lambda _: True)
                         outcome = 'aborted'
                     elif phase in _APPLIED and backup is not None and previous is not None:
+                        core.validate_v2_backup(backup, root=self.root)
                         restored = transaction.restore(backup)
                         self.services.restore_services(restored)
                         verified = (_files_match_snapshot(backup, transaction) and
@@ -486,9 +534,9 @@ class InstallerBackend:
                 journal.clear_finished()
             except Exception:
                 return InstallOutcome('installed_cleanup_required', request.operation,
-                                      'verified' if request.expected_identity else 'not_verified')
+                                      identity_state)
         return InstallOutcome('installed', request.operation,
-                              'verified' if request.expected_identity else 'not_verified')
+                              identity_state)
 
     def finish_terminal_cleanup(self) -> None:
         """Finish COMMITTED/ABORTED/ROLLED_BACK staging without reinstalling."""
