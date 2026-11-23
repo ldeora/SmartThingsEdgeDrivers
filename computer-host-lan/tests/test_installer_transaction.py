@@ -782,6 +782,31 @@ class InstallerBackendTests(unittest.TestCase):
             self.request('upgrade', expected_identity=UUID),
             ROOT, self.hashes).status, 'installed')
 
+    def test_recover_rejects_orphaned_applied_phase_without_journal(self):
+        # A corrupted state containing a valid APPLYING temp record but no
+        # journal.json cannot be cleared just because staging is empty.
+        old = self.existing_install()
+        previous = old.read_bytes()
+        with mock.patch.object(journal.os, 'replace',
+                               side_effect=OSError('simulated initial EIO')):
+            with self.assertRaises(journal.UnsafeJournal):
+                self.store.begin('upgrade')
+        directory = self.root / 'var/backups/linux-host-agent/wizard-transactions'
+        marker, = directory.glob('.wizard-journal-*')
+        record = dict(schema=1, transaction_id='a' * 32, operation='upgrade',
+                      phase='APPLYING', snapshot_name='snapshot-abcdefgh')
+        marker.write_text(json.dumps(record, sort_keys=True,
+                                     separators=(',', ':')) + '\n')
+
+        with self.assertRaises(installer.ControllerError) as error:
+            self.backend.recover_interrupted()
+        self.assertEqual(error.exception.code, 'recovery_required')
+        self.assertTrue(marker.exists())
+        self.assertEqual(old.read_bytes(), previous)
+        self.assertEqual(self.services.restore_calls, 0)
+        self.assertEqual(self.store.public_status()['privileged_transaction_state'],
+                         'recovery_required')
+
     def test_orphaned_journal_with_staged_payload_remains_blocked(self):
         with mock.patch.object(journal.os, 'replace',
                                side_effect=OSError('simulated initial EIO')):
