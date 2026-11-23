@@ -95,7 +95,7 @@ class PayloadStagingTests(unittest.TestCase):
             with self.subTest(manifest_keys=len(case)):
                 with self.assertRaises(staging.StagingError):
                     self.stage(expected=case)
-        self.assertFalse((self.root / 'var').exists())
+        self.assertFalse(self.dest.exists())
 
     def test_modified_untrusted_source_rejected_without_destination(self):
         name = sorted(self.expected)[0]
