@@ -242,7 +242,7 @@ def verify_runtime(*, port: int = 8765, expected_version: str | None = None,
         'mode': 'read_only',
         'status': status,
         'checks': checks,
-        'agent_version': version if valid_version else None,
+        'agent_version': version if version_valid else None,
         'power_control': ('enabled' if power_enabled else 'disabled') if valid_configuration else 'unknown',
         'identity_consistent': consistent,
         'identity_preserved': ('passed' if consistent and info_id == expected_identity else 'failed')
