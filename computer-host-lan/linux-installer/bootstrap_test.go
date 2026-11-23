@@ -155,8 +155,7 @@ func TestAbortedPrivilegedFailureStageIsBoundedAndActionable(t *testing.T) {
 			t.Fatalf("Untrusted failure stage was accepted: %+v", tc)
 		}
 		var stdout bytes.Buffer
-		if err := relayHelperResponse(&stdout, "upgrade", reply, errors.New("refused"));
-			err == nil {
+		if err := relayHelperResponse(&stdout, "upgrade", reply, errors.New("refused")); err == nil {
 			t.Fatalf("Root bootstrap leaked untrusted stage: %+v", tc)
 		}
 		if stdout.Len() != 0 {
