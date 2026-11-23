@@ -25,6 +25,7 @@ INFO = {
     'platform': 'linux', 'id': UUID, 'agent_version': '0.4.6-rc.2',
     'hostname': 'private-hostname', 'wol_mac': 'private-mac',
     'features': ['health', 'metrics', 'wol-metadata', 'power-control'],
+    'power_actions': ['reboot', 'shutdown', 'suspend'],
 }
 HEALTH = {
     'protocol': 'computer-host-agent', 'api_version': 2,
@@ -117,7 +118,9 @@ class RuntimeVerifierTests(unittest.TestCase):
                                    fetch=fake_fetch())
         self.assertEqual(result['status'], 'failed')
         for info in ({**INFO, 'features': 'power-control'},
-                     {**INFO, 'features': ['power-control'] * 40}):
+                     {**INFO, 'features': ['power-control'] * 40},
+                     {**INFO, 'power_actions': []},
+                     {**INFO, 'power_actions': ['shutdown', 'reboot', 'suspend']}):
             self.assertEqual(rv.verify_runtime(service_status='active',
                             fetch=fake_fetch(info, HEALTH))['status'], 'failed')
 
