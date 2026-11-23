@@ -200,7 +200,7 @@ class RootProtocolTests(unittest.TestCase):
                 stub.write_text('#!/bin/sh\nexit ' +
                                 ('0' if name == 'python3.11' else '1') + '\n')
                 stub.chmod(0o755)
-            program = 'PATH=' + str(folder) + '; PYTHON_BIN=; ' + selector + '; printf "%s" "$PYTHON_BIN"'
+            program = 'PATH=' + str(folder) + '; PYTHON_BIN=; ' + selector + '\n' + 'printf "%s" "$PYTHON_BIN"\n'
             run = subprocess.run(['/bin/sh', '-c', program], text=True,
                                  capture_output=True, timeout=10)
             self.assertEqual(run.returncode, 0, run.stderr)
