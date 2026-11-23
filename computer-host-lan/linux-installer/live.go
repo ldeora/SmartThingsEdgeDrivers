@@ -648,7 +648,7 @@ func liveForm(s *liveSelection) *huh.Form {
 func newLiveSelection(api apiClient, info apiInspect, hubs []discoveredHub) *liveSelection {
 	s := &liveSelection{
 		api: api, inspection: info, hubs: hubs,
-		hubChoice: defaultHubChoice(hubs),
+		hubChoice:   defaultHubChoice(hubs),
 		powerChoice: "keep", wolChoice: "keep",
 	}
 	s.recordHubChoice(s.hubChoice)
