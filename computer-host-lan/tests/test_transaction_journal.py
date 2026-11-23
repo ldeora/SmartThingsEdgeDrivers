@@ -351,7 +351,10 @@ class ProtectedJournalTests(unittest.TestCase):
 
             def stale_listdir(fd):
                 names = original_listdir(fd)
-                if fd == original_directory:\n                    return [name for name in names\n                            if not name.startswith('.wizard-journal-')]\n                return names
+                if fd == original_directory:
+                    return [name for name in names
+                            if not name.startswith('.wizard-journal-')]
+                return names
 
             with mock.patch.object(journal.os, 'listdir', side_effect=stale_listdir):
                 tx.clear_finished()
