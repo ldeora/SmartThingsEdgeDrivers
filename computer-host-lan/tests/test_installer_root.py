@@ -208,8 +208,9 @@ class RootProtocolTests(unittest.TestCase):
         shell = (ROOT / 'scripts/installer-entry.sh').read_text()
         first = shell.index('for candidate in python3 ')
         last = shell.index('\n[ -n "$PYTHON_BIN" ]', first)
-        selector = shell[first:last].replace(
-            '/usr/bin/*|/bin/*)', '/*)')
+        allowlisted_system_dirs = '/usr/sbin/*|/usr/bin/*|/sbin/*|/bin/*)'
+        self.assertIn(allowlisted_system_dirs, shell[first:last])
+        selector = shell[first:last].replace(allowlisted_system_dirs, '/*)')
         with tempfile.TemporaryDirectory() as temp:
             folder = Path(temp)
             for name in ('python3', 'python3.14', 'python3.13', 'python3.12',
