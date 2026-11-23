@@ -97,6 +97,42 @@ class RuntimeVerifierTests(unittest.TestCase):
                 self.assertFalse(result['runtime_verified'])
                 self.assertNotIn(UUID, json.dumps(result))
 
+    def test_invalid_agent_version_never_leaks_private_data(self):
+        # A listener is not trusted, even when it answers from loopback.
+        # Failed checks must not echo arbitrary JSON through agent_version.
+        malicious_versions = [
+            {'leak': UUID, 'nested': ['control-token', {'id': UUID}]},
+            ['unexpected', UUID],
+            UUID,
+            'x' * 12000 + UUID,
+            8675309,
+            None,
+            True,
+        ]
+        for untrusted in malicious_versions:
+            with self.subTest(input_type=type(untrusted).__name__,
+                              size=len(str(untrusted))):
+                result = rv.verify_runtime(
+                    service_status='active',
+                    fetch=fake_fetch({**INFO, 'agent_version': untrusted}, HEALTH))
+                self.assertEqual(result['status'], 'failed')
+                self.assertFalse(result['runtime_verified'])
+                self.assertIsNone(result['agent_version'])
+                serialized = json.dumps(result)
+                self.assertNotIn(UUID, serialized)
+                self.assertNotIn('control-token', serialized)
+                self.assertNotIn('nested', serialized)
+
+    def test_shipped_agent_power_action_contract_matches_verifier(self):
+        # If the agent adds/removes an action, CI must force a matching
+        # update to the verifier's expected v2 protocol action set.
+        import runpy
+        shipped = runpy.run_path(str(ROOT / 'agent' / 'linux_host_agent.py'))
+        self.assertEqual(sorted(shipped['ALLOWED_ACTIONS']),
+                         sorted(rv.EXPECTED_POWER_ACTIONS))
+        self.assertEqual(INFO['power_actions'],
+                         sorted(rv.EXPECTED_POWER_ACTIONS))
+
     def test_agent_identity_mismatch_and_invalid_identity(self):
         for identity in (DIFFERENT_UUID, 'not-a-uuid', None):
             with self.subTest(identity=identity):
