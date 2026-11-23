@@ -6,8 +6,10 @@
 > - **Live read-only (`-live`):** runs the versioned JSON `inspect` / `plan`
 >   operations from the merged Python `scripts/installer-api.sh`. It reports
 >   real Linux/service/Avahi/interpreter state and prospective *file* changes.
->   No installation or upgrades, network discovery, power changes, WOL
->   configuration, sudo, credentials or root-private recovery inspection.
+>   No installation or upgrades, power changes, WOL configuration, sudo,
+>   credentials or root-private recovery inspection. Interactive live mode
+>   may optionally query the local Avahi daemon for SmartThings hub candidates;
+>   this never contacts or authenticates the hub.
 
 Neither mode installs, repairs, upgrades, removes or configures an agent. The
 existing `scripts/install-agent.sh` remains the supported installer.
@@ -62,9 +64,23 @@ placeholder text is **not a preselected value**. A missing or incorrectly
 spelled NIC now produces a user-friendly local validation message. The
 Python planner also checks that the interface exists in `/sys/class/net`.
 Pinning is **not** the same as
-configuring persistent WOL or testing physical hardware support. Hub
-discovery and manual pairing are not implemented in live mode; the simulated
-hub-selection UI remains in the demo only.
+configuring persistent WOL or testing physical hardware support.
+
+The live interactive wizard now offers **SmartThings hub selection** as a
+read-only onboarding preparation step. If `avahi-browse` is installed and the
+local daemon can browse `_smartthings._tcp`, it lists up to eight private-LAN
+IPv4 candidates. Discovery is bounded to 3 seconds, ignores untrusted
+service labels/TXT records, and **does not contact or authenticate** any
+candidate. If Avahi or the tool is unavailable, the user can **enter the
+hub's canonical IPv4 manually**; skipping hub selection is always possible.
+Hub choice is shown in Review, but it is not an installation option sent to
+the Python planner, nor proof that the hub has been paired or reached.
+Accessible mode supports skip, manual IPv4 and discovered-candidate choices.
+The original demo's simulated TEST-NET hubs remain entirely separate.
+
+The `-live -preview` noninteractive command makes no discovery query.
+Full-screen and accessible live modes may send a local mDNS browse request
+via Avahi but do not connect to a hub or change any network settings.
 
 The initial read-only inspection **does not claim** recovery state:
 `privileged_transaction_state` is always `unknown`. A missing service
