@@ -213,8 +213,6 @@ class InstallerBackendTests(unittest.TestCase):
         power = self.installed_paths().location(core.POWER_DROPIN)
         power.parent.mkdir(parents=True, exist_ok=True)
         power.write_text('[Service]\\n')
-        previous = dict(self.services.original)
-
         result = self.backend.uninstall()
         self.assertEqual(result.status, 'uninstalled')
         self.assertEqual(result.identity_preserved, 'verified')
@@ -237,8 +235,8 @@ class InstallerBackendTests(unittest.TestCase):
         # Snapshot authenticates the removed v2 application, and recovery
         # material is deliberately retained for expert restore.
         core.validate_v2_backup(snapshots[0], root=self.root)
-        self.assertIn(previous_agent, (snapshots[0] / '0.original').read_bytes() +
-                      b''.join(p.read_bytes() for p in snapshots[0].glob('*.original')))
+        self.assertTrue(any(p.read_bytes() == previous_agent
+                            for p in snapshots[0].glob('*.original')))
         with self.assertRaises(installer.ControllerError) as second:
             self.backend.uninstall()
         self.assertEqual(second.exception.code, 'unsupported_environment')
@@ -246,6 +244,8 @@ class InstallerBackendTests(unittest.TestCase):
                          'none')
         # Normal reinstall after an owner-record-retaining uninstall remains
         # permitted through the established install transaction.
+        self.services = FakeSystemd(installed=False)
+        self.backend.services = self.services
         reinstalled = self.backend.run(self.request(), ROOT, self.hashes)
         self.assertEqual(reinstalled.status, 'installed')
         self.assertTrue(self.installed_paths().location(core.APP_FILES[0]).exists())
