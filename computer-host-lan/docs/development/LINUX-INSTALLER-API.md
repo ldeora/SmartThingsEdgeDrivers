@@ -3,8 +3,9 @@
 **Status:** preliminary implementation; no privileged installer operations.  
 **Design contract:** [LINUX-INSTALLER-DESIGN.md](LINUX-INSTALLER-DESIGN.md)
 
-These commands report limited compatibility facts and prospective changes to
-the existing `install_core.py` managed-path allowlist. They **do not** install,
+These commands report limited compatibility facts, prospective changes and
+optional **live loopback verification** for the existing v2 Linux agent.
+They **do not** install,
 repair, upgrade, remove, elevate, access credentials, inspect root-private
 journals/backups or change any service, WOL setting, firewall or network state.
 
@@ -21,6 +22,8 @@ sh scripts/installer-api.sh plan --python /usr/bin/python3.11
 ./scripts/installer-api.sh plan --python=/usr/bin/python3.11
 sh scripts/installer-api.sh plan --enable-power
 sh scripts/installer-api.sh plan --disable-power --wol-interface enp1s0f0
+sh scripts/installer-api.sh verify
+sh scripts/installer-api.sh verify --port 8765 --expected-version 0.4.6-rc.2
 ```
 
 The wrapper is committed as **executable (Git mode 100755)** and can be\ninvoked directly by the Go wizard or via \`sh\`. Both \`--python /path\` and\n\`--python=/path\` are accepted. Its errors use the Python API's exact\ncompact, sorted-key JSON layout.\n\nThe wrapper sources the **same** `scripts/python-selector.sh` used by
@@ -43,7 +46,7 @@ subcommands and unsupported options use JSON, not argparse usage text.
 `--help` is an intentional human-readable help request, not an error response.
 
 All results include `schema_version: 1`, `mode: "read_only"`, an
-`operation` value (`inspect`, `plan`, or `unknown` for malformed
+`operation` value (`inspect`, `plan`, `verify`, or `unknown` for malformed
 invocations), and either a response body or an `error.code`.
 
 | Error code | Meaning / wizard treatment |
@@ -104,9 +107,54 @@ use for its systemd unit, not `sys.executable`.
 or WOL hardware support**. The plan doesn't make persistent WOL changes.
 `runtime_verified` and `changes_applied` always remain false.
 
-Neither operation claims SmartThings hub discovery/pairing, TCP reachability,
-firewall correctness, custom-port support, or successful agent service health.
-The existing `scripts/install-agent.sh` remains the supported manual installer.
+### Verify response (read-only runtime health; NEW)
+
+`verify` is an explicit, bounded check of a **running local v2 Linux agent**.
+It only connects to **127.0.0.1** using a fixed pair of HTTP paths
+(`/v2/info` and `/v2/health`), requires JSON HTTP 200 responses, and
+rejects redirects, non-JSON data and responses exceeding **16 KiB**.
+A fixed **2-second timeout per request** applies. It probes the managed
+agent systemd unit with `is-active` when systemd is available. No root
+privileges are needed or requested.
+
+- `--port` defaults to **8765**, permits 1024–65535, and is the *only*
+  connection target control. There is **no arbitrary URL, hostname or
+  remote-IP option**. This is a read-only probe; it does not change service
+  listening port or persisted settings.
+- `--expected-version` is optional and compares an allowlisted version
+  against the running agent. The future privileged installer will supply
+  its version from the **trusted bundled payload**, not a user's guess.
+- `status` is `passed`, `failed` or `not_verified`; corresponding
+  `runtime_verified` is true only on `passed`. A successful JSON API
+  invocation may return `status: "failed"` with exit code 0: **callers
+  must inspect the result**, not just process exit code.
+- The result includes service readiness, matching v2 protocol/API/platform,
+  matching **private UUID between the two HTTP responses**,
+  sanitized `agent_version`, and reported power-control state.
+  The UUID itself, hostname, MAC, address, boot ID, token, nonces, raw
+  response and network errors are **never included**.
+- When the API was not supplied an already-trusted expected UUID,
+  `identity_preserved` is deliberately **`not_verified`**. The
+  unprivileged `verify` command has no expected-UUID option and never
+  reads `/var/lib/linux-host-agent`. A malicious local listener can
+  emulate these endpoints; this probe is **not authentication** or proof
+  the real SmartThings hub can connect.
+- The separately testable `runtime_verify.verify_runtime()` Python
+  function supports **in-memory** expected UUID, version and power-option
+  comparisons for future trusted post-activation checks. Those inputs
+  must originate in the privileged transaction and must not be printed,
+  passed via process arguments, or exported in ordinary inspection JSON.
+- An intentionally stopped/disabled service is **not an installation
+  failure**: the future transaction engine must verify expected
+  stopped state and installed-file integrity separately, rather than
+  waking the service merely to pass a live HTTP probe.
+
+`verify` cannot install, pair, fix firewall rules, establish hub
+reachability, or inspect protected credentials. The existing
+`scripts/install-agent.sh` remains the supported manual installer.
+The runtime verifier has **not yet been integrated as a commit gate** in
+`install_core.py`; that requires protected transaction/recovery handling.
+Existing `inspect` and `plan` schema fields remain unchanged.
 
 ## Platform and security limitations
 
@@ -130,7 +178,9 @@ The existing `scripts/install-agent.sh` remains the supported manual installer.
 
 ## Testing
 
-The tests in `tests/test_installer_api.py` use temporary fake roots and
+The tests in `tests/test_installer_api.py` and
+`tests/test_runtime_verifier.py` use temporary fake roots, fake HTTP
+responses and and
 stubbed interpreter candidates for deterministic checks, and explicitly mock
 host systemd access. The test suite is automatically run by
 `.github/workflows/computer-host-linux.yml` on Python 3.10–3.14 and in
@@ -141,6 +191,8 @@ checked by existing CI.
 
 Protected transaction-state helper; authenticated and root-owned bundled
 payload staging; crash-safe transaction journal/recovery; preservation of
-custom ports and systemd enabled/stopped intent; post-install HTTP
-protocol/version/identity verification; real SmartThings hub discovery and
-hardware/distribution acceptance. This API does **none** of those tasks.
+custom ports and systemd enabled/stopped intent; **integration of this
+read-only verifier into a privileged post-activation commit gate with
+trusted identity checks**; real SmartThings hub acceptance and
+hardware/distribution validation. This API does **none** of those privileged
+operations.
