@@ -391,6 +391,9 @@ type liveSelection struct {
 	hubs        []discoveredHub
 	hubChoice   string // skip, manual, or discovered:<literal IPv4>
 	hubManual   string
+	hubMu       sync.RWMutex // The Review description runs off the UI goroutine.
+	hubConfirmedChoice string
+	hubConfirmedManual string
 	powerChoice string
 	wolChoice   string
 	wolNIC      string
@@ -423,14 +426,33 @@ func (s *liveSelection) currentPlan() (apiPlan, error) {
 	}
 	return s.cached, s.cacheErr
 }
+// Huh writes its bound input fields on the UI goroutine. Only copy values
+// into these protected, confirmed snapshots during the field's validation.
+// The background Review description must never read the bound fields.
+func (s *liveSelection) recordHubChoice(choice string) {
+	s.hubMu.Lock()
+	s.hubConfirmedChoice = choice
+	s.hubMu.Unlock()
+}
+func (s *liveSelection) recordHubManual(ip string) {
+	s.hubMu.Lock()
+	s.hubConfirmedManual = ip
+	s.hubMu.Unlock()
+}
+func (s *liveSelection) hubSnapshot() (choice, ip string) {
+	s.hubMu.RLock()
+	defer s.hubMu.RUnlock()
+	return s.hubConfirmedChoice, s.hubConfirmedManual
+}
 func (s *liveSelection) selectedHub() string {
+	choice, manual := s.hubSnapshot()
 	switch {
-	case s.hubChoice == "manual":
-		if validHubIPv4(s.hubManual) == nil {
-			return s.hubManual + " (entered manually; not contacted)"
+	case choice == "manual":
+		if validHubIPv4(manual) == nil {
+			return manual + " (entered manually; not contacted)"
 		}
-	case strings.HasPrefix(s.hubChoice, "discovered:"):
-		ip := strings.TrimPrefix(s.hubChoice, "discovered:")
+	case strings.HasPrefix(choice, "discovered:"):
+		ip := strings.TrimPrefix(choice, "discovered:")
 		for _, hub := range s.hubs {
 			if hub.IPv4 == ip {
 				return ip + " (Avahi candidate; not contacted or authenticated)"
@@ -462,8 +484,9 @@ func (s *liveSelection) preview() string {
 		return "PLAN BLOCKED: interpreter changed after inspection; re-run inspection."
 	}
 	result := p.brief() + "\nSmartThings hub: " + s.selectedHub()
-	if s.hubChoice == "manual" {
-		if warning := hubAddressWarning(s.hubManual); warning != "" {
+	choice, manual := s.hubSnapshot()
+	if choice == "manual" {
+		if warning := hubAddressWarning(manual); warning != "" {
 			result += "\n" + warning
 		}
 	}
@@ -508,6 +531,10 @@ func liveForm(s *liveSelection) *huh.Form {
 				Title("Choose a SmartThings hub (optional)").
 				Description("Avahi discovery is unverified; manual IPv4 works without avahi-browse. No hub is contacted.").
 				Options(liveHubOptions(s.hubs)...).
+				Validate(func(choice string) error {
+					s.recordHubChoice(choice)
+					return nil
+				}).
 				Value(&s.hubChoice),
 		).Title("3. SmartThings hub"),
 		huh.NewGroup(
@@ -515,7 +542,13 @@ func liveForm(s *liveSelection) *huh.Form {
 				Title("SmartThings hub IPv4 (required for manual selection)").
 				Description("Enter a literal IPv4 address. No connection, firewall or pairing changes.").
 				Placeholder("Type hub IPv4").
-				Validate(validHubIPv4).
+				Validate(func(value string) error {
+					if err := validHubIPv4(value); err != nil {
+						return err
+					}
+					s.recordHubManual(value)
+					return nil
+				}).
 				Value(&s.hubManual),
 		).Title("Manual hub address").WithHideFunc(func() bool { return s.hubChoice != "manual" }),
 		huh.NewGroup(
@@ -703,6 +736,12 @@ func runLiveAccessibleWithHubs(reader io.Reader, writer io.Writer, api apiClient
 		if !accepted {
 			fmt.Fprintln(writer, "Invalid option. Try again.")
 			continue
+		}
+		// Maintain the same immutable review snapshots as full-screen Huh.
+		if step == 3 {
+			s.recordHubChoice(s.hubChoice)
+		} else if step == 4 {
+			s.recordHubManual(s.hubManual)
 		}
 		step++
 	}
