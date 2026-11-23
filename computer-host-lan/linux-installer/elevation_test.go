@@ -134,9 +134,9 @@ func TestSuPassesRequestAsQuotedArgumentAndKeepsStdinForPassword(t *testing.T) {
 func TestSuStillUsesStrictBoundedDecoder(t *testing.T) {
 	for _, raw := range []string{
 		"", strings.Repeat("x", 4097),
-		\`{"schema_version":1,"action":"status","control_token":"secret"}\`,
-		\`{"schema_version":2,"action":"reveal_power_key"}\`,
-		\`{"schema_version":1,"action":"status","action":"upgrade"}\`,
+		`{"schema_version":1,"action":"status","control_token":"secret"}`,
+		`{"schema_version":2,"action":"reveal_power_key"}`,
+		`{"schema_version":1,"action":"status","action":"upgrade"}`,
 	} {
 		if _, err := decodePrivilegedRequest(strings.NewReader(raw)); err == nil {
 			t.Fatalf("Untrusted or oversized CLI request was accepted")
