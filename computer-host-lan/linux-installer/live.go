@@ -386,22 +386,22 @@ func (p apiPlan) brief() string {
 }
 
 type liveSelection struct {
-	api         apiClient
-	inspection  apiInspect
-	hubs        []discoveredHub
-	hubChoice   string // skip, manual, or discovered:<literal IPv4>
-	hubManual   string
-	hubMu       sync.RWMutex // The Review description runs off the UI goroutine.
+	api                apiClient
+	inspection         apiInspect
+	hubs               []discoveredHub
+	hubChoice          string // skip, manual, or discovered:<literal IPv4>
+	hubManual          string
+	hubMu              sync.RWMutex // The Review description runs off the UI goroutine.
 	hubConfirmedChoice string
 	hubConfirmedManual string
-	powerChoice string
-	wolChoice   string
-	wolNIC      string
-	finished    bool
-	cacheMu     sync.Mutex // Huh invokes DescriptionFunc off the UI goroutine.
-	cacheKey    string
-	cached      apiPlan
-	cacheErr    error
+	powerChoice        string
+	wolChoice          string
+	wolNIC             string
+	finished           bool
+	cacheMu            sync.Mutex // Huh invokes DescriptionFunc off the UI goroutine.
+	cacheKey           string
+	cached             apiPlan
+	cacheErr           error
 }
 
 func (s *liveSelection) options() planOptions {
@@ -426,6 +426,7 @@ func (s *liveSelection) currentPlan() (apiPlan, error) {
 	}
 	return s.cached, s.cacheErr
 }
+
 // Huh writes its bound input fields on the UI goroutine. Only copy values
 // into these protected, confirmed snapshots during the field's validation.
 // The background Review description must never read the bound fields.
