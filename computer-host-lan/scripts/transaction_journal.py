@@ -15,6 +15,7 @@ from pathlib import Path
 import re
 import secrets
 import stat
+import time
 from typing import Callable
 
 # root/owner_uid injection exists ONLY to exercise temporary filesystem fixtures.
@@ -24,6 +25,8 @@ _LOCK = 'lock'
 _TEMP_PREFIX = '.wizard-journal-'
 _TEMP_NAME = re.compile(r'\.wizard-journal-[0-9a-f]{32}\Z')
 _MAX_BYTES = 2048
+_LOCK_WAIT_SECONDS = 1.25  # Short, bounded grace for concurrent status readers.
+_LOCK_RETRY_SECONDS = 0.025
 _PHASES = ('INSPECTED', 'STAGED', 'SNAPSHOTTED', 'APPLYING',
            'ACTIVATING', 'VERIFYING', 'COMMITTED')
 _TERMINAL = frozenset(('COMMITTED', 'ABORTED', 'ROLLED_BACK'))
@@ -102,21 +105,35 @@ def _open_directory(root: Path, owner_uid: int, *, create: bool) -> int | None:
                 stat.S_IMODE(root_stat.st_mode) & 0o022):
             raise UnsafeJournal('unsafe journal root')
         for index, component in enumerate(_COMPONENTS):
+            created = False
+            private = index >= 2
+            intended_mode = 0o700 if private else 0o755
             try:
                 child = os.open(component, _DIR_FLAGS, dir_fd=fd)
             except FileNotFoundError:
                 if not create:
                     # The finally block releases the current directory fd.
                     return None
-                # Never create /var or /var/backups with private 0700 mode.
-                # Only application-owned directories receive 0700.
-                os.mkdir(component, 0o755 if index < 2 else 0o700, dir_fd=fd)
+                os.mkdir(component, intended_mode, dir_fd=fd)
                 os.fsync(fd)
                 child = os.open(component, _DIR_FLAGS, dir_fd=fd)
+                created = True
             info = os.fstat(child)
-            private = index >= 2
-            if (info.st_uid != owner_uid or
-                    stat.S_IMODE(info.st_mode) & (0o077 if private else 0o022)):
+            if info.st_uid != owner_uid:
+                os.close(child)
+                raise UnsafeJournal('unsafe journal directory owner')
+            if created:
+                # mkdir's mode is filtered by umask. Set *new* directories
+                # explicitly, without changing the administrator's existing
+                # /var or /var/backups directory permissions.
+                try:
+                    os.fchmod(child, intended_mode)
+                    os.fsync(child)
+                except OSError:
+                    os.close(child)
+                    raise
+                info = os.fstat(child)
+            if stat.S_IMODE(info.st_mode) & (0o077 if private else 0o022):
                 os.close(child)
                 raise UnsafeJournal('unsafe journal directory')
             os.close(fd)
@@ -154,9 +171,11 @@ def _open_lock(directory: int, owner_uid: int, *, create: bool,
     return fd
 
 
-def _take_lock(fd: int) -> None:
+def _take_lock(fd: int, *, shared: bool = False) -> None:
+    """Non-blocking flock. Read-only status uses SH; owners retain EX."""
     try:
-        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        fcntl.flock(fd, (fcntl.LOCK_SH if shared else fcntl.LOCK_EX) |
+                    fcntl.LOCK_NB)
     except OSError as exc:
         if exc.errno in (errno.EWOULDBLOCK, errno.EAGAIN):
             raise JournalConflict('journal transaction already active') from None
@@ -240,6 +259,10 @@ class TransactionHandle:
     The owner must keep this handle in a with block until the operation
     completes or the process exits. An interrupted operation leaves its
     journal intact and automatically releases the kernel flock on exit.
+    Do not fork while holding a handle: a child inherits the open file
+    description and can keep the lock after its parent exits. If unavoidable,
+    the child must CLOSE its inherited handle immediately (never LOCK_UN,
+    which would also unlock the parent's shared open file description).
     """
 
     def __init__(self, journal: 'ProtectedJournal', directory: int,
@@ -325,6 +348,8 @@ class TransactionHandle:
 
     def clear_finished(self) -> None:
         """Remove terminal journal, plus validated interrupted temp markers."""
+        # This is the explicit point that removes leftover staging files
+        # after the trusted controller has recorded a terminal outcome.
         current = self._record()
         if current['phase'] not in _TERMINAL:
             raise JournalConflict('cannot clear unfinished transaction')
@@ -356,8 +381,19 @@ class ProtectedJournal:
             if lockfd is None:
                 raise JournalConflict('missing protected journal lock')
             try:
-                _take_lock(lockfd)
-                return directory, lockfd
+                # A status poll briefly holds a shared lock. Retry for a
+                # bounded interval so it cannot spuriously defeat begin(),
+                # while an actual exclusive transaction still fails promptly.
+                deadline = time.monotonic() + _LOCK_WAIT_SECONDS
+                while True:
+                    try:
+                        _take_lock(lockfd)
+                        return directory, lockfd
+                    except JournalConflict:
+                        remaining = deadline - time.monotonic()
+                        if remaining <= 0:
+                            raise
+                        time.sleep(min(remaining, _LOCK_RETRY_SECONDS))
             except Exception:
                 os.close(lockfd)
                 raise
@@ -381,8 +417,10 @@ class ProtectedJournal:
                 else:
                     try:
                         try:
-                            _take_lock(lockfd)
+                            _take_lock(lockfd, shared=True)
                         except JournalConflict:
+                            # Only an exclusive transaction owner should
+                            # prevent readers from taking a shared lock.
                             state = 'in_progress'
                         else:
                             current = _read(directory, self.owner_uid)
