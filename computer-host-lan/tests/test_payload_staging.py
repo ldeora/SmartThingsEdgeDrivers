@@ -238,6 +238,9 @@ class PayloadStagingTests(unittest.TestCase):
     def test_stage_retire_then_stage_for_next_transaction(self):
         with self.stage() as receipt:
             self.assertEqual(receipt.stage_id, self.transaction.transaction_id)
+            with self.assertRaises(staging.StagingConflict):
+                receipt.verified_source_path(self.expected)
+            self.transaction.advance('INSPECTED', 'STAGED')
             self.assertTrue(receipt.verified_source_path(self.expected).is_dir())
             self.assertFalse(os.get_inheritable(receipt.directory_fd))
             self.transaction.abort()
@@ -280,6 +283,7 @@ class PayloadStagingTests(unittest.TestCase):
     def test_ready_receipt_refuses_folder_inode_swap(self):
         with self.stage() as receipt:
             receipt.verify(self.expected)
+            self.transaction.advance('INSPECTED', 'STAGED')
             _, ready = self.stage_files()
             original = ready[0]
             moved = original.with_name('moved-aside')
