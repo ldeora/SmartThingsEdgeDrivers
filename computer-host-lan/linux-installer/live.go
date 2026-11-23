@@ -450,99 +450,147 @@ func (s *liveSelection) selectedHub() string {
 	switch {
 	case choice == "manual":
 		if validHubIPv4(manual) == nil {
-			return manual + " (entered manually; not contacted)"
+			return manual + " (entered manually)"
 		}
+		return "Enter your hub's IP address"
 	case strings.HasPrefix(choice, "discovered:"):
 		ip := strings.TrimPrefix(choice, "discovered:")
 		for _, hub := range s.hubs {
 			if hub.IPv4 == ip {
-				return ip + " (Avahi candidate; not contacted or authenticated)"
+				return ip + " (found automatically)"
 			}
 		}
 	}
-	return "Not selected (can choose later)"
+	return "I'll choose later"
+}
+
+func defaultHubChoice(hubs []discoveredHub) string {
+	if len(hubs) != 0 {
+		return "discovered:" + hubs[0].IPv4
+	}
+	return "manual"
 }
 
 func liveHubOptions(hubs []discoveredHub) []huh.Option[string] {
-	options := []huh.Option[string]{
-		huh.NewOption("Continue without selecting a hub", "skip"),
-		huh.NewOption("Enter a hub IPv4 address manually", "manual"),
-	}
+	options := []huh.Option[string]{}
 	for _, hub := range hubs {
 		if validHubIPv4(hub.IPv4) == nil {
-			options = append(options, huh.NewOption("Discovered candidate: "+hub.IPv4, "discovered:"+hub.IPv4))
+			options = append(options, huh.NewOption("SmartThings hub at "+hub.IPv4+" (found)", "discovered:"+hub.IPv4))
 		}
 	}
+	options = append(options,
+		huh.NewOption("Enter my hub's IP address instead", "manual"),
+		huh.NewOption("Choose a hub later", "skip"))
 	return options
+}
+
+func livePowerOptions(info apiInspect) []huh.Option[string] {
+	if info.Installation.PowerDropin == "present" {
+		return []huh.Option[string]{
+			huh.NewOption("Keep power control enabled (current setting)", "keep"),
+			huh.NewOption("Turn power control off (monitor only)", "disabled"),
+		}
+	}
+	return []huh.Option[string]{
+		huh.NewOption("Monitor only — no shutdown or restart (recommended)", "keep"),
+		huh.NewOption("Allow shutdown, restart and suspend from SmartThings", "enabled"),
+	}
+}
+
+func (s *liveSelection) friendlyPower() string {
+	switch s.powerChoice {
+	case "enabled":
+		return "Allow shutdown, restart and suspend (requires authentication)"
+	case "disabled":
+		return "Monitoring only (power control off)"
+	default:
+		if s.inspection.Installation.PowerDropin == "present" {
+			return "Keep power control enabled (existing setting)"
+		}
+		return "Monitoring only (power control off)"
+	}
+}
+
+func (s *liveSelection) inspectionSummary() string {
+	var b strings.Builder
+	if s.inspection.Installation.Detected {
+		fmt.Fprintln(&b, "Computer Host LAN is already installed on this computer.")
+		if s.inspection.Installation.AgentServiceState == "active" {
+			fmt.Fprintln(&b, "The agent service is running.")
+		} else {
+			fmt.Fprintln(&b, "The agent is not confirmed running. Check its status before upgrading.")
+		}
+	} else {
+		fmt.Fprintln(&b, "Get this Linux computer ready to use with SmartThings.")
+	}
+	blocked := false
+	for _, check := range s.inspection.Checks {
+		if check.Status == "blocked" {
+			blocked = true
+			break
+		}
+	}
+	if blocked {
+		fmt.Fprintln(&b, "A requirement needs attention. Run -live -preview for details.")
+	} else {
+		fmt.Fprintln(&b, "Basic Linux and Python checks are available in -live -preview.")
+	}
+	fmt.Fprint(&b, "This is an early PREVIEW: it will not install or change anything.")
+	return b.String()
 }
 
 func (s *liveSelection) preview() string {
 	p, err := s.currentPlan()
 	if err != nil {
-		return "PLAN BLOCKED: " + err.Error() + "\nNo installation is possible in this preview. Go Back to correct the options."
+		return "Cannot prepare the preview: " + err.Error() +
+			"\nNothing has been changed. Go Back to review your choices."
 	}
 	if p.SelectedPython != s.inspection.Python.SelectedInterpreter {
-		return "PLAN BLOCKED: interpreter changed after inspection; re-run inspection."
+		return "Preview cannot continue because the Python environment changed. Start again."
 	}
-	result := p.brief() + "\nSmartThings hub: " + s.selectedHub()
-	choice, manual := s.hubSnapshot()
-	if choice == "manual" {
-		if warning := hubAddressWarning(manual); warning != "" {
-			result += "\n" + warning
-		}
+	var b strings.Builder
+	fmt.Fprintln(&b, "Your SmartThings setup")
+	fmt.Fprintln(&b, "  Hub:           "+s.selectedHub())
+	fmt.Fprintln(&b, "  Power control: "+s.friendlyPower())
+	if s.wolChoice == "pin" {
+		fmt.Fprintf(&b, "  Network:       %s (advanced interface suggestion)\n", s.wolNIC)
+	} else {
+		fmt.Fprintln(&b, "  Network:       Leave existing settings unchanged")
 	}
-	result += "\nHub selection is advisory; no pairing or hub request was attempted."
-	return result
+	fmt.Fprintln(&b, "")
+	fmt.Fprintln(&b, "Preview only — your Linux agent, SmartThings devices and settings")
+	fmt.Fprintln(&b, "will remain unchanged. No installation or pairing will happen.")
+	return strings.TrimSpace(b.String())
 }
 
 func liveForm(s *liveSelection) *huh.Form {
+	nicHelp := "Press Enter to accept the suggested interface or edit it. Does NOT enable Wake-on-LAN."
+	if s.wolNIC == "" {
+		nicHelp = "Enter your interface name (for example enp1s0f0). Does NOT enable Wake-on-LAN."
+	}
 	return huh.NewForm(
 		huh.NewGroup(
 			huh.NewSelect[string]().
-				Title("Computer Host LAN — Real inspection (read-only)").
-				Description(s.inspection.brief()).
-				Options(huh.NewOption("Continue to a prospective file plan", "continue")),
-		).Title("1. Compatibility"),
+				Title("Welcome to Computer Host LAN").
+				Description(s.inspectionSummary()).
+				Options(huh.NewOption("Continue", "continue")),
+		).Title("1. Welcome"),
 		huh.NewGroup(
 			huh.NewSelect[string]().
-				Title("Remote power-management setting").
-				Description("Preserve means keep the actual installed configuration; new installs default off.").
-				Options(
-					huh.NewOption("Preserve current/default (recommended)", "keep"),
-					huh.NewOption("Request enable (plan only)", "enabled"),
-					huh.NewOption("Request disable (plan only)", "disabled"),
-				).Value(&s.powerChoice),
-			huh.NewSelect[string]().
-				Title("Wake-on-LAN interface").
-				Description("This only previews a systemd interface pin. It NEVER changes NIC WOL settings.").
-				Options(
-					huh.NewOption("Leave interface unchanged (recommended)", "keep"),
-					huh.NewOption("Preview pinning an existing Ethernet interface", "pin"),
-				).Value(&s.wolChoice),
-		).Title("2. Options"),
-		huh.NewGroup(
-			huh.NewInput().
-				Title("Existing network interface (required)").
-				Description("Type your interface name, e.g. enp1s0f0. The field starts EMPTY; no WOL hardware test.").
-				Placeholder("Type interface name").
-				Validate(validateNICInput).Value(&s.wolNIC),
-		).Title("Interface").WithHideFunc(func() bool { return s.wolChoice != "pin" }),
-		huh.NewGroup(
-			huh.NewSelect[string]().
-				Title("Choose a SmartThings hub (optional)").
-				Description("Avahi discovery is unverified; manual IPv4 works without avahi-browse. No hub is contacted.").
+				Title("Which SmartThings hub do you use?").
+				Description("A hub found on your network is already selected. Press Enter to continue, or choose another.").
 				Options(liveHubOptions(s.hubs)...).
 				Validate(func(choice string) error {
 					s.recordHubChoice(choice)
 					return nil
 				}).
 				Value(&s.hubChoice),
-		).Title("3. SmartThings hub"),
+		).Title("2. SmartThings hub"),
 		huh.NewGroup(
 			huh.NewInput().
-				Title("SmartThings hub IPv4 (required for manual selection)").
-				Description("Enter a literal IPv4 address. No connection, firewall or pairing changes.").
-				Placeholder("Type hub IPv4").
+				Title("SmartThings hub IP address").
+				Description("Enter your hub's IPv4 address. You can find it in your router or SmartThings hub settings.").
+				Placeholder("e.g. 192.168.1.20").
 				Validate(func(value string) error {
 					if err := validHubIPv4(value); err != nil {
 						return err
@@ -551,23 +599,45 @@ func liveForm(s *liveSelection) *huh.Form {
 					return nil
 				}).
 				Value(&s.hubManual),
-		).Title("Manual hub address").WithHideFunc(func() bool { return s.hubChoice != "manual" }),
+		).Title("Hub address").WithHideFunc(func() bool { return s.hubChoice != "manual" }),
+		huh.NewGroup(
+			huh.NewSelect[string]().
+				Title("What should SmartThings be allowed to do?").
+				Description("Monitoring works without power control. Upgrades keep the current setting unless you change it.").
+				Options(livePowerOptions(s.inspection)...).
+				Value(&s.powerChoice),
+			huh.NewSelect[string]().
+				Title("Advanced network setup").
+				Description("Most people should keep the default. Wake-on-LAN itself is not configured by this preview.").
+				Options(
+					huh.NewOption("Keep network settings unchanged (recommended)", "keep"),
+					huh.NewOption("Review the wake-up network interface (advanced)", "pin"),
+				).Value(&s.wolChoice),
+		).Title("3. Power control"),
+		huh.NewGroup(
+			huh.NewInput().
+				Title("Network interface (advanced)").
+				Description(nicHelp).
+				Placeholder("e.g. enp1s0f0").
+				Validate(validateNICInput).
+				Value(&s.wolNIC),
+		).Title("Network details").WithHideFunc(func() bool { return s.wolChoice != "pin" }),
 		huh.NewGroup(
 			huh.NewConfirm().
-				Title("Finish the REAL read-only file review?").
+				Title("Review your choices").
 				DescriptionFunc(func() string { return s.preview() },
 					[]any{&s.powerChoice, &s.wolChoice, &s.wolNIC, &s.hubChoice, &s.hubManual}).
-				Affirmative("Finish review").Negative("Exit without changes").
+				Affirmative("Finish preview").Negative("Exit without changes").
 				Validate(func(accepted bool) error {
 					if !accepted {
 						return nil
 					}
 					plan, err := s.currentPlan()
 					if err != nil {
-						return errors.New("plan unavailable; correct the options or cancel")
+						return errors.New("Unable to validate these choices. Go Back or cancel.")
 					}
 					if plan.SelectedPython != s.inspection.Python.SelectedInterpreter {
-						return errors.New("selected Python changed; start a new inspection")
+						return errors.New("Python changed since the initial check. Please restart.")
 					}
 					return nil
 				}).Value(&s.finished),
@@ -575,17 +645,32 @@ func liveForm(s *liveSelection) *huh.Form {
 	)
 }
 
+func newLiveSelection(api apiClient, info apiInspect, hubs []discoveredHub) *liveSelection {
+	s := &liveSelection{
+		api: api, inspection: info, hubs: hubs,
+		hubChoice: defaultHubChoice(hubs),
+		powerChoice: "keep", wolChoice: "keep",
+	}
+	s.recordHubChoice(s.hubChoice)
+	if len(hubs) > 0 {
+		s.wolNIC = suggestedNIC(hubs[0].IPv4)
+	} else {
+		s.wolNIC = suggestedNIC("")
+	}
+	return s
+}
+
 func runLiveInteractive(w io.Writer, api apiClient, info apiInspect) error {
 	stat, err := os.Stdin.Stat()
 	if err != nil || stat.Mode()&os.ModeCharDevice == 0 {
-		return errors.New("live full-screen wizard needs a TTY; try -live -preview or -live -accessible")
+		return errors.New("The interactive setup requires a terminal. Try -live -accessible.")
 	}
-	s := liveSelection{api: api, inspection: info, hubs: discoverHubs(), hubChoice: "skip", powerChoice: "keep", wolChoice: "keep"}
-	fmt.Fprintln(w, "COMPUTER HOST LAN — LIVE READ-ONLY WIZARD")
-	fmt.Fprintln(w, "The API only inspects and plans; it cannot install or change the host.")
-	err = liveForm(&s).Run()
+	s := newLiveSelection(api, info, discoverHubs())
+	fmt.Fprintln(w, "COMPUTER HOST LAN — SETUP PREVIEW")
+	fmt.Fprintln(w, "No installation or system changes will be made.")
+	err = liveForm(s).Run()
 	if errors.Is(err, huh.ErrUserAborted) {
-		fmt.Fprintln(w, "Cancelled; no changes made.")
+		fmt.Fprintln(w, "Setup preview cancelled. No changes made.")
 		return nil
 	}
 	if err != nil {
@@ -593,13 +678,12 @@ func runLiveInteractive(w io.Writer, api apiClient, info apiInspect) error {
 	}
 	if s.finished {
 		fmt.Fprintln(w, "\n"+s.preview())
-		fmt.Fprintln(w, "READ-ONLY REVIEW COMPLETE — nothing installed or modified.")
+		fmt.Fprintln(w, "SETUP PREVIEW COMPLETE — no changes made.")
 	} else {
-		fmt.Fprintln(w, "Exited; no changes made.")
+		fmt.Fprintln(w, "Exited without changes.")
 	}
 	return nil
 }
-
 func runLiveAccessible(reader io.Reader, writer io.Writer, api apiClient, info apiInspect) error {
 	return runLiveAccessibleWithHubs(reader, writer, api, info, nil)
 }
