@@ -19,11 +19,14 @@ import (
 const (
 	trustedDir    = "/usr/libexec/computer-host-lan"
 	trustedLock   = "/run/lock/linux-host-agent-install.lock"
-	bootstrapLock = "/run/lock/computer-host-lan-bootstrap.lock"
+	// Only the Go wizard uses this lifetime lock; unlike the legacy manual
+	// install lock it can live in a private root-owned runtime directory.
+	bootstrapLock = "/run/computer-host-lan/bootstrap.lock"
 )
 
 var (
 	errInstallerBusy            = errors.New("another installer is running")
+	errUnsafeInstallerLock      = errors.New("unsafe installer lock")
 	errInstallerRecoveryPending = errors.New("recover previous installer transaction before changing the trusted helper")
 	errUnavailablePython        = errors.New("installed helper could not select a compatible system Python")
 	errInvalidHelperResponse    = errors.New("invalid privileged helper response")
@@ -220,6 +223,38 @@ func writeEmbeddedSet(stage string) error {
 	})
 }
 
+// The bootstrap lock has no legacy/manual consumers. Create its private
+// directory under trusted /run and reject any existing symlink or unsafe
+// permissions. Never chmod or replace an attacker-controlled entry.
+func ensurePrivateBootstrapLockDir(path string, ownerUID int) error {
+	parent := filepath.Dir(path)
+	if path == filepath.Dir(bootstrapLock) && ownerUID == 0 {
+		if err := verifyParents(parent, 0); err != nil {
+			return errUnsafeInstallerLock
+		}
+	} else {
+		// Alternate paths exist solely for isolated non-root test fixtures.
+		if ownerUID != os.Geteuid() {
+			return errUnsafeInstallerLock
+		}
+		if err := protectedPath(parent, ownerUID, true); err != nil {
+			return errUnsafeInstallerLock
+		}
+	}
+	if err := os.Mkdir(path, 0o700); err != nil && !os.IsExist(err) {
+		return errUnsafeInstallerLock
+	}
+	info, err := os.Lstat(path)
+	if err != nil || !info.IsDir() || info.Mode().Perm() != 0o700 {
+		return errUnsafeInstallerLock
+	}
+	st, ok := info.Sys().(*syscall.Stat_t)
+	if !ok || int(st.Uid) != ownerUID {
+		return errUnsafeInstallerLock
+	}
+	return nil
+}
+
 func lockInstaller(path string, ownerUID int) (*os.File, error) {
 	// Shared flock with install_core.py and InstallerBackend. /run/lock can
 	// be world-writable: never follow a planted symlink, never block opening
@@ -227,6 +262,9 @@ func lockInstaller(path string, ownerUID int) (*os.File, error) {
 	// The legacy regular lock may legitimately have mode 0644; do not chmod.
 	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|syscall.O_NOFOLLOW|syscall.O_NONBLOCK|syscall.O_CLOEXEC, 0o600)
 	if err != nil {
+		if errors.Is(err, syscall.ELOOP) {
+			return nil, errUnsafeInstallerLock
+		}
 		return nil, err
 	}
 	info, err := f.Stat()
@@ -238,14 +276,14 @@ func lockInstaller(path string, ownerUID int) (*os.File, error) {
 	if !ok || !info.Mode().IsRegular() || int(st.Uid) != ownerUID ||
 		st.Nlink != 1 || info.Mode().Perm()&0o022 != 0 {
 		f.Close()
-		return nil, errors.New("unsafe installer lock file")
+		return nil, errUnsafeInstallerLock
 	}
 	// Refuse an inode swapped at the pathname between open and validation.
 	// Sticky /run/lock prevents unprivileged removal of root-owned files.
 	visible, err := os.Lstat(path)
 	if err != nil || !os.SameFile(info, visible) {
 		f.Close()
-		return nil, errors.New("installer lock path changed")
+		return nil, errUnsafeInstallerLock
 	}
 	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
 		f.Close()
@@ -492,6 +530,8 @@ func relayBootstrapFailure(writer io.Writer, action string, failure error) error
 	code := "bootstrap_failed"
 	if errors.Is(failure, errInstallerBusy) {
 		code = "installation_busy"
+	} else if errors.Is(failure, errUnsafeInstallerLock) {
+		code = "unsafe_lock"
 	} else if errors.Is(failure, errInstallerRecoveryPending) {
 		code = "recovery_required"
 	} else if errors.Is(failure, errUnavailablePython) {
@@ -531,6 +571,9 @@ func rootBootstrap(reader io.Reader, writer io.Writer) error {
 	// held across Go helper promotion AND Python execution. It prevents a
 	// second Go bootstrap from swapping the helper underneath the first
 	// process while allowing Python to reacquire the manual install lock.
+	if err := ensurePrivateBootstrapLockDir(filepath.Dir(bootstrapLock), 0); err != nil {
+		return relayBootstrapFailure(writer, request.Action, err)
+	}
 	bootstrapGuard, err := lockInstaller(bootstrapLock, 0)
 	if err != nil {
 		return relayBootstrapFailure(writer, request.Action, err)
