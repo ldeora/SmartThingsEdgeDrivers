@@ -5,7 +5,10 @@ import contextlib
 from io import StringIO
 import json
 from pathlib import Path
+import socket
 import sys
+import threading
+import time
 import unittest
 from unittest import mock
 
@@ -40,34 +43,12 @@ def fake_fetch(info=INFO, health=HEALTH):
     return fetch
 
 
-class FakeResponse:
-    def __init__(self, *, status=200, mime='application/json; charset=utf-8',
-                 data=b'{}'):
-        self.status, self.mime, self.data = status, mime, data
-        self.max_read = None
-
-    def getheader(self, name, default=''):
-        return self.mime if name == 'Content-Type' else default
-
-    def read(self, limit):
-        self.max_read = limit
-        return self.data[:limit]
-
-
-class FakeConnection:
-    def __init__(self, response):
-        self.response = response
-        self.requested = None
-        self.closed = False
-
-    def request(self, method, path, headers=None):
-        self.requested = (method, path, headers)
-
-    def getresponse(self):
-        return self.response
-
-    def close(self):
-        self.closed = True
+def http_response(payload: bytes, *, status: bytes = b'200 OK',
+                  mime: bytes = b'application/json') -> bytes:
+    return (b'HTTP/1.1 ' + status +
+            b'\r\nContent-Type: ' + mime +
+            b'\r\nContent-Length: ' + str(len(payload)).encode('ascii') +
+            b'\r\nConnection: close\r\n\r\n' + payload)
 
 
 class RuntimeVerifierTests(unittest.TestCase):
@@ -162,29 +143,89 @@ class RuntimeVerifierTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             rv.verify_runtime(service_status='spoofed')
 
-    def test_http_client_is_local_fixed_path_bounded_and_not_redirected(self):
-        fake = FakeResponse(data=json.dumps(INFO).encode())
-        conn = FakeConnection(fake)
-        result = rv._read_json(8765, '/v2/info', connection_factory=lambda host, port, timeout: (
-            self.assertEqual((host, port, timeout), ('127.0.0.1', 8765, 2)) or conn
-        ))
-        self.assertEqual(result['id'], UUID)
-        self.assertEqual(conn.requested[0:2], ('GET', '/v2/info'))
-        self.assertTrue(conn.closed)
-        self.assertEqual(fake.max_read, rv.MAX_RESPONSE + 1)
-        self.assertIsNone(rv._read_json(8765, 'http://attacker.test', connection_factory=lambda *a: conn))
-        self.assertIsNone(rv._read_json(80, '/v2/info', connection_factory=lambda *a: conn))
-        for response in (FakeResponse(status=302), FakeResponse(status=401),
-                         FakeResponse(mime='text/html'),
-                         FakeResponse(mime=None),
-                         FakeResponse(data=b'['),
-                         FakeResponse(data=b'not-json'),
-                         FakeResponse(data=b'X' * (rv.MAX_RESPONSE + 1))):
-            with self.subTest(response=response):
-                c = FakeConnection(response)
-                self.assertIsNone(rv._read_json(8765, '/v2/info',
-                                                connection_factory=lambda *a, **kw: c))
-                self.assertTrue(c.closed)
+    def test_bounded_protocol_parser_requires_exact_headers_and_json(self):
+        good = http_response(json.dumps(INFO).encode())
+        self.assertEqual(rv._parse_http_json(good)['id'], UUID)
+        self.assertIsNone(rv._parse_http_json(good[:40]))
+        self.assertIsNone(rv._parse_http_json(good[:-4]))
+        self.assertIsNone(rv._parse_http_json(http_response(b'{}', status=b'302 Found')))
+        self.assertIsNone(rv._parse_http_json(http_response(b'{}', mime=b'text/html')))
+        self.assertIsNone(rv._parse_http_json(http_response(b'not-json')))
+        self.assertIsNone(rv._parse_http_json(http_response(b'[]')))
+        self.assertIsNone(rv._parse_http_json(http_response(b'X' * (rv.MAX_RESPONSE + 1))))
+        self.assertIsNone(rv._parse_http_json(good.replace(
+            b'Connection: close', b'Content-Length: 2\\r\\nConnection: close')))
+        self.assertIsNone(rv._parse_http_json(good.replace(
+            b'Connection: close', b'Transfer-Encoding: chunked\\r\\nConnection: close')))
+        self.assertIsNone(rv._parse_http_json(good.replace(
+            b'Connection: close', b'Content-Encoding: gzip\\r\\nConnection: close')))
+        self.assertIsNone(rv._parse_http_json(good.replace(
+            b'Content-Length: ' + str(len(json.dumps(INFO).encode())).encode(),
+            b'Content-Length: 99999999')))
+        self.assertIsNone(rv._read_json(8765, 'http://unsafe.example/v2/info',
+                                        exchange=lambda *a: good))
+        self.assertIsNone(rv._read_json(80, '/v2/info', exchange=lambda *a: good))
+        self.assertEqual(rv._read_json(8765, '/v2/info',
+                                      exchange=lambda port, path: good)['id'], UUID)
+
+    def test_real_loopback_transport_has_absolute_deadline_on_slow_drip(self):
+        # This listener is created only inside the test, on loopback, with
+        # an ephemeral port; it cannot contact a real hub or modify services.
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
+            listener.bind(('127.0.0.1', 0))
+            listener.listen(1)
+            port = listener.getsockname()[1]
+            response = http_response(b'{}')
+            error = []
+
+            def server():
+                try:
+                    peer, _ = listener.accept()
+                    with peer:
+                        peer.settimeout(1)
+                        request = peer.recv(4096)
+                        if b'GET /v2/health HTTP/1.1' not in request:
+                            error.append('wrong fixed path')
+                        peer.sendall(response[:-1])
+                        time.sleep(0.28)  # slower than the verifier deadline
+                        try:
+                            peer.sendall(response[-1:])
+                        except (BrokenPipeError, ConnectionResetError):
+                            pass
+                except OSError as exc:
+                    error.append(type(exc).__name__)
+
+            worker = threading.Thread(target=server, daemon=True)
+            worker.start()
+            start = time.monotonic()
+            with mock.patch.object(rv, 'REQUEST_DEADLINE_SECONDS', 0.12):
+                answer = rv._read_json(port, '/v2/health')
+            elapsed = time.monotonic() - start
+            worker.join(timeout=1.0)
+            self.assertIsNone(answer)
+            self.assertLess(elapsed, 0.40)
+            self.assertFalse(error, error)
+
+    def test_real_loopback_transport_accepts_correct_fixed_path(self):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
+            listener.bind(('127.0.0.1', 0))
+            listener.listen(1)
+            port = listener.getsockname()[1]
+            requests = []
+
+            def server():
+                peer, _ = listener.accept()
+                with peer:
+                    requests.append(peer.recv(4096))
+                    peer.sendall(http_response(json.dumps(HEALTH).encode()))
+
+            worker = threading.Thread(target=server, daemon=True)
+            worker.start()
+            result = rv._read_json(port, '/v2/health')
+            worker.join(timeout=2)
+            self.assertEqual(result['id'], UUID)
+            self.assertIn(b'Host: 127.0.0.1', requests[0])
+            self.assertIn(b'GET /v2/health HTTP/1.1', requests[0])
 
     def test_json_api_verifier_sanitizes_every_output_and_validates_port(self):
         response = rv.verify_runtime(service_status='active', fetch=fake_fetch())
