@@ -499,7 +499,8 @@ def recover_ready(trusted_hashes: Mapping[str, str],
         raise StagingError('trusted staging owner required')
     identifier = _transaction_id(transaction, root, owner_uid,
                                  phases=('INSPECTED', 'STAGED', 'SNAPSHOTTED',
-                                         'APPLYING', 'ACTIVATING', 'VERIFYING'))
+                                         'APPLYING', 'ACTIVATING', 'VERIFYING',
+                                         'COMMITTED', 'ABORTED', 'ROLLED_BACK'))
     hashes = _safe_manifest(trusted_hashes)
     base, lock = _lock_stage(root, owner_uid, create=False)
     stage_fd = None
@@ -579,3 +580,40 @@ def retire_ready(receipt: StagedPayload, trusted_hashes: Mapping[str, str]) -> N
     except OSError:
         raise StagingError('unable to retire protected staged files') from None
     receipt.close()
+
+
+def finish_retirement(transaction: TransactionHandle, *, root: Path = Path('/'),
+                      owner_uid: int = 0) -> None:
+    """Finish interrupted ready cleanup, never certify a payload for use.
+
+    Only a terminal transaction may request this. Partial ready contents
+    must have only owned, single-linked, known source names and directories.
+    It intentionally never accepts or executes an incomplete ready bundle.
+    """
+    root = Path(root)
+    if os.geteuid() != owner_uid:
+        raise StagingError('trusted staging owner required')
+    identifier = _transaction_id(transaction, root, owner_uid,
+                                 phases=('COMMITTED', 'ABORTED', 'ROLLED_BACK'))
+    base, lock = _lock_stage(root, owner_uid, create=False)
+    try:
+        name = _READY + identifier
+        if any(value not in (_LOCK, name) for value in os.listdir(base)):
+            raise StagingConflict('unrelated stage blocks retirement')
+        fd = os.open(name, _DIR_FLAGS, dir_fd=base)
+        try:
+            _validate_identity(base, fd, name, owner_uid)
+            _inspect_tree(fd, owner_uid, None)
+            _delete_tree(fd, owner_uid)
+            _validate_identity(base, fd, name, owner_uid)
+        finally:
+            os.close(fd)
+        os.rmdir(name, dir_fd=base)
+        os.fsync(base)
+    except (StagingError, StagingConflict):
+        raise
+    except OSError:
+        raise StagingError('unsafe interrupted retirement') from None
+    finally:
+        os.close(lock)
+        os.close(base)
