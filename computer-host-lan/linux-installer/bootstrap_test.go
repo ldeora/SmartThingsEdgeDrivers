@@ -144,6 +144,29 @@ func TestPrivilegedRequestDoesNotAllowUserChosenSourcesOrShell(t *testing.T) {
 	}
 }
 
+func TestBootstrapLifetimeLockBlocksConcurrentVersionReplacement(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("non-root lock fixture only")
+	}
+	path := filepath.Join(t.TempDir(), "bootstrap.lock")
+	first, err := lockInstaller(path, os.Geteuid())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second, err := lockInstaller(path, os.Geteuid()); err == nil {
+		second.Close()
+		t.Fatal("Second installer acquired bootstrap lifetime lock concurrently")
+	}
+	if err := first.Close(); err != nil {
+		t.Fatal(err)
+	}
+	again, err := lockInstaller(path, os.Geteuid())
+	if err != nil {
+		t.Fatalf("Released bootstrap lock could not be reused: %v", err)
+	}
+	again.Close()
+}
+
 func TestTrustedHelperVersionReplacementFixture(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("temporary non-root test fixture; never redirect a live root installation")

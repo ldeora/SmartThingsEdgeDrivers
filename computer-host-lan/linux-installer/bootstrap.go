@@ -17,8 +17,9 @@ import (
 )
 
 const (
-	trustedDir  = "/usr/libexec/computer-host-lan"
-	trustedLock = "/run/lock/linux-host-agent-install.lock"
+	trustedDir    = "/usr/libexec/computer-host-lan"
+	trustedLock   = "/run/lock/linux-host-agent-install.lock"
+	bootstrapLock = "/run/lock/computer-host-lan-bootstrap.lock"
 )
 
 var interfacePattern = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,15}$`)
@@ -383,6 +384,32 @@ func runInstalledHelper(root string, request privilegedRequest) (privilegedResul
 	return reply, nil
 }
 
+func completeTrustedVersion(root string, ownerUID int, restore bool) error {
+	// The Python backend releases the manual lock after its transaction.
+	// Reacquire it before touching installed helper directories; otherwise
+	// a manual installation could begin between backend completion and
+	// the Go bootstrap's previous-version cleanup.
+	guard, err := lockInstaller(trustedLock, ownerUID)
+	if err != nil {
+		return err
+	}
+	defer guard.Close()
+	state, err := runInstalledHelper(root,
+		privilegedRequest{SchemaVersion: 1, Action: "status"})
+	if err != nil || state.PrivilegedTransactionState != "none" {
+		return errors.New("cannot change helper version while recovery is pending")
+	}
+	if restore {
+		err = restorePreviousTrustedVersion(root, ownerUID)
+	} else {
+		err = retirePreviousTrustedVersion(root, ownerUID)
+	}
+	if err != nil {
+		return err
+	}
+	return syncDirectory(filepath.Dir(root))
+}
+
 func rootBootstrap(reader io.Reader, writer io.Writer) error {
 	if os.Geteuid() != 0 {
 		return errors.New("privileged bootstrap requires explicit sudo authorization")
@@ -394,6 +421,15 @@ func rootBootstrap(reader io.Reader, writer io.Writer) error {
 	if err := validateEmbeddedBundle(); err != nil {
 		return err
 	}
+	// Unlike the manual lock, this dedicated root-owned lifetime lock is
+	// held across Go helper promotion AND Python execution. It prevents a
+	// second Go bootstrap from swapping the helper underneath the first
+	// process while allowing Python to reacquire the manual install lock.
+	bootstrapGuard, err := lockInstaller(bootstrapLock, 0)
+	if err != nil {
+		return err
+	}
+	defer bootstrapGuard.Close()
 	if request.Action == "status" || request.Action == "recover" {
 		response, err := runInstalledHelper(trustedDir, request)
 		if err != nil {
@@ -415,7 +451,7 @@ func rootBootstrap(reader io.Reader, writer io.Writer) error {
 		state, statusErr := runInstalledHelper(trustedDir,
 			privilegedRequest{SchemaVersion: 1, Action: "status"})
 		if old && statusErr == nil && state.PrivilegedTransactionState == "none" {
-			if restoreErr := restorePreviousTrustedVersion(trustedDir, 0); restoreErr != nil {
+			if restoreErr := completeTrustedVersion(trustedDir, 0, true); restoreErr != nil {
 				return errors.New("installation failed; previous helper could not be restored")
 			}
 		}
@@ -424,7 +460,7 @@ func rootBootstrap(reader io.Reader, writer io.Writer) error {
 	// Once verified success and cleanup is complete the old helper may be
 	// retired. A retained previous copy is never executed automatically.
 	if old && response.Status == "installed" {
-		if err := retirePreviousTrustedVersion(trustedDir, 0); err != nil {
+		if err := completeTrustedVersion(trustedDir, 0, false); err != nil {
 			// A committed installation must never be presented as failed
 			// solely because the previous launcher cleanup could not finish.
 			response.Status = "installed_cleanup_required"

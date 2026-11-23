@@ -37,8 +37,10 @@ type the literal `INSTALL` confirmation (including plain-text mode).
 Only then does the normal-user process call `sudo` to start a separate
 one-shot `-root-bootstrap` process. It never renders the TUI as root,
 captures a password or feeds the sudo password on stdin. The root
-process reads only an allowlisted schema-v1 JSON object. Noninteractive
-sudo uses `-n` and cannot wait for a password prompt.
+process reads only an allowlisted schema-v1 JSON object. Plain-text
+accessible mode permits the normal sudo password prompt **when a real
+TTY exists**. Noninteractive/no-TTY sudo uses `-n` and cannot wait for a
+password prompt.
 
 No source checkout is needed to inspect or plan: the executable also
 embeds a **separate read-only Python inspection bundle** and runs that
@@ -68,11 +70,15 @@ After explicit sudo authorization the trusted Go bootstrap:
    `install`, `upgrade`, `repair`, `status` or `recover`. It cannot
    select a root destination, executable, source path, Python interpreter,
    raw shell command, UUID, key or port.
-2. Takes the same exclusive manual installation lock as `install_core.py`.
-   On an existing trusted installation, calls its **old** installed
-   `status` action. It **refuses to replace that version** if the journal
-   requires recovery. The user must first explicitly run `-recover`
-   with the old helper. No helper changes mid-transaction.
+2. Takes a separate, root-owned exclusive **bootstrap lifetime lock**
+   at `/run/lock/computer-host-lan-bootstrap.lock` over the whole
+   version-change and Python execution. Within that lock, it also takes
+   the existing **manual installation lock** used by `install_core.py`
+   while swapping files. On an existing trusted installation, calls its
+   **old** installed `status` action and refuses replacement when its
+   journal requires recovery. The user explicitly runs `-recover`
+   with that helper before retrying; no second Go bootstrap can swap
+   helper versions underneath an ongoing Python transaction.
 3. Creates a fixed root-owned `/usr/libexec/computer-host-lan.next`
    directory, writes and fsyncs the version-matched Python modules,
    `installer-entry.sh`, ten-file agent payload and generated
@@ -88,18 +94,24 @@ After explicit sudo authorization the trusted Go bootstrap:
    confirm no transaction is pending before retiring the older copy.
    A root-owned partial `.next` stage is safely discarded and rewritten
    on retry; an incomplete journal is never bypassed.
-5. **Releases the shared manual lock** before executing the installed
-   `installer-entry.sh`, because the Python transaction backend must
-   reacquire the same lock itself. It uses a fixed system PATH and
-   selects Python >=3.10 without changing system Python symlinks.
+5. **Releases the shared manual installation lock** before executing
+   the installed `installer-entry.sh`, because the Python transaction
+   backend must reacquire it. The separate **bootstrap lifetime lock
+   stays held**, preventing concurrent Go helper replacement. It uses a
+   fixed system PATH and selects Python >=3.10 without changing the
+   distribution's Python symlinks.
 6. The Python backend stages the embedded payload against the new trusted
    manifest, snapshots only the managed files, applies/upgrades,
    verifies systemd + local HTTP health, and either commits or rolls
    back. UUID and control token are agent-owned and never recreated by Go.
-7. On a verified completed install the old helper set is retired;
-   if a failed install leaves a pending journal the **new** matching helper
-   remains in place for explicit recovery. An error with a fully clean
-   journal restores the previous helper version.
+7. On a verified completed install the old helper set is retired,
+   but only after **reacquiring the manual installation lock** and
+   rechecking the protected journal. If a failed install leaves a pending
+   journal the **new** matching helper remains for explicit recovery.
+   An error with a fully clean journal restores the previous helper
+   version under that same lock. Helper retirement failure after a
+   successful install is `installed_cleanup_required`, never a false
+   installation failure.
 
 A verified installation can still finish with an optional
 `installed_cleanup_required` status. That is **not** a failed agent

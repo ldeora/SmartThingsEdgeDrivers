@@ -217,9 +217,14 @@ func runInstallingWizard(accessible bool, apiPath string, reader io.Reader, writ
 	if accessible {
 		// The plain-text form includes a literal INSTALL confirmation on
 		// its final page; no extra raw-terminal/sudo prompt is mixed in.
+		// Accessible/plain-text mode can still run inside a real terminal.
+		// Only use sudo -n when there is no TTY; otherwise allow sudo's
+		// usual /dev/tty password prompt after the plain form completes.
+		stdinInfo, statErr := os.Stdin.Stat()
+		hasTTY := statErr == nil && stdinInfo.Mode()&os.ModeCharDevice != 0
 		return runLiveAccessibleWithHubsMode(reader, writer, api, info, hubs,
 			true, func(s *liveSelection) error {
-				return installSelection(s, writer, false)
+				return installSelection(s, writer, hasTTY)
 			})
 	}
 	state, err := os.Stdin.Stat()
