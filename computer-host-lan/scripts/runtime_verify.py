@@ -226,9 +226,12 @@ def verify_runtime(*, port: int = 8765, expected_version: str | None = None,
     valid_features = (isinstance(features, list) and len(features) <= 32
                       and all(isinstance(f, str) and len(f) <= 64 for f in features))
     power_enabled = valid_features and 'power-control' in features
-    check('power_configuration', 'passed' if valid_features else 'failed')
+    actions = info.get('power_actions') if isinstance(info, dict) else None
+    expected_actions = ['reboot', 'shutdown', 'suspend'] if power_enabled else []
+    valid_configuration = valid_features and isinstance(actions, list) and actions == expected_actions
+    check('power_configuration', 'passed' if valid_configuration else 'failed')
     if expected_power is not None:
-        check('expected_power', 'passed' if valid_features and power_enabled == expected_power else 'failed')
+        check('expected_power', 'passed' if valid_configuration and power_enabled == expected_power else 'failed')
     else:
         check('expected_power', 'not_verified', required=False)
 
@@ -240,7 +243,7 @@ def verify_runtime(*, port: int = 8765, expected_version: str | None = None,
         'status': status,
         'checks': checks,
         'agent_version': version if valid_version else None,
-        'power_control': ('enabled' if power_enabled else 'disabled') if valid_features else 'unknown',
+        'power_control': ('enabled' if power_enabled else 'disabled') if valid_configuration else 'unknown',
         'identity_consistent': consistent,
         'identity_preserved': ('passed' if consistent and info_id == expected_identity else 'failed')
                               if expected_identity is not None else 'not_verified',
