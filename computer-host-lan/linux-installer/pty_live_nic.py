@@ -106,9 +106,13 @@ def exercise(binary: str, api: str) -> None:
         # not force a user to choose an IP or hunt for a network interface.
         mark = send(b'\r')
         wait_for(b'3. Power control', mark)
-
-        mark = send(b'\r')  # Keep the existing (enabled) power-control state.
+        # Both power choices and advanced-network choices are fields in
+        # one Huh page. The second title is already rendered before we
+        # advance past the first field.
         wait_for(b'Advanced network setup', mark)
+
+        send(b'\r')  # Keep the existing (enabled) power-control state.
+        time.sleep(0.15)
         mark = send(b'\r')  # Leave network settings unchanged.
         wait_for(b'4. Review', mark)
         wait_for(b'192.168.1.103 (found automatically)', mark)
