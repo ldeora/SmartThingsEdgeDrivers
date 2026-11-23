@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -441,6 +442,37 @@ func TestInstallerLockRefusesSymlinkHardlinkAndFIFO(t *testing.T) {
 	}
 }
 
+func TestDirectoryAtInstallerLockPathGetsFixedUnsafeLock(t *testing.T) {
+	lock := filepath.Join(t.TempDir(), "install.lock")
+	if err := os.Mkdir(lock, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if file, err := lockInstaller(lock, os.Geteuid()); err == nil ||
+		!errors.Is(err, errUnsafeInstallerLock) {
+		if file != nil {
+			file.Close()
+		}
+		t.Fatalf("Nonregular lock must produce fixed unsafe_lock: %v", err)
+	}
+}
+
+func TestUnixSocketAtLockPathProducesFixedUnsafeLock(t *testing.T) {
+	lock := filepath.Join(t.TempDir(), "install.lock")
+	server, err := net.Listen("unix", lock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer server.Close()
+
+	if f, err := lockInstaller(lock, os.Geteuid()); err == nil ||
+		!errors.Is(err, errUnsafeInstallerLock) {
+		if f != nil {
+			f.Close()
+		}
+		t.Fatalf("Unix socket at lock path must be unsafe_lock: %v", err)
+	}
+}
+
 func TestInstallerLockAcceptsExisting0644WithoutChangingMode(t *testing.T) {
 	lock := filepath.Join(t.TempDir(), "manual.lock")
 	if err := os.WriteFile(lock, nil, 0o600); err != nil {
@@ -457,6 +489,83 @@ func TestInstallerLockAcceptsExisting0644WithoutChangingMode(t *testing.T) {
 	info, err := os.Stat(lock)
 	if err != nil || info.Mode().Perm() != 0o644 {
 		t.Fatalf("Existing legacy lock mode changed: %v %v", info, err)
+	}
+}
+
+func TestPrivateBootstrapLockDirRequiresOwnerAndMode0700(t *testing.T) {
+	if bootstrapLock != "/run/computer-host-lan/bootstrap.lock" {
+		t.Fatal("Bootstrap lock must not be in world-writable /run/lock")
+	}
+	root := t.TempDir()
+	directory := filepath.Join(root, "computer-host-lan")
+	uid := os.Geteuid()
+	if err := ensurePrivateBootstrapLockDir(directory, uid); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Lstat(directory)
+	if err != nil || !info.IsDir() || info.Mode().Perm() != 0o700 {
+		t.Fatalf("Private bootstrap directory not 0700: %v, %v", info, err)
+	}
+	if err := ensurePrivateBootstrapLockDir(directory, uid); err != nil {
+		t.Fatal("Existing private directory must be reusable:", err)
+	}
+	guard, err := lockInstaller(filepath.Join(directory, "bootstrap.lock"), uid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	guard.Close()
+
+	if err := os.Chmod(directory, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if !errors.Is(ensurePrivateBootstrapLockDir(directory, uid), errUnsafeInstallerLock) {
+		t.Fatal("Unsafe existing directory permissions must fail closed")
+	}
+	if err := os.Chmod(directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(directory, "bootstrap.lock")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(directory); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(root, directory); err != nil {
+		t.Fatal(err)
+	}
+	if !errors.Is(ensurePrivateBootstrapLockDir(directory, uid), errUnsafeInstallerLock) {
+		t.Fatal("Existing symlink must not be accepted as private directory")
+	}
+}
+
+func TestUnsafeInstallerLockIsFixedAndActionable(t *testing.T) {
+	root := t.TempDir()
+	lock := filepath.Join(root, "manual.lock")
+	if err := os.WriteFile(lock, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// A user-owned lock is not acceptable to a privileged installer. No
+	// chown needed: fixture owner mismatches the simulated required UID.
+	if f, err := lockInstaller(lock, os.Geteuid()+1); err == nil ||
+		!errors.Is(err, errUnsafeInstallerLock) {
+		if f != nil {
+			f.Close()
+		}
+		t.Fatalf("Foreign-owner lock must produce fixed error, got %v", err)
+	}
+	var output bytes.Buffer
+	if err := relayBootstrapFailure(&output, "upgrade", errUnsafeInstallerLock); err == nil {
+		t.Fatal("Unsafe lock must cause failure")
+	}
+	reply, err := validatedPrivilegedReply(output.Bytes(), "upgrade")
+	if err != nil || reply.ErrorCode != "unsafe_lock" || reply.SecretsIncluded {
+		t.Fatalf("Unsafe lock code must be fixed and redacted: %+v, %v", reply, err)
+	}
+	_, userErr := interpretPrivilegedExecution(output.Bytes(), errUnsafeInstallerLock, "upgrade")
+	if userErr == nil || !strings.Contains(userErr.Error(), "/run/lock/linux-host-agent-install.lock") ||
+		!strings.Contains(userErr.Error(), "/run/computer-host-lan/bootstrap.lock") ||
+		!strings.Contains(userErr.Error(), "no installation or recovery is running") {
+		t.Fatalf("Unsafe lock message not actionable: %v", userErr)
 	}
 }
 

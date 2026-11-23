@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass
+import errno
 import fcntl
 import json
 import os
@@ -475,12 +476,26 @@ def generate_plan(source: Path, python_bin: str, *, enable_power: bool,
 _SYSTEMCTL_TIMEOUT_SECONDS = 120  # Bounded per operation, not per transaction.
 
 
+_MANUAL_LOCK_UNSAFE_MESSAGE = (
+    'Unsafe manual installer lock. Confirm no installer is running, '
+    'then ask an administrator to inspect '
+    '/run/lock/linux-host-agent-install.lock; do not delete it '
+    'while an installation or recovery is active.'
+)
+_UNSAFE_LOCK_ERRNOS = frozenset((
+    errno.ELOOP, errno.EACCES, errno.EPERM, errno.EISDIR,
+    errno.ENOTDIR, errno.ENXIO,
+))
+
+
 def open_manual_install_lock(path: Path, *, owner_uid: int = 0):
     """Open the shared manual/wizard flock without following user-supplied links.
 
     /run/lock may be sticky and world-writable. Existing root-owned 0644
     legacy locks remain compatible, but symlinks, FIFOs, hardlinks and
     group/world-writable regular files must never be treated as locks.
+    Other filesystem errors (ENOSPC, EROFS, ENOENT, etc.) are not
+    misrepresented as unsafe-lock failures.
     """
     fd = None
     try:
@@ -492,12 +507,14 @@ def open_manual_install_lock(path: Path, *, owner_uid: int = 0):
                 opened.st_nlink != 1 or stat.S_IMODE(opened.st_mode) & 0o022 or
                 (opened.st_dev, opened.st_ino) !=
                 (visible.st_dev, visible.st_ino)):
-            raise InstallError('Unsafe manual installer lock')
+            raise InstallError(_MANUAL_LOCK_UNSAFE_MESSAGE)
         lock = os.fdopen(fd, 'a+')
         fd = None
         return lock
-    except OSError:
-        raise InstallError('Unsafe manual installer lock') from None
+    except OSError as exc:
+        if exc.errno in _UNSAFE_LOCK_ERRNOS:
+            raise InstallError(_MANUAL_LOCK_UNSAFE_MESSAGE) from None
+        raise
     finally:
         if fd is not None:
             os.close(fd)

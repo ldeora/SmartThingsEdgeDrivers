@@ -6,6 +6,7 @@ inside a disposable private temporary root.
 """
 from __future__ import annotations
 
+import errno
 import fcntl
 import hashlib
 import json
@@ -332,6 +333,77 @@ class InstallerBackendTests(unittest.TestCase):
         self.assertEqual(self.stage_entries(), [])
         self.assertEqual(self.services.verify_calls, 1)  # No reinstallation.
 
+    def test_wizard_shared_lock_reports_fixed_unsafe_lock_code(self):
+        # An invalid shared lock must be diagnosed as unsafe, rather than
+        # conflated with unrelated unsupported Linux environments.
+        target = self.root / 'existing-owned-lock'
+        target.write_bytes(b'KEEP')
+        target.chmod(0o600)
+        self.manual_lock.symlink_to(target)
+        with self.assertRaises(installer.ControllerError) as raised:
+            with installer.manual_install_lock(self.manual_lock,
+                                               owner_uid=self.uid):
+                self.fail('Symlinked shared lock must never be acquired')
+        self.assertEqual(raised.exception.code, 'unsafe_lock')
+        self.assertEqual(target.read_bytes(), b'KEEP')
+        self.manual_lock.unlink()
+
+        self.manual_lock.touch(mode=0o600)
+        self.manual_lock.chmod(0o666)
+        with self.assertRaises(installer.ControllerError) as raised:
+            with installer.manual_install_lock(self.manual_lock,
+                                               owner_uid=self.uid):
+                self.fail('World-writable lock must never be acquired')
+        self.assertEqual(raised.exception.code, 'unsafe_lock')
+        self.manual_lock.chmod(0o600)
+
+        with self.assertRaises(installer.ControllerError) as raised:
+            with installer.manual_install_lock(self.manual_lock,
+                                               owner_uid=self.uid + 1):
+                self.fail('Foreign-owned lock must never be acquired')
+        self.assertEqual(raised.exception.code, 'unsafe_lock')
+        self.assertEqual(str(raised.exception), 'unsafe_lock')
+
+    def test_manual_and_wizard_lock_open_errors_are_classified_correctly(self):
+        # Unsafe lock objects are actionable. Disk-full/read-only/missing
+        # directories are not evidence of an attacker-planted lock.
+        unsafe = (errno.ELOOP, errno.EACCES, errno.EPERM, errno.EISDIR,
+                  errno.ENOTDIR, errno.ENXIO)
+        operational = (errno.ENOSPC, errno.EROFS, errno.ENOENT, errno.EIO)
+        for number in unsafe + operational:
+            with self.subTest(errno=number):
+                failure = OSError(number, 'simulated lock open failure')
+                with mock.patch.object(core.os, 'open', side_effect=failure):
+                    if number in unsafe:
+                        with self.assertRaises(core.InstallError) as err:
+                            core.open_manual_install_lock(self.manual_lock,
+                                                          owner_uid=self.uid)
+                        self.assertIn('Unsafe manual installer lock',
+                                      str(err.exception))
+                    else:
+                        with self.assertRaises(OSError) as err:
+                            core.open_manual_install_lock(self.manual_lock,
+                                                          owner_uid=self.uid)
+                        self.assertEqual(err.exception.errno, number)
+
+                with mock.patch.object(installer.os, 'open', side_effect=failure):
+                    with self.assertRaises(installer.ControllerError) as err:
+                        with installer.manual_install_lock(self.manual_lock,
+                                                           owner_uid=self.uid):
+                            self.fail('Cannot acquire a mocked failing lock')
+                self.assertEqual(err.exception.code, (
+                    'unsafe_lock' if number in unsafe
+                    else 'unsupported_environment'))
+
+    def test_errors_inside_held_wizard_lock_are_not_mislabelled(self):
+        # Only failure to OPEN or ACQUIRE the lock can be a lock error.
+        # Runtime filesystem failures inside a transaction must propagate.
+        with self.assertRaises(OSError) as err:
+            with installer.manual_install_lock(self.manual_lock,
+                                               owner_uid=self.uid):
+                raise OSError(errno.ENOSPC, 'simulated disk full in payload')
+        self.assertEqual(err.exception.errno, errno.ENOSPC)
+
     def test_manual_cli_lock_rejects_symlink_hardlink_and_fifo(self):
         # Manual and Go installs use the same lock in /run/lock. The manual
         # CLI must not follow a planted symlink even if its target is safe.
@@ -340,8 +412,11 @@ class InstallerBackendTests(unittest.TestCase):
         target.chmod(0o600)
         planted = self.root / 'planted-install.lock'
         planted.symlink_to(target)
-        with self.assertRaises(core.InstallError):
+        with self.assertRaises(core.InstallError) as raised:
             core.open_manual_install_lock(planted, owner_uid=self.uid)
+        self.assertIn('/run/lock/linux-host-agent-install.lock',
+                      str(raised.exception))
+        self.assertIn('no installer is running', str(raised.exception))
         self.assertEqual(target.read_text(), 'KEEP')
         planted.unlink()
 

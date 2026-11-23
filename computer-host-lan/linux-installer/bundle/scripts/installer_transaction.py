@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
+import errno
 import fcntl
 import json
 import os
@@ -45,7 +46,8 @@ class ControllerError(RuntimeError):
     def __init__(self, code: str, *, failure_stage: str | None = None):
         if code not in ('invalid_request', 'installation_busy', 'aborted',
                         'rolled_back', 'recovery_required',
-                        'unsupported_environment', 'adoption_required'):
+                        'unsupported_environment', 'adoption_required',
+                        'unsafe_lock'):
             code = 'recovery_required'
         # This is a deliberate, fixed message with no private paths or ID.
         # The future Go wizard may display it without needing privileged
@@ -126,32 +128,43 @@ class RecoveryOutcome:
     previous_phase: str | None = None
 
 
+_UNSAFE_LOCK_ERRNOS = frozenset((
+    errno.ELOOP, errno.EACCES, errno.EPERM, errno.EISDIR,
+    errno.ENOTDIR, errno.ENXIO,
+))
+
+
 @contextmanager
 def manual_install_lock(path: Path = _MANUAL_LOCK, *,
                         owner_uid: int = 0):
-    """Share the EXISTING shell install_core.py flock, not a second mutex.
+    """Hold the existing shared flock across the entire privileged transaction.
 
-    No chmod on an existing manual lock. Normal manual installs use a+ and
-    permit 0600/0644. The lock is held over journal, staging, writes, service
-    activation, verification, rollback and terminal cleanup.
+    Explicitly reject unsafe lock inodes. Unexpected filesystem errors
+    while acquiring the lock are unsupported_environment, not unsafe_lock.
+    Errors raised by operations *inside* the lock must not be recategorized
+    as lock errors.
     """
     fd = None
     try:
-        fd = os.open(path, os.O_RDWR | os.O_CREAT | os.O_CLOEXEC |
-                     os.O_NOFOLLOW | os.O_NONBLOCK, 0o600)
-        info = os.fstat(fd)
+        try:
+            fd = os.open(path, os.O_RDWR | os.O_CREAT | os.O_CLOEXEC |
+                         os.O_NOFOLLOW | os.O_NONBLOCK, 0o600)
+            info = os.fstat(fd)
+        except OSError as exc:
+            code = ('unsafe_lock' if exc.errno in _UNSAFE_LOCK_ERRNOS
+                    else 'unsupported_environment')
+            raise ControllerError(code) from None
+
         if (not stat.S_ISREG(info.st_mode) or info.st_uid != owner_uid or
                 info.st_nlink != 1 or stat.S_IMODE(info.st_mode) & 0o022):
-            raise ControllerError('unsupported_environment')
+            raise ControllerError('unsafe_lock')
         try:
             fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             raise ControllerError('installation_busy') from None
+        except OSError:
+            raise ControllerError('unsupported_environment') from None
         yield
-    except ControllerError:
-        raise
-    except OSError:
-        raise ControllerError('unsupported_environment') from None
     finally:
         if fd is not None:
             os.close(fd)
