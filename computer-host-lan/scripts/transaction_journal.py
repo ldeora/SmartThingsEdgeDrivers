@@ -513,6 +513,24 @@ class ProtectedJournal:
             os.close(lockfd)
             os.close(directory)
 
+    def resume_finished_cleanup(self) -> TransactionHandle:
+        """Own a terminal journal while finishing trusted stage retirement.
+
+        Use only for idempotent cleanup after COMMITTED/ABORTED/ROLLED_BACK.
+        This does not permit reopening an incomplete transaction for writes.
+        """
+        directory, lockfd = self._acquire(create=False)
+        try:
+            current = _read(directory, self.owner_uid)
+            if current is None or current['phase'] not in _TERMINAL:
+                raise JournalConflict('terminal journal required for cleanup')
+            return TransactionHandle(self, directory, lockfd,
+                                     current['transaction_id'])
+        except Exception:
+            os.close(lockfd)
+            os.close(directory)
+            raise
+
     def resume_recovery(self) -> TransactionHandle:
         """Trusted caller obtains exclusive recovery ownership after crash."""
         directory, lockfd = self._acquire(create=False)
