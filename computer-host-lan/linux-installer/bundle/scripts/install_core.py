@@ -492,12 +492,22 @@ def open_manual_install_lock(path: Path, *, owner_uid: int = 0):
                 opened.st_nlink != 1 or stat.S_IMODE(opened.st_mode) & 0o022 or
                 (opened.st_dev, opened.st_ino) !=
                 (visible.st_dev, visible.st_ino)):
-            raise InstallError('Unsafe manual installer lock')
+            raise InstallError(
+            'Unsafe manual installer lock. Confirm no installer is running, '
+            'then ask an administrator to inspect '
+            '/run/lock/linux-host-agent-install.lock; do not delete it '
+            'while an installation or recovery is active.'
+        )
         lock = os.fdopen(fd, 'a+')
         fd = None
         return lock
     except OSError:
-        raise InstallError('Unsafe manual installer lock') from None
+        raise InstallError(
+            'Unsafe manual installer lock. Confirm no installer is running, '
+            'then ask an administrator to inspect '
+            '/run/lock/linux-host-agent-install.lock; do not delete it '
+            'while an installation or recovery is active.'
+        ) from None
     finally:
         if fd is not None:
             os.close(fd)
