@@ -16,7 +16,10 @@ set -eu
 
 # Fixed system path, not the invoking user's PATH. Match the normal manual
 # installer's ordered list: python3, then python3.14 down to python3.10.
-# In particular, RHEL 9 and Leap 15.6 may ship an older default python3.
+# Gentoo's python-exec wrappers often resolve under /usr/sbin, which is
+# intentionally first in this fixed PATH; accept all four trusted system
+# binary directories, never arbitrary/user-provided paths.
+# RHEL 9 and Leap 15.6 may ship an older default python3.
 PATH=/usr/sbin:/usr/bin:/sbin:/bin
 export PATH
 unset PYTHONPATH PYTHONHOME PYTHONSTARTUP PYTHONUSERBASE
@@ -28,7 +31,7 @@ PYTHON_BIN=
 for candidate in python3 python3.14 python3.13 python3.12 python3.11 python3.10; do
   resolved=$(command -v "$candidate" 2>/dev/null || true)
   case "$resolved" in
-    /usr/bin/*|/bin/*) ;;
+    /usr/sbin/*|/usr/bin/*|/sbin/*|/bin/*) ;;
     *) continue ;;
   esac
   [ -f "$resolved" ] && [ -x "$resolved" ] || continue

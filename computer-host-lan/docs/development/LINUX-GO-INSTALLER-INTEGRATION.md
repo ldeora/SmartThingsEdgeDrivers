@@ -103,6 +103,46 @@ that the exact JSON survives quoting, and ensures the terminal is
 reserved for PAM rather than the request. CI does not enter a real root
 password or make any host changes.
 
+## Gentoo Python-exec root launcher regression (physical test 2026-11-23)
+
+The first real authorized `-elevation su` attempt on Gentoo `hydra`
+authenticated correctly but stopped after installing the fixed root-owned
+helper directory, **before** Python transaction staging. The old entry
+launcher had `PATH=/usr/sbin:/usr/bin:/sbin:/bin`, yet only accepted
+`/usr/bin/*|/bin/*` results from `command -v python3`. On Gentoo,
+`command -v python3` returned `/usr/sbin/python3`, a valid python-exec
+wrapper resolving to `/usr/bin/python-exec2c`. All installed Python
+3.12–3.14 interpreters passed `-I -S -B` independently.
+
+The corrected launcher permits all four **fixed root-controlled PATH
+directories**; it retains Python 3.10+ checking, `-I -S -B`, a sanitized
+environment and the independently root-owned launcher/manifest checks.
+No Python default, PATH, Gentoo wrapper or polkit configuration should be
+changed by the operator.
+
+Because the first attempt already left `/usr/libexec/computer-host-lan`
+installed with the defective shell launcher, subsequent upgrades would
+otherwise fail the pre-replacement status check. The Go bootstrap
+therefore recognizes **only the exact SHA-256** of that reviewed old
+shell script in the fixed root-owned helper directory. If and only if
+its normal status call fails with the launcher's exact, non-secret
+missing-Python message, it invokes **only** the existing root-owned
+`installer_root.py --request-stdin` with action `status` through
+a compatible system Python found in fixed system paths. That module
+continues to enforce ownership, isolated execution and manifest
+validation. The protected transaction state must be `none` before
+Go may promote the repaired helper; a pending journal, unknown launcher,
+untrusted paths or invalid JSON **fails closed**. This is not an
+install/upgrade/recover bypass and never accesses or prints the private
+ID or control token.
+
+CI now includes the exact archived legacy launcher checksum, a
+read-only status test against the root-owned helper, and an isolated
+runner simulation that replaces the old launcher **only after** reading
+its protected status. No live agent is touched by those CI tests.
+The physical host still requires a fresh supervised upgrade test after
+the repaired reviewed binary is rebuilt.
+
 ## Version-pinned Go binary as the bootstrap trust anchor
 
 The downloaded Go executable must be verified against a trustworthy

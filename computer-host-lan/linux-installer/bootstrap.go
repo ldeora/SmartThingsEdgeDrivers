@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -25,6 +26,8 @@ const (
 var (
 	errInstallerBusy            = errors.New("another installer is running")
 	errInstallerRecoveryPending = errors.New("recover previous installer transaction before changing the trusted helper")
+	errUnavailablePython        = errors.New("installed helper could not select a compatible system Python")
+	errInvalidHelperResponse    = errors.New("invalid privileged helper response")
 )
 
 var interfacePattern = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,15}$`)
@@ -360,14 +363,14 @@ func prepareTrustedVersion(root, lock string, uid int, status func() (string, er
 	return hasPrevious, nil
 }
 
-func runInstalledHelper(root string, request privilegedRequest) (privilegedResult, error) {
+// A single one-shot root helper call: only sanitized stdout JSON is consumed.
+// Stderr is never passed to callers. The fixed missing-Python diagnostic is
+// mapped to a safe error code without exposing arbitrary process output.
+func runTrustedHelperCommand(cmd *exec.Cmd, request privilegedRequest) (privilegedResult, error) {
 	payload, err := pythonRequest(request)
 	if err != nil {
 		return privilegedResult{}, err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, "/bin/sh", filepath.Join(root, "installer-entry.sh"), "--request-stdin")
 	cmd.Dir = "/"
 	cmd.Env = []string{"PATH=/usr/sbin:/usr/bin:/sbin:/bin", "HOME=/root", "LANG=C", "LC_ALL=C"}
 	cmd.Stdin = bytes.NewReader(payload)
@@ -378,7 +381,11 @@ func runInstalledHelper(root string, request privilegedRequest) (privilegedResul
 	var reply privilegedResult
 	if err := json.Unmarshal(stdout.Bytes(), &reply); err != nil ||
 		reply.SchemaVersion != 1 || reply.SecretsIncluded {
-		return privilegedResult{}, errors.New("invalid privileged helper response")
+		if runErr != nil &&
+			strings.TrimSpace(stderr.String()) == "Python 3.10+ is required (install a compatible system Python interpreter)." {
+			return privilegedResult{}, errUnavailablePython
+		}
+		return privilegedResult{}, errInvalidHelperResponse
 	}
 	if runErr != nil || reply.Status == "error" {
 		if reply.ErrorCode != "" {
@@ -387,6 +394,86 @@ func runInstalledHelper(root string, request privilegedRequest) (privilegedResul
 		return reply, errors.New("privileged helper failed")
 	}
 	return reply, nil
+}
+
+func runInstalledHelper(root string, request privilegedRequest) (privilegedResult, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "/bin/sh", filepath.Join(root, "installer-entry.sh"), "--request-stdin")
+	return runTrustedHelperCommand(cmd, request)
+}
+
+// SHA-256 of the exact, reviewed PR #78 shell launcher installed on hydra
+// before Gentoo's /usr/sbin/python3 compatibility bug was fixed. No other
+// old/unknown executable is allowed through this repair-only status path.
+const legacyGentooLauncherSHA256 = "91635dcc606cd73ab67c58d775a3d8c66c9f223c1f96c6e26b2410858e77fd99"
+
+func knownGentooLauncherBug(content []byte) bool {
+	sum := sha256.Sum256(content)
+	return fmt.Sprintf("%x", sum) == legacyGentooLauncherSHA256
+}
+
+func confirmKnownLegacyLauncher(root string) error {
+	if root != trustedDir {
+		return errors.New("legacy launcher recovery requires the fixed trusted directory")
+	}
+	if err := verifyParents(root, 0); err != nil {
+		return err
+	}
+	filename := filepath.Join(root, "installer-entry.sh")
+	if err := protectedPath(filename, 0, false); err != nil {
+		return err
+	}
+	info, err := os.Stat(filename)
+	if err != nil || info.Size() != 1933 {
+		return errors.New("installed legacy launcher is not the reviewed version")
+	}
+	content, err := os.ReadFile(filename)
+	if err != nil || !knownGentooLauncherBug(content) {
+		return errors.New("installed legacy launcher is not the reviewed version")
+	}
+	return nil
+}
+
+// Re-run ONLY a read-only protected transaction status using the existing,
+// root-owned Python entrypoint. The Python module performs its usual ownership,
+// manifest, isolated-mode and schema checks. The caller may not run install,
+// recover, repair or upgrade through this fallback.
+func legacyHelperStatusWithSystemPython(root string) (privilegedResult, error) {
+	if err := confirmKnownLegacyLauncher(root); err != nil {
+		return privilegedResult{}, err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	for _, candidate := range []string{"python3", "python3.14", "python3.13", "python3.12", "python3.11", "python3.10"} {
+		for _, prefix := range []string{"/usr/sbin", "/usr/bin", "/sbin", "/bin"} {
+			python := filepath.Join(prefix, candidate)
+			info, err := os.Stat(python)
+			if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0o111 == 0 {
+				continue
+			}
+			probeCtx, probeCancel := context.WithTimeout(ctx, 3*time.Second)
+			probe := exec.CommandContext(probeCtx, python, "-I", "-S", "-B", "-c",
+				"import sys;sys.exit(0 if sys.version_info >= (3,10) else 1)")
+			probe.Dir = "/"
+			probe.Env = []string{"PATH=/usr/sbin:/usr/bin:/sbin:/bin", "HOME=/root", "LANG=C", "LC_ALL=C"}
+			probe.Stdin = bytes.NewReader(nil)
+			err = probe.Run()
+			probeCancel()
+			if err != nil {
+				continue
+			}
+			cmd := exec.CommandContext(ctx, python, "-I", "-S", "-B",
+				filepath.Join(root, "installer_root.py"), "--request-stdin")
+			reply, err := runTrustedHelperCommand(cmd, privilegedRequest{SchemaVersion: 1, Action: "status"})
+			if err != nil || reply.Status != "passed" || reply.Operation != "status" ||
+				reply.PrivilegedTransactionState == "" {
+				return privilegedResult{}, errors.New("installed legacy helper could not verify protected transaction status")
+			}
+			return reply, nil
+		}
+	}
+	return privilegedResult{}, errUnavailablePython
 }
 
 func completeTrustedVersion(root string, ownerUID int, restore bool) error {
@@ -448,6 +535,8 @@ func relayBootstrapFailure(writer io.Writer, action string, failure error) error
 		code = "installation_busy"
 	} else if errors.Is(failure, errInstallerRecoveryPending) {
 		code = "recovery_required"
+	} else if errors.Is(failure, errUnavailablePython) {
+		code = "unsupported_python"
 	}
 	_ = json.NewEncoder(writer).Encode(privilegedResult{
 		SchemaVersion: 1, Operation: action, Status: "error", ErrorCode: code,
@@ -484,6 +573,14 @@ func rootBootstrap(reader io.Reader, writer io.Writer) error {
 	}
 	old, err := prepareTrustedVersion(trustedDir, trustedLock, 0, func() (string, error) {
 		response, err := runInstalledHelper(trustedDir, privilegedRequest{SchemaVersion: 1, Action: "status"})
+		if errors.Is(err, errUnavailablePython) {
+			// The precisely recognized prior launcher rejects Gentoo's
+			// /usr/sbin/python3. Check its root-owned Python helper status
+			// directly before allowing a fixed new helper to be promoted.
+			// An unknown launcher, failed trust check or pending journal
+			// still fails closed, without modifying the agent.
+			response, err = legacyHelperStatusWithSystemPython(trustedDir)
+		}
 		return response.PrivilegedTransactionState, err
 	})
 	if err != nil {

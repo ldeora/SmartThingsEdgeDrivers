@@ -5,7 +5,8 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"io"
+	"errors"
+	"io
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -66,6 +67,91 @@ func TestRootInstalledHelperStatusSmoke(t *testing.T) {
 		processErr := cmd.Run()
 		t.Fatalf("root-installed read-only status failed: helperErr=%v, reply=%+v, processErr=%v, stdout=%q, stderr=%q",
 			helperErr, reply, processErr, out.Bytes(), stderr.Bytes())
+	}
+	// Reproduce the already deployed root-owned helper that fails to select
+	// Python when Gentoo reports /usr/sbin/python3. The explicit legacy
+	// fallback must verify the trusted script fingerprint and query only
+	// status through installer_root.py; it must not touch any agent files.
+	legacy, err := os.ReadFile("testdata/installer-entry-gentoo-legacy.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(trustedDir, "installer-entry.sh"), legacy, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	status, err := legacyHelperStatusWithSystemPython(trustedDir)
+	if err != nil || status.Status != "passed" ||
+		status.PrivilegedTransactionState != "none" {
+		t.Fatalf("Known Gentoo legacy helper status fallback failed: %+v %v", status, err)
+	}
+	// Exercise the safe promotion path against that known old launcher:
+	// it may be replaced only after the read-only status succeeds.
+	changed, err = prepareTrustedVersion(trustedDir, trustedLock, 0,
+		func() (string, error) {
+			resp, err := legacyHelperStatusWithSystemPython(trustedDir)
+			return resp.PrivilegedTransactionState, err
+		})
+	if err != nil || !changed {
+		t.Fatalf("Safe replacement of a recognized legacy helper failed: %+v %v", changed, err)
+	}
+	status, err = runInstalledHelper(trustedDir,
+		privilegedRequest{SchemaVersion: 1, Action: "status"})
+	if err != nil || status.Status != "passed" ||
+		status.PrivilegedTransactionState != "none" {
+		t.Fatalf("Corrected promoted root helper cannot report status: %+v %v", status, err)
+	}
+	if err := retirePreviousTrustedVersion(trustedDir, 0); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestTrustedHelperMissingPythonErrorIsSanitized(t *testing.T) {
+	request := privilegedRequest{SchemaVersion: 1, Action: "status"}
+	cmd := exec.Command("/bin/sh", "-c",
+		"printf '%s\\n' 'Python 3.10+ is required (install a compatible system Python interpreter).' >&2; exit 2")
+	if _, err := runTrustedHelperCommand(cmd, request); !errors.Is(err, errUnavailablePython) {
+		t.Fatalf("Legacy Python selection failure was not recognized safely: %v", err)
+	}
+	cmd = exec.Command("/bin/sh", "-c", "printf 'unrelated sensitive stderr\\n' >&2; exit 2")
+	if _, err := runTrustedHelperCommand(cmd, request); !errors.Is(err, errInvalidHelperResponse) {
+		t.Fatalf("Untrusted stderr was incorrectly interpreted as a known error: %v", err)
+	}
+	var out bytes.Buffer
+	if err := relayBootstrapFailure(&out, "upgrade", errUnavailablePython); err == nil {
+		t.Fatal("Missing system Python must be a failed bootstrap")
+	}
+	var reply privilegedResult
+	if err := json.Unmarshal(out.Bytes(), &reply); err != nil ||
+		reply.ErrorCode != "unsupported_python" || reply.SecretsIncluded ||
+		reply.Operation != "upgrade" {
+		t.Fatalf("Safe missing-Python envelope corrupted: %+v, %v", reply, err)
+	}
+}
+
+func TestGentooSystemPythonPathAndExactLegacyLauncherRecognition(t *testing.T) {
+	launcher, err := os.ReadFile("../scripts/installer-entry.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, directory := range []string{"/usr/sbin/*", "/usr/bin/*", "/sbin/*", "/bin/*"} {
+		if !bytes.Contains(launcher, []byte(directory)) {
+			t.Fatalf("Installed launcher does not accept fixed trusted system directory %s", directory)
+		}
+	}
+	legacy, err := os.ReadFile("testdata/installer-entry-gentoo-legacy.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !knownGentooLauncherBug(legacy) {
+		t.Fatal("The reviewed legacy-launcher checksum no longer matches the fixture")
+	}
+	if knownGentooLauncherBug(launcher) {
+		t.Fatal("The corrected launcher must not be accepted as the legacy defective version")
+	}
+	corrupted := append([]byte{}, legacy...)
+	corrupted[len(corrupted)-1] ^= 1
+	if knownGentooLauncherBug(corrupted) {
+		t.Fatal("A modified launcher must not trigger the narrow recovery path")
 	}
 }
 
