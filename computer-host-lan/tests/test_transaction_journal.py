@@ -136,6 +136,27 @@ class ProtectedJournalTests(unittest.TestCase):
             tx.clear_finished()
         self.assertEqual(self.store.public_status()['privileged_transaction_state'], 'none')
 
+    def test_interrupted_terminal_cleanup_can_finish_without_manual_deletion(self):
+        with self.store.begin('install') as tx:
+            self.advance_to(tx, 'COMMITTED')
+        marker = self.directory / ('.wizard-journal-' + 'b' * 32)
+        marker.write_bytes(b'abandoned write')
+        marker.chmod(0o600)
+        self.assertEqual(self.store.public_status()['privileged_transaction_state'],
+                         'recovery_required')
+        with self.assertRaises(journal.JournalConflict):
+            self.store.begin('upgrade')
+        self.store.finish_terminal()
+        self.assertFalse(marker.exists())
+        self.assertEqual(self.store.public_status()['privileged_transaction_state'], 'none')
+
+    def test_finished_cleanup_cannot_discard_unfinished_record(self):
+        with self.store.begin('install'):
+            pass
+        with self.assertRaises(journal.JournalConflict):
+            self.store.finish_terminal()
+        self.assertTrue((self.directory / 'journal.json').exists())
+
     def test_second_caller_cannot_begin_resume_or_advance(self):
         with self.store.begin('install') as tx:
             with self.assertRaises(journal.JournalConflict):
