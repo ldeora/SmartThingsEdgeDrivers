@@ -323,7 +323,7 @@ def _check_initial_orphan_record(directory: int, name: str,
 
     # These are exactly the bytes preceding the transaction ID in the
     # canonical, sorted first journal record. No later phase can match.
-    suffix = b'"}\\n'
+    suffix = b'"}\n'
     for operation in _OPERATIONS:
         header = (b'{"operation":"' + operation.encode('ascii') +
                   b'","phase":"INSPECTED","schema":1,'
