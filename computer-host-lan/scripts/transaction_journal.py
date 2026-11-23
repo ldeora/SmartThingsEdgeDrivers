@@ -106,7 +106,7 @@ def _open_directory(root: Path, owner_uid: int, *, create: bool) -> int | None:
                 child = os.open(component, _DIR_FLAGS, dir_fd=fd)
             except FileNotFoundError:
                 if not create:
-                    os.close(fd)
+                    # The finally block releases the current directory fd.
                     return None
                 # Never create /var or /var/backups with private 0700 mode.
                 # Only application-owned directories receive 0700.
