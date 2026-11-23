@@ -299,7 +299,8 @@ After explicit administrator authorization the trusted Go bootstrap:
    select a root destination, executable, source path, Python interpreter,
    raw shell command, UUID, key or port.
 2. Takes a separate, root-owned exclusive **bootstrap lifetime lock**
-   at `/run/lock/computer-host-lan-bootstrap.lock` over the whole
+   at `/run/computer-host-lan/bootstrap.lock` (under a root-owned
+   mode-`0700` directory) over the whole
    version-change and Python execution. Within that lock, it also takes
    the existing **manual installation lock** used by `install_core.py`
    while swapping files. On an existing trusted installation, calls its
