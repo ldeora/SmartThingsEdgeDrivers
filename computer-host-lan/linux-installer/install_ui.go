@@ -311,7 +311,8 @@ func knownPrivilegedError(code string) bool {
 	case "invalid_request", "installation_busy", "aborted", "rolled_back",
 		"recovery_required", "unsupported_environment", "adoption_required",
 		"unsupported_python", "untrusted_root_launcher",
-		"invalid_trusted_manifest", "duplicate_key", "bootstrap_failed":
+		"invalid_trusted_manifest", "duplicate_key", "bootstrap_failed",
+		"unsafe_lock":
 		return true
 	}
 	return false
@@ -321,6 +322,8 @@ func userFacingPrivilegeFailure(reply privilegedResult) error {
 	switch reply.ErrorCode {
 	case "installation_busy":
 		return errors.New("another installation or recovery is in progress. Finish that operation before retrying")
+	case "unsafe_lock":
+		return errors.New("an installer lock is unsafe. After confirming no installation or recovery is running, ask an administrator to inspect /run/lock/linux-host-agent-install.lock and /run/computer-host-lan/bootstrap.lock; do not delete lock files during an active installation")
 	case "rolled_back":
 		return errors.New("installation could not complete; previous files and service state were restored. Check prerequisites and retry")
 	case "recovery_required":
