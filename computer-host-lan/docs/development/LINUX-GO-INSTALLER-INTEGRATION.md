@@ -448,9 +448,10 @@ and **no staged payload**. It performs another no-stage check under the
 journal lock. Recovery additionally opens that temp file without following
 links, checks its owner/type/mode/link count and bounded size, and requires
 its bytes to be a prefix (including the empty prefix) of the **canonical
-initial `INSPECTED` journal record**. A complete or truncated `APPLYING`,
-`STAGED` or otherwise non-initial record is never discarded merely
-because `journal.json` is missing. This allows genuinely interrupted
+initial `INSPECTED` journal record**. A complete non-initial
+record, or a partial record that already diverges from that canonical
+prefix, is never discarded merely because `journal.json` is missing.
+This allows genuinely interrupted
 first writes while failing closed on corrupted later-phase state. No agent
 files, credentials, services or snapshots are modified by this branch.
 Multiple markers, any pending/ready stage, a durable incomplete journal,
