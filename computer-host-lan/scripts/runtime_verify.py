@@ -28,6 +28,9 @@ _ALLOWED_SERVICE_STATES = frozenset(('active', 'inactive', 'failed', 'activating
                                      'deactivating', 'unknown'))
 _VERSION = re.compile(r'[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9a-z]+(?:\.[0-9]+)?)?\Z')
 _FIXED_PATHS = ('/v2/info', '/v2/health')
+# Versioned v2 agent protocol contract. The unit test checks this against
+# agent/linux_host_agent.py ALLOWED_ACTIONS so future changes cannot drift.
+EXPECTED_POWER_ACTIONS = ('reboot', 'shutdown', 'suspend')
 
 
 def valid_port(port: int) -> bool:
@@ -227,7 +230,7 @@ def verify_runtime(*, port: int = 8765, expected_version: str | None = None,
                       and all(isinstance(f, str) and len(f) <= 64 for f in features))
     power_enabled = valid_features and 'power-control' in features
     actions = info.get('power_actions') if isinstance(info, dict) else None
-    expected_actions = ['reboot', 'shutdown', 'suspend'] if power_enabled else []
+    expected_actions = list(EXPECTED_POWER_ACTIONS) if power_enabled else []
     valid_configuration = valid_features and isinstance(actions, list) and actions == expected_actions
     check('power_configuration', 'passed' if valid_configuration else 'failed')
     if expected_power is not None:
