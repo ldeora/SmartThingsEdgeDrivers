@@ -42,9 +42,9 @@ func TestAccessibleInstallationRequiresLiteralInstallConfirmation(t *testing.T) 
 		t.Fatal(err)
 	}
 	for _, tc := range []struct {
-		name   string
-		input  string
-		run    bool
+		name  string
+		input string
+		run   bool
 	}{
 		{"approved", "s\nk\nk\nINSTALL\n", true},
 		{"declined", "s\nk\nk\ny\nquit\n", false},

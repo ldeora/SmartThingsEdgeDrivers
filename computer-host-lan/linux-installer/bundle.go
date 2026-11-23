@@ -17,6 +17,7 @@ import (
 // A signed or independently checksum-verified Go binary is the trust anchor.
 // At elevation, all helper/payload bytes come from THIS binary, not the
 // downloaded checkout or any user-provided manifest.
+//
 //go:embed bundle
 var installerBundle embed.FS
 
