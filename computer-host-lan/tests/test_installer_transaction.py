@@ -549,6 +549,77 @@ class InstallerBackendTests(unittest.TestCase):
         self.assertEqual(runner.call_args.kwargs['timeout'], 120)
         self.assertEqual(runner.call_args.kwargs['stdin'], core.subprocess.DEVNULL)
 
+    def test_systemctl_timeout_with_check_false_returns_failed_result(self):
+        expired = core.subprocess.TimeoutExpired(
+            ['systemctl', 'stop', 'linux-host-agent.service'], 120)
+        with mock.patch.object(core.subprocess, 'run',
+                               side_effect=expired) as runner:
+            result = core.systemctl('stop', 'linux-host-agent.service',
+                                    check=False)
+        self.assertEqual(result.returncode, 124)
+        self.assertEqual(result.args,
+                         ['systemctl', 'stop', 'linux-host-agent.service'])
+        self.assertEqual(result.stderr, '')
+        self.assertEqual(runner.call_args.kwargs['timeout'], 120)
+        self.assertFalse(runner.call_args.kwargs['check'])
+
+    def test_restore_services_attempts_remaining_units_after_optional_timeout(self):
+        calls = []
+
+        def systemd_call(command, **kwargs):
+            calls.append(tuple(command))
+            self.assertEqual(kwargs['timeout'], 120)
+            if command[1:3] == ['disable', 'linux-host-agent.service']:
+                raise core.subprocess.TimeoutExpired(command, 120)
+            return core.subprocess.CompletedProcess(command, 0, stderr='')
+
+        previous = dict(first_install=False, agent_active=False,
+                        agent_enabled=False, socket_active=False,
+                        socket_enabled=False)
+        with mock.patch.object(core.subprocess, 'run', side_effect=systemd_call):
+            core.restore_services(previous)
+
+        self.assertEqual(calls, [
+            ('systemctl', 'daemon-reload'),
+            ('systemctl', 'disable', 'linux-host-agent.service'),
+            ('systemctl', 'stop', 'linux-host-agent.service'),
+            ('systemctl', 'disable', 'linux-host-agent-power.socket'),
+            ('systemctl', 'stop', 'linux-host-agent-power.socket'),
+        ])
+
+    def test_activation_systemctl_timeout_triggers_verified_rollback(self):
+        # Transaction-level regression: emulate an actual subprocess timeout
+        # DURING activation, after managed files were applied. The durable
+        # APPLYING+ journal must drive full file and service restoration.
+        old = self.existing_install(active=True, enabled=True)
+        before = old.read_bytes()
+        original_activate = self.services.activate
+        expired = core.subprocess.TimeoutExpired(
+            ['systemctl', 'restart', 'linux-host-agent.service'], 120)
+
+        def activate_then_timeout(previous, *, power_enabled, disable_power):
+            original_activate(previous, power_enabled=power_enabled,
+                              disable_power=disable_power)
+            core.systemctl('restart', 'linux-host-agent.service')
+
+        with mock.patch.object(self.services, 'activate',
+                               side_effect=activate_then_timeout):
+            with mock.patch.object(core.subprocess, 'run',
+                                   side_effect=expired):
+                with self.assertRaises(installer.ControllerError) as raised:
+                    self.backend.run(
+                        self.request('upgrade', expected_identity=UUID),
+                        ROOT, self.hashes)
+
+        self.assertEqual(raised.exception.code, 'rolled_back')
+        self.assertEqual(old.read_bytes(), before)
+        self.assertEqual(self.services.restore_calls, 1)
+        self.assertTrue(self.services.verify_restored_services(
+            self.services.original))
+        self.assertEqual(self.store.public_status()[
+            'privileged_transaction_state'], 'none')
+        self.assertEqual(self.stage_entries(), [])
+
     def test_shared_core_power_activation_matches_socket_verification(self):
         from unittest.mock import call
         # Enabled but intentionally stopped power socket: enable --now
