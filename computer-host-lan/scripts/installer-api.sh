@@ -9,7 +9,7 @@ OVERRIDE=''
 override_supplied=0
 operation=unknown
 case "${1-}" in
-  inspect|plan) operation=$1 ;;
+  inspect|plan|verify) operation=$1 ;;
 esac
 
 # Match argparse's two accepted spellings. Never interpolate input into shell
