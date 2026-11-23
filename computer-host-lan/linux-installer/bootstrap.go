@@ -221,15 +221,31 @@ func writeEmbeddedSet(stage string) error {
 }
 
 func lockInstaller(path string, ownerUID int) (*os.File, error) {
-	// Same flock as install_core.py and InstallerBackend; never chmod an
-	// existing legacy 0644 lock file.
-	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o600)
+	// Shared flock with install_core.py and InstallerBackend. /run/lock can
+	// be world-writable: never follow a planted symlink, never block opening
+	// a FIFO, and validate the OPENED inode before acquiring the lock.
+	// The legacy regular lock may legitimately have mode 0644; do not chmod.
+	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|syscall.O_NOFOLLOW|syscall.O_NONBLOCK|syscall.O_CLOEXEC, 0o600)
 	if err != nil {
 		return nil, err
 	}
-	if err := protectedPath(path, ownerUID, false); err != nil {
+	info, err := f.Stat()
+	if err != nil {
 		f.Close()
 		return nil, err
+	}
+	st, ok := info.Sys().(*syscall.Stat_t)
+	if !ok || !info.Mode().IsRegular() || int(st.Uid) != ownerUID ||
+		st.Nlink != 1 || info.Mode().Perm()&0o022 != 0 {
+		f.Close()
+		return nil, errors.New("unsafe installer lock file")
+	}
+	// Refuse an inode swapped at the pathname between open and validation.
+	// Sticky /run/lock prevents unprivileged removal of root-owned files.
+	visible, err := os.Lstat(path)
+	if err != nil || !os.SameFile(info, visible) {
+		f.Close()
+		return nil, errors.New("installer lock path changed")
 	}
 	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
 		f.Close()
