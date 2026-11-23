@@ -466,12 +466,43 @@ now applies equivalent checks, while retaining existing root-owned
 nor chmods an existing valid lock. The journal already uses fd-relative
 nofollow locking.
 
-**Known limitation:** A user on a system with world-writable
+**Remaining shared-lock limitation:** A user on a system with world-writable
 `/run/lock` can still pre-create a user-owned *regular file* with the
-fixed legacy lock name, denying service to the installer. The installer
-fails closed and does not unlink a file it cannot trust. Fully removing
-that denial of service requires a coordinated migration of the shared
-lock namespace (including older manual installers); it is deliberately
-not attempted in this compatibility-preserving PR. A signed, independently
-authenticated release binary and additional distro testing remain
-separate release gates.
+fixed legacy `linux-host-agent-install.lock` name, denying service to
+the installer. The installer fails closed and does not unlink a file it
+cannot trust. Fully removing that denial of service requires a
+coordinated migration of the shared lock namespace (including older
+manual installers). A signed, independently authenticated release
+binary and additional distro testing remain separate release gates.
+
+## Follow-up: private bootstrap lock and actionable shared-lock errors
+
+The Go wizard's **bootstrap lifetime lock** is independent of the
+shared manual-installer lock and has no public release history. It now
+lives at `/run/computer-host-lan/bootstrap.lock`, inside a root-owned
+directory required to have mode `0700`. The bootstrap creates that
+directory under a validated `/run` parent (without following symlinks),
+then rejects any existing directory with unsafe ownership or mode.
+This prevents ordinary local users from pre-creating or replacing the
+**bootstrap** lock on distributions where `/run/lock` is world-writable.
+An earlier internal test build used
+`/run/lock/computer-host-lan-bootstrap.lock`; it is not reused by the
+new unreleased wizard, and must not be deleted while an old installer
+might be running.
+
+The **legacy shared lock** remains
+`/run/lock/linux-host-agent-install.lock` because the Go wizard,
+Python backend and manual installer must continue to exclude each
+other. All implementations reject unsafe lock objects; the privileged
+wizard now returns only the fixed `unsafe_lock` code instead of
+`bootstrap_failed` or a generic environment failure when the lock is
+untrusted. The unprivileged UI provides the two fixed diagnostic paths
+and directs the user to confirm no installation is running and ask an
+administrator to inspect the offending file. The manual installer uses
+an equivalent, human-readable error without exposing private runtime
+state. **Neither tool removes a questionable lock automatically.**
+
+A local pre-creation denial of service against the *shared* legacy lock
+remains possible until its consumers are migrated together. This PR
+does not remove that compatibility safeguard or claim to close that
+remaining denial-of-service case.
