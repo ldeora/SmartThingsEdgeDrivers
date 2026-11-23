@@ -25,7 +25,7 @@ from typing import Mapping, Protocol, Callable
 import install_core as core
 import payload_staging as staging
 import runtime_verify
-from transaction_journal import ProtectedJournal, JournalConflict
+from transaction_journal import ProtectedJournal, JournalConflict, _staged_payload_remains
 
 _MANUAL_LOCK = Path('/run/lock/linux-host-agent-install.lock')
 _PREAPPLY = frozenset(('INSPECTED', 'STAGED', 'SNAPSHOTTED'))
@@ -667,10 +667,24 @@ class InstallerBackend:
             try:
                 handle = store.resume_recovery()
             except JournalConflict:
-                # Terminal transactions may have died after commit/rollback
-                # while retiring their stage. Clean, never reinstall.
+                # A terminal transaction may have died during cleanup.
+                # Distinguish that from a failed FIRST journal write with
+                # no durable record at all. Neither path reinstalls files.
                 try:
                     handle = store.resume_finished_cleanup()
+                except JournalConflict:
+                    # begin() writes INSPECTED before staging, snapshot or
+                    # managed changes. With no persistent journal, exactly
+                    # one validated temp marker, and no staged payload,
+                    # the initial journal write is the only eligible orphan.
+                    # The journal rechecks these invariants under its lock.
+                    try:
+                        store.reconcile_orphaned_staging(
+                            lambda: not _staged_payload_remains(
+                                self.root, self.owner_uid))
+                        return RecoveryOutcome('cleaned')
+                    except Exception:
+                        raise ControllerError('recovery_required') from None
                 except Exception:
                     raise ControllerError('recovery_required') from None
                 with handle as journal:
