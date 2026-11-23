@@ -117,12 +117,18 @@ rejects redirects, non-JSON data and responses exceeding **16 KiB**
 deadline per request**, including connection and response headers/body,
 prevents a slow-drip listener extending per-read timeouts. It probes the managed
 agent systemd unit with `is-active` when systemd is available. No root
-privileges are needed or requested.
+privileges are needed or requested. **This deadline is per HTTP request,
+not for the entire `verify` operation:** two requests may use up to 6 seconds,
+and the systemd probe up to another 3 seconds, plus launcher overhead. Future
+Go wizard integration must budget for the full operation (the existing
+read-only Go subprocess budget is 45 seconds) or introduce a shared deadline.
 
 - `--port` defaults to **8765**, permits 1024–65535, and is the *only*
   connection target control. There is **no arbitrary URL, hostname or
   remote-IP option**. This is a read-only probe; it does not change service
-  listening port or persisted settings.
+  listening port or persisted settings. It works with the shipped agent
+  listening on `0.0.0.0` (including loopback); a future LAN-only bind address
+  would require a separate, explicitly designed local verification path.
 - `--expected-version` is optional and compares an allowlisted version
   against the running agent. The future privileged installer will supply
   its version from the **trusted bundled payload**, not a user's guess.
@@ -132,7 +138,11 @@ privileges are needed or requested.
   must inspect the result**, not just process exit code.
 - The result includes service readiness, matching v2 protocol/API/platform,
   matching **private UUID between the two HTTP responses**,
-  sanitized `agent_version`, and reported power-control state.
+  sanitized `agent_version` (a bounded version string or JSON `null`),
+  and reported power-control state. Regression tests ensure malformed
+  agent-supplied version objects, oversized strings or UUID values are
+  **never echoed**, even when verification fails. The advertised power
+  actions are checked against the shipped v2 agent's allowed actions by CI.
   The UUID itself, hostname, MAC, address, boot ID, token, nonces, raw
   response and network errors are **never included**.
 - When the API was not supplied an already-trusted expected UUID,
