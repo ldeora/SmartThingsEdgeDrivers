@@ -64,24 +64,50 @@ avahi-browse -rt _computerhost._tcp
 
 Power control is separate and opt-in: `sudo ./scripts/install-agent.sh --enable-power --wol-interface YOUR_ETHERNET_INTERFACE`. Do not change persistent WOL configuration unless deliberately choosing the existing `--configure-wol` path. Keep the key in `/var/lib/linux-host-agent/control-token` private. Read [Linux parity acceptance](docs/development/LINUX-PARITY-ACCEPTANCE.md) before physical tests.
 
-**Legacy installation safety:** v1 Linux Host LAN and v2 Computer Host LAN
-use the same Linux managed-file paths, service account and retained identity
-directory. Before attempting an installation, run `./scripts/preflight.sh`
-or `./scripts/install-agent.sh --dry-run`. The installer now refuses an
-identifiable v1 installation, unknown/partial managed files, or a leftover
-state directory without an identifiable v2 agent. The guard runs before
-account creation and any installation snapshot, service restart or file
-replacement. It also applies to v2 uninstall and rollback operations.
-This is deliberately fail-closed; there is **no automatic v1 migration**.
-Do not uninstall v1, delete `/var/lib/linux-host-agent`, remove the
-SmartThings device, or delete a backup just to bypass a refusal. Preserve
-your existing state and seek an explicitly planned migration/repair.
+**Legacy installation and recovery safety:** v1 Linux Host LAN and v2 Computer
+Host LAN use the same application/service paths and retained state directory.
+Before installation, run `./scripts/preflight.sh` or
+`./scripts/install-agent.sh --dry-run`. Both refuse an identifiable v1 agent,
+mixed protocol markers or ambiguous existing managed files.
 
-A pre-existing **recognized v2** installation can still be updated normally.
-The read-only JSON planner returns the existing `prerequisite_missing`
-error code on legacy/unknown installations (schema v1 remains unchanged).
-The wizard can therefore block unsafe plans; richer explanatory UI requires
-a future coordinated API/frontend change.
+The v2 installer now writes a **non-secret, root-owned ownership record** at
+`/var/lib/linux-host-agent-installer/protocol` (content `v2`, directory
+mode 0700, file mode 0600). It does so before first service activation and
+keeps the record on uninstall. This permits **normal v2 uninstall → reinstall**
+and a safe retry after a failed first activation, even when only the
+original `/var/lib/linux-host-agent` state remains. Existing identifiable v2
+installations without this new record are still accepted; the next v2
+installation creates it. The installation ID and control token are neither
+read nor changed by the guard.
+
+**Expert-only adoption:** If you uninstalled v2 *before* this ownership
+record existed and only its retained state directory remains, the automatic
+guard cannot distinguish the state from a former v1 installation. If you have
+independently confirmed that this state belongs to v2, use:
+`./scripts/install-agent.sh --dry-run --adopt-retained-state`, then (as root)
+`./scripts/install-agent.sh --adopt-retained-state`.
+The explicit flag is your confirmation; the installer logs a warning and
+preserves the existing state. The option is refused if any managed files or
+a recognized v1 agent remain, and cannot be used for rollback or uninstall.
+**Never use it as a v1 migration shortcut**: it cannot validate the old
+SmartThings UUID or control key, and adopting v1 state could reuse its
+identity unintentionally.
+
+**Rollback:** `scripts/rollback-agent.sh --backup /var/backups/linux-host-agent/snapshot-...`
+is evaluated against the backed-up files, **not against a potentially broken
+current installation**. It accepts recognized v2 agent snapshots, and
+refuses v1, malformed or unrecognized snapshots. For snapshots whose
+original agent did not exist (first install), it requires both a protected
+v2 owner record and explicit v2 provenance in the manifest. Normal
+rollback never reads or restores private state contents. Keep backups and
+state intact if a refusal occurs; do not delete the SmartThings device or
+private files to bypass the guard.
+
+The read-only JSON `plan` remains schema v1 and returns the existing
+`prerequisite_missing` code for legacy/ambiguous layouts. Its generic
+message in the current Go prototype is a known usability limitation;
+a specific legacy-install status is planned as a coordinated future API
+and frontend change.
 
 ## Updates and caveats
 
