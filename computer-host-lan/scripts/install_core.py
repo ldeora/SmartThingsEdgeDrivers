@@ -245,8 +245,12 @@ def owner_record_exists(root: Path = Path('/')) -> bool:
     folder, file = _owner_paths(root)
     if not file.exists():
         return False
-    if folder.stat().st_mode & 0o077 or file.stat().st_mode & 0o077:
-        raise InstallError('Insecure installer ownership marker permissions')
+    # This marker is deliberately NON-SECRET so the unprivileged preflight
+    # and Go read-only API can inspect it without a privileged helper.
+    # The file/directory must never be group- or world-writable.
+    if stat.S_IMODE(folder.stat().st_mode) != 0o755 or \
+            stat.S_IMODE(file.stat().st_mode) != 0o644:
+        raise InstallError('Installer ownership marker must be mode 0755/0644')
     if root == Path('/') and (folder.stat().st_uid != 0 or file.stat().st_uid != 0):
         raise InstallError('Installer ownership marker must be root-owned')
     try:
@@ -277,11 +281,13 @@ def write_owner_record(root: Path = Path('/')) -> None:
         raise InstallError('Installer ownership directory exists without a valid record')
     folder.parent.mkdir(parents=True, exist_ok=True)
     # The checked-out v2 installer is root-run; no secret is stored here.
-    folder.mkdir(mode=0o700)
-    os.chmod(folder, 0o700)
+    folder.mkdir(mode=0o755)
+    os.chmod(folder, 0o755)
     try:
-        fd = os.open(file, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+        fd = os.open(file, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o644)
         with os.fdopen(fd, 'wb') as out:
+            # Apply the exact non-secret mode irrespective of root's umask.
+            os.fchmod(out.fileno(), 0o644)
             out.write(OWNER_CONTENT)
             out.flush()
             os.fsync(out.fileno())
