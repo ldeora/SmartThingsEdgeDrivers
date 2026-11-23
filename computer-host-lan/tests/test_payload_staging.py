@@ -74,6 +74,38 @@ class PayloadStagingTests(unittest.TestCase):
             _ = receipt.directory_fd
         self.assertEqual(stat.S_IMODE((self.dest / 'stage.lock').stat().st_mode), 0o600)
 
+    def test_stale_prepopulation_directory_fd_reopened_for_verify_and_retire(self):
+        # Real Gentoo/Btrfs acceptance reproduced an incomplete staged
+        # payload although all ten files existed and a freshly opened
+        # directory descriptor verified them. Simulate that distinction in
+        # CI: listing the descriptor opened BEFORE population returns empty,
+        # while a newly opened independent directory descriptor sees files.
+        stale_descriptors = set()
+        write_file = staging._write_file
+        listdir = os.listdir
+
+        def record_stage_descriptor(fd, *args):
+            stale_descriptors.add(fd)
+            return write_file(fd, *args)
+
+        def stale_listdir(path):
+            if isinstance(path, int) and path in stale_descriptors:
+                return []
+            return listdir(path)
+
+        with mock.patch.object(staging, '_write_file', side_effect=record_stage_descriptor):
+            with mock.patch.object(staging.os, 'listdir', side_effect=stale_listdir):
+                with self.stage() as receipt:
+                    self.assertIn(receipt.directory_fd, stale_descriptors)
+                    receipt.verify(self.expected)
+                    self.transaction.advance('INSPECTED', 'STAGED')
+                    self.assertTrue(receipt.verified_source_path(self.expected).is_dir())
+                    self.transaction.abort()
+                    staging.retire_ready(receipt, self.expected)
+                self.transaction.clear_finished()
+
+        self.assertEqual(self.stage_files(), ([], []))
+
     def test_manifest_mismatch_rejected_before_root_destination_write(self):
         invalid = dict(self.expected)
         name = sorted(invalid)[0]

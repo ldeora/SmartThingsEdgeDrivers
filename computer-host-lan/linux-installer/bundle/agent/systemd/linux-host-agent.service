@@ -1,0 +1,34 @@
+[Unit]
+Description=Linux Host Agent for SmartThings (unprivileged)
+After=network.target
+
+[Service]
+Type=simple
+User=linuxhost
+Group=linuxhost
+StateDirectory=linux-host-agent
+StateDirectoryMode=0700
+ExecStart=/usr/bin/python3 /opt/linux-host-agent/linux_host_agent.py --bind 0.0.0.0 --port 8765
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+UMask=0077
+# Backstops against malfunctioning or malicious LAN clients.
+TasksMax=48
+LimitNOFILE=256
+MemoryMax=192M
+RestrictSUIDSGID=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+ProtectHostname=yes
+
+[Install]
+WantedBy=multi-user.target

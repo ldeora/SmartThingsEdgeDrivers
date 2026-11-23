@@ -472,9 +472,26 @@ def generate_plan(source: Path, python_bin: str, *, enable_power: bool,
     return plan
 
 
+_SYSTEMCTL_TIMEOUT_SECONDS = 120  # Bounded per operation, not per transaction.
+
+
 def systemctl(*args: str, check: bool = True) -> subprocess.CompletedProcess:
-    return subprocess.run(['systemctl', *args], check=check,
-                          stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+    # The Go bootstrap does not forcibly kill an APPLYING/rollback
+    # transaction. Bound individual systemd calls instead so that Python
+    # can handle failures and complete its own verified rollback.
+    command = ['systemctl', *args]
+    try:
+        return subprocess.run(command, check=check, stdin=subprocess.DEVNULL,
+                              stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+                              text=True, timeout=_SYSTEMCTL_TIMEOUT_SECONDS)
+    except subprocess.TimeoutExpired as exc:
+        # A timed-out systemctl is never successful. For best-effort
+        # restore/disable/stop calls, preserve check=False semantics so
+        # remaining units are still attempted; final service verification
+        # determines whether rollback is actually complete.
+        if not check:
+            return subprocess.CompletedProcess(command, 124, stderr='')
+        raise subprocess.CalledProcessError(124, command) from exc
 
 
 def state(service: str, prop: str) -> bool:

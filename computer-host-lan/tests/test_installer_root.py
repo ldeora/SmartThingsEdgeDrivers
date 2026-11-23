@@ -5,6 +5,7 @@ Never elevate, invoke sudo, read a live manifest or modify the host.
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import os
 from pathlib import Path
@@ -60,7 +61,8 @@ class RootProtocolTests(unittest.TestCase):
                                      wol_interface='enp1s0f0')
                 response = bridge.dispatch(request, self.manifest,
                                            backend=self.backend,
-                                           journal=self.journal)
+                                           journal=self.journal,
+                                           selected_python='/usr/bin/python3')
                 self.assertEqual(response['status'], 'installed')
                 self.assertFalse(response['secrets_included'])
                 saved, source, hashes = self.backend.calls[-1]
@@ -72,6 +74,70 @@ class RootProtocolTests(unittest.TestCase):
                 self.assertEqual(saved.wol_interface, 'enp1s0f0')
                 self.assertEqual(source, Path('/home/user/computer-host-lan'))
                 self.assertEqual(hashes, self.files)
+
+    def test_privileged_upgrade_uses_shell_path_not_gentoo_sys_executable(self):
+        # Actual hydra result: shell selected /usr/sbin/python3, but
+        # sys.executable under Gentoo python-exec is NOT in that location.
+        # The trusted shell's explicit handoff must win, while the
+        # transaction engine's fixed system-dir allowlist remains strict.
+        with mock.patch.object(
+                bridge.sys, 'executable',
+                '/usr/lib/python-exec/python3.14/python3'):
+            reply = bridge.dispatch(
+                self.parse(action='upgrade', power='preserve',
+                           wol_interface=None),
+                self.manifest, backend=self.backend, journal=self.journal,
+                selected_python='/usr/sbin/python3')
+            self.assertEqual(reply['status'], 'installed')
+            request, source, hashes = self.backend.calls[-1]
+            request.validate()
+            self.assertEqual(request.python_bin, '/usr/sbin/python3')
+            self.assertEqual(request.expected_version, '0.4.6-rc.2')
+
+    def test_selected_python_handoff_is_exact_and_required_for_install(self):
+        names = ('python3', 'python3.14', 'python3.13',
+                 'python3.12', 'python3.11', 'python3.10')
+        for root in ('/usr/sbin', '/usr/bin', '/sbin', '/bin'):
+            for name in names:
+                path = root + '/' + name
+                self.assertEqual(
+                    bridge.selected_python_from_argv(
+                        ['--request-stdin', '--selected-python', path]),
+                    path)
+
+        self.assertIsNone(bridge.selected_python_from_argv(
+            ['--request-stdin']))  # read-only legacy status is still allowed
+        bridge.validate_python_handoff({'action': 'status'}, None)
+        for action in ('install', 'upgrade', 'repair', 'recover'):
+            with self.subTest(action=action), self.assertRaises(bridge.RequestError):
+                bridge.validate_python_handoff({'action': action}, None)
+        bridge.validate_python_handoff({'action': 'upgrade'}, '/usr/sbin/python3')
+        for argv in (
+            [], ['--selected-python', '/usr/sbin/python3'],
+            ['--request-stdin', '--selected-python'],
+            ['--request-stdin', '--selected-python',
+             '/usr/lib/python-exec/python3.14/python3'],
+            ['--request-stdin', '--selected-python', '/tmp/python3'],
+            ['--request-stdin', '--selected-python', '/usr/local/bin/python3'],
+            ['--request-stdin', '--selected-python', '/usr/bin/../sbin/python3'],
+            ['--request-stdin', '--selected-python', '/usr/bin/python3',
+             'extra'],
+        ):
+            with self.subTest(argv=argv), self.assertRaises(bridge.RequestError):
+                bridge.selected_python_from_argv(argv)
+
+        # An attacker or a stale direct root entry cannot trigger an
+        # install using the legacy status-only argv mode.
+        with self.assertRaises(bridge.RequestError):
+            bridge.dispatch(self.parse(action='upgrade'),
+                            self.manifest, backend=self.backend,
+                            journal=self.journal)
+
+        # Status and recovery are independent of Python systemd selection.
+        self.assertEqual(
+            bridge.dispatch({'action': 'status'}, self.manifest,
+                            backend=self.backend, journal=self.journal)['status'],
+            'passed')
 
     def test_status_and_recovery_never_include_private_journal_state(self):
         for action in ('status', 'recover'):
@@ -124,6 +190,32 @@ class RootProtocolTests(unittest.TestCase):
             with self.subTest(payload=payload[:48]):
                 with self.assertRaises(bridge.RequestError):
                     bridge.parse_request(payload)
+
+    def test_root_abort_response_has_only_fixed_preapply_stage(self):
+        import installer_transaction as engine
+
+        body = json.dumps(dict(schema_version=1, action='upgrade',
+                               source='/usr/libexec/computer-host-lan/payload',
+                               power='preserve', wol_interface=None)).encode()
+        for stage in ('payload', 'existing_state', 'plan', 'snapshot'):
+            with self.subTest(stage=stage), \
+                    mock.patch.dict(os.environ, {}, clear=False), \
+                    mock.patch.object(bridge, '_read_root_manifest',
+                                      return_value=self.manifest), \
+                    mock.patch.object(bridge, 'dispatch', side_effect=(
+                        engine.ControllerError('aborted', failure_stage=stage))), \
+                    mock.patch.object(bridge.sys, 'stdin',
+                                      mock.Mock(buffer=io.BytesIO(body))), \
+                    mock.patch.object(bridge, '_reply') as reply:
+                rc = bridge.main(['--request-stdin', '--selected-python',
+                                  '/usr/sbin/python3'])
+                self.assertEqual(rc, 3)
+                result = reply.call_args.args[0]
+                self.assertEqual(result['error_code'], 'aborted')
+                self.assertEqual(result['failure_stage'], stage)
+                self.assertFalse(result['secrets_included'])
+                self.assertNotIn('source', result)
+                self.assertNotIn('identity', result)
 
     def test_trusted_manifest_must_have_all_ten_lowercase_hashes(self):
         data = dict(schema_version=1, agent_version='0.4.6-rc.2',
@@ -196,6 +288,7 @@ class RootProtocolTests(unittest.TestCase):
         self.assertIn('sys.version_info >= (3, 10)', selector)
         self.assertIn(' -I -S -B -c ', shell)
         self.assertIn('exec "$PYTHON_BIN" -I -S -B', shell)
+        self.assertIn('--request-stdin --selected-python "$PYTHON_BIN"', shell)
         self.assertIn('/usr/libexec/computer-host-lan/installer_root.py', shell)
         # Actual POSIX-shell syntax check in CI, including Python 3.10 runner.
         check = subprocess.run(['/bin/sh', '-n', str(ROOT / 'scripts/installer-entry.sh')],
@@ -208,8 +301,9 @@ class RootProtocolTests(unittest.TestCase):
         shell = (ROOT / 'scripts/installer-entry.sh').read_text()
         first = shell.index('for candidate in python3 ')
         last = shell.index('\n[ -n "$PYTHON_BIN" ]', first)
-        selector = shell[first:last].replace(
-            '/usr/bin/*|/bin/*)', '/*)')
+        allowlisted_system_dirs = '/usr/sbin/*|/usr/bin/*|/sbin/*|/bin/*)'
+        self.assertIn(allowlisted_system_dirs, shell[first:last])
+        selector = shell[first:last].replace(allowlisted_system_dirs, '/*)')
         with tempfile.TemporaryDirectory() as temp:
             folder = Path(temp)
             for name in ('python3', 'python3.14', 'python3.13', 'python3.12',

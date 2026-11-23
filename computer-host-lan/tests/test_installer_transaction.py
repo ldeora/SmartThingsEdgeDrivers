@@ -136,6 +136,44 @@ class InstallerBackendTests(unittest.TestCase):
             return []
         return sorted(x.name for x in self.staging_dir.iterdir() if x.name != 'stage.lock')
 
+    def test_privileged_request_accepts_exact_fixed_system_python_directories(self):
+        # The shell root launcher trusts these same four system directories.
+        # Gentoo python-exec may expose /usr/sbin/python3, while other
+        # distributions may report /usr/bin/python3.N.
+        allowed = (
+            '/usr/sbin/python3', '/usr/bin/python3.14',
+            '/sbin/python3.12', '/bin/python3.11',
+        )
+        for python in allowed:
+            with self.subTest(python=python):
+                self.request('upgrade', python_bin=python,
+                             expected_version='0.4.6-rc.2').validate()
+
+        forbidden = (
+            '/tmp/python3', '/home/user/python3',
+            '/usr/local/bin/python3', '/usr/bin/../tmp/python3',
+            '/usr/sbin/../../tmp/python3', 'python3', '/usr/bin/python 3',
+        )
+        for python in forbidden:
+            with self.subTest(python=python), self.assertRaises(
+                    installer.ControllerError) as error:
+                self.request('upgrade', python_bin=python).validate()
+            self.assertEqual(error.exception.code, 'invalid_request')
+
+    def test_gentoo_sbin_interpreter_completes_fixture_upgrade(self):
+        # Regression for the first physical Gentoo upgrade that returned
+        # invalid_request after shell bootstrap succeeded. All filesystem
+        # writes and service calls stay within the disposable test fixture.
+        self.existing_install(active=True, enabled=True)
+        outcome = self.backend.run(self.request(
+            'upgrade', python_bin='/usr/sbin/python3',
+            expected_version='0.4.6-rc.2'), ROOT, self.hashes)
+        self.assertEqual(outcome.status, 'installed')
+        self.assertEqual(outcome.identity_preserved, 'verified')
+        self.assertEqual(self.services.received_request.python_bin, '/usr/sbin/python3')
+        self.assertEqual(self.store.public_status()['privileged_transaction_state'], 'none')
+        self.assertEqual(self.stage_entries(), [])
+
     def test_install_applies_actual_plan_and_cleans_transaction(self):
         # The new agent files and the unit templates are REALLY installed
         # by install_core into the fake root, with no real systemd call.
@@ -222,6 +260,7 @@ class InstallerBackendTests(unittest.TestCase):
         with self.assertRaises(installer.ControllerError) as error:
             self.backend.run(self.request(), ROOT, corrupted)
         self.assertEqual(error.exception.code, 'aborted')
+        self.assertEqual(error.exception.failure_stage, 'payload')
         self.assertEqual(self.store.public_status()['privileged_transaction_state'], 'none')
         self.assertFalse(self.installed_paths().location(core.SYSTEMD_PATHS[0]).exists())
         self.assertEqual(self.stage_entries(), [])
@@ -232,6 +271,7 @@ class InstallerBackendTests(unittest.TestCase):
             with self.assertRaises(installer.ControllerError) as error:
                 self.backend.run(self.request(), ROOT, self.hashes)
         self.assertEqual(error.exception.code, 'aborted')
+        self.assertEqual(error.exception.failure_stage, 'payload')
         self.assertEqual(self.stage_entries(), [])
         result = self.backend.run(self.request(), ROOT, self.hashes)
         self.assertEqual(result.status, 'installed')
@@ -242,8 +282,41 @@ class InstallerBackendTests(unittest.TestCase):
             with self.assertRaises(installer.ControllerError) as error:
                 self.backend.run(self.request(), ROOT, self.hashes)
         self.assertEqual(error.exception.code, 'aborted')
+        self.assertEqual(error.exception.failure_stage, 'snapshot')
         self.assertFalse(self.installed_paths().location(core.SYSTEMD_PATHS[0]).exists())
         self.assertEqual(self.store.public_status()['privileged_transaction_state'], 'none')
+
+    def test_preapply_failure_diagnostics_are_only_fixed_stage_codes(self):
+        self.existing_install()
+        scenarios = (
+            ('existing_state', mock.patch.object(
+                installer, 'read_saved_identity',
+                side_effect=installer.ControllerError('unsupported_environment'))),
+            ('plan', mock.patch.object(
+                core, 'generate_plan',
+                side_effect=core.InstallError('fixture internal path must stay private'))),
+        )
+        for stage, context in scenarios:
+            with self.subTest(stage=stage), context:
+                with self.assertRaises(installer.ControllerError) as error:
+                    self.backend.run(self.request('upgrade'), ROOT, self.hashes)
+                self.assertEqual(error.exception.code, 'aborted')
+                self.assertEqual(error.exception.failure_stage, stage)
+                self.assertNotIn('fixture internal path', str(error.exception))
+                self.assertEqual(
+                    self.store.public_status()['privileged_transaction_state'],
+                    'none')
+                self.assertEqual(self.stage_entries(), [])
+
+        for code, stage, expected in (
+            ('aborted', 'payload', 'payload'),
+            ('aborted', '/etc/shadow', None),
+            ('recovery_required', 'snapshot', None),
+            ('invalid_request', 'plan', None),
+            ('aborted', None, None),
+        ):
+            error = installer.ControllerError(code, failure_stage=stage)
+            self.assertEqual(error.failure_stage, expected)
 
     def test_completed_install_with_interrupted_cleanup_does_not_reinstall(self):
         with mock.patch.object(staging, 'finish_terminal_stage',
@@ -464,6 +537,88 @@ class InstallerBackendTests(unittest.TestCase):
             transaction.clear_finished()
         self.assertIsNone(core.require_no_wizard_transaction(
             root=self.root, owner_uid=self.uid))
+
+    def test_systemctl_timeout_is_per_operation_and_remains_recoverable(self):
+        expired = core.subprocess.TimeoutExpired(
+            ['systemctl', 'restart', 'linux-host-agent.service'], 120)
+        with mock.patch.object(core.subprocess, 'run',
+                               side_effect=expired) as runner:
+            with self.assertRaises(core.subprocess.CalledProcessError) as raised:
+                core.systemctl('restart', 'linux-host-agent.service')
+        self.assertEqual(raised.exception.returncode, 124)
+        self.assertEqual(runner.call_args.kwargs['timeout'], 120)
+        self.assertEqual(runner.call_args.kwargs['stdin'], core.subprocess.DEVNULL)
+
+    def test_systemctl_timeout_with_check_false_returns_failed_result(self):
+        expired = core.subprocess.TimeoutExpired(
+            ['systemctl', 'stop', 'linux-host-agent.service'], 120)
+        with mock.patch.object(core.subprocess, 'run',
+                               side_effect=expired) as runner:
+            result = core.systemctl('stop', 'linux-host-agent.service',
+                                    check=False)
+        self.assertEqual(result.returncode, 124)
+        self.assertEqual(result.args,
+                         ['systemctl', 'stop', 'linux-host-agent.service'])
+        self.assertEqual(result.stderr, '')
+        self.assertEqual(runner.call_args.kwargs['timeout'], 120)
+        self.assertFalse(runner.call_args.kwargs['check'])
+
+    def test_restore_services_attempts_remaining_units_after_optional_timeout(self):
+        calls = []
+
+        def systemd_call(command, **kwargs):
+            calls.append(tuple(command))
+            self.assertEqual(kwargs['timeout'], 120)
+            if command[1:3] == ['disable', 'linux-host-agent.service']:
+                raise core.subprocess.TimeoutExpired(command, 120)
+            return core.subprocess.CompletedProcess(command, 0, stderr='')
+
+        previous = dict(first_install=False, agent_active=False,
+                        agent_enabled=False, socket_active=False,
+                        socket_enabled=False)
+        with mock.patch.object(core.subprocess, 'run', side_effect=systemd_call):
+            core.restore_services(previous)
+
+        self.assertEqual(calls, [
+            ('systemctl', 'daemon-reload'),
+            ('systemctl', 'disable', 'linux-host-agent.service'),
+            ('systemctl', 'stop', 'linux-host-agent.service'),
+            ('systemctl', 'disable', 'linux-host-agent-power.socket'),
+            ('systemctl', 'stop', 'linux-host-agent-power.socket'),
+        ])
+
+    def test_activation_systemctl_timeout_triggers_verified_rollback(self):
+        # Transaction-level regression: emulate an actual subprocess timeout
+        # DURING activation, after managed files were applied. The durable
+        # APPLYING+ journal must drive full file and service restoration.
+        old = self.existing_install(active=True, enabled=True)
+        before = old.read_bytes()
+        original_activate = self.services.activate
+        expired = core.subprocess.TimeoutExpired(
+            ['systemctl', 'restart', 'linux-host-agent.service'], 120)
+
+        def activate_then_timeout(previous, *, power_enabled, disable_power):
+            original_activate(previous, power_enabled=power_enabled,
+                              disable_power=disable_power)
+            core.systemctl('restart', 'linux-host-agent.service')
+
+        with mock.patch.object(self.services, 'activate',
+                               side_effect=activate_then_timeout):
+            with mock.patch.object(core.subprocess, 'run',
+                                   side_effect=expired):
+                with self.assertRaises(installer.ControllerError) as raised:
+                    self.backend.run(
+                        self.request('upgrade', expected_identity=UUID),
+                        ROOT, self.hashes)
+
+        self.assertEqual(raised.exception.code, 'rolled_back')
+        self.assertEqual(old.read_bytes(), before)
+        self.assertEqual(self.services.restore_calls, 1)
+        self.assertTrue(self.services.verify_restored_services(
+            self.services.original))
+        self.assertEqual(self.store.public_status()[
+            'privileged_transaction_state'], 'none')
+        self.assertEqual(self.stage_entries(), [])
 
     def test_shared_core_power_activation_matches_socket_verification(self):
         from unittest.mock import call
