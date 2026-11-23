@@ -54,12 +54,12 @@ def smoke(binary: str, width: int, height: int, *, live: bool = False) -> None:
         return needle in collected
 
     try:
-        expected_page = b'1. Compatibility' if live else b'1. Welcome'
+        expected_page = b'1. Welcome'
         if not pump_until(expected_page, 15):
             raise AssertionError(f'full-screen {expected_page!r} page never rendered')
         # Neither mode can install: cancellation must exit without changes.
         os.write(master, b'\x03')
-        if not pump_until(b'Cancelled; no changes made.', 10):
+        if not pump_until(b'Setup preview cancelled. No changes made.' if live else b'Cancelled; no changes made.', 10):
             raise AssertionError('Ctrl+C did not produce a clean cancellation')
         deadline = time.monotonic() + 5
         while time.monotonic() < deadline:
