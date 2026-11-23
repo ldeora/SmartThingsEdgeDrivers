@@ -549,14 +549,22 @@ class ProtectedJournal:
     def reconcile_orphaned_staging(self, verify_no_changes: Callable[[], bool]) -> None:
         """Resolve an interrupted *first journal write*, after trusted checks.
 
-        Only valid with NO persistent journal and with leftover staged files.
-        The future root-side recovery engine must prove no managed mutation
-        occurred. No unverified or automatic cleanup is permitted.
+        The initial INSPECTED journal record is written BEFORE staging or
+        managed/service changes. An orphan is eligible for explicit recovery
+        only when there is no durable journal, exactly one temp marker, and
+        no staged payload. These checks run under the exclusive journal
+        lock; the trusted caller must also confirm no changes were made.
+        Never infer that an arbitrary leftover or incomplete journal is safe.
         """
         directory, lockfd = self._acquire(create=False)
         try:
-            if _read(directory, self.owner_uid) is not None or not _leftovers(directory):
+            leftovers = _leftovers(directory)
+            if _read(directory, self.owner_uid) is not None or len(leftovers) != 1:
                 raise JournalConflict('not an orphaned initial journal write')
+            # Even a valid temp name must not be removed when the separately
+            # protected payload staging area contains anything to reconcile.
+            if _staged_payload_remains(self.root, self.owner_uid):
+                raise JournalConflict('protected staging still requires recovery')
             if not callable(verify_no_changes) or verify_no_changes() is not True:
                 raise JournalConflict('unchanged installation has not been verified')
             _remove_leftovers(directory, self.owner_uid)
