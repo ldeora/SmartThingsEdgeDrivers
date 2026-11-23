@@ -16,6 +16,7 @@ import os
 from pathlib import Path
 import re
 import stat
+import subprocess
 import time
 import uuid
 from typing import Mapping, Protocol, Callable
@@ -131,6 +132,7 @@ class ServiceOperations(Protocol):
     """Trusted systemd/health boundary, replaceable in fixture tests."""
 
     def capture_previous(self, transaction: core.InstallTransaction) -> dict: ...
+    def ensure_agent_user(self) -> None: ...
     def activate(self, previous: dict, *, power_enabled: bool,
                  disable_power: bool) -> None: ...
     def verify_install(self, request: InstallRequest, previous: dict,
@@ -159,6 +161,32 @@ class SystemdOperations:
             socket_active=core.state('linux-host-agent-power.socket', 'is-active'),
             socket_enabled=core.state('linux-host-agent-power.socket', 'is-enabled'),
         )
+
+    def ensure_agent_user(self) -> None:
+        """Match install-agent.sh's idempotent linuxhost user preflight.
+
+        Called only AFTER the durable APPLYING marker. The service account
+        is intentionally retained even if installation is rolled back,
+        exactly as in the existing manual shell installer.
+        """
+        query = subprocess.run(['getent', 'passwd', 'linuxhost'], check=False,
+                               stdin=subprocess.DEVNULL,
+                               stdout=subprocess.DEVNULL,
+                               stderr=subprocess.DEVNULL, timeout=5)
+        if query.returncode == 0:
+            return
+        shell = next((path for path in
+                      ('/usr/sbin/nologin', '/sbin/nologin', '/bin/false')
+                      if os.access(path, os.X_OK)), None)
+        if shell is None:
+            raise ControllerError('unsupported_environment')
+        subprocess.run([
+            'useradd', '--system', '--user-group',
+            '--home-dir', '/var/lib/linux-host-agent',
+            '--shell', shell, 'linuxhost'
+        ], check=True, stdin=subprocess.DEVNULL,
+           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+           timeout=10)
 
     def activate(self, previous: dict, *, power_enabled: bool,
                  disable_power: bool) -> None:
@@ -398,6 +426,10 @@ class InstallerBackend:
                                 snapshot_name=backup.name)
                 # NO managed file or service may change before this marker.
                 journal.advance('SNAPSHOTTED', 'APPLYING')
+                # The existing manual installer creates the service user
+                # before install_core. The backend must do so as well,
+                # but only AFTER journaling the first system mutation.
+                self.services.ensure_agent_user()
                 transaction.apply(changes)
                 _sync_managed_directories(changes, transaction)
                 journal.advance('APPLYING', 'ACTIVATING')

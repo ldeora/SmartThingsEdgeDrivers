@@ -45,8 +45,12 @@ creating a journal or touching managed files.
    and stopped/disabled service settings.
 5. Snapshot managed files and previous unit states. Sync original files,
    backup manifest, snapshot and backup parent **before SNAPSHOTTED**.
-6. Record APPLYING **before any managed mutation**. Apply changes using
-   the existing installation engine and sync managed directories.
+6. Record APPLYING **before any managed mutation**. Idempotently
+   ensure the existing manual installer's 'linuxhost' system account
+   exists (getent/useradd with a non-login shell), then apply the plan
+   using the existing installation engine and sync managed directories.
+   The service account is deliberately retained on rollback, matching
+   the manual installer's existing behavior.
 7. Record ACTIVATING and use the existing service behavior.
 8. Record VERIFYING and require correct files, service state, and a
    passing PR #73 runtime check if the agent is meant to be running.
@@ -105,6 +109,8 @@ the actual ten-file repository payload and a fixture manifest, but
 never invokes systemd/sudo or changes the host. It covers:
 
 - clean default install; explicit remote-power opt-in;
+- account preflight only after APPLYING, including missing-user creation,
+  existing-user preservation and failure-triggered rollback;
 - upgrade and repair, preserving stopped and disabled service intent;
 - a failed live health gate and verified restoration of previous bytes;
 - refusal to claim successful rollback if service restoration fails;

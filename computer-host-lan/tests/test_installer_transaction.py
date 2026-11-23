@@ -40,12 +40,16 @@ class FakeSystemd:
         self.states = dict(self.original)
         self.activations = []
         self.restore_calls = 0
+        self.user_preflights = 0
         self.verify_calls = 0
         self.fail_verify = False
         self.fail_restore = False
 
     def capture_previous(self, transaction):
         return dict(self.original)
+
+    def ensure_agent_user(self):
+        self.user_preflights += 1
 
     def activate(self, previous, *, power_enabled, disable_power):
         self.activations.append((power_enabled, disable_power))
@@ -134,6 +138,7 @@ class InstallerBackendTests(unittest.TestCase):
         self.assertEqual(result.identity_preserved, 'not_verified')
         self.assertTrue(result.source_verified)
         self.assertEqual(self.services.activations, [(False, False)])
+        self.assertEqual(self.services.user_preflights, 1)
         self.assertEqual(self.services.verify_calls, 1)
         self.assertEqual(private.read_text(), UUID)
         paths = self.installed_paths()
@@ -319,6 +324,47 @@ class InstallerBackendTests(unittest.TestCase):
                 [change], power_enabled=False, transaction=trans))
         probe.assert_called_once()
         self.assertEqual(probe.call_args.kwargs['expected_identity'], UUID)
+
+    def test_service_user_created_only_after_durable_applying_phase(self):
+        observed = []
+        def check_user():
+            phases = list((self.root / 'var/backups/linux-host-agent/wizard-transactions').glob('journal.json'))
+            self.assertEqual(len(phases), 1)
+            record = json.loads(phases[0].read_text())
+            observed.append(record['phase'])
+        with mock.patch.object(self.services, 'ensure_agent_user', side_effect=check_user):
+            self.assertEqual(self.backend.run(self.request(), ROOT, self.hashes).status,
+                             'installed')
+        self.assertEqual(observed, ['APPLYING'])
+
+    def test_failure_to_create_service_user_restores_managed_files(self):
+        old = self.existing_install()
+        previous_bytes = old.read_bytes()
+        with mock.patch.object(self.services, 'ensure_agent_user',
+                               side_effect=RuntimeError('useradd unavailable')):
+            with self.assertRaises(installer.ControllerError) as error:
+                self.backend.run(self.request('upgrade', expected_identity=UUID),
+                                 ROOT, self.hashes)
+        self.assertEqual(error.exception.code, 'rolled_back')
+        self.assertEqual(old.read_bytes(), previous_bytes)
+        self.assertEqual(self.services.restore_calls, 1)
+
+    def test_systemd_user_creation_matches_existing_shell_preflight(self):
+        operations = installer.SystemdOperations()
+        absent = mock.Mock(returncode=2)
+        with mock.patch.object(installer.subprocess, 'run',
+                               side_effect=[absent, mock.Mock(returncode=0)]) as calls:
+            with mock.patch.object(installer.os, 'access', return_value=True):
+                operations.ensure_agent_user()
+        self.assertEqual(calls.call_count, 2)
+        args = calls.call_args_list[1].args[0]
+        self.assertEqual(args[0], 'useradd')
+        self.assertEqual(args[-1], 'linuxhost')
+        self.assertIn('/var/lib/linux-host-agent', args)
+        with mock.patch.object(installer.subprocess, 'run',
+                               return_value=mock.Mock(returncode=0)) as calls:
+            operations.ensure_agent_user()
+        self.assertEqual(calls.call_count, 1)
 
     def test_legacy_manual_lock_mode_0644_is_accepted(self):
         self.manual_lock.touch(mode=0o600)
