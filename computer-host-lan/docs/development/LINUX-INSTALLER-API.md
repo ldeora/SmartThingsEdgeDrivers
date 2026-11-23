@@ -112,8 +112,10 @@ or WOL hardware support**. The plan doesn't make persistent WOL changes.
 `verify` is an explicit, bounded check of a **running local v2 Linux agent**.
 It only connects to **127.0.0.1** using a fixed pair of HTTP paths
 (`/v2/info` and `/v2/health`), requires JSON HTTP 200 responses, and
-rejects redirects, non-JSON data and responses exceeding **16 KiB**.
-A fixed **2-second timeout per request** applies. It probes the managed
+rejects redirects, non-JSON data and responses exceeding **16 KiB**
+(with at most **8 KiB of HTTP headers**). A fixed **3-second absolute
+deadline per request**, including connection and response headers/body,
+prevents a slow-drip listener extending per-read timeouts. It probes the managed
 agent systemd unit with `is-active` when systemd is available. No root
 privileges are needed or requested.
 
@@ -179,10 +181,9 @@ Existing `inspect` and `plan` schema fields remain unchanged.
 ## Testing
 
 The tests in `tests/test_installer_api.py` and
-`tests/test_runtime_verifier.py` use temporary fake roots, fake HTTP
-responses and and
-stubbed interpreter candidates for deterministic checks, and explicitly mock
-host systemd access. The test suite is automatically run by
+`tests/test_runtime_verifier.py` use temporary fake roots, mocked HTTP
+responses, a disposable IPv4 loopback listener for the hard-deadline
+regression and stubbed interpreters; real host systemd access is mocked. The test suite is automatically run by
 `.github/workflows/computer-host-linux.yml` on Python 3.10–3.14 and in
 container smoke jobs. The new `scripts/installer-api.sh` is shell-syntax
 checked by existing CI.
