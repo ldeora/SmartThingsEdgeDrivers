@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 )
 
@@ -386,6 +387,77 @@ func TestBootstrapLifetimeLockBlocksConcurrentVersionReplacement(t *testing.T) {
 		t.Fatalf("Released bootstrap lock could not be reused: %v", err)
 	}
 	again.Close()
+}
+
+func TestInstallerLockRefusesSymlinkHardlinkAndFIFO(t *testing.T) {
+	// /run/lock may be sticky and world-writable. A user must not steer
+	// root's lock open through a symlink or a non-regular inode.
+	root := t.TempDir()
+	target := filepath.Join(root, "target")
+	if err := os.WriteFile(target, []byte("KEEP"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	lock := filepath.Join(root, "install.lock")
+	if err := os.Symlink(target, lock); err != nil {
+		t.Fatal(err)
+	}
+	if f, err := lockInstaller(lock, os.Geteuid()); err == nil {
+		f.Close()
+		t.Fatal("Symlinked lock unexpectedly accepted")
+	}
+	data, err := os.ReadFile(target)
+	if err != nil || string(data) != "KEEP" {
+		t.Fatalf("Lock target modified: %q %v", data, err)
+	}
+	if err := os.Remove(lock); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Link(target, lock); err != nil {
+		t.Fatal(err)
+	}
+	if f, err := lockInstaller(lock, os.Geteuid()); err == nil {
+		f.Close()
+		t.Fatal("Hardlinked lock unexpectedly accepted")
+	}
+	if err := os.Remove(lock); err != nil {
+		t.Fatal(err)
+	}
+	if err := syscall.Mkfifo(lock, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if f, err := lockInstaller(lock, os.Geteuid()); err == nil {
+		f.Close()
+		t.Fatal("FIFO lock unexpectedly accepted")
+	}
+	if err := os.Remove(lock); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(target, 0o666); err != nil {
+		t.Fatal(err)
+	}
+	if f, err := lockInstaller(target, os.Geteuid()); err == nil {
+		f.Close()
+		t.Fatal("Group/world-writable lock unexpectedly accepted")
+	}
+}
+
+func TestInstallerLockAcceptsExisting0644WithoutChangingMode(t *testing.T) {
+	lock := filepath.Join(t.TempDir(), "manual.lock")
+	if err := os.WriteFile(lock, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(lock, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	guard, err := lockInstaller(lock, os.Geteuid())
+	if err != nil {
+		t.Fatal(err)
+	}
+	guard.Close()
+	info, err := os.Stat(lock)
+	if err != nil || info.Mode().Perm() != 0o644 {
+		t.Fatalf("Existing legacy lock mode changed: %v %v", info, err)
+	}
 }
 
 func TestRepeatedFailedUpgradeDiscardsOnlyOldRootOwnedFailedBundle(t *testing.T) {

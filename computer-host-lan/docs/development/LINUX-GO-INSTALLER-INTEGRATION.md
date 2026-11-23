@@ -407,8 +407,9 @@ does **not** yet provide full Windows Setup feature parity:
   policy on firewalld hosts may still require an explicit later feature.
 - No publisher signing/authentication is added by this draft. The CI
   artifact is **test-only**, not a production release.
-- No physical installation has been attempted on `hydra` until
-  independent review and a reversible acceptance plan.
+- Gentoo/Btrfs `hydra` has completed a supervised upgrade (PR #78)
+  with preserved identity and clean protected journal. Clean installations
+  and interrupted/recovery paths still require broader distro acceptance.
 
 The user should not delete an interrupted wizard journal or a
 `computer-host-lan.previous` directory manually. A recovery failure
@@ -426,3 +427,51 @@ filesystem fixtures** only in CI. Actual sudo/systemd and kernel crash
 recovery require a separate physical acceptance on a reversible test
 host. Avoid creating any user, service, power socket or private key
 merely to test the new Go interface.
+
+## Follow-up: orphan journal recovery and shared installer lock hardening
+
+The separate post-#78 recovery/lock-hardening PR closes a specific
+journal dead end without making a new install silently auto-recover.
+
+**An interrupted initial journal write:** The transaction creates and
+syncs its first `INSPECTED` record BEFORE staging any payload, snapshotting
+targets, or applying service/file changes. If the first write fails before
+the journal rename, a protected `.wizard-journal-*` temporary file may be
+left behind with no `journal.json`. Read-only `status` correctly reports
+`recovery_required`, but the previous `-recover` implementation could not
+resolve that state.
+
+Explicit `-recover` now allows cleanup **only** under the normal shared
+manual installer lock AND an exclusive protected journal lock, after
+confirming that there is no persistent journal, **exactly one** temp marker,
+and **no staged payload**. It performs another no-stage check under the
+journal lock. Recovery additionally opens that temp file without following
+links, checks its owner/type/mode/link count and bounded size, and requires
+its bytes to be a prefix (including the empty prefix) of the **canonical
+initial `INSPECTED` journal record**. A complete non-initial
+record, or a partial record that already diverges from that canonical
+prefix, is never discarded merely because `journal.json` is missing.
+This allows genuinely interrupted
+first writes while failing closed on corrupted later-phase state. No agent
+files, credentials, services or snapshots are modified by this branch.
+Multiple markers, any pending/ready stage, a durable incomplete journal,
+or any invalid record content require investigation and are preserved.
+
+**Locks:** Go's bootstrap and manual shared lock now open with
+`O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC`, reject symlinks, nonregular
+files, hardlinks, incorrect owners and group/world-writable files, and
+verify the opened inode matches the visible path. The manual Python CLI
+now applies equivalent checks, while retaining existing root-owned
+`0644` lock compatibility. Neither implementation truncates, replaces
+nor chmods an existing valid lock. The journal already uses fd-relative
+nofollow locking.
+
+**Known limitation:** A user on a system with world-writable
+`/run/lock` can still pre-create a user-owned *regular file* with the
+fixed legacy lock name, denying service to the installer. The installer
+fails closed and does not unlink a file it cannot trust. Fully removing
+that denial of service requires a coordinated migration of the shared
+lock namespace (including older manual installers); it is deliberately
+not attempted in this compatibility-preserving PR. A signed, independently
+authenticated release binary and additional distro testing remain
+separate release gates.

@@ -332,6 +332,42 @@ class InstallerBackendTests(unittest.TestCase):
         self.assertEqual(self.stage_entries(), [])
         self.assertEqual(self.services.verify_calls, 1)  # No reinstallation.
 
+    def test_manual_cli_lock_rejects_symlink_hardlink_and_fifo(self):
+        # Manual and Go installs use the same lock in /run/lock. The manual
+        # CLI must not follow a planted symlink even if its target is safe.
+        target = self.root / 'manual-lock-target'
+        target.write_text('KEEP')
+        target.chmod(0o600)
+        planted = self.root / 'planted-install.lock'
+        planted.symlink_to(target)
+        with self.assertRaises(core.InstallError):
+            core.open_manual_install_lock(planted, owner_uid=self.uid)
+        self.assertEqual(target.read_text(), 'KEEP')
+        planted.unlink()
+
+        os.link(target, planted)
+        with self.assertRaises(core.InstallError):
+            core.open_manual_install_lock(planted, owner_uid=self.uid)
+        planted.unlink()
+
+        os.mkfifo(planted, 0o600)
+        with self.assertRaises(core.InstallError):
+            core.open_manual_install_lock(planted, owner_uid=self.uid)
+        planted.unlink()
+
+        target.chmod(0o666)
+        with self.assertRaises(core.InstallError):
+            core.open_manual_install_lock(target, owner_uid=self.uid)
+
+    def test_manual_cli_lock_accepts_existing_0644_without_chmod(self):
+        lockfile = self.root / 'legacy-manual.lock'
+        lockfile.touch(mode=0o600)
+        lockfile.chmod(0o644)
+        with core.open_manual_install_lock(lockfile, owner_uid=self.uid) as fd:
+            self.assertTrue(stat.S_ISREG(os.fstat(fd.fileno()).st_mode))
+            self.assertEqual(stat.S_IMODE(lockfile.stat().st_mode), 0o644)
+        self.assertEqual(stat.S_IMODE(lockfile.stat().st_mode), 0o644)
+
     def test_manual_cli_lock_blocks_wizard_without_creating_journal(self):
         fd = os.open(self.manual_lock, os.O_RDWR | os.O_CREAT, 0o600)
         try:
@@ -476,11 +512,11 @@ class InstallerBackendTests(unittest.TestCase):
         self.assertEqual(leftover.read_text(), UUID + '\n')
 
     def test_manual_rollback_path_checks_journal_under_shared_lock(self):
-        # The guard was already present in the CLI under its flock;
-        # retain a cheap regression assertion rather than editing it.
+        # Retain the invariant: the manual CLI must check the wizard
+        # journal only AFTER taking the same hardened cross-installer lock.
         import inspect
         source = inspect.getsource(core.run_cli)
-        under_lock = source[source.index("with lockfile.open('a+') as lock:"):]
+        under_lock = source[source.index('with open_manual_install_lock(lockfile) as lock:'):]
         self.assertLess(under_lock.index('require_no_wizard_transaction()'),
                         under_lock.index('if args.rollback:'))
 
@@ -714,6 +750,97 @@ class InstallerBackendTests(unittest.TestCase):
         result = self.backend.recover_interrupted()
         self.assertEqual(result.status, 'nothing_to_recover')
         self.assertFalse((self.root / 'var/backups').exists())
+
+    def test_recover_orphaned_first_journal_write_cleans_without_mutation(self):
+        # Failed first INSPECTED write leaves a root-owned temp but no
+        # journal.json. Nothing has been staged or applied. -recover must
+        # make progress without requiring manual deletion of protected files.
+        old = self.existing_install()
+        original = old.read_bytes()
+        with mock.patch.object(journal.os, 'replace',
+                               side_effect=OSError('simulated initial EIO')):
+            with self.assertRaises(journal.UnsafeJournal):
+                self.store.begin('upgrade')
+        self.assertEqual(self.store.public_status()['privileged_transaction_state'],
+                         'recovery_required')
+        self.assertFalse((self.store.root /
+                          'var/backups/linux-host-agent/wizard-transactions/journal.json'
+                          ).exists())
+        result = self.backend.recover_interrupted()
+        self.assertEqual(result.status, 'cleaned')
+        self.assertEqual(old.read_bytes(), original)
+        self.assertEqual(self.services.activations, [])
+        self.assertEqual(self.services.restore_calls, 0)
+        self.assertEqual(self.services.verify_calls, 0)
+        self.assertEqual(self.stage_entries(), [])
+        self.assertEqual(self.store.public_status()['privileged_transaction_state'],
+                         'none')
+        # Recovery is idempotent and new explicit upgrades are permitted.
+        self.assertEqual(self.backend.recover_interrupted().status,
+                         'nothing_to_recover')
+        self.assertEqual(self.backend.run(
+            self.request('upgrade', expected_identity=UUID),
+            ROOT, self.hashes).status, 'installed')
+
+    def test_recover_rejects_orphaned_applied_phase_without_journal(self):
+        # A corrupted state containing a valid APPLYING temp record but no
+        # journal.json cannot be cleared just because staging is empty.
+        old = self.existing_install()
+        previous = old.read_bytes()
+        with mock.patch.object(journal.os, 'replace',
+                               side_effect=OSError('simulated initial EIO')):
+            with self.assertRaises(journal.UnsafeJournal):
+                self.store.begin('upgrade')
+        directory = self.root / 'var/backups/linux-host-agent/wizard-transactions'
+        marker, = directory.glob('.wizard-journal-*')
+        record = dict(schema=1, transaction_id='a' * 32, operation='upgrade',
+                      phase='APPLYING', snapshot_name='snapshot-abcdefgh')
+        marker.write_text(json.dumps(record, sort_keys=True,
+                                     separators=(',', ':')) + '\n')
+
+        with self.assertRaises(installer.ControllerError) as error:
+            self.backend.recover_interrupted()
+        self.assertEqual(error.exception.code, 'recovery_required')
+        self.assertTrue(marker.exists())
+        self.assertEqual(old.read_bytes(), previous)
+        self.assertEqual(self.services.restore_calls, 0)
+        self.assertEqual(self.store.public_status()['privileged_transaction_state'],
+                         'recovery_required')
+
+    def test_orphaned_journal_with_staged_payload_remains_blocked(self):
+        with mock.patch.object(journal.os, 'replace',
+                               side_effect=OSError('simulated initial EIO')):
+            with self.assertRaises(journal.UnsafeJournal):
+                self.store.begin('install')
+        stage_parent = self.root / 'var/lib/computer-host-installer'
+        stage_parent.mkdir(parents=True, mode=0o700)
+        stage_parent.chmod(0o700)
+        stage_dir = stage_parent / 'staging'
+        stage_dir.mkdir(mode=0o700)
+        retained = stage_dir / ('pending-' + 'a' * 32)
+        retained.mkdir(mode=0o700)
+        with self.assertRaises(installer.ControllerError) as err:
+            self.backend.recover_interrupted()
+        self.assertEqual(err.exception.code, 'recovery_required')
+        self.assertTrue(retained.is_dir())
+        self.assertEqual(self.store.public_status()['privileged_transaction_state'],
+                         'recovery_required')
+
+    def test_multiple_orphaned_journal_markers_remain_ambiguous(self):
+        with mock.patch.object(journal.os, 'replace',
+                               side_effect=OSError('simulated initial EIO')):
+            with self.assertRaises(journal.UnsafeJournal):
+                self.store.begin('install')
+        directory = self.root / 'var/backups/linux-host-agent/wizard-transactions'
+        extra = directory / ('.wizard-journal-' + 'c' * 32)
+        extra.write_bytes(b'invalid extra marker')
+        extra.chmod(0o600)
+        with self.assertRaises(installer.ControllerError) as err:
+            self.backend.recover_interrupted()
+        self.assertEqual(err.exception.code, 'recovery_required')
+        self.assertTrue(extra.exists())
+        self.assertEqual(self.store.public_status()['privileged_transaction_state'],
+                         'recovery_required')
 
     def test_recover_staged_preapply_does_not_mutate_managed_files(self):
         old, original, _ = self._simulate_crash_at('STAGED')

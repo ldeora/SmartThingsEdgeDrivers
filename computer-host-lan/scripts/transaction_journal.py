@@ -293,6 +293,54 @@ def _write(directory: int, data: dict) -> None:
         raise UnsafeJournal('durable journal update failed') from None
 
 
+def _check_initial_orphan_record(directory: int, name: str,
+                                 owner_uid: int) -> None:
+    """Prove an orphan is a complete or partial *first* INSPECTED write.
+
+    _write() uses a fixed sorted JSON encoding. A power loss or write error
+    may leave any prefix of those bytes, including an empty file. Matching
+    that exact prefix rejects a missing-journal APPLYING record once
+    its bytes diverge from an initial write, rather than trusting layout.
+    """
+    if not _TEMP_NAME.fullmatch(name):
+        raise UnsafeJournal('unexpected journal staging entry')
+    try:
+        fd = os.open(name, _FILE_FLAGS, dir_fd=directory)
+    except OSError:
+        raise UnsafeJournal('unsafe orphan journal record') from None
+    try:
+        _checked_regular(fd, owner_uid)
+        size = os.fstat(fd).st_size
+        if size > _MAX_BYTES:
+            raise UnsafeJournal('oversized orphan journal record')
+        raw = os.read(fd, _MAX_BYTES + 1)
+        if len(raw) != size:
+            raise UnsafeJournal('incomplete orphan journal read')
+    except OSError:
+        raise UnsafeJournal('unable to inspect orphan journal record') from None
+    finally:
+        os.close(fd)
+
+    # These are exactly the bytes preceding the transaction ID in the
+    # canonical, sorted first journal record. Later-phase bytes fail once
+    # they differ; an empty or very short prefix cannot identify a phase.
+    suffix = b'"}\n'
+    for operation in _OPERATIONS:
+        header = (b'{"operation":"' + operation.encode('ascii') +
+                  b'","phase":"INSPECTED","schema":1,'
+                  b'"snapshot_name":null,"transaction_id":"')
+        if header.startswith(raw):
+            return
+        if raw.startswith(header):
+            tail = raw[len(header):]
+            txid = tail[:32]
+            if (all(byte in b'0123456789abcdef' for byte in txid) and
+                    (len(tail) <= 32 or
+                     (len(txid) == 32 and suffix.startswith(tail[32:])))):
+                return
+    raise JournalConflict('orphan journal is not an initial write')
+
+
 def _remove_leftovers(directory: int, owner_uid: int) -> None:
     # Anchor cleanup to a fresh directory descriptor too. Do not trust
     # an enumeration cached before an interrupted journal write.
@@ -549,14 +597,25 @@ class ProtectedJournal:
     def reconcile_orphaned_staging(self, verify_no_changes: Callable[[], bool]) -> None:
         """Resolve an interrupted *first journal write*, after trusted checks.
 
-        Only valid with NO persistent journal and with leftover staged files.
-        The future root-side recovery engine must prove no managed mutation
-        occurred. No unverified or automatic cleanup is permitted.
+        The initial INSPECTED journal record is written BEFORE staging or
+        managed/service changes. An orphan is eligible for explicit recovery
+        only when there is no durable journal, exactly one temp marker, and
+        no staged payload. These checks run under the exclusive journal
+        lock. The leftover bytes must be a prefix of the canonical first
+        INSPECTED record; later-phase, malformed or oversized records are
+        retained for investigation. The caller must confirm no stage exists.
+        Never infer that an arbitrary leftover journal is safe.
         """
         directory, lockfd = self._acquire(create=False)
         try:
-            if _read(directory, self.owner_uid) is not None or not _leftovers(directory):
+            leftovers = _leftovers(directory)
+            if _read(directory, self.owner_uid) is not None or len(leftovers) != 1:
                 raise JournalConflict('not an orphaned initial journal write')
+            # Even a valid temp name must not be removed when the separately
+            # protected payload staging area contains anything to reconcile.
+            if _staged_payload_remains(self.root, self.owner_uid):
+                raise JournalConflict('protected staging still requires recovery')
+            _check_initial_orphan_record(directory, leftovers[0], self.owner_uid)
             if not callable(verify_no_changes) or verify_no_changes() is not True:
                 raise JournalConflict('unchanged installation has not been verified')
             _remove_leftovers(directory, self.owner_uid)

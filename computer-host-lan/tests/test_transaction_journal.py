@@ -379,6 +379,55 @@ class ProtectedJournalTests(unittest.TestCase):
             tx.abort()
             tx.clear_finished()
 
+    def test_orphaned_valid_applying_record_without_journal_is_not_deleted(self):
+        # An unexpected lost journal.json must NOT make an APPLYING temp
+        # record look like a harmless interrupted first INSPECTED write.
+        with mock.patch.object(journal.os, 'replace',
+                               side_effect=OSError('simulated initial EIO')):
+            with self.assertRaises(journal.UnsafeJournal):
+                self.store.begin('install')
+        marker, = self.directory.glob('.wizard-journal-*')
+        record = self.record(phase='APPLYING', snapshot=SNAPSHOT)
+        raw = (json.dumps(record, sort_keys=True, separators=(',', ':')) + '\n').encode()
+        for payload in (raw, raw[:65]):
+            with self.subTest(bytes=len(payload)):
+                marker.write_bytes(payload)
+                with self.assertRaises(journal.JournalConflict):
+                    self.store.reconcile_orphaned_staging(lambda: True)
+                self.assertEqual(marker.read_bytes(), payload)
+                self.assertEqual(self.store.public_status()['privileged_transaction_state'],
+                                 'recovery_required')
+
+    def test_orphaned_empty_or_partial_initial_write_can_be_reconciled(self):
+        # A failed write can leave any prefix of the canonical INSPECTED
+        # record. A fully verified first-record prefix is safe to remove.
+        for remaining in (0, 17, 57, 97, -1):
+            with self.subTest(remaining=remaining):
+                with mock.patch.object(journal.os, 'replace',
+                                       side_effect=OSError('simulated initial EIO')):
+                    with self.assertRaises(journal.UnsafeJournal):
+                        self.store.begin('install')
+                marker, = self.directory.glob('.wizard-journal-*')
+                original = marker.read_bytes()
+                marker.write_bytes(original[:remaining])
+                self.store.reconcile_orphaned_staging(lambda: True)
+                self.assertFalse(marker.exists())
+                self.assertEqual(self.store.public_status()['privileged_transaction_state'],
+                                 'none')
+
+    def test_orphaned_malformed_complete_record_is_not_deleted(self):
+        with mock.patch.object(journal.os, 'replace',
+                               side_effect=OSError('simulated initial EIO')):
+            with self.assertRaises(journal.UnsafeJournal):
+                self.store.begin('install')
+        marker, = self.directory.glob('.wizard-journal-*')
+        marker.write_bytes(b'{"phase":"INSPECTED","unknown":true}\n')
+        with self.assertRaises(journal.JournalConflict):
+            self.store.reconcile_orphaned_staging(lambda: True)
+        self.assertTrue(marker.exists())
+        self.assertEqual(self.store.public_status()['privileged_transaction_state'],
+                         'recovery_required')
+
     def test_symlinks_hardlinks_and_unsafe_permissions_rejected(self):
         outside = self.root / 'outside'
         outside.mkdir()
