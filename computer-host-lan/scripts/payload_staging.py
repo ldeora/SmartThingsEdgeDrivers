@@ -419,7 +419,17 @@ class StagedPayload:
         _inspect_tree(self._fd, self._uid, self._hashes)
 
     def verified_source_path(self, trusted_hashes: Mapping[str, str]) -> Path:
-        """Return a path ONLY after rechecking the active protected receipt."""
+        """Expose install source only after journal STAGED and full recheck.
+
+        Recovering an unfinished INSPECTED stage or cleaning a terminal
+        journal must never silently grant permission to consume the files.
+        This path is still DATA, not authority to run Python as root.
+        """
+        self._assert_owner()
+        if self._transaction._record()['phase'] not in (
+            'STAGED', 'SNAPSHOTTED', 'APPLYING', 'ACTIVATING', 'VERIFYING'
+        ):
+            raise StagingConflict('journal phase forbids staged source use')
         self.verify(trusted_hashes)
         return self._root.joinpath(*_DEST, _READY + self._stage_id)
 
