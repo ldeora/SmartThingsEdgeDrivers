@@ -31,6 +31,8 @@ _MANUAL_LOCK = Path('/run/lock/linux-host-agent-install.lock')
 _PREAPPLY = frozenset(('INSPECTED', 'STAGED', 'SNAPSHOTTED'))
 _APPLIED = frozenset(('APPLYING', 'ACTIVATING', 'VERIFYING'))
 _ALLOWED_OPS = frozenset(('install', 'upgrade', 'repair'))
+# Safe public pre-apply failure stage names, never raw exception details.
+_ABORT_STAGES = frozenset(('payload', 'existing_state', 'plan', 'snapshot'))
 _PYTHON_PATH = re.compile(r'/[A-Za-z0-9_./+-]+\Z')
 # Keep in sync with the fixed PATH allowlist in installer-entry.sh.
 _TRUSTED_PYTHON_PREFIXES = ('/usr/sbin/', '/usr/bin/', '/sbin/', '/bin/')
@@ -40,7 +42,7 @@ _IFNAME = re.compile(r'[A-Za-z0-9_.-]{1,15}\Z')
 class ControllerError(RuntimeError):
     """All user-facing errors are fixed, sanitized codes."""
 
-    def __init__(self, code: str):
+    def __init__(self, code: str, *, failure_stage: str | None = None):
         if code not in ('invalid_request', 'installation_busy', 'aborted',
                         'rolled_back', 'recovery_required',
                         'unsupported_environment', 'adoption_required'):
@@ -56,6 +58,11 @@ class ControllerError(RuntimeError):
         )
         super().__init__(message)
         self.code = code
+        # Only a fixed pre-apply stage can appear in the public JSON.
+        # No filesystem paths, source data, UUIDs or exception strings.
+        self.failure_stage = (failure_stage
+                              if code == 'aborted' and
+                              failure_stage in _ABORT_STAGES else None)
 
 
 @dataclass(frozen=True)
@@ -473,11 +480,13 @@ class InstallerBackend:
             receipt = None
             backup = None
             previous = None
+            failure_stage = 'payload'
             try:
                 receipt = staging.stage_payload(source, trusted_hashes, journal,
                                                 root=self.root, owner_uid=self.owner_uid)
                 journal.advance('INSPECTED', 'STAGED')
                 verified_source = receipt.verified_source_path(trusted_hashes)
+                failure_stage = 'existing_state'
                 previous = self.services.capture_previous(transaction)
                 _check_previous(previous)
                 if (request.operation == 'install') != previous['first_install']:
@@ -502,6 +511,7 @@ class InstallerBackend:
                 existing_power = power_dropin.exists()
                 power_enabled = request.enable_power or (
                     existing_power and not request.disable_power)
+                failure_stage = 'plan'
                 changes = core.generate_plan(
                     verified_source, request.python_bin,
                     enable_power=request.enable_power,
@@ -510,6 +520,7 @@ class InstallerBackend:
                     is_existing_power=existing_power,
                     avahi_dir=(self.root / 'etc/avahi/services').is_dir(),
                 )
+                failure_stage = 'snapshot'
                 backup = transaction.snapshot(changes, previous=previous)
                 _sync_snapshot(backup)
                 journal.advance('STAGED', 'SNAPSHOTTED',
@@ -568,7 +579,10 @@ class InstallerBackend:
                     journal.clear_finished()
                 except Exception:
                     raise ControllerError('recovery_required') from None
-                raise ControllerError(outcome) from None
+                raise ControllerError(
+                    outcome,
+                    failure_stage=failure_stage if outcome == 'aborted' else None
+                ) from None
             finally:
                 if receipt is not None:
                     receipt.close()

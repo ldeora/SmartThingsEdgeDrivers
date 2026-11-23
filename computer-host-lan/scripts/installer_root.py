@@ -282,14 +282,19 @@ def main(argv=None) -> int:
                               journal=ProtectedJournal(),
                               selected_python=selected_python)
         except ControllerError as exc:
-            # 'adoption_required' is a fixed user-facing diagnostic; no
-            # arbitrary traceback or file/identity metadata can escape.
-            _reply(dict(status='error', error_code=exc.code,
-                        adoption_hint=(
-                            'Verify retained v2 state, then run the manual '
-                            'installer with --adopt-retained-state.'
-                            if exc.code == 'adoption_required' else None),
-                        secrets_included=False))
+            # 'adoption_required' and pre-apply failure_stage are fixed
+            # public codes; never serialize exception text, paths, IDs
+            # or contents of the privileged journal/snapshot.
+            envelope = dict(
+                status='error', error_code=exc.code,
+                secrets_included=False,
+                adoption_hint=(
+                    'Verify retained v2 state, then run the manual '
+                    'installer with --adopt-retained-state.'
+                    if exc.code == 'adoption_required' else None))
+            if exc.code == 'aborted' and exc.failure_stage is not None:
+                envelope['failure_stage'] = exc.failure_stage
+            _reply(envelope)
             return 3
         _reply(result)
         return 0

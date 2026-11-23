@@ -192,6 +192,50 @@ and **only** a `status` request, confirm transaction state `none`,
 and check active agent/service state. Never delete old helper or journal
 directories manually.
 
+## Third physical attempt: pre-apply abort and bounded stage diagnostics
+
+The third root-authorized `hydra` run (`fa48f77`, Gentoo 3.14,
+`-elevation su`) passed the wizard, selected-Python handoff and
+privileged request validation, but returned the protected controller
+error **`aborted`**. The controller emits this only when the durable
+transaction phase was still `INSPECTED`, `STAGED` or `SNAPSHOTTED`;
+managed agent files and service units have not yet been applied. The
+controller attempts to retire the current stage and terminal journal
+before returning `aborted`; inspect their *actual status* before any
+additional operation. A backup snapshot may still exist, even if the
+transaction state is `none`.
+
+Historically `aborted` masked every pre-apply exception, including
+different root-only prerequisites not exercised by ordinary CI fake-root
+fixtures. To avoid repeated blind installations, the backend now emits
+**only** a fixed, non-sensitive `failure_stage` when it can prove a
+clean pre-apply abort:
+
+- `payload`: source payload authentication, trusted staging and
+  stage readback;
+- `existing_state`: read-only pre-existing service/identity checks
+  and internal request consistency;
+- `plan`: generation of approved managed-file changes;
+- `snapshot`: pre-apply backup, durability and journal transitions.
+
+The enum is carried inside the same schema-v1 authenticated root JSON
+error response and validated by both root Go and unprivileged wizard
+code. Python never serializes the raw exception, file names, addresses,
+UUID/token, snapshot names or journal internals; an unknown field value
+is rejected, not echoed. The UI labels the failing *stage*, not a
+guessed root cause. Older helper responses without the optional field
+remain compatible.
+
+**Do not infer physical success from CI alone.** This test has not yet
+reported a clean post-abort journal status. Before a fourth authorized
+install, use the already installed root-owned Python entrypoint with
+the exact read-only `status` action to check
+`privileged_transaction_state`, and inspect just service state,
+backup/staging directory types, modes and disk space. Never manually
+delete the retained `.failed` helper, private snapshots, or transaction
+journal. A further install is for supervised diagnosis only after
+review, a verified backup and a clean protected state.
+
 ## Version-pinned Go binary as the bootstrap trust anchor
 
 The downloaded Go executable must be verified against a trustworthy

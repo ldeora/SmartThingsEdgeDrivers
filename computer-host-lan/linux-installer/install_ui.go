@@ -259,7 +259,8 @@ func validatedPrivilegedReply(data []byte, action string) (privilegedResult, err
 	var reply privilegedResult
 	if len(data) == 0 || len(data) > maxAPIBytes || json.Unmarshal(data, &reply) != nil ||
 		reply.SchemaVersion != 1 || reply.SecretsIncluded ||
-		(reply.Operation != "" && reply.Operation != action) {
+		(reply.Operation != "" && reply.Operation != action) ||
+		!validAbortedFailureStage(reply.ErrorCode, reply.FailureStage) {
 		return privilegedResult{}, errors.New("invalid privileged installer reply")
 	}
 	if reply.Operation == "" && reply.Status == "error" {
@@ -289,6 +290,22 @@ func validatedPrivilegedReply(data []byte, action string) (privilegedResult, err
 	return reply, nil
 }
 
+// Restrict privileged diagnostics to fixed, non-sensitive enum values.
+// An absent stage is accepted for older helpers and Go bootstrap failures.
+func validAbortedFailureStage(code, stage string) bool {
+	if stage == "" {
+		return true
+	}
+	if code != "aborted" {
+		return false
+	}
+	switch stage {
+	case "payload", "existing_state", "plan", "snapshot":
+		return true
+	}
+	return false
+}
+
 func knownPrivilegedError(code string) bool {
 	switch code {
 	case "invalid_request", "installation_busy", "aborted", "rolled_back",
@@ -315,7 +332,18 @@ func userFacingPrivilegeFailure(reply privilegedResult) error {
 	case "unsupported_environment":
 		return errors.New("the existing installation or operating environment needs attention. Check the read-only inspection before retrying")
 	case "aborted":
-		return errors.New("installation was aborted safely; review the prerequisites and retry")
+		switch reply.FailureStage {
+		case "payload":
+			return errors.New("installation aborted before applying changes (payload verification/staging); check protected payload staging prerequisites")
+		case "existing_state":
+			return errors.New("installation aborted before applying changes (existing agent/service state); inspect service and protected identity prerequisites")
+		case "plan":
+			return errors.New("installation aborted before applying changes (installation plan); inspect managed paths and systemd templates")
+		case "snapshot":
+			return errors.New("installation aborted before applying changes (backup snapshot); inspect the existing backup directory and available storage")
+		default:
+			return errors.New("installation was aborted safely before applying changes; inspect prerequisites before retrying")
+		}
 	case "untrusted_root_launcher", "invalid_trusted_manifest":
 		return errors.New("the installed privileged helper or its trusted manifest is invalid; reinstall the verified wizard before retrying")
 	case "bootstrap_failed":

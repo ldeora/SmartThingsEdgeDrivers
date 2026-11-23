@@ -44,6 +44,7 @@ type privilegedResult struct {
 	Status                     string `json:"status"`
 	Operation                  string `json:"operation"`
 	ErrorCode                  string `json:"error_code"`
+	FailureStage               string `json:"failure_stage,omitempty"`
 	RecoveryStatus             string `json:"recovery_status"`
 	PrivilegedTransactionState string `json:"privileged_transaction_state"`
 	IdentityPreserved          string `json:"identity_preserved"`
@@ -519,6 +520,11 @@ func relayHelperResponse(writer io.Writer, action string, reply privilegedResult
 	}
 	if reply.Status == "error" && !knownPrivilegedError(reply.ErrorCode) {
 		return errors.New("unexpected privileged helper error")
+	}
+	if !validAbortedFailureStage(reply.ErrorCode, reply.FailureStage) {
+		// Reject any unexpected diagnostic payload rather than relaying
+		// untrusted free-form text out of a privileged process.
+		return errors.New("unexpected privileged failure stage")
 	}
 	if err := json.NewEncoder(writer).Encode(reply); err != nil {
 		return err

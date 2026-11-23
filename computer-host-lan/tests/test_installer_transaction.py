@@ -260,6 +260,7 @@ class InstallerBackendTests(unittest.TestCase):
         with self.assertRaises(installer.ControllerError) as error:
             self.backend.run(self.request(), ROOT, corrupted)
         self.assertEqual(error.exception.code, 'aborted')
+        self.assertEqual(error.exception.failure_stage, 'payload')
         self.assertEqual(self.store.public_status()['privileged_transaction_state'], 'none')
         self.assertFalse(self.installed_paths().location(core.SYSTEMD_PATHS[0]).exists())
         self.assertEqual(self.stage_entries(), [])
@@ -270,6 +271,7 @@ class InstallerBackendTests(unittest.TestCase):
             with self.assertRaises(installer.ControllerError) as error:
                 self.backend.run(self.request(), ROOT, self.hashes)
         self.assertEqual(error.exception.code, 'aborted')
+        self.assertEqual(error.exception.failure_stage, 'payload')
         self.assertEqual(self.stage_entries(), [])
         result = self.backend.run(self.request(), ROOT, self.hashes)
         self.assertEqual(result.status, 'installed')
@@ -280,8 +282,41 @@ class InstallerBackendTests(unittest.TestCase):
             with self.assertRaises(installer.ControllerError) as error:
                 self.backend.run(self.request(), ROOT, self.hashes)
         self.assertEqual(error.exception.code, 'aborted')
+        self.assertEqual(error.exception.failure_stage, 'snapshot')
         self.assertFalse(self.installed_paths().location(core.SYSTEMD_PATHS[0]).exists())
         self.assertEqual(self.store.public_status()['privileged_transaction_state'], 'none')
+
+    def test_preapply_failure_diagnostics_are_only_fixed_stage_codes(self):
+        self.existing_install()
+        scenarios = (
+            ('existing_state', mock.patch.object(
+                installer, 'read_saved_identity',
+                side_effect=installer.ControllerError('unsupported_environment'))),
+            ('plan', mock.patch.object(
+                core, 'generate_plan',
+                side_effect=core.InstallError('fixture internal path must stay private'))),
+        )
+        for stage, context in scenarios:
+            with self.subTest(stage=stage), context:
+                with self.assertRaises(installer.ControllerError) as error:
+                    self.backend.run(self.request('upgrade'), ROOT, self.hashes)
+                self.assertEqual(error.exception.code, 'aborted')
+                self.assertEqual(error.exception.failure_stage, stage)
+                self.assertNotIn('fixture internal path', str(error.exception))
+                self.assertEqual(
+                    self.store.public_status()['privileged_transaction_state'],
+                    'none')
+                self.assertEqual(self.stage_entries(), [])
+
+        for code, stage, expected in (
+            ('aborted', 'payload', 'payload'),
+            ('aborted', '/etc/shadow', None),
+            ('recovery_required', 'snapshot', None),
+            ('invalid_request', 'plan', None),
+            ('aborted', None, None),
+        ):
+            error = installer.ControllerError(code, failure_stage=stage)
+            self.assertEqual(error.failure_stage, expected)
 
     def test_completed_install_with_interrupted_cleanup_does_not_reinstall(self):
         with mock.patch.object(staging, 'finish_terminal_stage',

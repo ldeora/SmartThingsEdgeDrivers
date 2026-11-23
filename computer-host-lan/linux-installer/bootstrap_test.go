@@ -105,6 +105,66 @@ func TestRootInstalledHelperStatusSmoke(t *testing.T) {
 	}
 }
 
+func TestAbortedPrivilegedFailureStageIsBoundedAndActionable(t *testing.T) {
+	for _, tc := range []struct {
+		stage string
+		part  string
+	}{
+		{"payload", "payload verification/staging"},
+		{"existing_state", "existing agent/service state"},
+		{"plan", "installation plan"},
+		{"snapshot", "backup snapshot"},
+		{"", "before applying changes"},
+	} {
+		t.Run(tc.stage, func(t *testing.T) {
+			reply := privilegedResult{
+				SchemaVersion: 1, Operation: "upgrade", Status: "error",
+				ErrorCode: "aborted", FailureStage: tc.stage,
+			}
+			wire, err := json.Marshal(reply)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got, err := validatedPrivilegedReply(wire, "upgrade")
+			if err != nil || got.FailureStage != tc.stage {
+				t.Fatalf("Valid fixed aborted stage rejected: %+v %v", got, err)
+			}
+			_, userErr := interpretPrivilegedExecution(wire, errors.New("helper refused"),
+				"upgrade")
+			if userErr == nil || !strings.Contains(userErr.Error(), tc.part) {
+				t.Fatalf("No safe stage-specific error: %v", userErr)
+			}
+		})
+	}
+	for _, tc := range []struct{ code, stage string }{
+		{"aborted", "/etc/shadow"},
+		{"aborted", "free-form internal exception"},
+		{"invalid_request", "payload"},
+		{"recovery_required", "snapshot"},
+		{"rolled_back", "existing_state"},
+	} {
+		reply := privilegedResult{
+			SchemaVersion: 1, Operation: "upgrade", Status: "error",
+			ErrorCode: tc.code, FailureStage: tc.stage,
+		}
+		wire, err := json.Marshal(reply)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := validatedPrivilegedReply(wire, "upgrade"); err == nil {
+			t.Fatalf("Untrusted failure stage was accepted: %+v", tc)
+		}
+		var stdout bytes.Buffer
+		if err := relayHelperResponse(&stdout, "upgrade", reply, errors.New("refused"));
+			err == nil {
+			t.Fatalf("Root bootstrap leaked untrusted stage: %+v", tc)
+		}
+		if stdout.Len() != 0 {
+			t.Fatal("Root bootstrap must not serialize a malformed stage")
+		}
+	}
+}
+
 func TestTrustedHelperMissingPythonErrorIsSanitized(t *testing.T) {
 	request := privilegedRequest{SchemaVersion: 1, Action: "status"}
 	cmd := exec.Command("/bin/sh", "-c",

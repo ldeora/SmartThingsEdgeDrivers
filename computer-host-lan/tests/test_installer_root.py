@@ -5,6 +5,7 @@ Never elevate, invoke sudo, read a live manifest or modify the host.
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import os
 from pathlib import Path
@@ -189,6 +190,32 @@ class RootProtocolTests(unittest.TestCase):
             with self.subTest(payload=payload[:48]):
                 with self.assertRaises(bridge.RequestError):
                     bridge.parse_request(payload)
+
+    def test_root_abort_response_has_only_fixed_preapply_stage(self):
+        import installer_transaction as engine
+
+        body = json.dumps(dict(schema_version=1, action='upgrade',
+                               source='/usr/libexec/computer-host-lan/payload',
+                               power='preserve', wol_interface=None)).encode()
+        for stage in ('payload', 'existing_state', 'plan', 'snapshot'):
+            with self.subTest(stage=stage), \
+                    mock.patch.dict(os.environ, {}, clear=False), \
+                    mock.patch.object(bridge, '_read_root_manifest',
+                                      return_value=self.manifest), \
+                    mock.patch.object(bridge, 'dispatch', side_effect=(
+                        engine.ControllerError('aborted', failure_stage=stage))), \
+                    mock.patch.object(bridge.sys, 'stdin',
+                                      mock.Mock(buffer=io.BytesIO(body))), \
+                    mock.patch.object(bridge, '_reply') as reply:
+                rc = bridge.main(['--request-stdin', '--selected-python',
+                                  '/usr/sbin/python3'])
+                self.assertEqual(rc, 3)
+                result = reply.call_args.args[0]
+                self.assertEqual(result['error_code'], 'aborted')
+                self.assertEqual(result['failure_stage'], stage)
+                self.assertFalse(result['secrets_included'])
+                self.assertNotIn('source', result)
+                self.assertNotIn('identity', result)
 
     def test_trusted_manifest_must_have_all_ten_lowercase_hashes(self):
         data = dict(schema_version=1, agent_version='0.4.6-rc.2',
