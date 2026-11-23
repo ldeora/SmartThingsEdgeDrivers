@@ -73,6 +73,24 @@ class RootProtocolTests(unittest.TestCase):
                 self.assertEqual(source, Path('/home/user/computer-host-lan'))
                 self.assertEqual(hashes, self.files)
 
+    def test_privileged_upgrade_dispatch_with_gentoo_python_exec_path(self):
+        # This path was missing from InstallerBackend's independent request
+        # validation even though the trusted shell selected it successfully.
+        # Dispatch uses sys.executable; validate that resulting request
+        # without running root, systemd or altering any host files.
+        for python in ('/usr/sbin/python3', '/usr/bin/python3.14',
+                       '/sbin/python3.12', '/bin/python3.11'):
+            with self.subTest(python=python), mock.patch.object(
+                    bridge.sys, 'executable', python):
+                reply = bridge.dispatch(self.parse(
+                    action='upgrade', power='preserve', wol_interface=None),
+                    self.manifest, backend=self.backend, journal=self.journal)
+                self.assertEqual(reply['status'], 'installed')
+                request, source, hashes = self.backend.calls[-1]
+                request.validate()
+                self.assertEqual(request.python_bin, python)
+                self.assertEqual(request.expected_version, '0.4.6-rc.2')
+
     def test_status_and_recovery_never_include_private_journal_state(self):
         for action in ('status', 'recover'):
             req = bridge.parse_request(

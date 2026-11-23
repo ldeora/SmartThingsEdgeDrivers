@@ -143,6 +143,34 @@ its protected status. No live agent is touched by those CI tests.
 The physical host still requires a fresh supervised upgrade test after
 the repaired reviewed binary is rebuilt.
 
+### Follow-up from the second physical attempt: Python backend guard
+
+After updating to the corrected shell launcher, the second `hydra` test
+with `-live -install -accessible -elevation su` passed the interactive
+wizard and root-owned helper selection but returned the protected fixed
+error `invalid_request`. The backend has an **independent** validation
+of `InstallRequest.python_bin`: it previously allowed only
+`/usr/bin/` and `/bin/`, even though the shell launcher already allowed
+`/usr/sbin/` and `/sbin/`. The selected Python entrypoint is provided
+internally as `sys.executable`; no arbitrary interpreter is supplied
+from the wizard request. This mismatch can reject valid Gentoo Python
+wrappers in the backend after the launcher successfully authenticates.
+
+The backend now uses the same four fixed system prefixes as the shell.
+It still disallows relative paths, traversal, spaces and interpreters
+outside those prefixes. A fixture-only full v2 upgrade regression runs
+with `python_bin=/usr/sbin/python3`, existing private identity, and
+active/enabled service state. A separate privileged-router regression
+checks the dispatch path using the same Gentoo interpreter value.
+These tests do not invoke a real agent or systemd.
+
+The `invalid_request` code can also originate from other preflight
+checks, so **this mismatch is a verified defect, but its causal role
+on hydra must be confirmed with root-side interpreter-path and journal
+status checks before repeating the actual upgrade**. The second
+physical attempt has not yet been shown to preserve the host journal
+state; avoid starting a third upgrade until those checks pass.
+
 ## Version-pinned Go binary as the bootstrap trust anchor
 
 The downloaded Go executable must be verified against a trustworthy

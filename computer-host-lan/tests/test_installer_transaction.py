@@ -136,6 +136,44 @@ class InstallerBackendTests(unittest.TestCase):
             return []
         return sorted(x.name for x in self.staging_dir.iterdir() if x.name != 'stage.lock')
 
+    def test_privileged_request_accepts_exact_fixed_system_python_directories(self):
+        # The shell root launcher trusts these same four system directories.
+        # Gentoo python-exec may expose /usr/sbin/python3, while other
+        # distributions may report /usr/bin/python3.N.
+        allowed = (
+            '/usr/sbin/python3', '/usr/bin/python3.14',
+            '/sbin/python3.12', '/bin/python3.11',
+        )
+        for python in allowed:
+            with self.subTest(python=python):
+                self.request('upgrade', python_bin=python,
+                             expected_version='0.4.6-rc.2').validate()
+
+        forbidden = (
+            '/tmp/python3', '/home/user/python3',
+            '/usr/local/bin/python3', '/usr/bin/../tmp/python3',
+            '/usr/sbin/../../tmp/python3', 'python3', '/usr/bin/python 3',
+        )
+        for python in forbidden:
+            with self.subTest(python=python), self.assertRaises(
+                    installer.ControllerError) as error:
+                self.request('upgrade', python_bin=python).validate()
+            self.assertEqual(error.exception.code, 'invalid_request')
+
+    def test_gentoo_sbin_interpreter_completes_fixture_upgrade(self):
+        # Regression for the first physical Gentoo upgrade that returned
+        # invalid_request after shell bootstrap succeeded. All filesystem
+        # writes and service calls stay within the disposable test fixture.
+        self.existing_install(active=True, enabled=True)
+        outcome = self.backend.run(self.request(
+            'upgrade', python_bin='/usr/sbin/python3',
+            expected_version='0.4.6-rc.2'), ROOT, self.hashes)
+        self.assertEqual(outcome.status, 'installed')
+        self.assertEqual(outcome.identity_preserved, 'verified')
+        self.assertEqual(self.services.received_request.python_bin, '/usr/sbin/python3')
+        self.assertEqual(self.store.public_status()['privileged_transaction_state'], 'none')
+        self.assertEqual(self.stage_entries(), [])
+
     def test_install_applies_actual_plan_and_cleans_transaction(self):
         # The new agent files and the unit templates are REALLY installed
         # by install_core into the fake root, with no real systemd call.

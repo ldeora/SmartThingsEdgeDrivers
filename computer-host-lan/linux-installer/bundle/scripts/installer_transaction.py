@@ -32,6 +32,8 @@ _PREAPPLY = frozenset(('INSPECTED', 'STAGED', 'SNAPSHOTTED'))
 _APPLIED = frozenset(('APPLYING', 'ACTIVATING', 'VERIFYING'))
 _ALLOWED_OPS = frozenset(('install', 'upgrade', 'repair'))
 _PYTHON_PATH = re.compile(r'/[A-Za-z0-9_./+-]+\Z')
+# Keep in sync with the fixed PATH allowlist in installer-entry.sh.
+_TRUSTED_PYTHON_PREFIXES = ('/usr/sbin/', '/usr/bin/', '/sbin/', '/bin/')
 _IFNAME = re.compile(r'[A-Za-z0-9_.-]{1,15}\Z')
 
 
@@ -73,9 +75,12 @@ class InstallRequest:
         if (not isinstance(self.python_bin, str) or
                 not _PYTHON_PATH.fullmatch(self.python_bin) or
                 '..' in Path(self.python_bin).parts or
-                not self.python_bin.startswith(('/usr/bin/', '/bin/'))):
-            # The future root launcher must pin an independently selected
-            # trusted system interpreter, never an arbitrary user path.
+                not self.python_bin.startswith(_TRUSTED_PYTHON_PREFIXES)):
+            # Accept only the same four fixed, root-controlled PATH
+            # directories as installer-entry.sh. On Gentoo, python-exec
+            # may expose an /usr/sbin/python3 wrapper; rejecting it here
+            # after the shell accepted it makes real upgrades fail.
+            # Never accept an arbitrary user-provided Python path.
             raise ControllerError('invalid_request')
         if not runtime_verify.valid_version(self.expected_version):
             raise ControllerError('invalid_request')
