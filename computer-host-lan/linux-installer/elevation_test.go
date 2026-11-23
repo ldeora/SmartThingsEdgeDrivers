@@ -137,7 +137,7 @@ func TestRootBootstrapRelaysHelperFailureAsJSONWithNonzeroExit(t *testing.T) {
 		t.Fatalf("Error envelope corrupted: %+v", parsed)
 	}
 	for _, tc := range []struct {
-		err error
+		err  error
 		want string
 	}{
 		{errInstallerBusy, "installation_busy"},
