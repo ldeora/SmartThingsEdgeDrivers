@@ -77,8 +77,11 @@ def _validate(data: object) -> dict:
         raise UnsafeJournal('invalid snapshot reference')
     needs_snapshot = data['phase'] in ('SNAPSHOTTED', 'APPLYING', 'ACTIVATING',
                                       'VERIFYING', 'COMMITTED', 'ROLLED_BACK')
-    if needs_snapshot != (snapshot is not None):
-        raise UnsafeJournal('missing or unexpected snapshot reference')
+    if needs_snapshot and snapshot is None:
+        raise UnsafeJournal('missing snapshot reference')
+    if data['phase'] in ('INSPECTED', 'STAGED') and snapshot is not None:
+        raise UnsafeJournal('unexpected snapshot reference')
+    # ABORTED may retain a pre-apply snapshot for forensic inspection.
     return data
 
 
@@ -129,8 +132,9 @@ def _open_directory(root: Path, owner_uid: int, *, create: bool) -> int | None:
             os.close(fd)
 
 
-def _open_lock(directory: int, owner_uid: int, *, create: bool) -> int | None:
-    flags = os.O_RDWR | os.O_NONBLOCK | os.O_NOFOLLOW | os.O_CLOEXEC
+def _open_lock(directory: int, owner_uid: int, *, create: bool,
+               read_only: bool = False) -> int | None:
+    flags = (os.O_RDONLY if read_only else os.O_RDWR) | os.O_NONBLOCK | os.O_NOFOLLOW | os.O_CLOEXEC
     try:
         fd = os.open(_LOCK, flags | (os.O_CREAT if create else 0),
                      0o600, dir_fd=directory)
@@ -284,13 +288,21 @@ class TransactionHandle:
         _write(self._directory, dict(current, phase=next_phase,
                                      snapshot_name=new_snapshot))
 
-    def abort(self) -> None:
-        """Abort pre-apply work only. Never claim partial changes were undone."""
+    def abort(self, verify_unmodified: Callable[[str | None], bool] | None = None) -> None:
+        """Abort before APPLYING, only after resolving uncertain writes.
+
+        With interrupted temporary journal writes, trusted recovery code
+        must first confirm that managed state is unchanged; a boolean alone
+        is not accepted as a proof. No source/tree mutation is performed.
+        """
         current = self._record()
         if current['phase'] not in ('INSPECTED', 'STAGED', 'SNAPSHOTTED'):
             raise JournalConflict('only a pre-apply transaction can be aborted')
-        if _leftovers(self._directory):
-            raise JournalConflict('uncertain journal write requires recovery')
+        if _leftovers(self._directory) and (
+            not callable(verify_unmodified) or
+            verify_unmodified(current['snapshot_name']) is not True
+        ):
+            raise JournalConflict('interrupted write has not been reconciled')
         _write(self._directory, dict(current, phase='ABORTED'))
 
     def mark_rolled_back(self, verify_restored: Callable[[str], bool]) -> None:
@@ -303,8 +315,8 @@ class TransactionHandle:
         current = self._record()
         if current['phase'] not in ('APPLYING', 'ACTIVATING', 'VERIFYING'):
             raise JournalConflict('this transaction has no applied phase to restore')
-        if _leftovers(self._directory):
-            raise JournalConflict('uncertain journal write requires recovery')
+        # A leftover staging file is an uncertainty, not automatically proof
+        # of failure once trusted rollback verification has succeeded.
         if not callable(verify_restored) or (
             verify_restored(current['snapshot_name']) is not True
         ):
@@ -359,7 +371,7 @@ class ProtectedJournal:
         state = 'none'
         if directory is not None:
             try:
-                lockfd = _open_lock(directory, self.owner_uid, create=False)
+                lockfd = _open_lock(directory, self.owner_uid, create=False, read_only=True)
                 if lockfd is None:
                     # Absence of a lock with an existing journal/temp is an
                     # anomaly, never evidence of a safely completed install.
