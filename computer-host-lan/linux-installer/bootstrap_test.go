@@ -7,10 +7,67 @@ import (
 	"encoding/json"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+// CI-only root smoke test for the actual installed-only Python entrypoint.
+// Never run against a developer's host or use the installation action.
+// It provisions ONLY the trusted helper bundle in an ephemeral GitHub runner.
+func TestRootInstalledHelperStatusSmoke(t *testing.T) {
+	if os.Getenv("GITHUB_ACTIONS") != "true" ||
+		os.Getenv("COMPUTER_HOST_CI_ROOT_SMOKE") != "1" {
+		t.Skip("only invoked explicitly on a disposable GitHub Actions runner")
+	}
+	if os.Geteuid() != 0 {
+		t.Fatal("root smoke must run with the expected GitHub Actions sudo context")
+	}
+	if _, err := os.Lstat(trustedDir); err == nil {
+		t.Fatal("refusing to overwrite a previously installed trusted helper")
+	} else if !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+	for _, suffix := range []string{".next", ".previous", ".failed"} {
+		if _, err := os.Lstat(trustedDir + suffix); err == nil {
+			t.Fatal("refusing to disturb an existing helper staging artifact")
+		} else if !os.IsNotExist(err) {
+			t.Fatal(err)
+		}
+	}
+	t.Cleanup(func() {
+		// Only the exclusive, just-created CI helper path can be removed.
+		// Do not touch /var/lib/linux-host-agent or managed systemd units.
+		if err := os.RemoveAll(trustedDir); err != nil {
+			t.Errorf("unable to clean CI-only root helper fixture: %v", err)
+		}
+	})
+	changed, err := prepareTrustedVersion(trustedDir, trustedLock, 0,
+		func() (string, error) {
+			t.Fatal("fresh root fixture must not call an old installed helper")
+			return "", nil
+		})
+	if err != nil || changed {
+		t.Fatalf("failed to stage CI root helper: changed=%t err=%v", changed, err)
+	}
+	request := privilegedRequest{SchemaVersion: 1, Action: "status"}
+	reply, helperErr := runInstalledHelper(trustedDir, request)
+	if helperErr != nil || reply.Status != "passed" ||
+		reply.PrivilegedTransactionState != "none" {
+		// This runner has no agent installation or protected state.
+		// On failure the captured stderr is exclusively from ephemeral
+		// CI helper code; never perform this diagnostic on a user's host.
+		cmd := exec.Command("/bin/sh", filepath.Join(trustedDir, "installer-entry.sh"), "--request-stdin")
+		cmd.Stdin = strings.NewReader(`{"schema_version":1,"action":"status"}`)
+		cmd.Env = []string{"PATH=/usr/sbin:/usr/bin:/sbin:/bin", "HOME=/root", "LANG=C", "LC_ALL=C"}
+		var out, stderr cappedBuffer
+		cmd.Stdout, cmd.Stderr = &out, &stderr
+		processErr := cmd.Run()
+		t.Fatalf("root-installed read-only status failed: helperErr=%v, reply=%+v, processErr=%v, stdout=%q, stderr=%q",
+			helperErr, reply, processErr, out.Bytes(), stderr.Bytes())
+	}
+}
 
 func TestEmbeddedFilesMatchAuthoritativeRepository(t *testing.T) {
 	if err := validateEmbeddedBundle(); err != nil {
