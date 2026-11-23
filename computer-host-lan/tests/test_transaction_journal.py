@@ -304,6 +304,61 @@ class ProtectedJournalTests(unittest.TestCase):
             tx.clear_finished()
         self.assertEqual(self.store.public_status()['privileged_transaction_state'], 'none')
 
+    def test_stale_journal_handle_cannot_hide_failed_update_or_cleanup(self):
+        # Reproduce the Gentoo/Btrfs pre-population directory stream:
+        # a descriptor opened before .wizard-journal-* was written still
+        # sees the old entries, while a freshly opened stream sees it.
+        original_listdir = os.listdir
+
+        with self.store.begin('install') as tx:
+            original_directory = tx._directory
+
+            def stale_listdir(fd):
+                names = original_listdir(fd)
+                if fd == original_directory:
+                    return [name for name in names
+                            if not name.startswith('.wizard-journal-')]
+                return names
+
+            with mock.patch.object(journal.os, 'listdir', side_effect=stale_listdir):
+                with mock.patch.object(journal.os, 'replace',
+                                       side_effect=OSError('simulated EIO')):
+                    with self.assertRaises(journal.UnsafeJournal):
+                        tx.advance('INSPECTED', 'STAGED')
+                self.assertTrue(any(n.startswith('.wizard-journal-')
+                                    for n in original_listdir(self.directory)))
+                # A failed journal write must NEVER look clean even when
+                # the lifetime-held descriptor returns a stale listing.
+                with self.assertRaises(journal.JournalConflict):
+                    tx.advance('INSPECTED', 'STAGED')
+                with self.assertRaises(journal.JournalConflict):
+                    tx.abort(lambda _: False)
+                tx.abort(lambda _: True)
+                tx.clear_finished()
+
+        self.assertFalse(any(n.startswith('.wizard-journal-')
+                             for n in os.listdir(self.directory)))
+        self.assertEqual(self.store.public_status()['privileged_transaction_state'], 'none')
+
+    def test_stale_journal_handle_clear_finished_reaps_new_temp_marker(self):
+        original_listdir = os.listdir
+        with self.store.begin('install') as tx:
+            original_directory = tx._directory
+            tx.abort()
+            marker = self.directory / ('.wizard-journal-' + 'c' * 32)
+            marker.write_bytes(b'simulated leftover')
+            marker.chmod(0o600)
+
+            def stale_listdir(fd):
+                names = original_listdir(fd)
+                if fd == original_directory:\n                    return [name for name in names\n                            if not name.startswith('.wizard-journal-')]\n                return names
+
+            with mock.patch.object(journal.os, 'listdir', side_effect=stale_listdir):
+                tx.clear_finished()
+
+        self.assertFalse(marker.exists())
+        self.assertEqual(self.store.public_status()['privileged_transaction_state'], 'none')
+
     def test_failed_initial_write_requires_verified_orphan_reconciliation(self):
         with mock.patch.object(journal.os, 'replace', side_effect=OSError('simulated')):
             with self.assertRaises(journal.UnsafeJournal):
