@@ -154,11 +154,11 @@ class RuntimeVerifierTests(unittest.TestCase):
         self.assertIsNone(rv._parse_http_json(http_response(b'[]')))
         self.assertIsNone(rv._parse_http_json(http_response(b'X' * (rv.MAX_RESPONSE + 1))))
         self.assertIsNone(rv._parse_http_json(good.replace(
-            b'Connection: close', b'Content-Length: 2\\r\\nConnection: close')))
+            b'Connection: close', b'Content-Length: 2\r\nConnection: close')))
         self.assertIsNone(rv._parse_http_json(good.replace(
-            b'Connection: close', b'Transfer-Encoding: chunked\\r\\nConnection: close')))
+            b'Connection: close', b'Transfer-Encoding: chunked\r\nConnection: close')))
         self.assertIsNone(rv._parse_http_json(good.replace(
-            b'Connection: close', b'Content-Encoding: gzip\\r\\nConnection: close')))
+            b'Connection: close', b'Content-Encoding: gzip\r\nConnection: close')))
         self.assertIsNone(rv._parse_http_json(good.replace(
             b'Content-Length: ' + str(len(json.dumps(INFO).encode())).encode(),
             b'Content-Length: 99999999')))
