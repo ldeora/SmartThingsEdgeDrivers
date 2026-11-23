@@ -20,6 +20,7 @@ import re
 import shutil
 import stat
 import subprocess
+import sys
 import tempfile
 
 SYSTEMD_PATHS = (
@@ -501,20 +502,33 @@ def run_cli(argv=None) -> int:
     parser.add_argument('--enable-power', action='store_true')
     parser.add_argument('--disable-power', action='store_true')
     parser.add_argument('--wol-interface', default=None)
+    parser.add_argument('--adopt-retained-state', action='store_true',
+                        help='expert-only: confirm orphaned state belongs to v2; no managed files')
     args = parser.parse_args(argv)
     if os.geteuid() != 0 and not (args.plan or args.check_existing):
         parser.error('must run as root')
+    if args.adopt_retained_state and not (args.install or args.plan or args.check_existing):
+        parser.error('--adopt-retained-state only applies to installation and read-only checks')
     if (args.install or args.plan) and (not args.source or not args.python_bin):
         parser.error('installation needs --source and --python')
     if args.enable_power and args.disable_power:
         parser.error('power enable/disable flags conflict')
-    if args.wol_interface and (len(args.wol_interface) > 15 or not args.wol_interface.replace('-', '').replace('_', '').replace('.', '').isalnum()):
+    if args.wol_interface and (len(args.wol_interface) > 15 or
+            not args.wol_interface.replace('-', '').replace('_', '').replace('.', '').isalnum()):
         parser.error('invalid Ethernet interface name')
+
     if args.check_existing:
-        require_v2_or_clean()
+        try:
+            require_v2_or_clean(adopt_retained_state=args.adopt_retained_state)
+        except InstallError as exc:
+            print(f'Existing agent check failed: {exc}', file=sys.stderr)
+            return 2
         return 0
     if args.plan:
-        require_v2_or_clean()
+        existing = require_v2_or_clean(adopt_retained_state=args.adopt_retained_state)
+        if existing == 'adopted':
+            print('WARNING: explicit adoption requested; verify retained identity belongs to v2.',
+                  file=sys.stderr)
         trans = InstallTransaction()
         changes = generate_plan(args.source, args.python_bin, enable_power=args.enable_power,
                                 disable_power=args.disable_power, wol_interface=args.wol_interface,
@@ -527,32 +541,47 @@ def run_cli(argv=None) -> int:
             print(f'[PLAN] {operation}: {change.path}')
         print('Dry run only: no files, services, firewall or WOL settings changed.')
         return 0
-    # Check before creating/chmodding the backup directory or lockfile. The
-    # read-only guard must not itself mutate a legacy or unknown installation.
-    require_v2_or_clean()
-    backup_base = Path(BACKUP_BASE).resolve()
-    backup_base.mkdir(parents=True, exist_ok=True, mode=0o700)
-    os.chmod(backup_base, 0o700)
+
     trans = InstallTransaction()
+    backup_target = None
+    if args.rollback:
+        # Recovery is evaluated against the protected SNAPSHOT, not current
+        # damaged files. Validate before touching backup dirs or lockfiles.
+        backup_base_path = Path(BACKUP_BASE)
+        if backup_base_path.is_symlink() or args.rollback.is_symlink():
+            raise InstallError('Refusing linked backup location')
+        backup_base = backup_base_path.resolve(strict=True)
+        backup_target = args.rollback.resolve(strict=True)
+        if backup_target.parent != backup_base or backup_target.is_symlink():
+            raise InstallError('Backup must be a direct child of ' + str(backup_base))
+        validate_v2_backup(backup_target)
+    else:
+        # Fail before creating a backup directory or installation lock.
+        require_v2_or_clean(adopt_retained_state=args.adopt_retained_state)
+        backup_base = Path(BACKUP_BASE)
+        if backup_base.is_symlink():
+            raise InstallError('Refusing linked backup directory')
+        backup_base.mkdir(parents=True, exist_ok=True, mode=0o700)
+        os.chmod(backup_base, 0o700)
+
     lockfile = Path('/run/lock/linux-host-agent-install.lock')
     lockfile.parent.mkdir(parents=True, exist_ok=True)
     with lockfile.open('a+') as lock:
         fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
-        # Check again after acquiring the lock. Nothing is removed, backed up,
-        # or restarted if the payload is v1 or its owner is ambiguous.
-        require_v2_or_clean()
         if args.rollback:
-            # Reject symlink input *before* resolving it, and constrain the
-            # resulting path to a direct child of the root-only backup base.
-            if args.rollback.is_symlink():
-                raise InstallError('Refusing symlinked backup path')
-            target = args.rollback.resolve(strict=True)
-            if target.parent != backup_base or target.is_symlink():
-                raise InstallError('Backup must be a direct child of ' + str(backup_base))
-            previous = trans.restore(target)
+            # Revalidate backup contents under the lock before any restore.
+            validate_v2_backup(backup_target)
+            # Old v2 backups may predate owner records. A verified v2 source
+            # is sufficient to establish our responsibility for restoration.
+            write_owner_record()
+            previous = trans.restore(backup_target)
             restore_services(previous)
-            print(f'Restored backup {target}; persistent ID, token and WOL unchanged.')
+            print(f'Restored backup {backup_target}; persistent ID, token and WOL unchanged.')
             return 0
+
+        # Detection is repeated while holding the lock: scripts should not
+        # race each other to adopt, delete, or replace the same managed paths.
+        existing = require_v2_or_clean(adopt_retained_state=args.adopt_retained_state)
         previous = dict(first_install=not trans.location(SYSTEMD_PATHS[0]).exists(),
                         agent_active=state('linux-host-agent.service','is-active'),
                         agent_enabled=state('linux-host-agent.service','is-enabled'),
@@ -565,6 +594,13 @@ def run_cli(argv=None) -> int:
                                 is_existing_power=is_existing_power,
                                 avahi_dir=Path('/etc/avahi/services').is_dir(),
                                 uninstall=args.uninstall)
+        if existing == 'adopted':
+            print('WARNING: explicit retained v2 state adoption. Existing SmartThings ID/key '
+                  'will be preserved; no v1 migration is supported.', file=sys.stderr)
+        # Persist *v2 intent* before activating systemd. On a failed first
+        # activation, systemd can already have created the retained state
+        # directory; the marker then authorizes a safe retry after rollback.
+        write_owner_record()
         backup = trans.snapshot(changes, previous=previous)
         print(f'Recovery snapshot: {backup}', flush=True)
         try:
@@ -580,6 +616,9 @@ def run_cli(argv=None) -> int:
         except Exception as exc:
             print(f'Activation/install error: {type(exc).__name__}; restoring {backup}', flush=True)
             try:
+                # The just-created snapshot is v2-provenanced even if the
+                # current files are half-replaced.
+                validate_v2_backup(backup)
                 trans.restore(backup)
                 restore_services(previous)
             except Exception as recovery_error:
@@ -587,7 +626,8 @@ def run_cli(argv=None) -> int:
             raise
         print(f'Backup saved: {backup}')
         if args.uninstall:
-            print('Managed files removed; user, persistent UUID, control token, WOL and backups retained.')
+            print('Managed files removed; v2 installer ownership, persistent UUID, '
+                  'control token, WOL and backups retained.')
         else:
             print('Agent installed/upgraded; persistent UUID and key retained.')
         return 0
