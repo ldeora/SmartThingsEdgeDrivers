@@ -60,7 +60,8 @@ class RootProtocolTests(unittest.TestCase):
                                      wol_interface='enp1s0f0')
                 response = bridge.dispatch(request, self.manifest,
                                            backend=self.backend,
-                                           journal=self.journal)
+                                           journal=self.journal,
+                                           selected_python='/usr/bin/python3')
                 self.assertEqual(response['status'], 'installed')
                 self.assertFalse(response['secrets_included'])
                 saved, source, hashes = self.backend.calls[-1]
@@ -73,23 +74,69 @@ class RootProtocolTests(unittest.TestCase):
                 self.assertEqual(source, Path('/home/user/computer-host-lan'))
                 self.assertEqual(hashes, self.files)
 
-    def test_privileged_upgrade_dispatch_with_gentoo_python_exec_path(self):
-        # This path was missing from InstallerBackend's independent request
-        # validation even though the trusted shell selected it successfully.
-        # Dispatch uses sys.executable; validate that resulting request
-        # without running root, systemd or altering any host files.
-        for python in ('/usr/sbin/python3', '/usr/bin/python3.14',
-                       '/sbin/python3.12', '/bin/python3.11'):
-            with self.subTest(python=python), mock.patch.object(
-                    bridge.sys, 'executable', python):
-                reply = bridge.dispatch(self.parse(
-                    action='upgrade', power='preserve', wol_interface=None),
-                    self.manifest, backend=self.backend, journal=self.journal)
-                self.assertEqual(reply['status'], 'installed')
-                request, source, hashes = self.backend.calls[-1]
-                request.validate()
-                self.assertEqual(request.python_bin, python)
-                self.assertEqual(request.expected_version, '0.4.6-rc.2')
+    def test_privileged_upgrade_uses_shell_path_not_gentoo_sys_executable(self):
+        # Actual hydra result: shell selected /usr/sbin/python3, but
+        # sys.executable under Gentoo python-exec is NOT in that location.
+        # The trusted shell's explicit handoff must win, while the
+        # transaction engine's fixed system-dir allowlist remains strict.
+        with mock.patch.object(
+                bridge.sys, 'executable',
+                '/usr/lib/python-exec/python3.14/python3'):
+            reply = bridge.dispatch(
+                self.parse(action='upgrade', power='preserve',
+                           wol_interface=None),
+                self.manifest, backend=self.backend, journal=self.journal,
+                selected_python='/usr/sbin/python3')
+            self.assertEqual(reply['status'], 'installed')
+            request, source, hashes = self.backend.calls[-1]
+            request.validate()
+            self.assertEqual(request.python_bin, '/usr/sbin/python3')
+            self.assertEqual(request.expected_version, '0.4.6-rc.2')
+
+    def test_selected_python_handoff_is_exact_and_required_for_install(self):
+        names = ('python3', 'python3.14', 'python3.13',
+                 'python3.12', 'python3.11', 'python3.10')
+        for root in ('/usr/sbin', '/usr/bin', '/sbin', '/bin'):
+            for name in names:
+                path = root + '/' + name
+                self.assertEqual(
+                    bridge.selected_python_from_argv(
+                        ['--request-stdin', '--selected-python', path]),
+                    path)
+
+        self.assertIsNone(bridge.selected_python_from_argv(
+            ['--request-stdin']))  # read-only legacy status is still allowed
+        bridge.validate_python_handoff({'action': 'status'}, None)
+        for action in ('install', 'upgrade', 'repair', 'recover'):
+            with self.subTest(action=action), self.assertRaises(bridge.RequestError):
+                bridge.validate_python_handoff({'action': action}, None)
+        bridge.validate_python_handoff({'action': 'upgrade'}, '/usr/sbin/python3')
+        for argv in (
+            [], ['--selected-python', '/usr/sbin/python3'],
+            ['--request-stdin', '--selected-python'],
+            ['--request-stdin', '--selected-python',
+             '/usr/lib/python-exec/python3.14/python3'],
+            ['--request-stdin', '--selected-python', '/tmp/python3'],
+            ['--request-stdin', '--selected-python', '/usr/local/bin/python3'],
+            ['--request-stdin', '--selected-python', '/usr/bin/../sbin/python3'],
+            ['--request-stdin', '--selected-python', '/usr/bin/python3',
+             'extra'],
+        ):
+            with self.subTest(argv=argv), self.assertRaises(bridge.RequestError):
+                bridge.selected_python_from_argv(argv)
+
+        # An attacker or a stale direct root entry cannot trigger an
+        # install using the legacy status-only argv mode.
+        with self.assertRaises(bridge.RequestError):
+            bridge.dispatch(self.parse(action='upgrade'),
+                            self.manifest, backend=self.backend,
+                            journal=self.journal)
+
+        # Status and recovery are independent of Python systemd selection.
+        self.assertEqual(
+            bridge.dispatch({'action': 'status'}, self.manifest,
+                            backend=self.backend, journal=self.journal)['status'],
+            'passed')
 
     def test_status_and_recovery_never_include_private_journal_state(self):
         for action in ('status', 'recover'):
@@ -214,6 +261,7 @@ class RootProtocolTests(unittest.TestCase):
         self.assertIn('sys.version_info >= (3, 10)', selector)
         self.assertIn(' -I -S -B -c ', shell)
         self.assertIn('exec "$PYTHON_BIN" -I -S -B', shell)
+        self.assertIn('--request-stdin --selected-python "$PYTHON_BIN"', shell)
         self.assertIn('/usr/libexec/computer-host-lan/installer_root.py', shell)
         # Actual POSIX-shell syntax check in CI, including Python 3.10 runner.
         check = subprocess.run(['/bin/sh', '-n', str(ROOT / 'scripts/installer-entry.sh')],

@@ -164,12 +164,33 @@ active/enabled service state. A separate privileged-router regression
 checks the dispatch path using the same Gentoo interpreter value.
 These tests do not invoke a real agent or systemd.
 
-The `invalid_request` code can also originate from other preflight
-checks, so **this mismatch is a verified defect, but its causal role
-on hydra must be confirmed with root-side interpreter-path and journal
-status checks before repeating the actual upgrade**. The second
-physical attempt has not yet been shown to preserve the host journal
-state; avoid starting a third upgrade until those checks pass.
+The next physical read-only check gave the decisive Gentoo interpreter
+values: the root launcher selects `/usr/sbin/python3`, but Python's own
+`sys.executable` is **`/usr/lib/python-exec/python3.14/python3`**.
+Therefore the second attempt still returned `invalid_request`, and the
+initial four-prefix fix on `InstallRequest` alone was insufficient.
+
+**Corrected shell-to-Python handoff:** `installer-entry.sh` now supplies
+`--selected-python "$PYTHON_BIN"` when executing the fixed root-owned
+`installer_root.py`. This is the *same interpreter* already checked
+under the fixed PATH with Python 3.10+ and `-I -S -B`. The Python
+entrypoint verifies the argument is an exact member of the 24 fixed
+system-directory/candidate-name combinations and hands it to the
+transaction backend for systemd unit generation. It does **not** use
+`sys.executable` or allow arbitrary `/usr/lib` executables. It still
+rejects a missing handoff for install/upgrade/repair, while permitting
+the old `--request-stdin` form only for the trusted read-only
+`status` action. Explicit `recover` also requires the new trusted
+interpreter handoff. The status-only direct
+invocation is needed for the exact known broken launcher recovery gate.
+
+The initial post-failure status check ran the *old installed shell*
+and stopped on its Python-selection error because `set -e` was active.
+That did **not** inspect the protected journal. Before retrying, invoke
+the installed, root-owned Python entrypoint with a fixed system Python
+and **only** a `status` request, confirm transaction state `none`,
+and check active agent/service state. Never delete old helper or journal
+directories manually.
 
 ## Version-pinned Go binary as the bootstrap trust anchor
 

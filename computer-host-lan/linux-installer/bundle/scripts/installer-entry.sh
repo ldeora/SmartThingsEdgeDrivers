@@ -48,8 +48,12 @@ done
   exit 2
 }
 
-# Executable must already be in an independently installed root-owned
-# directory. installer_root.py verifies it and all importable modules again
-# before processing input or taking any installation action.
+# Pass the already validated system command to the trusted Python entry.
+# Gentoo python-exec wrappers may expose a different sys.executable under
+# /usr/lib/python-exec/; that is NOT the fixed PATH command selected above.
+# The Python entry validates this internal argument against an exact allowlist
+# and refuses install/upgrade/repair without it. This is not user input.
+# Installed root ownership and manifest verification remain mandatory.
 exec "$PYTHON_BIN" -I -S -B \
-  /usr/libexec/computer-host-lan/installer_root.py --request-stdin
+  /usr/libexec/computer-host-lan/installer_root.py \
+  --request-stdin --selected-python "$PYTHON_BIN"
