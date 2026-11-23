@@ -256,6 +256,91 @@ class PayloadStagingTests(unittest.TestCase):
             staging.retire_ready(receipt, self.expected)
         self.transaction.clear_finished()
 
+    def test_committed_crash_blocks_next_upgrade_until_stage_retired(self):
+        # A successful install can die after COMMITTED and before removing
+        # ready-<txid>. The next wizard run must retain the old journal,
+        # allowing recovery without manual deletion or losing the txid.
+        with self.stage() as receipt:
+            stage_id = receipt.stage_id
+            self.transaction.advance('INSPECTED', 'STAGED')
+            self.transaction.advance('STAGED', 'SNAPSHOTTED',
+                                     snapshot_name='snapshot-abcdefgh')
+            for before, after in (
+                ('SNAPSHOTTED', 'APPLYING'),
+                ('APPLYING', 'ACTIVATING'),
+                ('ACTIVATING', 'VERIFYING'),
+                ('VERIFYING', 'COMMITTED'),
+            ):
+                self.transaction.advance(before, after)
+        self.transaction.close()  # Simulates abrupt process exit after commit.
+        self.assertEqual(self.journal.public_status()['privileged_transaction_state'],
+                         'recovery_required')
+        with self.assertRaises(journal.JournalConflict):
+            self.journal.begin('upgrade')
+        with self.assertRaises(journal.JournalConflict):
+            self.journal.finish_terminal()
+        self.assertEqual(self.stage_files()[1][0].name, 'ready-' + stage_id)
+        with self.journal.resume_finished_cleanup() as cleanup:
+            self.assertEqual(cleanup.transaction_id, stage_id)
+            staging.finish_retirement(cleanup, root=self.root,
+                                      owner_uid=self.expected_uid)
+            cleanup.clear_finished()
+        self.assertFalse(self.stage_files()[1])
+        with self.journal.begin('upgrade') as next_tx:
+            next_tx.abort()
+            next_tx.clear_finished()
+        self.assertEqual(self.journal.public_status()['privileged_transaction_state'],
+                         'none')
+
+    def test_clear_finished_and_finish_terminal_refuse_live_ready_stage(self):
+        with self.stage() as receipt:
+            self.transaction.abort()
+            with self.assertRaises(journal.JournalConflict):
+                self.transaction.clear_finished()
+            self.assertEqual(len(self.stage_files()[1]), 1)
+            staging.retire_ready(receipt, self.expected)
+            self.transaction.clear_finished()
+        self.assertFalse(self.stage_files()[1])
+
+    def test_pending_stage_must_be_discarded_before_journal_cleanup(self):
+        with mock.patch.object(staging, '_write_file',
+                               side_effect=OSError('interrupted stage')):
+            with self.assertRaises(staging.StagingError):
+                self.stage()
+        self.transaction.abort()
+        with self.assertRaises(journal.JournalConflict):
+            self.transaction.clear_finished()
+        staging.discard_pending(self.transaction, root=self.root,
+                                owner_uid=self.expected_uid)
+        self.transaction.clear_finished()
+        self.transaction.close()
+        with self.journal.begin('repair') as fresh:
+            fresh.abort()
+            fresh.clear_finished()
+
+    def test_crash_after_ready_before_staged_phase_can_resume(self):
+        with self.stage() as receipt:
+            stage_id = receipt.stage_id
+            with self.assertRaises(staging.StagingConflict):
+                receipt.verified_source_path(self.expected)
+        self.transaction.close()  # Crash between rename and journal advance.
+        with self.journal.resume_recovery() as recovered:
+            self.assertEqual(recovered.transaction_id, stage_id)
+            with staging.recover_ready(self.expected, recovered, root=self.root,
+                                       owner_uid=self.expected_uid) as receipt:
+                receipt.verify(self.expected)
+                with self.assertRaises(staging.StagingConflict):
+                    receipt.verified_source_path(self.expected)
+                recovered.advance('INSPECTED', 'STAGED')
+                source = receipt.verified_source_path(self.expected)
+                self.assertTrue((source / 'scripts/install_core.py').is_file())
+                recovered.abort()
+                staging.retire_ready(receipt, self.expected)
+                recovered.clear_finished()
+        with self.journal.begin('upgrade') as fresh:
+            fresh.abort()
+            fresh.clear_finished()
+
     def test_pending_cleanup_refuses_symlink_and_then_recovers(self):
         with mock.patch.object(staging, '_write_file',
                                side_effect=OSError('simulated interruption')):
