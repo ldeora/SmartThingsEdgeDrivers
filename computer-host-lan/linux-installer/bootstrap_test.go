@@ -6,7 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"io
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
