@@ -199,9 +199,15 @@ func TestFailedHelperSymlinkIsNotRemovedOnRestore(t *testing.T) {
 	root := filepath.Join(parent, "computer-host-lan")
 	previous := root + ".previous"
 	failed := root + ".failed"
-	if err := os.Mkdir(root, 0o700); err != nil { t.Fatal(err) }
-	if err := os.Mkdir(previous, 0o700); err != nil { t.Fatal(err) }
-	if err := os.Symlink(t.TempDir(), failed); err != nil { t.Fatal(err) }
+	if err := os.Mkdir(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(previous, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(t.TempDir(), failed); err != nil {
+		t.Fatal(err)
+	}
 	if err := restorePreviousTrustedVersion(root, os.Geteuid()); err == nil {
 		t.Fatal("Symlinked failed helper was incorrectly removed")
 	}

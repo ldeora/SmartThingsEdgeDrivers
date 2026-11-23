@@ -10,11 +10,11 @@ import (
 
 func TestElevationFallbackOrderAndNoninteractiveRules(t *testing.T) {
 	cases := []struct {
-		name string
-		available []string
+		name        string
+		available   []string
 		interactive bool
-		wantMethod string
-		wantArg string
+		wantMethod  string
+		wantArg     string
 	}{
 		{"sudo preferred", []string{"/usr/bin/sudo", "/usr/bin/doas", "/usr/bin/run0", "/usr/bin/su"}, true, "sudo", "--"},
 		{"sudo no tty", []string{"/usr/bin/sudo"}, false, "sudo", "-n"},
