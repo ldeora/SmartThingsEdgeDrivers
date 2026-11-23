@@ -475,6 +475,34 @@ def generate_plan(source: Path, python_bin: str, *, enable_power: bool,
 _SYSTEMCTL_TIMEOUT_SECONDS = 120  # Bounded per operation, not per transaction.
 
 
+def open_manual_install_lock(path: Path, *, owner_uid: int = 0):
+    """Open the shared manual/wizard flock without following user-supplied links.
+
+    /run/lock may be sticky and world-writable. Existing root-owned 0644
+    legacy locks remain compatible, but symlinks, FIFOs, hardlinks and
+    group/world-writable regular files must never be treated as locks.
+    """
+    fd = None
+    try:
+        fd = os.open(path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW |
+                     os.O_NONBLOCK | os.O_CLOEXEC, 0o600)
+        opened = os.fstat(fd)
+        visible = os.stat(path, follow_symlinks=False)
+        if (not stat.S_ISREG(opened.st_mode) or opened.st_uid != owner_uid or
+                opened.st_nlink != 1 or stat.S_IMODE(opened.st_mode) & 0o022 or
+                (opened.st_dev, opened.st_ino) !=
+                (visible.st_dev, visible.st_ino)):
+            raise InstallError('Unsafe manual installer lock')
+        lock = os.fdopen(fd, 'a+')
+        fd = None
+        return lock
+    except OSError:
+        raise InstallError('Unsafe manual installer lock') from None
+    finally:
+        if fd is not None:
+            os.close(fd)
+
+
 def systemctl(*args: str, check: bool = True) -> subprocess.CompletedProcess:
     # The Go bootstrap does not forcibly kill an APPLYING/rollback
     # transaction. Bound individual systemd calls instead so that Python
@@ -636,7 +664,7 @@ def run_cli(argv=None) -> int:
 
     lockfile = Path('/run/lock/linux-host-agent-install.lock')
     lockfile.parent.mkdir(parents=True, exist_ok=True)
-    with lockfile.open('a+') as lock:
+    with open_manual_install_lock(lockfile) as lock:
         fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
         # Manual commands may run AFTER a wizard crash. The same flock
         # prevents overlap in time but only this guard prevents later
