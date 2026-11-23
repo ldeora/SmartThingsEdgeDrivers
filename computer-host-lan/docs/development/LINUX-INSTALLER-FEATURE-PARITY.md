@@ -8,6 +8,48 @@ Windows Setup, the current Linux shell/Python installer on `main`, and the
 identical; user-visible outcome and the Linux installer's established semantics
 must be preserved. Do not modify `hydra` merely to exercise these tests.
 
+## Goal and priorities
+
+**Goal.** A private Linux computer is installed once, is **discovered by the
+SmartThings hub**, is monitored, and—only if the user opts in—can be shut down,
+restarted, suspended and woken through the Edge driver. Upgrades never change
+the UUID or control key and never require removing or re-adding the SmartThings
+device. The wizard runs rarely, on private computers in a trusted LAN.
+
+**How to weigh decisions.** Correct function of the installed agent and its
+connection to the Edge driver comes first. Security matters where it protects
+correct operation, the privilege boundary or the control key. Avoid hardening
+that adds complexity without making the installation more reliable. Prefer the
+smaller change that keeps existing, working components.
+
+**Success means the hub can use the agent**, not only that a loopback health
+check passed:
+
+- **The hub can discover the agent.** `avahi-daemon` is running and the
+  agent's `_computerhost._tcp` record is published. Treat missing Avahi as
+  blocking onboarding: the only fallback today is editing
+  `edge-driver/src/computerhost/manual_hosts.lua` and redeploying the driver.
+- **The hub can reach the agent.** Where a firewall blocks TCP 8765
+  (firewalld does by default on Fedora Server, the RHEL family and openSUSE),
+  offer an explicit, consented rule scoped to the selected hub IP, with an
+  undo. Never open the port silently. This is what hub selection is for on
+  Linux.
+- **Power control is usable.** Onboarding includes pasting the existing key
+  into the SmartThings device's `controlKey` setting and turning on
+  `allowPower`.
+- **The agent's key is reused,** never generated a second time or rotated.
+
+**Known open items before a live installation** (2026-11-23):
+
+- PR #76: the expected power-socket state differs from `core.activate`, which
+  can roll back a good install; `identity_preserved` is reported as verified
+  for a stopped agent that was never probed.
+- `main` has no v1/v2 coexistence guard (#70 was closed without merging), so
+  a v2 install can overwrite a legacy v1 agent.
+- The manual installer doesn't check the wizard's protected journal.
+- Still to build: the trusted root launcher, elevation, and recovery from a
+  crash after `APPLYING`.
+
 ## Definition of done
 
 A first-time user can download one verified Linux installer, launch it **without
@@ -148,9 +190,12 @@ Legend: **Yes** = existing behavior, **Partial** = incomplete/manual,
 | P12 | Real systemd + SmartThings hub `hydra` | HTTP, discovery, status, metrics, reboot/shutdown/suspend and WOL hardware acceptance |
 | P13 | Firewall blocks hub or custom listener port | Honest detection/guidance, no silent firewall alteration; port consistent across units/Avahi/health |
 | P14 | Unsupported distro/init or missing dependency | Clear, non-mutating stop or warning, no false distribution certification |
+| P15 | Host with firewalld active, real SmartThings hub | After the consented hub-scoped rule, Scan nearby finds the agent and metrics appear; without consent, clear guidance and no change |
+| P16 | Existing installation made by `install-agent.sh` | Wizard upgrade adopts it: same UUID, key, service intent, power setting and SmartThings device |
+| P17 | Legacy v1 `linux-host-lan` installation present | Detected before any change; refused, or offered an explicit planned migration; v1 device keeps working |
 
 **Release gate:** A successful Go read-only preview, shell dry-run, green
-container CI or standalone Setup-like screens do **not** satisfy P01–P14.
+container CI or standalone Setup-like screens do **not** satisfy P01–P17.
 The installer is not a drop-in replacement until the privileged backend,
 runtime verification and post-install onboarding pass in a disposable
 systemd environment and the relevant real-hub checks.
