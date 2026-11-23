@@ -81,7 +81,10 @@ The receipt provides:
   the held handle, require strict file tree/ownership/mode/link checks,
   and rehash **every** file against the trusted caller's hashes
 - `verified_source_path(trusted_hashes)` — an absolute source path only
-  after those identity and content checks, for the future trusted engine
+  after those identity and content checks **and** after the journal has
+  durably entered `STAGED` (or a later nonterminal phase). It refuses
+  `INSPECTED`, `ABORTED`, `ROLLED_BACK` and `COMMITTED` so a crashed
+  or completed stage cannot be treated as executable input
 
 The receipt is process-bound. An inherited receipt in a forked child
 cannot retire or use the parent's stage. Do not fork while holding it:
@@ -116,8 +119,11 @@ not authorization to execute anything.
   available only with the matching **terminal journal** and permits an
   incomplete allowlisted file tree, never execution or source reuse.
   It rejects unsafe or unexpected files. Unlike `recover_ready`,
-  this operation is for deletion **only**. Future root-side controller
-  must invoke it before clearing terminal journal state.
+  this operation is for deletion **only**. Both `discard_pending`
+  and `finish_retirement` can be replayed after their final `rmdir`
+  but before the containing-directory `fsync`, making successful
+  cleanup idempotent. Future root-side controller must complete it
+  before clearing terminal journal state.
 
 Every cleanup operation holds the staging lock, validates the fixed
 allowlist and types, unlinks files via parent directory descriptors, and
