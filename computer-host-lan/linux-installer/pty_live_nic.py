@@ -119,7 +119,9 @@ def exercise(binary: str, api: str) -> None:
         mark = send(b'enp1s0f0')
         wait_for(b'enp1s0f0', mark)
         mark = send(b'\r')   # submit the real typed name
-        wait_for(b'3. Review', mark)
+        wait_for(b'3. SmartThings hub', mark)
+        mark = send(b'\r')   # choose skip: manual/discovery are optional
+        wait_for(b'4. Review', mark)
         wait_for(b'WOL interface pin requested: true', mark)
 
         mark = send(b'\x03')
@@ -133,7 +135,7 @@ def exercise(binary: str, api: str) -> None:
             time.sleep(0.05)
         if child_status is None or not os.WIFEXITED(child_status) or os.WEXITSTATUS(child_status):
             raise AssertionError(f'Expected clean cancellation, got status={child_status}')
-        print('PASS live PTY: compatibility -> power -> WOL pin -> NIC -> Review -> cancel')
+        print('PASS live PTY: compatibility -> power -> WOL pin -> NIC -> hub (skip) -> Review -> cancel')
     except Exception:
         print('Captured terminal tail:', bytes(captured[-9000:]).decode(errors='replace'), file=sys.stderr)
         raise
