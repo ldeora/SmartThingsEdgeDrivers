@@ -66,11 +66,11 @@ jobs:
           # Exercise the NIC-page keyboard path with a controlled fake API.
           python3 pty_live_nic.py "$RUNNER_TEMP/computer-host-linux-tui-demo"
           grep -q 'Privileged transaction/recovery status: UNKNOWN' "$RUNNER_TEMP/live-inspection.txt"
-          printf 'k\nk\nk\ny\n' | NO_COLOR=1 TERM=dumb \
+          printf 's\nk\nk\ny\n' | NO_COLOR=1 TERM=dumb \
             "$RUNNER_TEMP/computer-host-linux-tui-demo" -live -accessible \
             -api ../scripts/installer-api.sh \
             > "$RUNNER_TEMP/live-accessible.txt"
-          grep -q 'READ-ONLY REVIEW COMPLETE' "$RUNNER_TEMP/live-accessible.txt"
+          grep -q 'SETUP PREVIEW COMPLETE' "$RUNNER_TEMP/live-accessible.txt"
           if python3 -c 'import sys; sys.exit(b"\x1b" not in open(sys.argv[1], "rb").read())' "$RUNNER_TEMP/live-accessible.txt"; then
             echo 'Live accessible output contains ANSI escape bytes' >&2
             exit 1
