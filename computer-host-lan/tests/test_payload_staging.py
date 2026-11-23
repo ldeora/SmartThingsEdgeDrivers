@@ -1,0 +1,459 @@
+"""Non-root filesystem fixtures for data-only Linux payload staging.
+
+No sudo, systemd calls, agent execution, actual /var writes or hardware access.
+"""
+from __future__ import annotations
+
+import fcntl
+import hashlib
+import json
+import os
+from pathlib import Path
+import stat
+import sys
+import tempfile
+import unittest
+from unittest import mock
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / 'scripts'))
+import payload_staging as staging
+import transaction_journal as journal
+
+
+class PayloadStagingTests(unittest.TestCase):
+    def setUp(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        self.root = Path(temp.name)
+        self.source = self.root / 'untrusted-source'
+        self.source.mkdir()
+        self.dest = self.root / 'var/lib/computer-host-installer/staging'
+        self.contents: dict[str, bytes] = {}
+        self.expected: dict[str, str] = {}
+        for name in sorted(staging.PAYLOAD_FILES):
+            data = ('trusted fixture bytes: ' + name).encode('utf-8')
+            self.contents[name] = data
+            self.expected[name] = hashlib.sha256(data).hexdigest()
+            target = self.source / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(data)
+        self.expected_uid = os.geteuid()
+        self.journal = journal.ProtectedJournal(root=self.root, owner_uid=self.expected_uid)
+        self.transaction = self.journal.begin('install')
+        self.addCleanup(self.transaction.close)
+
+    def stage(self, *, source=None, expected=None):
+        return staging.stage_payload(
+            source or self.source,
+            self.expected if expected is None else expected,
+            self.transaction,
+            root=self.root,
+            owner_uid=self.expected_uid,
+        )
+
+    def stage_files(self):
+        pending = list(self.dest.glob('pending-*'))
+        ready = list(self.dest.glob('ready-*'))
+        return pending, ready
+
+    def test_all_allowlisted_files_staged_privately_and_verified(self):
+        with self.stage() as receipt:
+            pending, ready = self.stage_files()
+            self.assertFalse(pending)
+            self.assertEqual(len(ready), 1)
+            self.assertEqual(stat.S_IMODE(ready[0].stat().st_mode), 0o700)
+            for name, data in self.contents.items():
+                staged = ready[0] / name
+                self.assertEqual(staged.read_bytes(), data)
+                self.assertEqual(stat.S_IMODE(staged.stat().st_mode), 0o600)
+            self.assertTrue(receipt.directory_fd >= 0)
+            self.assertEqual(os.fstat(receipt.directory_fd).st_ino,
+                             ready[0].stat().st_ino)
+        with self.assertRaises(staging.StagingError):
+            _ = receipt.directory_fd
+        self.assertEqual(stat.S_IMODE((self.dest / 'stage.lock').stat().st_mode), 0o600)
+
+    def test_manifest_mismatch_rejected_before_root_destination_write(self):
+        invalid = dict(self.expected)
+        name = sorted(invalid)[0]
+        invalid[name] = '0' * 64
+        with self.assertRaises(staging.StagingError):
+            self.stage(expected=invalid)
+        self.assertFalse(self.dest.exists())
+
+    def test_manifest_must_have_exact_allowlist_and_valid_digest(self):
+        cases = [
+            {},
+            {k: v for k, v in self.expected.items() if k != sorted(self.expected)[0]},
+            dict(self.expected, **{'../escape': '0' * 64}),
+            dict(self.expected, **{sorted(self.expected)[0]: '0' * 63}),
+            dict(self.expected, **{sorted(self.expected)[0]: 'Z' * 64}),
+            dict(self.expected, **{sorted(self.expected)[0]: True}),
+        ]
+        for case in cases:
+            with self.subTest(manifest_keys=len(case)):
+                with self.assertRaises(staging.StagingError):
+                    self.stage(expected=case)
+        self.assertFalse(self.dest.exists())
+
+    def test_modified_untrusted_source_rejected_without_destination(self):
+        name = sorted(self.expected)[0]
+        (self.source / name).write_bytes(b'substituted executable code')
+        with self.assertRaises(staging.StagingError):
+            self.stage()
+        self.assertFalse(self.dest.exists())
+
+    def test_source_symlink_is_refused_but_authenticated_hardlink_is_allowed(self):
+        name = sorted(self.expected)[0]
+        item = self.source / name
+        item.unlink()
+        outside = self.root / 'outside'
+        outside.write_bytes(self.contents[name])
+        item.symlink_to(outside)
+        with self.assertRaises(staging.StagingError):
+            self.stage()
+        item.unlink()
+        os.link(outside, item)
+        with self.stage() as receipt:
+            receipt.verify(self.expected)
+            _, ready = self.stage_files()
+            self.assertEqual(len(ready), 1)
+            self.assertEqual((ready[0] / name).read_bytes(), self.contents[name])
+            self.assertEqual((ready[0] / name).stat().st_nlink, 1)
+
+    def test_source_directory_symlink_and_parent_escape_are_refused(self):
+        duplicate = self.root / 'source-link'
+        duplicate.symlink_to(self.source, target_is_directory=True)
+        with self.assertRaises(staging.StagingError):
+            self.stage(source=duplicate)
+        with self.assertRaises(staging.StagingError):
+            self.stage(source=self.source / '..' / 'untrusted-source')
+        with self.assertRaises(staging.StagingError):
+            self.stage(source=Path('untrusted-source'))
+
+    def test_source_fifo_is_rejected_without_blocking(self):
+        name = sorted(self.expected)[0]
+        item = self.source / name
+        item.unlink()
+        os.mkfifo(item)
+        with self.assertRaises(staging.StagingError):
+            self.stage()
+        self.assertFalse(self.dest.exists())
+
+    def test_oversize_file_is_rejected_before_dest_creation(self):
+        name = sorted(self.expected)[0]
+        data = b'A' * (staging._MAX_FILE_BYTES + 1)
+        (self.source / name).write_bytes(data)
+        self.expected[name] = hashlib.sha256(data).hexdigest()
+        with self.assertRaises(staging.StagingError):
+            self.stage()
+        self.assertFalse(self.dest.exists())
+
+    def test_source_changes_after_check_cannot_change_staged_bytes(self):
+        original_walk = staging._walk_destination
+        item = self.source / sorted(self.expected)[0]
+        def mutate_after_verified(root, owner, *, create):
+            item.write_bytes(b'evil mutation after source validation')
+            return original_walk(root, owner, create=create)
+        with mock.patch.object(staging, '_walk_destination',
+                               side_effect=mutate_after_verified):
+            with self.stage():
+                _, ready = self.stage_files()
+                self.assertEqual(len(ready), 1)
+                self.assertEqual((ready[0] / sorted(self.expected)[0]).read_bytes(),
+                                 self.contents[sorted(self.expected)[0]])
+
+    def test_failed_staging_keeps_unsealed_pending_marker(self):
+        with mock.patch.object(staging, '_write_file',
+                               side_effect=OSError('simulated disk full')):
+            with self.assertRaises(staging.StagingError):
+                self.stage()
+        pending, ready = self.stage_files()
+        self.assertEqual(len(pending), 1)
+        self.assertFalse(ready)
+        with self.assertRaises(staging.StagingConflict):
+            self.stage()
+        staging.discard_pending(self.transaction, root=self.root,
+                                owner_uid=self.expected_uid)
+        self.assertFalse(self.stage_files()[0])
+        # Repeating after rmdir but before parent fsync is safe.
+        staging.discard_pending(self.transaction, root=self.root,
+                                owner_uid=self.expected_uid)
+        with self.stage():
+            pass
+
+    def test_second_stage_rejected_until_ready_bundle_reconciled(self):
+        with self.stage():
+            pass
+        with self.assertRaises(staging.StagingConflict):
+            self.stage()
+        self.assertEqual(len(self.stage_files()[1]), 1)
+
+    def test_lock_contention_detected(self):
+        with self.stage():
+            with self.assertRaises(staging.StagingConflict):
+                staging.recover_ready(self.expected, self.transaction,
+                                      root=self.root, owner_uid=self.expected_uid)
+
+    def test_new_directory_modes_do_not_depend_on_umask(self):
+        original_umask = os.umask(0o077)
+        try:
+            with self.stage():
+                pass
+        finally:
+            os.umask(original_umask)
+        self.assertEqual(stat.S_IMODE((self.root / 'var').stat().st_mode), 0o755)
+        self.assertEqual(stat.S_IMODE((self.root / 'var/lib').stat().st_mode), 0o755)
+        self.assertEqual(stat.S_IMODE((self.root / 'var/lib/computer-host-installer').stat().st_mode), 0o700)
+        self.assertEqual(stat.S_IMODE(self.dest.stat().st_mode), 0o700)
+
+    def test_reject_symlinked_destination_directory(self):
+        (self.root / 'var/lib').symlink_to(self.source, target_is_directory=True)
+        with self.assertRaises(staging.StagingError):
+            self.stage()
+        self.assertFalse((self.source / 'computer-host-installer').exists())
+
+    def test_reject_writable_system_parent_and_insecure_private_directory(self):
+        system_parent = self.root / 'var'
+        system_parent.mkdir(exist_ok=True)
+        system_parent.chmod(0o777)
+        with self.assertRaises(staging.StagingError):
+            self.stage()
+        system_parent.chmod(0o755)
+        private_parent = self.root / 'var/lib/computer-host-installer'
+        private_parent.mkdir(parents=True)
+        private_parent.chmod(0o755)
+        with self.assertRaises(staging.StagingError):
+            self.stage()
+
+    def test_existing_general_parent_mode_is_preserved(self):
+        system_parent = self.root / 'var/lib'
+        system_parent.mkdir(parents=True)
+        system_parent.chmod(0o700)
+        with self.stage():
+            pass
+        self.assertEqual(stat.S_IMODE(system_parent.stat().st_mode), 0o700)
+
+    def test_stage_retire_then_stage_for_next_transaction(self):
+        with self.stage() as receipt:
+            self.assertEqual(receipt.stage_id, self.transaction.transaction_id)
+            with self.assertRaises(staging.StagingConflict):
+                receipt.verified_source_path(self.expected)
+            self.transaction.advance('INSPECTED', 'STAGED')
+            self.assertTrue(receipt.verified_source_path(self.expected).is_dir())
+            self.assertFalse(os.get_inheritable(receipt.directory_fd))
+            self.transaction.abort()
+            staging.retire_ready(receipt, self.expected)
+        self.assertFalse(self.stage_files()[1])
+        self.transaction.clear_finished()
+        self.transaction.close()
+        self.transaction = self.journal.begin('upgrade')
+        self.addCleanup(self.transaction.close)
+        with self.stage() as receipt:
+            receipt.verify(self.expected)
+            self.transaction.abort()
+            staging.retire_ready(receipt, self.expected)
+        self.transaction.clear_finished()
+
+    def test_committed_crash_blocks_next_upgrade_until_stage_retired(self):
+        # A successful install can die after COMMITTED and before removing
+        # ready-<txid>. The next wizard run must retain the old journal,
+        # allowing recovery without manual deletion or losing the txid.
+        with self.stage() as receipt:
+            stage_id = receipt.stage_id
+            self.transaction.advance('INSPECTED', 'STAGED')
+            self.transaction.advance('STAGED', 'SNAPSHOTTED',
+                                     snapshot_name='snapshot-abcdefgh')
+            for before, after in (
+                ('SNAPSHOTTED', 'APPLYING'),
+                ('APPLYING', 'ACTIVATING'),
+                ('ACTIVATING', 'VERIFYING'),
+                ('VERIFYING', 'COMMITTED'),
+            ):
+                self.transaction.advance(before, after)
+        self.transaction.close()  # Simulates abrupt process exit after commit.
+        self.assertEqual(self.journal.public_status()['privileged_transaction_state'],
+                         'recovery_required')
+        with self.assertRaises(journal.JournalConflict):
+            self.journal.begin('upgrade')
+        with self.assertRaises(journal.JournalConflict):
+            self.journal.finish_terminal()
+        self.assertEqual(self.stage_files()[1][0].name, 'ready-' + stage_id)
+        with self.journal.resume_finished_cleanup() as cleanup:
+            self.assertEqual(cleanup.transaction_id, stage_id)
+            staging.finish_retirement(cleanup, root=self.root,
+                                      owner_uid=self.expected_uid)
+            cleanup.clear_finished()
+        self.assertFalse(self.stage_files()[1])
+        with self.journal.begin('upgrade') as next_tx:
+            next_tx.abort()
+            next_tx.clear_finished()
+        self.assertEqual(self.journal.public_status()['privileged_transaction_state'],
+                         'none')
+
+    def test_clear_finished_and_finish_terminal_refuse_live_ready_stage(self):
+        with self.stage() as receipt:
+            self.transaction.abort()
+            with self.assertRaises(journal.JournalConflict):
+                self.transaction.clear_finished()
+            self.assertEqual(len(self.stage_files()[1]), 1)
+            staging.retire_ready(receipt, self.expected)
+            self.transaction.clear_finished()
+        self.assertFalse(self.stage_files()[1])
+
+    def test_pending_stage_must_be_discarded_before_journal_cleanup(self):
+        with mock.patch.object(staging, '_write_file',
+                               side_effect=OSError('interrupted stage')):
+            with self.assertRaises(staging.StagingError):
+                self.stage()
+        self.transaction.abort()
+        with self.assertRaises(journal.JournalConflict):
+            self.transaction.clear_finished()
+        staging.discard_pending(self.transaction, root=self.root,
+                                owner_uid=self.expected_uid)
+        self.transaction.clear_finished()
+        self.transaction.close()
+        with self.journal.begin('repair') as fresh:
+            fresh.abort()
+            fresh.clear_finished()
+
+    def test_crash_after_ready_before_staged_phase_can_resume(self):
+        with self.stage() as receipt:
+            stage_id = receipt.stage_id
+            with self.assertRaises(staging.StagingConflict):
+                receipt.verified_source_path(self.expected)
+        self.transaction.close()  # Crash between rename and journal advance.
+        with self.journal.resume_recovery() as recovered:
+            self.assertEqual(recovered.transaction_id, stage_id)
+            with staging.recover_ready(self.expected, recovered, root=self.root,
+                                       owner_uid=self.expected_uid) as receipt:
+                receipt.verify(self.expected)
+                with self.assertRaises(staging.StagingConflict):
+                    receipt.verified_source_path(self.expected)
+                recovered.advance('INSPECTED', 'STAGED')
+                source = receipt.verified_source_path(self.expected)
+                self.assertTrue((source / 'scripts/install_core.py').is_file())
+                recovered.abort()
+                staging.retire_ready(receipt, self.expected)
+                recovered.clear_finished()
+        with self.journal.begin('upgrade') as fresh:
+            fresh.abort()
+            fresh.clear_finished()
+
+    def test_pending_cleanup_refuses_symlink_and_then_recovers(self):
+        with mock.patch.object(staging, '_write_file',
+                               side_effect=OSError('simulated interruption')):
+            with self.assertRaises(staging.StagingError):
+                self.stage()
+        pending, ready = self.stage_files()
+        self.assertEqual(len(pending), 1)
+        self.assertFalse(ready)
+        (pending[0] / 'agent').mkdir(mode=0o700)
+        outside = self.root / 'outside'
+        outside.write_bytes(b'not a source file')
+        unsafe = pending[0] / 'agent' / 'linux_host_agent.py'
+        unsafe.symlink_to(outside)
+        with self.assertRaises(staging.StagingError):
+            staging.discard_pending(self.transaction, root=self.root,
+                                    owner_uid=self.expected_uid)
+        self.assertTrue(unsafe.is_symlink())
+        unsafe.unlink()  # Fixture sanitization; production does not auto-fix.
+        staging.discard_pending(self.transaction, root=self.root,
+                                owner_uid=self.expected_uid)
+        self.assertFalse(self.stage_files()[0])
+        with self.stage():
+            pass
+
+    def test_ready_receipt_refuses_folder_inode_swap(self):
+        with self.stage() as receipt:
+            receipt.verify(self.expected)
+            self.transaction.advance('INSPECTED', 'STAGED')
+            _, ready = self.stage_files()
+            original = ready[0]
+            moved = original.with_name('moved-aside')
+            original.rename(moved)
+            original.mkdir(mode=0o700)
+            with self.assertRaises(staging.StagingError):
+                receipt.verify(self.expected)
+            with self.assertRaises(staging.StagingError):
+                receipt.verified_source_path(self.expected)
+            self.transaction.abort()
+            with self.assertRaises(staging.StagingError):
+                staging.retire_ready(receipt, self.expected)
+
+    def test_ready_recovery_requires_same_transaction_and_manifest(self):
+        with self.stage():
+            pass
+        with self.assertRaises(staging.StagingError):
+            staging.recover_ready({k: '0' * 64 for k in self.expected},
+                                  self.transaction, root=self.root,
+                                  owner_uid=self.expected_uid)
+        with staging.recover_ready(self.expected, self.transaction,
+                                   root=self.root,
+                                   owner_uid=self.expected_uid) as receipt:
+            self.assertEqual(receipt.stage_id, self.transaction.transaction_id)
+            receipt.verify(self.expected)
+            self.transaction.abort()
+            staging.retire_ready(receipt, self.expected)
+        self.assertFalse(self.stage_files()[1])
+
+    def test_finish_retirement_after_partial_deletion(self):
+        with self.stage() as receipt:
+            self.transaction.abort()
+            _, ready = self.stage_files()
+            (ready[0] / 'agent' / 'linux_host_agent.py').unlink()
+            with self.assertRaises(staging.StagingError):
+                staging.retire_ready(receipt, self.expected)
+        staging.finish_retirement(self.transaction, root=self.root,
+                                  owner_uid=self.expected_uid)
+        self.assertFalse(self.stage_files()[1])
+        staging.finish_retirement(self.transaction, root=self.root,
+                                  owner_uid=self.expected_uid)  # Idempotent replay
+
+    @unittest.skipUnless(hasattr(os, 'fork'), 'requires POSIX fork')
+    def test_forked_child_cannot_retire_parent_receipt(self):
+        with self.stage() as receipt:
+            self.transaction.abort()
+            pid = os.fork()
+            if pid == 0:
+                try:
+                    staging.retire_ready(receipt, self.expected)
+                except (staging.StagingConflict, journal.JournalConflict):
+                    os._exit(0)
+                except Exception:
+                    os._exit(2)
+                os._exit(1)
+            child, status = os.waitpid(pid, 0)
+            self.assertEqual(child, pid)
+            self.assertEqual(os.waitstatus_to_exitcode(status), 0)
+            self.assertEqual(len(self.stage_files()[1]), 1)
+            staging.retire_ready(receipt, self.expected)
+        self.assertFalse(self.stage_files()[1])
+
+    def test_terminal_journal_crash_can_finish_stage_cleanup(self):
+        with self.stage():
+            self.transaction.abort()
+        self.transaction.close()
+        with self.journal.resume_finished_cleanup() as finished:
+            staging.finish_retirement(finished, root=self.root,
+                                      owner_uid=self.expected_uid)
+            finished.clear_finished()
+        self.assertFalse(self.stage_files()[1])
+        self.assertEqual(self.journal.public_status()['privileged_transaction_state'],
+                         'none')
+
+    def test_readonly_result_has_no_secrets_or_raw_paths(self):
+        with self.stage() as result:
+            self.assertFalse(hasattr(result, 'execute'))
+            self.assertFalse(hasattr(result, 'run'))
+            self.assertFalse(hasattr(result, 'install'))
+            self.assertFalse(hasattr(result, 'source'))
+            self.assertFalse(hasattr(result, 'control_token'))
+            self.assertFalse(hasattr(result, 'installation_id'))
+        self.assertFalse(any('control-token' in item for item in staging.PAYLOAD_FILES))
+        self.assertFalse(any('installation-id' in item for item in staging.PAYLOAD_FILES))
+
+
+if __name__ == '__main__':
+    unittest.main()

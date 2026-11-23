@@ -20,6 +20,9 @@ from typing import Callable
 
 # root/owner_uid injection exists ONLY to exercise temporary filesystem fixtures.
 _COMPONENTS = ('var', 'backups', 'linux-host-agent', 'wizard-transactions')
+# PR #75 keeps staged payloads in a separate but fixed installer namespace.
+_STAGE_COMPONENTS = ('var', 'lib', 'computer-host-installer', 'staging')
+_STAGE_LOCK = 'stage.lock'
 _JOURNAL = 'journal.json'
 _LOCK = 'lock'
 _TEMP_PREFIX = '.wizard-journal-'
@@ -144,6 +147,47 @@ def _open_directory(root: Path, owner_uid: int, *, create: bool) -> int | None:
         raise
     except OSError:
         raise UnsafeJournal('unsafe or unavailable journal directory') from None
+    finally:
+        if fd is not None:
+            os.close(fd)
+
+
+def _staged_payload_remains(root: Path, owner_uid: int) -> bool:
+    """Read-only check: never retire a journal before its stage is gone.
+
+    Only the staging module removes payloads, using a transaction-bound
+    handle. The journal merely guards lifecycle order without importing
+    staging (which itself depends on TransactionHandle).
+    """
+    fd = None
+    try:
+        fd = os.open(root, _DIR_FLAGS)
+        root_stat = os.fstat(fd)
+        if (root_stat.st_uid != owner_uid or
+                stat.S_IMODE(root_stat.st_mode) & 0o022):
+            raise UnsafeJournal('unsafe staging root')
+        for index, component in enumerate(_STAGE_COMPONENTS):
+            try:
+                child = os.open(component, _DIR_FLAGS, dir_fd=fd)
+            except FileNotFoundError:
+                return False
+            info = os.fstat(child)
+            private = index >= 2
+            if (info.st_uid != owner_uid or
+                    (stat.S_IMODE(info.st_mode) != 0o700 if private
+                     else bool(stat.S_IMODE(info.st_mode) & 0o022))):
+                os.close(child)
+                raise UnsafeJournal('unsafe staging parent')
+            os.close(fd)
+            fd = child
+        # The fixed stage.lock alone is inert; any other entry, including
+        # an unexpected name, requires explicit recovery before journal
+        # reaping or another installation can begin.
+        return any(name != _STAGE_LOCK for name in os.listdir(fd))
+    except JournalError:
+        raise
+    except OSError:
+        raise UnsafeJournal('unable to inspect protected staged payload') from None
     finally:
         if fd is not None:
             os.close(fd)
@@ -298,6 +342,11 @@ class TransactionHandle:
             raise JournalConflict('transaction identity changed')
         return current
 
+    @property
+    def transaction_id(self) -> str:
+        """Internal protected staging binding, never a public status field."""
+        return self._record()['transaction_id']
+
     def advance(self, expected_phase: str, next_phase: str,
                 *, snapshot_name: str | None = None) -> None:
         if expected_phase not in _PHASES or next_phase not in _PHASES:
@@ -353,6 +402,8 @@ class TransactionHandle:
         current = self._record()
         if current['phase'] not in _TERMINAL:
             raise JournalConflict('cannot clear unfinished transaction')
+        if _staged_payload_remains(self._journal.root, self._journal.owner_uid):
+            raise JournalConflict('retire staged payload before clearing journal')
         _remove_leftovers(self._directory, self._journal.owner_uid)
         try:
             os.unlink(_JOURNAL, dir_fd=self._directory)
@@ -412,7 +463,8 @@ class ProtectedJournal:
                     # Absence of a lock with an existing journal/temp is an
                     # anomaly, never evidence of a safely completed install.
                     state = ('recovery_required'
-                             if _read(directory, self.owner_uid) or _leftovers(directory)
+                             if (_read(directory, self.owner_uid) or _leftovers(directory)
+                                 or _staged_payload_remains(self.root, self.owner_uid))
                              else 'none')
                 else:
                     try:
@@ -427,7 +479,9 @@ class ProtectedJournal:
                             if _leftovers(directory):
                                 state = 'recovery_required'
                             elif current is None or current['phase'] in _TERMINAL:
-                                state = 'none'
+                                state = ('recovery_required'
+                                         if _staged_payload_remains(self.root, self.owner_uid)
+                                         else 'none')
                             elif current['phase'] in ('INSPECTED', 'STAGED', 'SNAPSHOTTED'):
                                 state = 'incomplete'
                             else:
@@ -436,6 +490,9 @@ class ProtectedJournal:
                         os.close(lockfd)
             finally:
                 os.close(directory)
+        elif _staged_payload_remains(self.root, self.owner_uid):
+            # A stage without a journal is anomalous, not a new install.
+            state = 'recovery_required'
         return {
             'schema_version': 1,
             'operation': 'protected_status',
@@ -452,6 +509,8 @@ class ProtectedJournal:
             current = _read(directory, self.owner_uid)
             if _leftovers(directory):
                 raise JournalConflict('uncertain journal write requires recovery')
+            if _staged_payload_remains(self.root, self.owner_uid):
+                raise JournalConflict('finish staged payload cleanup before new transaction')
             if current is not None:
                 if current['phase'] not in _TERMINAL:
                     raise JournalConflict('unfinished transaction; recovery required')
@@ -498,6 +557,8 @@ class ProtectedJournal:
             current = _read(directory, self.owner_uid)
             if current is None or current['phase'] not in _TERMINAL:
                 raise JournalConflict('cannot clean an unfinished transaction')
+            if _staged_payload_remains(self.root, self.owner_uid):
+                raise JournalConflict('retire staged payload before clearing journal')
             _remove_leftovers(directory, self.owner_uid)
             try:
                 os.unlink(_JOURNAL, dir_fd=directory)
@@ -507,6 +568,24 @@ class ProtectedJournal:
         finally:
             os.close(lockfd)
             os.close(directory)
+
+    def resume_finished_cleanup(self) -> TransactionHandle:
+        """Own a terminal journal while finishing trusted stage retirement.
+
+        Use only for idempotent cleanup after COMMITTED/ABORTED/ROLLED_BACK.
+        This does not permit reopening an incomplete transaction for writes.
+        """
+        directory, lockfd = self._acquire(create=False)
+        try:
+            current = _read(directory, self.owner_uid)
+            if current is None or current['phase'] not in _TERMINAL:
+                raise JournalConflict('terminal journal required for cleanup')
+            return TransactionHandle(self, directory, lockfd,
+                                     current['transaction_id'])
+        except Exception:
+            os.close(lockfd)
+            os.close(directory)
+            raise
 
     def resume_recovery(self) -> TransactionHandle:
         """Trusted caller obtains exclusive recovery ownership after crash."""
