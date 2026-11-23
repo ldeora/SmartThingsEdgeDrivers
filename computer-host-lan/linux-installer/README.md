@@ -19,8 +19,17 @@ running under that same account could replace a user-writable binary before
 administrator authorization. Keep the executable and its parent directory
 protected, and use an independently authenticated release binary when one
 becomes available. A SHA-256 file shipped beside an unsigned CI artifact
-does **not** authenticate the publisher. After
-presenting the familiar hub, power and advanced-network choices, it
+does **not** authenticate the publisher.
+
+**Installer locks:** The unreleased Go wizard stores its lifetime lock
+inside the private root-owned `/run/computer-host-lan/` directory (mode
+`0700`). The legacy shared manual-install lock remains at
+`/run/lock/linux-host-agent-install.lock` for cross-version exclusion.
+If the wizard reports `unsafe_lock`, confirm no installation or recovery
+is active and have an administrator inspect those fixed locations; do
+not remove a lock automatically or during an active transaction.
+
+After presenting the familiar hub, power and advanced-network choices, it
 requires typing `INSTALL`, then requests administrator authorization
 **after the terminal form has closed**. The bootstrap installs its own
 trusted root-owned helper set and executes the existing Python
