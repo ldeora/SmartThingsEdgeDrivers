@@ -183,7 +183,7 @@ class RuntimeVerifierTests(unittest.TestCase):
             with self.subTest(response=response):
                 c = FakeConnection(response)
                 self.assertIsNone(rv._read_json(8765, '/v2/info',
-                                                connection_factory=lambda *a: c))
+                                                connection_factory=lambda *a, **kw: c))
                 self.assertTrue(c.closed)
 
     def test_json_api_verifier_sanitizes_every_output_and_validates_port(self):
