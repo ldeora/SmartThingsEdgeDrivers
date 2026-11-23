@@ -9,8 +9,9 @@ No new way for an unprivileged process to authorize deletion is introduced.
 
 Uninstall removes **only** the fixed, audited `install_core.MANAGED_PATHS`:
 the installed agent executable and helper, systemd units and opt-in
-drop-ins, and the Computer Host LAN Avahi service. Systemd service/socket
-units are stopped and disabled before managed files are removed.
+drop-ins, and the Computer Host LAN Avahi service. The agent and power
+socket are stopped and disabled, and the socket-activated power-helper
+service is explicitly stopped, before managed files are removed.
 
 It deliberately **retains**:
 - The persistent installation ID and control token in
@@ -34,11 +35,16 @@ appear offline until manually removed or reinstalled.
    with **no payload staging** (the fixed removal allowlist needs no source).
 3. Snapshot every managed target and previous systemd state, fsync the
    snapshot, and durably publish `SNAPSHOTTED` and then `APPLYING`.
-4. Preserve the nonsecret v2 owner marker. Stop/disable the power socket
-   and agent service. Verify neither is active **before** unlinking files.
+4. Preserve the nonsecret v2 owner marker. Disable and stop the power
+   socket, explicitly stop the static power-helper service, and disable
+   and stop the agent. Require successful commands and explicit systemd
+   properties: all three units inactive, the socket and agent disabled,
+   and the helper static or disabled **before** unlinking files.
 5. Remove only managed paths, sync their parent directories, reload
-   systemd and verify files absent, both units stopped and disabled,
-   owner marker retained, and private UUID unchanged.
+   systemd and verify files absent, all three units not found and inactive,
+   owner marker retained, and private UUID unchanged. Query errors,
+   timeouts, incomplete state and unexpected unit states fail closed;
+   a negative exit status alone is not evidence of inactivity.
 6. Commit `VERIFYING → COMMITTED`, then clean the terminal journal.
    Postcommit cleanup failure is reported as
    `uninstalled_cleanup_required` (never rolled back).
@@ -50,6 +56,9 @@ appear offline until manually removed or reinstalled.
 
 Existing `-recover` accepts `uninstall` journal records and restores
 the same v2-validated snapshots. It cannot silently resume deletion.
+The UI must explain that rollback has undone an interrupted uninstall
+and that the user may explicitly retry. Historical snapshots remain
+available after uninstall; a separate purge would need separate consent.
 
 ## Remaining integration steps (subsequent PR)
 
