@@ -314,7 +314,17 @@ def _inspect_tree(directory: int, uid: int, trusted_hashes: Mapping[str, str] | 
                 raise StagingError('unexpected staged entry')
 
     try:
-        walk(directory, '')
+        # The staging directory descriptor can have been opened before the
+        # files were created. Some filesystems (observed on Gentoo/Btrfs)
+        # expose an incomplete enumeration through that older directory
+        # handle. openat(fd, ".") creates an independent, fresh directory
+        # stream anchored to the same trusted inode, without following links.
+        # Do this on EVERY verification, including repeat receipt checks.
+        fresh = os.open('.', _DIR_FLAGS, dir_fd=directory)
+        try:
+            walk(fresh, '')
+        finally:
+            os.close(fresh)
     except StagingError:
         raise
     except OSError:
@@ -340,6 +350,17 @@ def _validate_identity(base: int, stage_fd: int, name: str, uid: int) -> None:
 
 def _delete_tree(fd: int, uid: int, prefix: str = '') -> None:
     """Only call AFTER _inspect_tree preflight, with exclusive stage lock."""
+    # The caller can hold the same pre-population directory descriptor used
+    # for staging. Reopen an independent stream for deletion as well, or a
+    # stale enumeration could skip files and leave an unretirable stage.
+    fresh = os.open('.', _DIR_FLAGS, dir_fd=fd)
+    try:
+        _delete_tree_fresh(fresh, uid, prefix)
+    finally:
+        os.close(fresh)
+
+
+def _delete_tree_fresh(fd: int, uid: int, prefix: str) -> None:
     _check_directory(fd, uid, private=True)
     for name in os.listdir(fd):
         relative = prefix + name
