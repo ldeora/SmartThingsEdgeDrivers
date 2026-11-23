@@ -567,10 +567,14 @@ func runLiveInteractive(w io.Writer, api apiClient, info apiInspect) error {
 }
 
 func runLiveAccessible(reader io.Reader, writer io.Writer, api apiClient, info apiInspect) error {
+	return runLiveAccessibleWithHubs(reader, writer, api, info, nil)
+}
+
+func runLiveAccessibleWithHubs(reader io.Reader, writer io.Writer, api apiClient, info apiInspect, hubs []discoveredHub) error {
 	fmt.Fprintln(writer, "COMPUTER HOST LAN — LIVE READ-ONLY, ANSI-FREE MODE")
 	fmt.Fprintln(writer, info.brief())
 	fmt.Fprintln(writer, "No installation or configuration is possible here. Type back or quit.")
-	s := liveSelection{api: api, inspection: info, powerChoice: "keep", wolChoice: "keep"}
+	s := liveSelection{api: api, inspection: info, hubs: hubs, hubChoice: "skip", powerChoice: "keep", wolChoice: "keep"}
 	scanner := bufio.NewScanner(reader)
 	step := 0
 	for {
@@ -586,6 +590,18 @@ func runLiveAccessible(reader io.Reader, writer io.Writer, api apiClient, info a
 			}
 			fmt.Fprint(writer, "Existing NIC name (not WOL hardware validation): ")
 		case 3:
+			fmt.Fprintln(writer, "SmartThings hub selection (read-only; no hub connection):")
+			for i, hub := range hubs {
+				fmt.Fprintf(writer, "  [%d] Avahi candidate %s (unverified)\n", i+1, hub.IPv4)
+			}
+			fmt.Fprint(writer, "Hub: [k] skip (default), [m] enter IPv4 manually, or candidate number: ")
+		case 4:
+			if s.hubChoice != "manual" {
+				step++
+				continue
+			}
+			fmt.Fprint(writer, "SmartThings hub IPv4 (literal address, not contacted): ")
+		case 5:
 			fmt.Fprintln(writer, "\n"+s.preview())
 			fmt.Fprint(writer, "Finish read-only review? [y/N]: ")
 		}
@@ -596,7 +612,6 @@ func runLiveAccessible(reader io.Reader, writer io.Writer, api apiClient, info a
 			fmt.Fprintln(writer, "\nCancelled; no changes made.")
 			return nil
 		}
-		// Menu commands are case-insensitive; Linux interface names are not.
 		rawInput := strings.TrimSpace(scanner.Text())
 		input := strings.ToLower(rawInput)
 		switch input {
@@ -608,6 +623,9 @@ func runLiveAccessible(reader io.Reader, writer io.Writer, api apiClient, info a
 				step--
 			} else {
 				fmt.Fprintln(writer, "Already at first step.")
+			}
+			if step == 4 && s.hubChoice != "manual" {
+				step--
 			}
 			if step == 2 && s.wolChoice != "pin" {
 				step--
@@ -643,6 +661,29 @@ func runLiveAccessible(reader io.Reader, writer io.Writer, api apiClient, info a
 				s.wolNIC = rawInput
 			}
 		case 3:
+			switch input {
+			case "", "k":
+				s.hubChoice = "skip"
+			case "m":
+				s.hubChoice = "manual"
+			default:
+				index := -1
+				if len(input) == 1 && input[0] >= '1' && input[0] <= '8' {
+					index = int(input[0] - '1')
+				}
+				if index < 0 || index >= len(hubs) {
+					accepted = false
+				} else {
+					s.hubChoice = "discovered:" + hubs[index].IPv4
+				}
+			}
+		case 4:
+			if validHubIPv4(rawInput) != nil {
+				accepted = false
+			} else {
+				s.hubManual = rawInput
+			}
+		case 5:
 			if input != "y" && input != "n" && input != "" {
 				accepted = false
 				break
@@ -689,7 +730,7 @@ func runLive(preview, accessible bool, apiPath string, r io.Reader, w io.Writer)
 		return nil
 	}
 	if accessible {
-		return runLiveAccessible(r, w, client, info)
+		return runLiveAccessibleWithHubs(r, w, client, info, discoverHubs())
 	}
 	return runLiveInteractive(w, client, info)
 }
