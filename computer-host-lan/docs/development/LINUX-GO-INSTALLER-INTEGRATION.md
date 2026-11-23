@@ -120,28 +120,13 @@ environment and the independently root-owned launcher/manifest checks.
 No Python default, PATH, Gentoo wrapper or polkit configuration should be
 changed by the operator.
 
-Because the first attempt already left `/usr/libexec/computer-host-lan`
-installed with the defective shell launcher, subsequent upgrades would
-otherwise fail the pre-replacement status check. The Go bootstrap
-therefore recognizes **only the exact SHA-256** of that reviewed old
-shell script in the fixed root-owned helper directory. If and only if
-its normal status call fails with the launcher's exact, non-secret
-missing-Python message, it invokes **only** the existing root-owned
-`installer_root.py --request-stdin` with action `status` through
-a compatible system Python found in fixed system paths. That module
-continues to enforce ownership, isolated execution and manifest
-validation. The protected transaction state must be `none` before
-Go may promote the repaired helper; a pending journal, unknown launcher,
-untrusted paths or invalid JSON **fails closed**. This is not an
-install/upgrade/recover bypass and never accesses or prints the private
-ID or control token.
-
-CI now includes the exact archived legacy launcher checksum, a
-read-only status test against the root-owned helper, and an isolated
-runner simulation that replaces the old launcher **only after** reading
-its protected status. No live agent is touched by those CI tests.
-The physical host still requires a fresh supervised upgrade test after
-the repaired reviewed binary is rebuilt.
+The first attempt left a root-owned helper using the old launcher. An
+exact SHA-256-gated, read-only status fallback was temporarily introduced
+so that the reviewed corrected launcher could be promoted without modifying
+the installed agent. After the successful `hydra` upgrade, the external
+review noted that this was only compatibility code for an unmerged draft.
+The narrow legacy fallback, checksum and dedicated fixture were therefore
+**removed** from this PR; root now uses only the current installed helper.
 
 ### Follow-up from the second physical attempt: Python backend guard
 
@@ -181,8 +166,9 @@ transaction backend for systemd unit generation. It does **not** use
 rejects a missing handoff for install/upgrade/repair, while permitting
 the old `--request-stdin` form only for the trusted read-only
 `status` action. Explicit `recover` also requires the new trusted
-interpreter handoff. The status-only direct
-invocation is needed for the exact known broken launcher recovery gate.
+interpreter handoff. The status-only direct invocation was used during the earlier Gentoo
+diagnostics. The deprecated launcher-compatibility fallback is no longer
+part of the production bootstrap.
 
 The initial post-failure status check ran the *old installed shell*
 and stopped on its Python-selection error because `set -e` was active.
@@ -252,10 +238,43 @@ test simulates the stale original descriptor and checks staging, repeated
 verification, retirement and journal cleanup. The authoritative Python
 module and embedded Go bundle are synchronized.
 
-**Physical acceptance is still pending.** Before any next authorized
-installation, require green tests, independent review, a verified backup
-and clean protected status. Never manually delete the retained `.failed`
-helper, private snapshots or transaction journal.
+### Physical `hydra` upgrade acceptance (commit `9513c78`)
+
+The updated Python tests passed **29/29** on Gentoo/Btrfs, the Go tests
+and build passed, and a local filesystem fixture completed staging,
+hash verification, source readback, retirement, and journal cleanup.
+The supervised root-authorized `-live -install -accessible -elevation su`
+upgrade then reported **`Computer Host LAN: installed`**. The wizard
+selected the discovered hub and preserved existing power-control settings.
+The previously installed device identity was verified, both the agent and
+power socket remained active, and the local v2 HTTP agent reported
+`0.4.6-rc.2`. The installed root-owned protected `status` endpoint
+reported `privileged_transaction_state: none` after upgrade.
+No private identifier or control key is included in this record.
+
+### Independent review remediation (post-acceptance)
+
+The external reviewer found no privilege-handoff vulnerability, but
+identified failure-path gaps not exercised by the healthy host upgrade.
+Follow-up commits in this draft:
+- remove the Go **120-second process timeout** for all mutating
+  install/upgrade/repair/recover operations, retaining it for read-only
+  status; bound individual `systemctl` calls in Python instead;
+- map a helper crash without JSON to **`recovery_required`** when a
+  subsequent trusted read-only status reports an outstanding transaction;
+- reopen fresh directory streams in `transaction_journal.py` for both
+  temp-file discovery and cleanup, preventing the Btrfs stale-handle
+  case from hiding uncertain journal writes or leaving unreaped temp files;
+- remove the draft-only Gentoo launcher fallback and update the binary
+  trust documentation.
+
+The isolated journal regressions simulate old descriptors that omit
+post-open temp files. These safeguards require successful CI and
+independent re-review before merge. Orphaned initial-journal temp files
+still lack an integrated verified recovery path, and the shared
+`/run/lock` namespace remains subject to local pre-creation denial of
+service; both remain tracked follow-ups. Never manually delete private
+snapshots, helpers, journal files or stage markers.
 
 ## Version-pinned Go binary as the bootstrap trust anchor
 
