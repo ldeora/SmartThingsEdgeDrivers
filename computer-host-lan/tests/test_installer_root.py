@@ -6,7 +6,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from pathlib import Path
+import subprocess
+import tempfile
 import sys
 import unittest
 from unittest import mock
@@ -155,6 +158,59 @@ class RootProtocolTests(unittest.TestCase):
         self.assertEqual(manifest['files']['agent/linux_host_agent.py'],
                          hashlib.sha256((ROOT / 'agent/linux_host_agent.py')
                                         .read_bytes()).hexdigest())
+
+    def test_root_launcher_rejects_unsupported_python_before_action(self):
+        for major_minor in ((3, 6), (3, 9)):
+            with self.subTest(version=major_minor):
+                with self.assertRaisesRegex(bridge.RequestError, 'unsupported_python'):
+                    bridge.require_supported_python(major_minor)
+        for major_minor in ((3, 10), (3, 11), (3, 12), (3, 13), (3, 14), (3, 15)):
+            with self.subTest(version=major_minor):
+                self.assertIsNone(bridge.require_supported_python(major_minor))
+
+    def test_installed_shell_entry_uses_manual_selector_precedence(self):
+        shell = (ROOT / 'scripts/installer_entry.sh').read_text()
+        selector = (ROOT / 'scripts/python-selector.sh').read_text()
+        order = 'python3 python3.14 python3.13 python3.12 python3.11 python3.10'
+        self.assertIn('for candidate in ' + order + '; do', shell)
+        self.assertIn('for candidate in ' + order + '; do', selector)
+        self.assertIn('sys.version_info >= (3, 10)', shell)
+        self.assertIn('sys.version_info >= (3, 10)', selector)
+        self.assertIn(' -I -S -B -c ', shell)
+        self.assertIn('exec "$PYTHON_BIN" -I -S -B', shell)
+        self.assertIn('/usr/libexec/computer-host-lan/installer_root.py', shell)
+        # Actual POSIX-shell syntax check in CI, including Python 3.10 runner.
+        check = subprocess.run(['/bin/sh', '-n', str(ROOT / 'scripts/installer_entry.sh')],
+                               text=True, capture_output=True, timeout=5)
+        self.assertEqual(check.returncode, 0, check.stderr)
+
+    def test_shell_selector_skips_old_default_python_and_picks_compatible(self):
+        # Execute the shell's actual selection loop with fake PATH executables.
+        # A private test directory stands in for /usr/bin; no sudo or root.
+        shell = (ROOT / 'scripts/installer_entry.sh').read_text()
+        first = shell.index('for candidate in python3 ')
+        last = shell.index('\n[ -n "$PYTHON_BIN" ]', first)
+        selector = shell[first:last].replace(
+            '/usr/bin/*|/bin/*)', '/*)')
+        with tempfile.TemporaryDirectory() as temp:
+            folder = Path(temp)
+            for name in ('python3', 'python3.14', 'python3.13', 'python3.12',
+                         'python3.11', 'python3.10'):
+                stub = folder / name
+                stub.write_text('#!/bin/sh\nexit ' +
+                                ('0' if name == 'python3.11' else '1') + '\n')
+                stub.chmod(0o755)
+            program = 'PATH=' + str(folder) + '; PYTHON_BIN=; ' + selector + '; printf "%s" "$PYTHON_BIN"'
+            run = subprocess.run(['/bin/sh', '-c', program], text=True,
+                                 capture_output=True, timeout=10)
+            self.assertEqual(run.returncode, 0, run.stderr)
+            self.assertEqual(run.stdout, str(folder / 'python3.11'))
+            # When the distro default becomes valid, it is chosen first.
+            (folder / 'python3').write_text('#!/bin/sh\nexit 0\n')
+            (folder / 'python3').chmod(0o755)
+            run = subprocess.run(['/bin/sh', '-c', program], text=True,
+                                 capture_output=True, timeout=10)
+            self.assertEqual(run.stdout, str(folder / 'python3'))
 
     def test_source_checkout_never_satisfies_root_entrypoint(self):
         # Even when CI itself runs as UID=0, the helper is not trusted

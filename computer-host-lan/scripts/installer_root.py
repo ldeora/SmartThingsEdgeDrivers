@@ -6,11 +6,13 @@ before use. Never run via sudo from a checkout, extracted archive, /tmp,
 or a writable Go wizard directory. This module is deliberately importable
 for pure schema/dispatch tests without requiring root or systemd.
 
-Expected production argv:
-  /usr/bin/python3 -I -S -B /usr/libexec/computer-host-lan/installer_root.py --request-stdin
+Expected production argv (selected by installed root-owned shell entry):
+  /bin/sh /usr/libexec/computer-host-lan/installer-entry.sh --request-stdin
 
-A future verified package/Go launcher must provision the trusted code and
-manifest independently of the unprivileged wizard's mutable payload.
+The root-owned entry script chooses the first compatible interpreter from
+python3, python3.14 .. python3.10, using a fixed system PATH and -I -S -B.
+The verified Go wizard's explicitly authorized bootstrap must provision
+these trusted files and manifest on first install and every upgrade.
 """
 from __future__ import annotations
 
@@ -25,6 +27,7 @@ from typing import Mapping
 _TRUSTED_DIR = Path('/usr/libexec/computer-host-lan')
 _TRUSTED_MODULES = (
     'installer_root.py',
+    'installer-entry.sh',
     'installer_transaction.py',
     'install_core.py',
     'payload_staging.py',
@@ -131,8 +134,22 @@ def _root_owned_file(path: Path, *, directory: bool) -> None:
         os.close(fd)
 
 
+def require_supported_python(version_info=None) -> None:
+    """Refuse to run the backend on a distribution's unsupported default Python.
+
+    RHEL 9's /usr/bin/python3 is commonly 3.9, while Leap 15.6 can
+    default to 3.6. Selection occurs in the installed shell entry,
+    and this guard makes a wrong/direct invocation fail before action.
+    """
+    if version_info is None:
+        version_info = sys.version_info
+    if tuple(version_info[:2]) < (3, 10):
+        raise RequestError('unsupported_python')
+
+
 def _read_root_manifest() -> dict:
     """Only read AFTER verifying the fixed root-owned installation tree."""
+    require_supported_python()
     if (os.geteuid() != 0 or not sys.flags.isolated or
             not sys.flags.no_site or not sys.dont_write_bytecode or
             Path(__file__).absolute() != _TRUSTED_DIR / 'installer_root.py'):
@@ -199,6 +216,7 @@ def main(argv=None) -> int:
                     secrets_included=False))
         return 2
     try:
+        require_supported_python()
         manifest = _read_root_manifest()
         # Drop inherited environment before importing trusted project code
         # or making any subprocess/systemctl calls. The invoker MUST also
@@ -229,7 +247,8 @@ def main(argv=None) -> int:
     except (RequestError, OSError) as exc:
         code = str(exc) if isinstance(exc, RequestError) else 'untrusted_root_launcher'
         if code not in ('invalid_request', 'invalid_trusted_manifest',
-                        'untrusted_root_launcher', 'duplicate_key'):
+                        'untrusted_root_launcher', 'duplicate_key',
+                        'unsupported_python'):
             code = 'invalid_request'
         _reply(dict(status='error', error_code=code, secrets_included=False))
         return 2
