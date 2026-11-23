@@ -176,7 +176,7 @@ Noninteractive operations require explicit parameters for potentially destructiv
 | HW02 | Explicit power helper and WOL tested on real Linux hardware with recovery access; no regressions in current rc.2 behavior |
 | DIST | At least Debian/Ubuntu, Fedora, Arch, openSUSE and Gentoo **with systemd PID1**, including missing dependency/SELinux/AppArmor cases documented as supported/unverified |
 
-Use the existing `docs/development/LINUX-PARITY-ACCEPTANCE.md` checklist as the functional regression baseline. Green container CI is not proof of physical systemd/network/SmartThings/WOL behavior.
+Use the existing `docs/development/LINUX-PARITY-ACCEPTANCE.md` checklist as the functional regression baseline. The additional **[Installer feature-parity contract](LINUX-INSTALLER-FEATURE-PARITY.md)** directly compares Windows Setup, the current Linux scripts, and the read-only Go wizard, including the exact **control-key lifecycle**, privileged installation steps, onboarding, recovery and acceptance scenarios P01–P14. **Every row must be satisfied or explicitly documented as an intentional platform difference before the wizard replaces the Linux shell installer.** Green container CI is not proof of physical systemd/network/SmartThings/WOL behavior.
 
 ### Linux distribution readiness — track without blocking the wizard
 
