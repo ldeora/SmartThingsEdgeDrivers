@@ -22,11 +22,6 @@ jobs:
         with:
           go-version: '1.25.x'
           cache: false
-      - name: Temporary formatter output
-        run: |
-          printf 'NORMALIZED_LIVE:'
-          gofmt live.go | base64 -w0
-          printf '\n'
       - name: Enforce gofmt source formatting
         run: |
           unformatted="$(gofmt -l ./*.go)"
