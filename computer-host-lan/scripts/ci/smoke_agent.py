@@ -17,6 +17,8 @@ from urllib.request import urlopen
 
 ROOT = Path(__file__).resolve().parents[2]
 AGENT = ROOT / "agent" / "linux_host_agent.py"
+sys.path.insert(0, str(ROOT / "scripts"))
+import runtime_verify  # noqa: E402 — run against the actual disposable agent
 
 
 def request_json(base: str, endpoint: str):
@@ -59,6 +61,22 @@ def main() -> int:
             assert health["id"] == info["id"]
             assert health["status"] == "running"
             assert metrics["id"] == info["id"]
+            # Verify the new bounded parser against the REAL agent's HTTP
+            # formatting and payload, not only mocked JSON fixtures. This
+            # smoke process is not managed by systemd, so its service state
+            # must correctly remain not_verified.
+            verification = runtime_verify.verify_runtime(
+                port=port, expected_version=info["agent_version"],
+                expected_power=False, service_status="unknown",
+            )
+            assert verification["identity_consistent"] is True
+            assert verification["power_control"] == "disabled"
+            assert verification["status"] == "not_verified"
+            assert verification["runtime_verified"] is False
+            assert all(entry["status"] == "passed" for entry in
+                       verification["checks"] if entry["id"] not in
+                       ("systemd_agent_active", "identity_preserved"))
+            assert info["id"] not in json.dumps(verification)
             try:
                 request_json(base, "/v2/challenge")
             except HTTPError as err:
