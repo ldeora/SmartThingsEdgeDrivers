@@ -168,8 +168,26 @@ class RootProtocolTests(unittest.TestCase):
             with self.subTest(version=major_minor):
                 self.assertIsNone(bridge.require_supported_python(major_minor))
 
+    def test_all_trusted_launcher_files_exist_under_repository_scripts(self):
+        # The privileged helper checks exactly these installed names.
+        # A mismatch between the repository's shell file and this list
+        # would make every real privileged request fail on first use.
+        scripts = ROOT / 'scripts'
+        names = bridge._TRUSTED_MODULES
+        self.assertEqual(len(names), len(set(names)))
+        for name in names:
+            with self.subTest(name=name):
+                self.assertEqual(Path(name).name, name)
+                self.assertTrue((scripts / name).is_file(),
+                                f'Trusted launcher packaging file missing: {name}')
+        entry = [name for name in names if name.endswith('.sh')]
+        self.assertEqual(entry, ['installer-entry.sh'])
+        documentation = (ROOT / 'docs/development/LINUX-INSTALLER-PRIVILEGED-RECOVERY.md').read_text()
+        self.assertIn('/usr/libexec/computer-host-lan/' + entry[0] + ' --request-stdin',
+                      documentation)
+
     def test_installed_shell_entry_uses_manual_selector_precedence(self):
-        shell = (ROOT / 'scripts/installer_entry.sh').read_text()
+        shell = (ROOT / 'scripts/installer-entry.sh').read_text()
         selector = (ROOT / 'scripts/python-selector.sh').read_text()
         order = 'python3 python3.14 python3.13 python3.12 python3.11 python3.10'
         self.assertIn('for candidate in ' + order + '; do', shell)
@@ -180,14 +198,14 @@ class RootProtocolTests(unittest.TestCase):
         self.assertIn('exec "$PYTHON_BIN" -I -S -B', shell)
         self.assertIn('/usr/libexec/computer-host-lan/installer_root.py', shell)
         # Actual POSIX-shell syntax check in CI, including Python 3.10 runner.
-        check = subprocess.run(['/bin/sh', '-n', str(ROOT / 'scripts/installer_entry.sh')],
+        check = subprocess.run(['/bin/sh', '-n', str(ROOT / 'scripts/installer-entry.sh')],
                                text=True, capture_output=True, timeout=5)
         self.assertEqual(check.returncode, 0, check.stderr)
 
     def test_shell_selector_skips_old_default_python_and_picks_compatible(self):
         # Execute the shell's actual selection loop with fake PATH executables.
         # A private test directory stands in for /usr/bin; no sudo or root.
-        shell = (ROOT / 'scripts/installer_entry.sh').read_text()
+        shell = (ROOT / 'scripts/installer-entry.sh').read_text()
         first = shell.index('for candidate in python3 ')
         last = shell.index('\n[ -n "$PYTHON_BIN" ]', first)
         selector = shell[first:last].replace(
