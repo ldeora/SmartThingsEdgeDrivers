@@ -17,6 +17,7 @@ import subprocess
 import sys
 
 import install_core as core
+import runtime_verify
 
 SCHEMA_VERSION = 1
 DEFAULT_SOURCE = Path(__file__).resolve().parents[1]
@@ -249,6 +250,26 @@ def change_plan(*, source: Path = DEFAULT_SOURCE, root: Path = Path('/'),
     }
 
 
+def verify_live(*, port: int = 8765, expected_version: str | None = None,
+                check_services: bool = True) -> dict:
+    """Bounded loopback verification; does not read protected identity/key.
+
+    The future transaction engine will supply expected UUID and feature
+    state through an internal privileged call, NEVER the public JSON API.
+    """
+    if not runtime_verify.valid_port(port):
+        raise InvalidArgument('port must be an allowed unprivileged HTTP port')
+    if expected_version is not None and not runtime_verify._VERSION.fullmatch(expected_version):
+        raise InvalidArgument('invalid expected agent version')
+    systemd_present = Path('/run/systemd/system').is_dir()
+    service = (service_state('linux-host-agent.service', 'is-active',
+                             systemd_present=systemd_present)
+               if check_services else 'unknown')
+    return runtime_verify.verify_runtime(port=port,
+                                         expected_version=expected_version,
+                                         service_status=service)
+
+
 def error_response(command: str, code: str) -> str:
     if code not in ERROR_CODES:
         code = 'internal_error'
@@ -260,7 +281,7 @@ def error_response(command: str, code: str) -> str:
 
 def main(argv: list[str] | None = None) -> int:
     raw = list(argv) if argv is not None else sys.argv[1:]
-    operation = raw[0] if raw and raw[0] in ('inspect', 'plan') else 'unknown'
+    operation = raw[0] if raw and raw[0] in ('inspect', 'plan', 'verify') else 'unknown'
     try:
         parser = JSONArgumentParser(description='Experimental read-only Linux installer JSON API')
         sub = parser.add_subparsers(dest='command', required=True, parser_class=JSONArgumentParser)
@@ -271,9 +292,14 @@ def main(argv: list[str] | None = None) -> int:
         plan.add_argument('--disable-power', action='store_true')
         plan.add_argument('--wol-interface')
         plan.add_argument('--python')
+        verify = sub.add_parser('verify', help='bounded read-only loopback agent health check')
+        verify.add_argument('--port', type=int, default=8765)
+        verify.add_argument('--expected-version')
         args = parser.parse_args(raw)
         if args.command == 'inspect':
             result = inspection(python_override=args.python)
+        elif args.command == 'verify':
+            result = verify_live(port=args.port, expected_version=args.expected_version)
         else:
             result = change_plan(
                 python_bin=args.python, enable_power=args.enable_power,
