@@ -108,7 +108,7 @@ func TestLivePreviewUsesRealBackendWithoutTTY(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := result.String()
-	for _, want := range []string{"REAL HOST", "existing installation", "Power control: Keep power control enabled",
+	for _, want := range []string{"REAL HOST", "existing installation", "Power setting: preserve",
 		"replace: /opt/linux-host-agent/linux_host_agent.py",
 		"No runtime check", "Privileged transaction/recovery status: UNKNOWN"} {
 		if !strings.Contains(body, want) {
