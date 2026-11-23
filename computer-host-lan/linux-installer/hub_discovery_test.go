@@ -76,8 +76,8 @@ func TestHubSelectionReviewAndAccessibleManualFallback(t *testing.T) {
 		wolChoice: "keep", hubChoice: "discovered:192.168.1.10", hubs: hubs,
 	}
 	s.recordHubChoice(s.hubChoice)
-	if got := s.preview(); !strings.Contains(got, "192.168.1.10 (Avahi candidate") ||
-		!strings.Contains(got, "no pairing or hub request") {
+	if got := s.preview(); !strings.Contains(got, "192.168.1.10 (found automatically)") ||
+		!strings.Contains(got, "No installation or pairing will happen.") {
 		t.Fatalf("hub selection missing/unverified incorrectly: %s", got)
 	}
 	s.hubChoice, s.hubManual = "manual", "192.168.1.20"
@@ -87,12 +87,12 @@ func TestHubSelectionReviewAndAccessibleManualFallback(t *testing.T) {
 		t.Fatalf("manual IPv4 missing: %s", got)
 	}
 	var output bytes.Buffer
-	input := "k\nk\nm\n192.168.1.20\ny\n"
+	input := "m\n192.168.1.20\nk\nk\ny\n"
 	if err := runLiveAccessibleWithHubs(strings.NewReader(input), &output, client, info, hubs); err != nil {
 		t.Fatal(err)
 	}
 	result := output.String()
-	for _, text := range []string{"192.168.1.10", "192.168.1.20 (entered manually", "READ-ONLY REVIEW COMPLETE"} {
+	for _, text := range []string{"192.168.1.10", "192.168.1.20 (entered manually", "SETUP PREVIEW COMPLETE"} {
 		if !strings.Contains(result, text) {
 			t.Fatalf("accessible manual hub flow omitted %q: %s", text, result)
 		}
@@ -101,10 +101,10 @@ func TestHubSelectionReviewAndAccessibleManualFallback(t *testing.T) {
 		t.Fatal("accessible mode contains ANSI bytes")
 	}
 	output.Reset()
-	if err := runLiveAccessibleWithHubs(strings.NewReader("k\nk\n1\ny\n"), &output, client, info, hubs); err != nil {
+	if err := runLiveAccessibleWithHubs(strings.NewReader("\nk\nk\ny\n"), &output, client, info, hubs); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(output.String(), "192.168.1.10 (Avahi candidate") {
+	if !strings.Contains(output.String(), "192.168.1.10 (found automatically)") {
 		t.Fatalf("accessible discovered hub was not selected: %s", output.String())
 	}
 }
@@ -114,7 +114,7 @@ func TestHubSelectionNeverInfersPairingOrContact(t *testing.T) {
 		hubChoice: "discovered:192.168.1.11",
 		hubs:      []discoveredHub{{"192.168.1.10", 8765}},
 	}
-	if got := s.selectedHub(); !strings.Contains(got, "Not selected") {
+	if got := s.selectedHub(); !strings.Contains(got, "I'll choose later") {
 		t.Fatalf("unlisted address trusted by UI: %s", got)
 	}
 	if got := len(liveHubOptions(nil)); got != 2 {
