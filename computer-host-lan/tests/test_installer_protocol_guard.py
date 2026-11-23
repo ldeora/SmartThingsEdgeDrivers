@@ -245,12 +245,16 @@ class InstalledProtocolTests(unittest.TestCase):
     def test_rollback_does_not_depend_on_damaged_current_protocol(self):
         # A bad backup should be rejected BEFORE any lock or service writes,
         # and the current-host coexistence guard must not run.
-        with mock.patch.object(core.os, 'geteuid', return_value=0), \
+        backup_base = self.root / 'backup-base'
+        bad_backup = backup_base / 'snapshot-bad'
+        bad_backup.mkdir(parents=True)
+        with mock.patch.object(core, 'BACKUP_BASE', str(backup_base)), \
+             mock.patch.object(core.os, 'geteuid', return_value=0), \
              mock.patch.object(core, 'require_v2_or_clean') as guard, \
              mock.patch.object(core, 'validate_v2_backup',
                                side_effect=core.InstallError('Invalid backup')):
             with self.assertRaises(core.InstallError):
-                core.run_cli(['--rollback', '/var/backups/linux-host-agent/nonexistent'])
+                core.run_cli(['--rollback', str(bad_backup)])
             guard.assert_not_called()
 
     def test_read_only_cli_guard_works_without_root(self):
