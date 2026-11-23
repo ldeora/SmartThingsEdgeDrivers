@@ -21,6 +21,9 @@ The new installation path is deliberately distinct:
 # Plain-text accessible alternative:
 ./computer-host-linux-installer-test -live -install -accessible
 
+# SSH with no local polkit agent, explicitly use su and its root password:
+./computer-host-linux-installer-test -live -install -accessible -elevation su
+
 # Explicit repair of a previously interrupted transaction, with confirmation:
 ./computer-host-linux-installer-test -recover
 ```
@@ -66,6 +69,27 @@ The `su` fallback is only available with a real terminal; the local
 distribution's PAM conversation must be verified in the first live test.
 Its password prompt and input are never buffered as application
 diagnostics.
+
+**SSH caveat:** The default provider remains `auto`, selecting installed
+`sudo` → `doas` → `run0` → `su`. A headless SSH session can have
+`run0` installed but lack the polkit agent/authorization of a local
+desktop session, so `run0 --pipe` may be denied even when `su root`
+works. Use the explicit **`-elevation su`** option (also supported
+with `-recover`) to request just `su`, instead of deleting/renaming
+`run0`, changing polkit policy, or retrying authentication silently.
+The override is accepted only for installation or recovery, not preview,
+demo, or internal root-bootstrap mode. It cannot choose arbitrary shell
+commands; invalid/unavailable providers stop before elevation.
+Over SSH allocate a pseudo-TTY (`ssh -tt`) for PAM's password prompt.
+
+On Gentoo acceptance `hydra`, local Go tests and the strict read-only
+preview passed with Go 1.27.3 and Python 3.14.10. Unprivileged protocol
+classification returned `v2`; an absent optional installer ownership
+marker is not by itself a blocker for clearly classified existing v2
+managed files. The `run0` JSON probe over SSH was denied by polkit,
+which is why this explicit non-default provider option is supplied.
+A root-private journal/status check is still required before any live
+upgrade; the read-only wizard reports that state as `UNKNOWN`.
 
 No source checkout is needed to inspect or plan: the executable also
 embeds a **separate read-only Python inspection bundle** and runs that

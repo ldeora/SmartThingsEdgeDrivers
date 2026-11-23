@@ -61,6 +61,48 @@ func TestElevationFallbackOrderAndNoninteractiveRules(t *testing.T) {
 	}
 }
 
+func TestExplicitElevationChoiceSelectsOnlyRequestedProvider(t *testing.T) {
+	payload := []byte(`{"schema_version":1,"action":"status"}`)
+	binary := "/home/test/installer"
+	available := func(path string) bool {
+		return path == "/usr/bin/run0" || path == "/usr/bin/su"
+	}
+	automatic, err := chooseElevationCommand(binary, true, payload, "auto", available)
+	if err != nil || automatic.method != "run0" {
+		t.Fatalf("Automatic selection changed: %+v, %v", automatic, err)
+	}
+	chosen, err := chooseElevationCommand(binary, true, payload, "su", available)
+	if err != nil || chosen.method != "su" {
+		t.Fatalf("Explicit su override was ignored: %+v, %v", chosen, err)
+	}
+	if !strings.Contains(chosen.args[2], " -root-bootstrap -request ") ||
+		!strings.Contains(chosen.args[2], string(payload)) {
+		t.Fatalf("Explicit su did not retain the non-secret bounded request: %+v", chosen)
+	}
+	chosen, err = chooseElevationCommand(binary, true, payload, "run0", available)
+	if err != nil || chosen.method != "run0" {
+		t.Fatalf("Explicit run0 did not select the requested provider: %+v, %v", chosen, err)
+	}
+	for _, tc := range []struct {
+		name        string
+		method      string
+		interactive bool
+	}{
+		{"refuse absent sudo, do not fallback", "sudo", true},
+		{"refuse absent doas, do not fallback", "doas", true},
+		{"refuse su without a terminal", "su", false},
+		{"reject arbitrary program name", "/tmp/malicious", true},
+		{"reject shell-command method", "su;id", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got, err := chooseElevationCommand(binary, tc.interactive, payload,
+				tc.method, available); err == nil {
+				t.Fatalf("Unexpectedly selected provider %+v", got)
+			}
+		})
+	}
+}
+
 func TestSuFallbackQuotesTheFixedGoExecutablePath(t *testing.T) {
 	available := func(path string) bool { return path == "/bin/su" }
 	got, err := findElevationCommand("/home/test/user's/wizard", true,

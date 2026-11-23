@@ -92,6 +92,17 @@ jobs:
             echo "Root helper ran unprivileged" >&2
             exit 1
           fi
+          if "$RUNNER_TEMP/computer-host-linux-tui-demo" -live -preview \
+            -elevation su -api ../scripts/installer-api.sh \
+            > "$RUNNER_TEMP/invalid-preview-elevation.txt" 2>&1; then
+            echo "Read-only preview accepted a privileged elevation override" >&2
+            exit 1
+          fi
+          if "$RUNNER_TEMP/computer-host-linux-tui-demo" -preview \
+            -elevation arbitrary > "$RUNNER_TEMP/invalid-method.txt" 2>&1; then
+            echo "Unknown authorization method was accepted" >&2
+            exit 1
+          fi
       - name: Build static x86_64 test-only binary for Gentoo acceptance
         run: |
           set -eu

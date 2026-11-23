@@ -376,9 +376,10 @@ func main() {
 	preview := flag.Bool("preview", false, "print a sample plan without starting a TUI")
 	live := flag.Bool("live", false, "read-only Linux inspection/plan (default) or explicitly confirmed installation with -install")
 	apiPath := flag.String("api", "", "optional path to a read-only source API launcher; -install bundles its own")
-	install := flag.Bool("install", false, "guided real installation; explicit final approval and sudo required")
+	install := flag.Bool("install", false, "guided real installation; explicit final approval and administrator authorization required")
 	rootMode := flag.Bool("root-bootstrap", false, "internal: fixed privileged bootstrap, never run the UI as root")
 	recoverMode := flag.Bool("recover", false, "explicitly recover an interrupted privileged installation")
+	elevation := flag.String("elevation", "auto", "authorization provider for install/recover: auto, sudo, doas, run0 or su")
 	requestArg := flag.String("request", "", "internal: bounded non-secret JSON input for su-only root bootstrap")
 	flag.Parse()
 	requestFlagProvided := false
@@ -391,8 +392,12 @@ func main() {
 		fmt.Fprintln(os.Stderr, "unexpected arguments; use -h for help")
 		os.Exit(2)
 	}
+	if !validElevationChoice(*elevation) {
+		fmt.Fprintln(os.Stderr, "unsupported -elevation choice; use auto, sudo, doas, run0 or su")
+		os.Exit(2)
+	}
 	if *rootMode {
-		if *live || *install || *preview || *accessible || *apiPath != "" || *recoverMode {
+		if *live || *install || *preview || *accessible || *apiPath != "" || *recoverMode || *elevation != "auto" {
 			fmt.Fprintln(os.Stderr, "Invalid privileged bootstrap invocation.")
 			os.Exit(2)
 		}
@@ -413,12 +418,16 @@ func main() {
 		fmt.Fprintln(os.Stderr, "-request is supported only by the privileged bootstrap")
 		os.Exit(2)
 	}
+	if *elevation != "auto" && !*recoverMode && !*install {
+		fmt.Fprintln(os.Stderr, "-elevation is allowed only with -live -install or -recover")
+		os.Exit(2)
+	}
 	if *recoverMode {
 		if *install || *live || *preview || *accessible || *apiPath != "" {
 			fmt.Fprintln(os.Stderr, "-recover cannot be combined with other wizard modes")
 			os.Exit(2)
 		}
-		if err := runRecoveryWizard(os.Stdin, os.Stdout); err != nil {
+		if err := runRecoveryWizard(os.Stdin, os.Stdout, *elevation); err != nil {
 			fmt.Fprintln(os.Stderr, "Recovery not completed:", err)
 			os.Exit(1)
 		}
@@ -429,7 +438,7 @@ func main() {
 			fmt.Fprintln(os.Stderr, "-install requires -live and cannot be combined with -preview")
 			os.Exit(2)
 		}
-		if err := runInstallingWizard(*accessible, *apiPath, os.Stdin, os.Stdout); err != nil {
+		if err := runInstallingWizard(*accessible, *apiPath, os.Stdin, os.Stdout, *elevation); err != nil {
 			fmt.Fprintln(os.Stderr, "Installation not completed:", err)
 			os.Exit(1)
 		}

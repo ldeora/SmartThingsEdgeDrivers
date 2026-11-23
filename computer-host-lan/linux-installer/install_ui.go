@@ -211,6 +211,41 @@ func findElevationCommand(binary string, interactive bool, payload []byte, avail
 	return elevationCommand{}, errors.New("no supported administrator authorization method is available (sudo, doas, run0 or interactive su)")
 }
 
+// An explicit provider is important for remote SSH sessions where run0's
+// polkit authorization can be unavailable even when su root works.
+// Never retry another provider after failure or quietly weaken selection.
+func validElevationChoice(method string) bool {
+	switch method {
+	case "auto", "sudo", "doas", "run0", "su":
+		return true
+	}
+	return false
+}
+
+func chooseElevationCommand(binary string, interactive bool, payload []byte,
+	method string, available func(string) bool) (elevationCommand, error) {
+	if !validElevationChoice(method) {
+		return elevationCommand{}, errors.New("invalid administrator authorization method")
+	}
+	if method == "auto" {
+		return findElevationCommand(binary, interactive, payload, available)
+	}
+	if method == "su" && !interactive {
+		return elevationCommand{}, errors.New("su requires an interactive terminal for root password authentication")
+	}
+	selected, err := findElevationCommand(binary, interactive, payload,
+		func(candidate string) bool {
+			return filepath.Base(candidate) == method && available(candidate)
+		})
+	if err != nil {
+		return elevationCommand{}, fmt.Errorf("requested administrator authorization method %s is not available", method)
+	}
+	if selected.method != method {
+		return elevationCommand{}, errors.New("requested administrator authorization method mismatch")
+	}
+	return selected, nil
+}
+
 func quotePOSIXShell(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
 }
@@ -321,7 +356,7 @@ func elevationInput(method string, payload []byte, terminal io.Reader) io.Reader
 	return bytes.NewReader(payload)
 }
 
-func executeAuthorizedBootstrap(request privilegedRequest, interactive bool) (privilegedResult, error) {
+func executeAuthorizedBootstrap(request privilegedRequest, interactive bool, method string) (privilegedResult, error) {
 	if err := request.validate(); err != nil {
 		return privilegedResult{}, err
 	}
@@ -337,7 +372,7 @@ func executeAuthorizedBootstrap(request privilegedRequest, interactive bool) (pr
 	if err != nil || !filepath.IsAbs(binary) {
 		return privilegedResult{}, errors.New("cannot resolve installer executable")
 	}
-	elevate, err := findElevationCommand(binary, interactive, payload, isExecutableFile)
+	elevate, err := chooseElevationCommand(binary, interactive, payload, method, isExecutableFile)
 	if err != nil {
 		return privilegedResult{}, err
 	}
@@ -363,13 +398,16 @@ func executeAuthorizedBootstrap(request privilegedRequest, interactive bool) (pr
 	return interpretPrivilegedExecution(stdout.Bytes(), runErr, request.Action)
 }
 
-func installSelection(s *liveSelection, w io.Writer, interactive bool) error {
+func installSelection(s *liveSelection, w io.Writer, interactive bool, method string) error {
 	req, err := approvedRootRequest(s)
 	if err != nil {
 		return err
 	}
 	fmt.Fprintf(w, "\nAuthorizing %s of Computer Host LAN. This changes agent files and systemd services.\n", req.Action)
-	result, err := executeAuthorizedBootstrap(req, interactive)
+	if method != "auto" {
+		fmt.Fprintln(w, "Administrator authorization method explicitly selected:", method)
+	}
+	result, err := executeAuthorizedBootstrap(req, interactive, method)
 	if err != nil {
 		return err
 	}
@@ -392,7 +430,7 @@ func installSelection(s *liveSelection, w io.Writer, interactive bool) error {
 	return nil
 }
 
-func runInstallingWizard(accessible bool, apiPath string, reader io.Reader, writer io.Writer) error {
+func runInstallingWizard(accessible bool, apiPath string, reader io.Reader, writer io.Writer, method string) error {
 	if os.Geteuid() == 0 {
 		return errors.New("run the wizard as your normal user; sudo is requested only after review")
 	}
@@ -424,7 +462,7 @@ func runInstallingWizard(accessible bool, apiPath string, reader io.Reader, writ
 		hasTTY := statErr == nil && stdinInfo.Mode()&os.ModeCharDevice != 0
 		return runLiveAccessibleWithHubsMode(reader, writer, api, info, hubs,
 			true, func(s *liveSelection) error {
-				return installSelection(s, writer, hasTTY)
+				return installSelection(s, writer, hasTTY, method)
 			})
 	}
 	state, err := os.Stdin.Stat()
@@ -456,10 +494,10 @@ func runInstallingWizard(accessible bool, apiPath string, reader io.Reader, writ
 		fmt.Fprintln(writer, "Cancelled. No changes made.")
 		return nil
 	}
-	return installSelection(s, writer, true)
+	return installSelection(s, writer, true, method)
 }
 
-func runRecoveryWizard(reader io.Reader, writer io.Writer) error {
+func runRecoveryWizard(reader io.Reader, writer io.Writer, method string) error {
 	if os.Geteuid() == 0 {
 		return errors.New("run the wizard as your normal user; sudo is requested after confirmation")
 	}
@@ -479,7 +517,7 @@ func runRecoveryWizard(reader io.Reader, writer io.Writer) error {
 		return nil
 	}
 	response, err := executeAuthorizedBootstrap(
-		privilegedRequest{SchemaVersion: 1, Action: "recover"}, true)
+		privilegedRequest{SchemaVersion: 1, Action: "recover"}, true, method)
 	if err != nil {
 		return err
 	}

@@ -12,9 +12,11 @@
 The standalone Go executable embeds the version-matched Linux agent,
 privileged transaction engine, manifest, and read-only inspector. After
 presenting the familiar hub, power and advanced-network choices, it
-requires typing `INSTALL`, then requests sudo **after the terminal
-form has closed**. The bootstrap installs its own trusted root-owned
-helper set and executes the existing Python installation backend.
+requires typing `INSTALL`, then requests administrator authorization
+**after the terminal form has closed**. The bootstrap installs its own
+trusted root-owned helper set and executes the existing Python
+installation backend. The default provider is auto-detected; remote SSH
+sessions without an interactive polkit agent can explicitly select `su`.
 
 ```sh
 # Read-only; no privilege:
@@ -25,6 +27,9 @@ helper set and executes the existing Python installation backend.
 
 # Plain text, requires literal INSTALL at the final screen:
 ./computer-host-linux-installer-test -live -install -accessible
+
+# Remote SSH with a PTY and root-password su, even when run0 is installed:
+./computer-host-linux-installer-test -live -install -accessible -elevation su
 
 # Resolve a previously interrupted install with the existing installed helper:
 ./computer-host-linux-installer-test -recover
@@ -39,8 +44,9 @@ Read the integration document for recovery and first-live-test gates.
 ---
 
 
-> **NO INSTALLATION POSSIBLE.** This Go program is an experimental installer
-> frontend. It has two modes:
+> **LEGACY PREVIEW MODES ARE NON-INSTALLING.** This Go program now has
+> an explicitly authorized `-live -install` draft path, but neither of
+> the original preview modes has been changed:
 > - **Demo (default):** all information is simulated. No inspection occurs.
 > - **Live read-only (`-live`):** runs the versioned JSON `inspect` / `plan`
 >   operations from the merged Python `scripts/installer-api.sh`. It reports
@@ -50,12 +56,12 @@ Read the integration document for recovery and first-live-test gates.
 >   may optionally query the local Avahi daemon for SmartThings hub candidates;
 >   this never contacts or authenticates the hub.
 
-Neither mode installs, repairs, upgrades, removes or configures an agent. The
-existing `scripts/install-agent.sh` remains the supported installer.
-The wizard is **not** part of Computer Host LAN v1.0.0-rc.2.
-The Windows-like page sequence is UX development only; installation,
-health validation, SmartThings onboarding and protected keys still require
-the separate privileged backend and a full end-to-end acceptance test.
+Neither original preview mode installs, repairs, upgrades, removes
+or configures an agent. `-live -install` is a **draft** real installer
+whose privileged backend has passed review and CI; it still needs a
+successful supervised physical upgrade and acceptance before a release.
+The existing `scripts/install-agent.sh` remains the supported
+production installer. The Go wizard is **not** part of v1.0.0-rc.2.
 
 ## Development and preview
 
