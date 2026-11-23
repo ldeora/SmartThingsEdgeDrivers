@@ -49,6 +49,9 @@ class FakeSystemd:
         self.uninstall_stops = 0
         self.uninstall_reloads = 0
         self.fail_uninstall_stop = False
+        self.fail_uninstall_disable = False
+        self.power_helper_active = False
+        self.fail_uninstall_helper_stop = False
         self.fail_uninstall_verify = False
 
     def capture_previous(self, transaction):
@@ -81,22 +84,26 @@ class FakeSystemd:
     def stop_for_uninstall(self):
         self.uninstall_stops += 1
         if not self.fail_uninstall_stop:
-            for key in ('agent_active', 'agent_enabled',
-                        'socket_active', 'socket_enabled'):
+            for key in ('agent_active', 'socket_active'):
                 self.states[key] = False
+        if not self.fail_uninstall_disable:
+            for key in ('agent_enabled', 'socket_enabled'):
+                self.states[key] = False
+        if not self.fail_uninstall_helper_stop:
+            self.power_helper_active = False
 
     def verify_uninstall_stopped(self):
-        return not self.states['agent_active'] and not self.states['socket_active']
+        return not self.power_helper_active and all(
+            not self.states[key] for key in (
+                'agent_active', 'agent_enabled',
+                'socket_active', 'socket_enabled')
+        )
 
     def reload_after_uninstall(self):
         self.uninstall_reloads += 1
 
     def verify_uninstall_services(self):
-        return not self.fail_uninstall_verify and all(
-            not self.states[key] for key in (
-                'agent_active', 'agent_enabled',
-                'socket_active', 'socket_enabled')
-        )
+        return not self.fail_uninstall_verify and self.verify_uninstall_stopped()
 
     def restore_services(self, previous):
         self.restore_calls += 1
@@ -405,14 +412,95 @@ class InstallerBackendTests(unittest.TestCase):
         with mock.patch.object(core, 'systemctl') as ctl:
             ops.stop_for_uninstall()
             self.assertEqual(ctl.call_args_list, [
-                call('disable', '--now', 'linux-host-agent-power.socket',
-                     check=False),
-                call('disable', '--now', 'linux-host-agent.service',
-                     check=False),
+                call('disable', '--now', 'linux-host-agent-power.socket'),
+                call('stop', 'linux-host-agent-power.service'),
+                call('disable', '--now', 'linux-host-agent.service'),
             ])
-        with mock.patch.object(core, 'state', return_value=False):
+
+    def test_uninstall_requires_disabled_and_inactive_before_any_unlink(self):
+        for failure in ('disable', 'helper_stop'):
+            with self.subTest(failure=failure):
+                old = self.existing_install()
+                original = old.read_bytes()
+                if failure == 'disable':
+                    self.services.fail_uninstall_disable = True
+                else:
+                    self.services.power_helper_active = True
+                    self.services.fail_uninstall_helper_stop = True
+                with mock.patch.object(core.InstallTransaction, 'apply') as apply:
+                    with self.assertRaises(installer.ControllerError) as error:
+                        self.backend.uninstall()
+                    apply.assert_not_called()
+                self.assertEqual(error.exception.code, 'rolled_back')
+                self.assertEqual(old.read_bytes(), original)
+                self.assertEqual(self.services.restore_calls, 1)
+                self.assertEqual(self.store.public_status()[
+                    'privileged_transaction_state'], 'none')
+
+    def test_uninstall_systemd_checks_explicit_states_before_and_after_removal(self):
+        ops = installer.SystemdOperations()
+
+        def before(unit):
+            return dict(LoadState='loaded', ActiveState='inactive',
+                        UnitFileState=('static' if unit.endswith('power.service')
+                                       else 'disabled'))
+
+        with mock.patch.object(ops, '_uninstall_unit_state', side_effect=before):
             self.assertTrue(ops.verify_uninstall_stopped())
+            self.assertFalse(ops.verify_uninstall_services())
+
+        for failing_unit, field, value in (
+                ('linux-host-agent.service', 'UnitFileState', 'enabled'),
+                ('linux-host-agent-power.socket', 'UnitFileState', 'enabled-runtime'),
+                ('linux-host-agent-power.service', 'ActiveState', 'active'),
+                ('linux-host-agent-power.service', 'ActiveState', 'deactivating'),
+                ('linux-host-agent.service', 'LoadState', 'not-found')):
+            with self.subTest(unit=failing_unit, field=field, value=value):
+                def bad_state(unit):
+                    state = before(unit)
+                    if unit == failing_unit:
+                        state[field] = value
+                    return state
+                with mock.patch.object(ops, '_uninstall_unit_state',
+                                       side_effect=bad_state):
+                    self.assertFalse(ops.verify_uninstall_stopped())
+
+        after = dict(LoadState='not-found', ActiveState='inactive',
+                     UnitFileState='')
+        with mock.patch.object(ops, '_uninstall_unit_state', return_value=after):
             self.assertTrue(ops.verify_uninstall_services())
+            self.assertFalse(ops.verify_uninstall_stopped())
+
+        def active_helper_after(unit):
+            return dict(after, ActiveState=('active' if unit.endswith(
+                'power.service') else 'inactive'))
+        with mock.patch.object(ops, '_uninstall_unit_state',
+                               side_effect=active_helper_after):
+            self.assertFalse(ops.verify_uninstall_services())
+
+    def test_uninstall_systemd_query_requires_complete_successful_response(self):
+        ops = installer.SystemdOperations()
+        import subprocess
+        raw = '\n'.join(('LoadState=loaded', 'ActiveState=inactive',
+                         'UnitFileState=disabled', ''))
+        for code, output, expected in (
+                (0, raw, True),
+                (1, raw, False),
+                (124, raw, False),
+                (0, 'ActiveState=inactive', False),
+                (0, raw + 'ActiveState=inactive\n', False),
+                (0, '', False)):
+            with self.subTest(code=code, output=output):
+                result = subprocess.CompletedProcess([], code, stdout=output)
+                with mock.patch.object(installer.subprocess, 'run',
+                                       return_value=result):
+                    self.assertEqual(ops._uninstall_unit_state(
+                        'linux-host-agent.service') is not None, expected)
+        for exc in (OSError('bus unavailable'),
+                    subprocess.TimeoutExpired('systemctl', 10)):
+            with mock.patch.object(installer.subprocess, 'run', side_effect=exc):
+                self.assertFalse(ops.verify_uninstall_stopped())
+                self.assertFalse(ops.verify_uninstall_services())
 
     def test_install_applies_actual_plan_and_cleans_transaction(self):
         # The new agent files and the unit templates are REALLY installed
