@@ -1,6 +1,6 @@
-"""Rootless fixture tests for the isolated protected wizard journal.
+"""Non-root, no-systemd regressions for the isolated protected journal.
 
-No sudo, no real backups, no systemctl, no installed Linux agent changes.
+No sudo, no real backups, no systemd, no installed agent or service changes.
 """
 from __future__ import annotations
 
@@ -8,13 +8,19 @@ import json
 import os
 from pathlib import Path
 import stat
+import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'scripts'))
 import transaction_journal as journal
+
+PHASES = ('INSPECTED', 'STAGED', 'SNAPSHOTTED', 'APPLYING',
+          'ACTIVATING', 'VERIFYING', 'COMMITTED')
+SNAPSHOT = 'snapshot-abcdefgh'
 
 
 class ProtectedJournalTests(unittest.TestCase):
@@ -37,68 +43,192 @@ class ProtectedJournalTests(unittest.TestCase):
         target.chmod(mode)
         return target
 
-    def test_missing_status_does_not_create_any_directories(self):
+    @staticmethod
+    def record(*, phase='INSPECTED', snapshot=None):
+        return {'schema': 1, 'transaction_id': 'a' * 32,
+                'operation': 'install', 'phase': phase, 'snapshot_name': snapshot}
+
+    @staticmethod
+    def advance_to(handle, phase):
+        for i in range(1, PHASES.index(phase) + 1):
+            handle.advance(PHASES[i - 1], PHASES[i],
+                           snapshot_name=SNAPSHOT if PHASES[i] == 'SNAPSHOTTED' else None)
+
+    def test_status_does_not_create_directories_or_lock(self):
         self.assertEqual(self.store.public_status()['privileged_transaction_state'], 'none')
         self.assertFalse((self.root / 'var').exists())
+        with self.store.begin('install'):
+            pass
+        lock = self.directory / 'lock'
+        before = lock.stat().st_mtime_ns
+        with mock.patch.object(journal.os, 'open', wraps=os.open) as opened:
+            self.assertEqual(self.store.public_status()['privileged_transaction_state'],
+                             'incomplete')
+        calls = [c for c in opened.call_args_list if c.args and c.args[0] == 'lock']
+        self.assertTrue(calls)
+        self.assertTrue(all(not c.args[1] & os.O_CREAT for c in calls))
+        self.assertTrue(all(c.args[1] & os.O_ACCMODE == os.O_RDONLY for c in calls))
+        self.assertEqual(before, lock.stat().st_mtime_ns)
 
-    def test_complete_sequence_and_atomic_private_files(self):
-        self.store.begin('install')
-        self.assertEqual(self.store.public_status()['privileged_transaction_state'], 'incomplete')
-        self.store.advance('INSPECTED', 'STAGED')
-        self.store.advance('STAGED', 'SNAPSHOTTED', snapshot_name='snapshot-abcdefgh')
-        self.assertEqual(self.store.public_status()['privileged_transaction_state'], 'incomplete')
-        for first, second in (
-            ('SNAPSHOTTED', 'APPLYING'), ('APPLYING', 'ACTIVATING'),
-            ('ACTIVATING', 'VERIFYING'), ('VERIFYING', 'COMMITTED'),
-        ):
-            self.store.advance(first, second)
-            if second != 'COMMITTED':
+    def test_lifetime_handle_and_complete_sequence(self):
+        with self.store.begin('install') as tx:
+            self.assertEqual(self.store.public_status()['privileged_transaction_state'],
+                             'in_progress')
+            for i in range(1, len(PHASES)):
+                tx.advance(PHASES[i - 1], PHASES[i],
+                           snapshot_name=SNAPSHOT if PHASES[i] == 'SNAPSHOTTED' else None)
                 self.assertEqual(self.store.public_status()['privileged_transaction_state'],
-                                 'recovery_required')
-        self.assertEqual(self.store.public_status()['privileged_transaction_state'], 'incomplete')
-        raw = self.directory / 'journal.json'
-        self.assertEqual(stat.S_IMODE(raw.stat().st_mode), 0o600)
-        self.assertEqual(stat.S_IMODE(self.directory.stat().st_mode), 0o700)
-        self.assertEqual(stat.S_IMODE((self.directory / 'lock').stat().st_mode), 0o600)
-        self.assertEqual(json.loads(raw.read_text())['snapshot_name'], 'snapshot-abcdefgh')
-        self.store.clear_committed()
-        self.assertFalse(raw.exists())
+                                 'in_progress')
+            self.assertEqual(stat.S_IMODE((self.directory / 'journal.json').stat().st_mode),
+                             0o600)
+            self.assertEqual(stat.S_IMODE((self.directory / 'lock').stat().st_mode), 0o600)
+            self.assertEqual(stat.S_IMODE(self.directory.stat().st_mode), 0o700)
+            tx.clear_finished()
+            self.assertFalse((self.directory / 'journal.json').exists())
         self.assertEqual(self.store.public_status()['privileged_transaction_state'], 'none')
 
-    def test_refuse_second_install_and_stale_transition(self):
-        self.store.begin('upgrade')
-        with self.assertRaises(journal.JournalConflict):
-            self.store.begin('repair')
-        with self.assertRaises(journal.JournalConflict):
-            self.store.advance('STAGED', 'SNAPSHOTTED', snapshot_name='snapshot-abcdefgh')
-        with self.assertRaises(journal.JournalError):
-            self.store.advance('INSPECTED', 'APPLYING')
-        with self.assertRaises(journal.JournalConflict):
-            self.store.clear_committed()
-        self.assertEqual(json.loads((self.directory / 'journal.json').read_text())['phase'],
-                         'INSPECTED')
+    def test_abort_before_apply_even_after_snapshot(self):
+        for phase in ('INSPECTED', 'STAGED', 'SNAPSHOTTED'):
+            with self.subTest(phase=phase):
+                with self.store.begin('upgrade') as tx:
+                    self.advance_to(tx, phase)
+                self.assertEqual(self.store.public_status()['privileged_transaction_state'],
+                                 'incomplete')
+                with self.store.resume_recovery() as recovery:
+                    recovery.abort()
+                    self.assertEqual(self.store.public_status()['privileged_transaction_state'],
+                                     'in_progress')
+                    record = json.loads((self.directory / 'journal.json').read_text())
+                    self.assertEqual(record['phase'], 'ABORTED')
+                    recovery.clear_finished()
+                self.assertEqual(self.store.public_status()['privileged_transaction_state'],
+                                 'none')
 
-    def test_reject_missing_and_malicious_snapshot_references(self):
-        self.store.begin('install')
-        self.store.advance('INSPECTED', 'STAGED')
-        for bad in (None, '../snapshot-abcdefgh', '/var/backups/snapshot-abcdefgh',
-                    'snapshot-a', 'snapshot-valid/../../escape', 'snapshot-invalid~'):
-            with self.subTest(bad=bad):
+    def test_rollback_completion_requires_verified_snapshot_restore(self):
+        with self.store.begin('repair') as tx:
+            self.advance_to(tx, 'ACTIVATING')
+            with self.assertRaises(journal.JournalConflict):
+                tx.abort()
+        self.assertEqual(self.store.public_status()['privileged_transaction_state'],
+                         'recovery_required')
+        with self.store.resume_recovery() as recovered:
+            with self.assertRaises(journal.JournalConflict):
+                recovered.mark_rolled_back(lambda _: False)
+            with self.assertRaises(journal.JournalConflict):
+                recovered.mark_rolled_back(None)
+            observed = []
+            recovered.mark_rolled_back(lambda name: observed.append(name) or name == SNAPSHOT)
+            self.assertEqual(observed, [SNAPSHOT])
+            self.assertEqual(json.loads((self.directory / 'journal.json').read_text())['phase'],
+                             'ROLLED_BACK')
+            recovered.clear_finished()
+        self.assertEqual(self.store.public_status()['privileged_transaction_state'], 'none')
+
+    def test_committed_journal_is_complete_and_reaped_at_next_begin(self):
+        with self.store.begin('install') as tx:
+            self.advance_to(tx, 'COMMITTED')
+            committed_id = json.loads((self.directory / 'journal.json').read_text())['transaction_id']
+        self.assertEqual(self.store.public_status()['privileged_transaction_state'], 'none')
+        with self.store.begin('upgrade') as tx:
+            fresh = json.loads((self.directory / 'journal.json').read_text())
+            self.assertNotEqual(fresh['transaction_id'], committed_id)
+            tx.abort()
+            tx.clear_finished()
+        self.assertEqual(self.store.public_status()['privileged_transaction_state'], 'none')
+
+    def test_second_caller_cannot_begin_resume_or_advance(self):
+        with self.store.begin('install') as tx:
+            with self.assertRaises(journal.JournalConflict):
+                self.store.begin('upgrade')
+            with self.assertRaises(journal.JournalConflict):
+                self.store.resume_recovery()
+            self.advance_to(tx, 'STAGED')
+        with self.assertRaises(journal.JournalConflict):
+            tx.advance('STAGED', 'SNAPSHOTTED', snapshot_name=SNAPSHOT)
+        with self.assertRaises(journal.JournalConflict):
+            self.store.begin('upgrade')
+
+    def test_invalid_snapshot_and_phase_fail_without_mutating(self):
+        with self.store.begin('install') as tx:
+            tx.advance('INSPECTED', 'STAGED')
+            for bad in (None, '../snapshot-abcdefgh', '/tmp/snapshot-abcdefgh',
+                        'snapshot-a', 'snapshot-valid/../../escape', 'snapshot-invalid~'):
+                with self.subTest(bad=bad):
+                    with self.assertRaises(journal.UnsafeJournal):
+                        tx.advance('STAGED', 'SNAPSHOTTED', snapshot_name=bad)
+            with self.assertRaises(journal.JournalError):
+                tx.advance('STAGED', 'ACTIVATING')
+            with self.assertRaises(journal.JournalConflict):
+                tx.advance('INSPECTED', 'STAGED')
+            self.assertEqual(json.loads((self.directory / 'journal.json').read_text())['phase'],
+                             'STAGED')
+
+    def test_failed_phase_write_keeps_temp_and_requires_verified_abort(self):
+        with self.store.begin('install') as tx:
+            with mock.patch.object(journal.os, 'replace', side_effect=OSError('simulated')):
                 with self.assertRaises(journal.UnsafeJournal):
-                    self.store.advance('STAGED', 'SNAPSHOTTED', snapshot_name=bad)
-        self.store.advance('STAGED', 'SNAPSHOTTED', snapshot_name='snapshot-valid_123')
+                    tx.advance('INSPECTED', 'STAGED')
+        self.assertTrue(any(n.startswith('.wizard-journal-')
+                            for n in os.listdir(self.directory)))
+        self.assertEqual(self.store.public_status()['privileged_transaction_state'],
+                         'recovery_required')
+        with self.assertRaises(journal.JournalConflict):
+            self.store.begin('install')
+        with self.store.resume_recovery() as tx:
+            with self.assertRaises(journal.JournalConflict):
+                tx.abort()
+            with self.assertRaises(journal.JournalConflict):
+                tx.abort(lambda _: False)
+            tx.abort(lambda _: True)  # Fixture's trusted unchanged-state check.
+            tx.clear_finished()
+        self.assertEqual(self.store.public_status()['privileged_transaction_state'], 'none')
 
-    def test_reject_symlinked_parent_directory(self):
+    def test_failed_initial_write_requires_verified_orphan_reconciliation(self):
+        with mock.patch.object(journal.os, 'replace', side_effect=OSError('simulated')):
+            with self.assertRaises(journal.UnsafeJournal):
+                self.store.begin('install')
+        self.assertFalse((self.directory / 'journal.json').exists())
+        self.assertEqual(self.store.public_status()['privileged_transaction_state'],
+                         'recovery_required')
+        with self.assertRaises(journal.JournalConflict):
+            self.store.begin('install')
+        with self.assertRaises(journal.JournalConflict):
+            self.store.reconcile_orphaned_staging(lambda: False)
+        self.store.reconcile_orphaned_staging(lambda: True)
+        self.assertEqual(self.store.public_status()['privileged_transaction_state'], 'none')
+        with self.store.begin('install') as tx:
+            tx.abort()
+            tx.clear_finished()
+
+    def test_symlinks_hardlinks_and_unsafe_permissions_rejected(self):
         outside = self.root / 'outside'
         outside.mkdir()
         (self.root / 'var').symlink_to(outside, target_is_directory=True)
         with self.assertRaises(journal.UnsafeJournal):
-            self.store.public_status()
-        with self.assertRaises(journal.UnsafeJournal):
             self.store.begin('install')
-        self.assertEqual(list(outside.iterdir()), [])
+        with self.assertRaises(journal.UnsafeJournal):
+            self.store.public_status()
+        (self.root / 'var').unlink()
 
-    def test_reject_symlinked_journal_without_reading_target(self):
+        doc = self.private_record(self.record())
+        outside_link = self.root / 'second-link'
+        os.link(doc, outside_link)
+        with self.assertRaises(journal.UnsafeJournal):
+            self.store.public_status()
+        outside_link.unlink()
+        doc.chmod(0o644)
+        with self.assertRaises(journal.UnsafeJournal):
+            self.store.public_status()
+        doc.chmod(0o600)
+        self.directory.chmod(0o750)
+        with self.assertRaises(journal.UnsafeJournal):
+            self.store.public_status()
+        self.directory.chmod(0o700)
+        (self.root / 'var').chmod(0o777)
+        with self.assertRaises(journal.UnsafeJournal):
+            self.store.public_status()
+
+    def test_journal_and_lock_symlink_refuse_to_read_or_touch_target(self):
         outside = self.root / 'secret'
         outside.write_text('PRIVATE-TOKEN')
         self.private_directory()
@@ -106,86 +236,116 @@ class ProtectedJournalTests(unittest.TestCase):
         with self.assertRaises(journal.UnsafeJournal) as raised:
             self.store.public_status()
         self.assertNotIn('PRIVATE-TOKEN', str(raised.exception))
+        (self.directory / 'journal.json').unlink()
+        (self.directory / 'lock').symlink_to(outside)
+        with self.assertRaises(journal.UnsafeJournal):
+            self.store.begin('install')
+        with self.assertRaises(journal.UnsafeJournal):
+            self.store.public_status()
         self.assertEqual(outside.read_text(), 'PRIVATE-TOKEN')
 
-    def test_reject_hardlink_and_world_readable_file(self):
-        doc = self.private_record({
-            'schema': 1, 'operation': 'install', 'phase': 'INSPECTED',
-            'snapshot_name': None,
-        })
-        outside = self.root / 'second-link'
-        os.link(doc, outside)
-        with self.assertRaises(journal.UnsafeJournal):
-            self.store.public_status()
-        outside.unlink()
-        doc.chmod(0o644)
-        with self.assertRaises(journal.UnsafeJournal):
-            self.store.public_status()
-
-    def test_reject_world_writable_parents_and_private_directory(self):
-        self.private_directory()
-        (self.root / 'var').chmod(0o777)
-        with self.assertRaises(journal.UnsafeJournal):
-            self.store.public_status()
-        (self.root / 'var').chmod(0o755)
-        self.directory.chmod(0o750)
-        with self.assertRaises(journal.UnsafeJournal):
-            self.store.public_status()
-
-    def test_untrusted_fields_and_invalid_json_fail_closed(self):
-        data = {'schema': 1, 'operation': 'upgrade', 'phase': 'STAGED',
-                'snapshot_name': None}
-        for payload in (
-            dict(data, uuid='12345678-1234-1234-1234-123456789abc'),
-            dict(data, operation='bogus'),
-            dict(data, schema=True),
-            dict(data, phase='../../etc/passwd'),
-            dict(data, snapshot_name='snapshot-abcdefghi'),
-        ):
-            with self.subTest(payload=payload):
+    def test_duplicate_invalid_fields_and_overlarge_json_fail_closed(self):
+        variants = (
+            dict(self.record(), uuid='12345678-1234-1234-1234-123456789abc'),
+            dict(self.record(), operation='bogus'),
+            dict(self.record(), schema=True),
+            dict(self.record(), transaction_id='\u0000'),
+            dict(self.record(), phase='../../etc/passwd'),
+            self.record(phase='ROLLED_BACK', snapshot=None),
+            self.record(phase='STAGED', snapshot=SNAPSHOT),
+        )
+        for payload in variants:
+            with self.subTest(payload=repr(payload)[:60]):
                 self.private_record(payload)
                 with self.assertRaises(journal.UnsafeJournal):
                     self.store.public_status()
-        for payload in ('{"schema":1,"schema":1}', '[]', '{malformed',
+        for payload in ('{"schema":1,"schema":1}', '[]', '{broken',
                         ' ' * 2049, '{"schema":1}'):
-            with self.subTest(payload=payload[:30]):
-                self.private_record(payload)
-                with self.assertRaises(journal.UnsafeJournal):
-                    self.store.public_status()
+            self.private_record(payload)
+            with self.assertRaises(journal.UnsafeJournal):
+                self.store.public_status()
 
-    def test_incomplete_temp_markers_block_new_transaction(self):
-        self.private_directory()
-        marker = self.directory / '.wizard-journal-uncertain'
-        marker.write_text('possibly interrupted')
-        self.assertEqual(self.store.public_status()['privileged_transaction_state'],
-                         'recovery_required')
-        with self.assertRaises(journal.JournalConflict):
-            self.store.begin('install')
-        self.assertTrue(marker.exists())
-
-    def test_recovery_status_is_allowlisted_and_never_exposes_snapshot_or_key(self):
-        self.store.begin('repair')
-        self.store.advance('INSPECTED', 'STAGED')
-        self.store.advance('STAGED', 'SNAPSHOTTED', snapshot_name='snapshot-secret_sentinel')
-        self.store.advance('SNAPSHOTTED', 'APPLYING')
-        status = self.store.public_status()
-        self.assertEqual(status, {
+    def test_redacted_public_status_and_normal_parent_modes(self):
+        with self.store.begin('install') as tx:
+            self.advance_to(tx, 'APPLYING')
+        data = self.store.public_status()
+        self.assertEqual(data, {
             'schema_version': 1, 'operation': 'protected_status',
             'mode': 'privileged_read_only',
             'privileged_transaction_state': 'recovery_required',
             'secrets_included': False,
         })
-        self.assertNotIn('snapshot-secret_sentinel', json.dumps(status))
-        self.assertNotIn('snapshot', json.dumps(status))
+        self.assertNotIn(SNAPSHOT, json.dumps(data))
+        self.assertEqual(stat.S_IMODE((self.root / 'var').stat().st_mode), 0o755)
+        self.assertEqual(stat.S_IMODE((self.root / 'var/backups').stat().st_mode), 0o755)
 
-    def test_lock_symlink_rejected_without_touching_target(self):
-        outside = self.root / 'outside'
-        outside.write_text('keep')
-        self.private_directory()
-        (self.directory / 'lock').symlink_to(outside)
-        with self.assertRaises(journal.UnsafeJournal):
-            self.store.begin('install')
-        self.assertEqual(outside.read_text(), 'keep')
+    def test_status_active_other_process_then_crash(self):
+        script = """
+import os, pathlib, sys, time
+sys.path.insert(0, sys.argv[2])
+from transaction_journal import ProtectedJournal
+store = ProtectedJournal(root=pathlib.Path(sys.argv[1]), owner_uid=os.geteuid())
+with store.begin('install'):
+    print('READY', flush=True)
+    time.sleep(30)
+"""
+        proc = subprocess.Popen([sys.executable, '-c', script, str(self.root),
+                                 str(ROOT / 'scripts')],
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        try:
+            self.assertEqual(proc.stdout.readline().strip(), 'READY')
+            self.assertEqual(self.store.public_status()['privileged_transaction_state'],
+                             'in_progress')
+            with self.assertRaises(journal.JournalConflict):
+                self.store.begin('repair')
+            with self.assertRaises(journal.JournalConflict):
+                self.store.resume_recovery()
+        finally:
+            proc.kill()
+            proc.communicate(timeout=5)
+        self.assertEqual(self.store.public_status()['privileged_transaction_state'],
+                         'incomplete')
+        with self.store.resume_recovery() as tx:
+            tx.abort()
+            tx.clear_finished()
+
+    def test_crash_at_each_phase_can_be_resolved_without_root_file_deletion(self):
+        script = """
+import os, pathlib, sys
+sys.path.insert(0, sys.argv[2])
+from transaction_journal import ProtectedJournal
+phases = ('INSPECTED', 'STAGED', 'SNAPSHOTTED', 'APPLYING',
+          'ACTIVATING', 'VERIFYING', 'COMMITTED')
+with ProtectedJournal(root=pathlib.Path(sys.argv[1]), owner_uid=os.geteuid()).begin('install') as tx:
+    for i in range(1, phases.index(sys.argv[3]) + 1):
+        tx.advance(phases[i-1], phases[i],
+                   snapshot_name='snapshot-abcdefgh' if phases[i]=='SNAPSHOTTED' else None)
+    os._exit(17)
+"""
+        for phase in PHASES:
+            with self.subTest(phase=phase), tempfile.TemporaryDirectory() as tmp:
+                child = subprocess.run([sys.executable, '-c', script, tmp,
+                                        str(ROOT / 'scripts'), phase],
+                                       capture_output=True, text=True, timeout=10)
+                self.assertEqual(child.returncode, 17, child.stderr)
+                store = journal.ProtectedJournal(root=Path(tmp), owner_uid=os.geteuid())
+                expected = ('none' if phase == 'COMMITTED' else
+                            'incomplete' if phase in PHASES[:3] else 'recovery_required')
+                self.assertEqual(store.public_status()['privileged_transaction_state'],
+                                 expected)
+                if phase == 'COMMITTED':
+                    with store.begin('repair') as tx:
+                        tx.abort()
+                        tx.clear_finished()
+                else:
+                    with store.resume_recovery() as tx:
+                        if phase in PHASES[:3]:
+                            tx.abort()
+                        else:
+                            tx.mark_rolled_back(lambda snap: snap == SNAPSHOT)
+                        tx.clear_finished()
+                self.assertEqual(store.public_status()['privileged_transaction_state'],
+                                 'none')
 
 
 if __name__ == '__main__':
