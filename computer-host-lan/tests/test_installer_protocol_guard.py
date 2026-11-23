@@ -113,7 +113,6 @@ class InstalledProtocolTests(unittest.TestCase):
         for args in (
             ['--install', '--source', str(ROOT), '--python', '/usr/bin/python3'],
             ['--uninstall'],
-            ['--rollback', '/var/backups/linux-host-agent/snapshot-example'],
         ):
             with self.subTest(args=args):
                 with mock.patch.object(core.os, 'geteuid', return_value=0), \
@@ -125,6 +124,134 @@ class InstalledProtocolTests(unittest.TestCase):
                         core.run_cli(args)
                     mkdir.assert_not_called()
                     systemctl.assert_not_called()
+
+    def test_protected_v2_record_allows_uninstall_reinstall_with_retained_identity(self):
+        agent = self.put(core.APP_FILES[0], b'PROTOCOL = "computer-host-agent"\n')
+        secret = self.put('/var/lib/linux-host-agent/control-token', b'SECRET')
+        identity = self.put('/var/lib/linux-host-agent/installation-id', b'UUID')
+        core.write_owner_record(self.root)
+        owner = self.root / core.OWNER_FILE.lstrip('/')
+        self.assertEqual(owner.read_bytes(), b'v2\n')
+        self.assertEqual(owner.stat().st_mode & 0o777, 0o600)
+        self.assertEqual(owner.parent.stat().st_mode & 0o777, 0o700)
+        agent.unlink()  # v2 uninstall leaves state and record, no app files.
+        self.assertEqual(self.classify(), 'v2')
+        self.assertEqual(core.require_v2_or_clean(self.root), 'v2')
+        # Simulate reinstall source; state is preserved byte-for-byte.
+        self.put(core.APP_FILES[0], b'PROTOCOL = "computer-host-agent"\n')
+        self.assertEqual(self.classify(), 'v2')
+        self.assertEqual(secret.read_bytes(), b'SECRET')
+        self.assertEqual(identity.read_bytes(), b'UUID')
+
+    def test_failed_first_install_cleanup_keeps_recoverable_owner_record(self):
+        core.write_owner_record(self.root)
+        self.put('/var/lib/linux-host-agent/control-token', b'preserve-this-token')
+        partially_installed = self.put(core.APP_FILES[0],
+                                       b'PROTOCOL = "computer-host-agent"\n')
+        # A failed first activation rolls back files, but systemd has
+        # already created the service StateDirectory and v2 key.
+        partially_installed.unlink()
+        self.assertEqual(self.classify(), 'v2')
+        self.assertEqual(core.require_v2_or_clean(self.root), 'v2')
+
+    def test_orphan_retained_state_needs_explicit_manual_adoption(self):
+        secret = self.put('/var/lib/linux-host-agent/control-token', b'UNCHANGED')
+        self.assertEqual(self.classify(), 'unknown')
+        with self.assertRaises(core.InstallError):
+            core.require_v2_or_clean(self.root)
+        self.assertEqual(core.require_v2_or_clean(
+            self.root, adopt_retained_state=True), 'adopted')
+        self.assertEqual(secret.read_bytes(), b'UNCHANGED')
+        core.write_owner_record(self.root)
+        self.assertEqual(self.classify(), 'v2')
+        # Explicit adoption is invalid when a record already exists.
+        with self.assertRaises(core.InstallError):
+            core.require_v2_or_clean(self.root, adopt_retained_state=True)
+
+    def test_adoption_never_overrides_v1_or_partial_managed_files(self):
+        self.put('/var/lib/linux-host-agent/control-token', b'SECRET')
+        agent = self.put(core.APP_FILES[0], b'PROTOCOL = "linux-host-agent"\n')
+        with self.assertRaises(core.InstallError):
+            core.require_v2_or_clean(self.root, adopt_retained_state=True)
+        agent.unlink()
+        bad_unit = self.put(core.SYSTEMD_PATHS[0], b'ambiguous')
+        with self.assertRaises(core.InstallError):
+            core.require_v2_or_clean(self.root, adopt_retained_state=True)
+        bad_unit.unlink()
+        self.assertEqual(core.require_v2_or_clean(
+            self.root, adopt_retained_state=True), 'adopted')
+
+    def test_v2_marker_is_not_allowed_to_override_detectable_v1(self):
+        core.write_owner_record(self.root)
+        self.put(core.APP_FILES[0], b'PROTOCOL = "linux-host-agent"\n')
+        self.assertEqual(self.classify(), 'v1')
+        with self.assertRaises(core.InstallError):
+            core.require_v2_or_clean(self.root)
+
+    def test_marker_symlink_or_insecure_mode_is_refused(self):
+        core.write_owner_record(self.root)
+        marker = self.root / core.OWNER_FILE.lstrip('/')
+        marker.chmod(0o666)
+        with self.assertRaises(core.InstallError):
+            self.classify()
+        marker.chmod(0o600)
+        marker.unlink()
+        marker.symlink_to(self.put('/elsewhere', b'v2\n'))
+        with self.assertRaises(core.InstallError):
+            self.classify()
+
+    def test_rollback_proven_v2_snapshot_with_damaged_current_files(self):
+        self.put(core.APP_FILES[0], b'PROTOCOL = "computer-host-agent"\n')
+        backup = core.InstallTransaction(self.root).snapshot([
+            core.Change(core.APP_FILES[0], b'new v2 code')
+        ])
+        self.put(core.APP_FILES[0], b'BROKEN PARTIAL INSTALL')
+        self.assertEqual(self.classify(), 'unknown')
+        core.validate_v2_backup(backup, root=self.root)
+        core.InstallTransaction(self.root).restore(backup)
+        self.assertEqual(self.classify(), 'v2')
+
+    def test_v1_and_unknown_rollback_snapshots_are_rejected(self):
+        agent = self.put(core.APP_FILES[0], b'PROTOCOL = "linux-host-agent"\n')
+        backup = core.InstallTransaction(self.root).snapshot([
+            core.Change(core.APP_FILES[0], b'new code')
+        ])
+        with self.assertRaisesRegex(core.InstallError, 'legacy v1'):
+            core.validate_v2_backup(backup, root=self.root)
+        agent.write_bytes(b'NO PROTOCOL LINE')
+        bad_backup = core.InstallTransaction(self.root).snapshot([
+            core.Change(core.APP_FILES[0], b'new code')
+        ])
+        with self.assertRaisesRegex(core.InstallError, 'unknown'):
+            core.validate_v2_backup(bad_backup, root=self.root)
+
+    def test_empty_agent_backup_requires_new_v2_provenance_and_owner(self):
+        backup = core.InstallTransaction(self.root).snapshot([
+            core.Change(core.APP_FILES[0], b'first install')
+        ])
+        with self.assertRaises(core.InstallError):
+            core.validate_v2_backup(backup, root=self.root)
+        core.write_owner_record(self.root)
+        core.validate_v2_backup(backup, root=self.root)
+        # Old-format v1 backups never carried the v2 provenance field.
+        manifest = backup / 'manifest.json'
+        import json
+        obj = json.loads(manifest.read_text())
+        obj.pop('installer_protocol')
+        manifest.write_text(json.dumps(obj))
+        with self.assertRaises(core.InstallError):
+            core.validate_v2_backup(backup, root=self.root)
+
+    def test_rollback_does_not_depend_on_damaged_current_protocol(self):
+        # A bad backup should be rejected BEFORE any lock or service writes,
+        # and the current-host coexistence guard must not run.
+        with mock.patch.object(core.os, 'geteuid', return_value=0), \
+             mock.patch.object(core, 'require_v2_or_clean') as guard, \
+             mock.patch.object(core, 'validate_v2_backup',
+                               side_effect=core.InstallError('Invalid backup')):
+            with self.assertRaises(core.InstallError):
+                core.run_cli(['--rollback', '/var/backups/linux-host-agent/nonexistent'])
+            guard.assert_not_called()
 
     def test_read_only_cli_guard_works_without_root(self):
         with mock.patch.object(core.os, 'geteuid', return_value=1000), \
