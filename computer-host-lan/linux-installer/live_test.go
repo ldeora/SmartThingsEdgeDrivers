@@ -125,7 +125,7 @@ func TestLiveAccessibleModeAndBack(t *testing.T) {
 	var result bytes.Buffer
 	// Change the default power selection, go back, restore preserve;
 	// leave WOL unchanged, review, finish.
-	input := "y\nback\nk\nk\ny\n"
+	input := "y\nback\nk\nk\nk\ny\n"
 	if err := runLive(true, true, client.executable, strings.NewReader(""), &result); err != nil {
 		t.Fatal(err)
 	}
