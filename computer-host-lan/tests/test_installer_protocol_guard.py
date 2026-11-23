@@ -200,6 +200,65 @@ class InstalledProtocolTests(unittest.TestCase):
         with self.assertRaises(core.InstallError):
             self.classify()
 
+    def test_v2_filesystem_lifecycle_install_uninstall_reinstall_with_secret_retention(self):
+        """Use the real snapshot/apply planner, not just unlinking one file."""
+        trans = core.InstallTransaction(self.root)
+        identity = self.put('/var/lib/linux-host-agent/installation-id', b'UUID-UNCHANGED')
+        secret = self.put('/var/lib/linux-host-agent/control-token', b'SECRET-UNCHANGED')
+        core.write_owner_record(self.root)
+
+        plan = core.generate_plan(ROOT, '/usr/bin/python3',
+                                  enable_power=False, disable_power=False,
+                                  wol_interface=None, is_existing_power=False,
+                                  avahi_dir=False)
+        trans.snapshot(plan)
+        trans.apply(plan)
+        self.assertEqual(self.classify(), 'v2')
+
+        uninstall = core.generate_plan(ROOT, '/usr/bin/python3',
+                                       enable_power=False, disable_power=False,
+                                       wol_interface=None, is_existing_power=False,
+                                       avahi_dir=False, uninstall=True)
+        trans.snapshot(uninstall)
+        trans.apply(uninstall)
+        self.assertEqual(self.classify(), 'v2')
+        self.assertFalse((self.root / core.APP_FILES[0].lstrip('/')).exists())
+
+        reinstall = core.generate_plan(ROOT, '/usr/bin/python3',
+                                       enable_power=False, disable_power=False,
+                                       wol_interface=None, is_existing_power=False,
+                                       avahi_dir=False)
+        trans.snapshot(reinstall)
+        trans.apply(reinstall)
+        self.assertEqual(self.classify(), 'v2')
+        self.assertEqual(identity.read_bytes(), b'UUID-UNCHANGED')
+        self.assertEqual(secret.read_bytes(), b'SECRET-UNCHANGED')
+
+    def test_snapshot_without_v2_agent_blocks_legacy_restore_even_with_owner(self):
+        """A v1 snapshot created before the new manifest tag cannot be adopted."""
+        backup = core.InstallTransaction(self.root).snapshot([
+            core.Change(core.APP_FILES[0], b'new app')
+        ])
+        core.write_owner_record(self.root)
+        manifest = backup / 'manifest.json'
+        import json
+        data = json.loads(manifest.read_text())
+        data.pop('installer_protocol')
+        manifest.write_text(json.dumps(data))
+        with self.assertRaises(core.InstallError):
+            core.validate_v2_backup(backup, root=self.root)
+
+    def test_backup_symlink_contents_fail_before_restore(self):
+        self.put(core.APP_FILES[0], b'PROTOCOL = "computer-host-agent"\n')
+        backup = core.InstallTransaction(self.root).snapshot([
+            core.Change(core.APP_FILES[0], b'new app')
+        ])
+        item = backup / '0.original'
+        item.unlink()
+        item.symlink_to(self.put('/external/other', b'PROTOCOL = "computer-host-agent"\n'))
+        with self.assertRaises(core.InstallError):
+            core.validate_v2_backup(backup, root=self.root)
+
     def test_rollback_proven_v2_snapshot_with_damaged_current_files(self):
         self.put(core.APP_FILES[0], b'PROTOCOL = "computer-host-agent"\n')
         backup = core.InstallTransaction(self.root).snapshot([
