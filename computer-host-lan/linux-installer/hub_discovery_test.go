@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -74,11 +75,14 @@ func TestHubSelectionReviewAndAccessibleManualFallback(t *testing.T) {
 		api: client, inspection: info, powerChoice: "keep",
 		wolChoice: "keep", hubChoice: "discovered:192.168.1.10", hubs: hubs,
 	}
+	s.recordHubChoice(s.hubChoice)
 	if got := s.preview(); !strings.Contains(got, "192.168.1.10 (Avahi candidate") ||
 		!strings.Contains(got, "no pairing or hub request") {
 		t.Fatalf("hub selection missing/unverified incorrectly: %s", got)
 	}
 	s.hubChoice, s.hubManual = "manual", "192.168.1.20"
+	s.recordHubChoice(s.hubChoice)
+	s.recordHubManual(s.hubManual)
 	if got := s.preview(); !strings.Contains(got, "192.168.1.20 (entered manually") {
 		t.Fatalf("manual IPv4 missing: %s", got)
 	}
@@ -115,5 +119,31 @@ func TestHubSelectionNeverInfersPairingOrContact(t *testing.T) {
 	}
 	if got := len(liveHubOptions(nil)); got != 2 {
 		t.Fatalf("manual and skip options missing without Avahi: %d", got)
+	}
+}
+
+func TestHubReviewSnapshotConcurrentHuhUpdateAndDescription(t *testing.T) {
+	s := liveSelection{hubs: []discoveredHub{{"192.168.1.10", 12345}}}
+	const cycles = 100
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < cycles; i++ {
+			s.recordHubChoice("manual")
+			s.recordHubManual("192.168.1.20")
+			s.recordHubChoice("discovered:192.168.1.10")
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		for i := 0; i < cycles; i++ {
+			_ = s.selectedHub()
+			_, _ = s.hubSnapshot()
+		}
+	}()
+	wg.Wait()
+	if got := s.selectedHub(); !strings.Contains(got, "192.168.1.10") {
+		t.Fatalf("last confirmed hub lost: %s", got)
 	}
 }
