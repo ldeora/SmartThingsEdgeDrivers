@@ -13,6 +13,7 @@ from dataclasses import dataclass, replace
 import fcntl
 import json
 import os
+import pwd
 from pathlib import Path
 import re
 import stat
@@ -40,9 +41,18 @@ class ControllerError(RuntimeError):
     def __init__(self, code: str):
         if code not in ('invalid_request', 'installation_busy', 'aborted',
                         'rolled_back', 'recovery_required',
-                        'unsupported_environment'):
+                        'unsupported_environment', 'adoption_required'):
             code = 'recovery_required'
-        super().__init__(code)
+        # This is a deliberate, fixed message with no private paths or ID.
+        # The future Go wizard may display it without needing privileged
+        # access to the retained agent state.
+        message = (
+            'Retained agent state cannot be automatically identified. '
+            'If you have verified it belongs to a previous v2 installation, '
+            'use the manual installer with --adopt-retained-state.'
+            if code == 'adoption_required' else code
+        )
+        super().__init__(message)
         self.code = code
 
 
@@ -275,10 +285,22 @@ def read_saved_identity(root: Path = Path('/')) -> str | None:
         raise ControllerError('unsupported_environment') from None
     try:
         info = os.fstat(fd)
-        if (not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or
+        # The agent atomically publishes installation-id with a hard link
+        # to its temporary file. A crash before unlinking the temporary
+        # filename can legitimately leave st_nlink == 2: it is not damage.
+        if (not stat.S_ISREG(info.st_mode) or
                 info.st_size < 36 or info.st_size > 38 or
                 stat.S_IMODE(info.st_mode) & 0o022):
             raise ControllerError('unsupported_environment')
+        if root == Path('/') and os.geteuid() == 0:
+            # On an actual systemd installation StateDirectory is owned
+            # by the linuxhost service user, not the elevated wizard.
+            try:
+                expected_uid = pwd.getpwnam('linuxhost').pw_uid
+            except KeyError:
+                raise ControllerError('unsupported_environment') from None
+            if info.st_uid != expected_uid:
+                raise ControllerError('unsupported_environment')
         raw = os.read(fd, 64).decode('ascii').strip()
         if str(uuid.UUID(raw)) != raw:
             raise ControllerError('unsupported_environment')
@@ -417,7 +439,18 @@ class InstallerBackend:
             try:
                 core.require_v2_or_clean(self.root)
             except core.InstallError:
-                raise ControllerError('unsupported_environment') from None
+                # The wizard cannot automatically adopt legacy private
+                # state. Distinguish *orphan-only* retained state from v1
+                # or partially installed files, so the future UI can give
+                # the operator the existing manual recovery instruction.
+                try:
+                    adoptable = (core.require_v2_or_clean(
+                        self.root, adopt_retained_state=True) == 'adopted')
+                except (core.InstallError, OSError):
+                    adoptable = False
+                raise ControllerError(
+                    'adoption_required' if adoptable else 'unsupported_environment'
+                ) from None
             return self._run_locked(request, source, trusted_hashes)
 
     def _run_locked(self, request: InstallRequest, source: Path,
@@ -474,8 +507,11 @@ class InstallerBackend:
                 # The existing manual installer creates the service user
                 # before install_core. The backend must do so as well,
                 # but only AFTER journaling the first system mutation.
-                self.services.ensure_agent_user()
+                # The marker must precede account creation: if useradd
+                # fails on a clean host, this transaction's first-install
+                # snapshot is still demonstrably v2 and can be rolled back.
                 core.write_owner_record(self.root)
+                self.services.ensure_agent_user()
                 transaction.apply(changes)
                 _sync_managed_directories(changes, transaction)
                 journal.advance('APPLYING', 'ACTIVATING')

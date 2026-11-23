@@ -52,10 +52,12 @@ creating a journal or touching managed files.
    service settings.
 5. Snapshot managed files and previous unit states. Sync original files,
    backup manifest, snapshot and backup parent **before SNAPSHOTTED**.
-6. Record APPLYING **before any managed mutation**. Idempotently
-   ensure the existing manual installer's 'linuxhost' system account
-   exists (getent/useradd with a non-login shell), then apply the plan
-   using the existing installation engine and sync managed directories.
+6. Record APPLYING **before any managed mutation**. Durably write the
+   small non-secret v2 ownership record **before** running getent/useradd:
+   this permits validation of this transaction's empty first-install
+   snapshot even if user creation fails. Then idempotently ensure the
+   existing manual installer's 'linuxhost' account and apply the actual
+   plan using the existing engine; sync managed directories.
    The service account is deliberately retained on rollback, matching
    the manual installer's existing behavior.
 7. Record ACTIVATING and use the existing service behavior. The expected
@@ -88,25 +90,33 @@ There is no automatic v1 migration. A bounded signature check looks at
 the managed agent's declared protocol and the existing Avahi service,
 never the private UUID or control key.
 
-A small root-owned **v2 ownership marker** survives uninstall and a failed
-fresh install, allowing a legitimate v2 reinstall when only the private
-agent state remains. An orphan state directory without a proven v2 marker
+A small root-owned **non-secret v2 ownership marker** (fixed content `v2`)
+is stored in a **0755 directory with a 0644 file**, so a normal-user
+preflight or read-only wizard can recognize it. It never contains a UUID,
+control key or user configuration. Reads reject group/other-writable paths
+and report permission errors as controlled installer errors, not tracebacks.
+The record survives uninstall and a failed fresh install, allowing a
+legitimate v2 reinstall when only the private agent state remains. An orphan state directory without a proven v2 marker
 does not get silently adopted: the manual installer alone has an explicit
 expert --adopt-retained-state route, and can never use it to override
 recognizable v1 files. Snapshot provenance and the v2-specific backup
 validator avoid restoring an accidental v1 backup over v2.
 
 The existing manual installer still holds its original OS flock. It now
-also reads the wizard journal status under that lock and refuses
---install, --uninstall and --rollback unless the journal and protected
-staging report 'none'. The shell front-end performs an early read-only
+also reads the wizard journal status **under that lock**, including on
+--rollback, and refuses --install, --uninstall and --rollback unless
+the journal and protected staging report 'none'. The shell front-end performs an early read-only
 v1 and journal check before useradd. A wizard crash therefore cannot
 be overwritten by a later sequential manual install, which would
 otherwise invalidate the wizard's recovery snapshot.
 
 The read-only JSON plan rejects v1/ambiguous hosts with its existing
-prerequisite_missing error; dedicated migration UI/status is deferred
-until the installer API and Go decoder change together (issue #71).
+prerequisite_missing error. The backend additionally distinguishes an
+orphan-only retained state as `adoption_required` with fixed text directing
+the user to the manual installer `--adopt-retained-state` **only after**
+confirming the retained state is v2. The Go wizard is not yet connected
+to this backend; dedicated migration UI/status remains an API/Go decoder
+follow-up (issue #71).
 Source-only parity tests use clean hosts and recognizable v2 fixtures.
 
 ## Errors and recovery behavior
@@ -165,7 +175,15 @@ never invokes systemd/sudo or changes the host. It covers:
   power activation semantics: no false rollback;
 - legacy v1 and ambiguous-layout refusal for both backend and manual
   commands, retained v2 ownership/reinstall and snapshot checks;
-- manual installer refusal when the wizard journal is incomplete;
+- manual installer refusal when the wizard journal is incomplete,
+  including rollback under the shared lock;
+- a genuine unprivileged user reading the v2 marker after uninstall
+  (when the CI host can drop privileges), denied marker reads returning
+  `InstallError`, and exact visibility under umask 077;
+- fresh-install useradd failure rolls back and can be retried instead
+  of blocking a subsequent wizard operation;
+- agent crash leaving `installation-id` with a second hard link, without
+  changing its UUID or aborting upgrade;
 - a failed live health gate and verified restoration of previous bytes;
 - refusal to claim successful rollback if service restoration fails;
 - bad source hash, interrupted staging and snapshot failures;

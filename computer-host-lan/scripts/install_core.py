@@ -240,31 +240,42 @@ def _owner_paths(root: Path) -> tuple[Path, Path]:
 
 
 def owner_record_exists(root: Path = Path('/')) -> bool:
-    """Read only a protected, non-secret v2 ownership marker, never state."""
-    folder, file = _owner_paths(root)
-    if not file.exists():
-        return False
-    # This marker is deliberately NON-SECRET so the unprivileged preflight
-    # and Go read-only API can inspect it without a privileged helper.
-    # The file/directory must never be group- or world-writable.
-    if stat.S_IMODE(folder.stat().st_mode) != 0o700 or \
-            stat.S_IMODE(file.stat().st_mode) != 0o600:
-        raise InstallError('Installer ownership marker must be mode 0700/0600')
-    if root == Path('/') and (folder.stat().st_uid != 0 or file.stat().st_uid != 0):
-        raise InstallError('Installer ownership marker must be root-owned')
+    """Read the non-secret v2 marker for normal-user preflight and planning.
+
+    A missing marker is distinct from an unreadable or unsafe one: the
+    latter must be an InstallError, never a traceback or silent adoption.
+    """
     try:
-        fd = os.open(file, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
+        folder, file = _owner_paths(root)
+        try:
+            marker = os.lstat(file)
+        except FileNotFoundError:
+            return False
+        directory = folder.stat()
+        if (not stat.S_ISDIR(directory.st_mode) or
+                not stat.S_ISREG(marker.st_mode) or
+                stat.S_IMODE(directory.st_mode) & 0o022 or
+                stat.S_IMODE(marker.st_mode) & 0o022):
+            raise InstallError('Installer ownership marker has unsafe permissions or type')
+        if root == Path('/') and (directory.st_uid != 0 or marker.st_uid != 0):
+            raise InstallError('Installer ownership marker must be root-owned')
+        # 0755/0644 allows an unprivileged read-only wizard to distinguish
+        # a legitimate retained v2 installation after uninstall. The record
+        # contains only the fixed string "v2", never the private UUID/key.
+        fd = os.open(file, os.O_RDONLY | os.O_NOFOLLOW |
+                     os.O_NONBLOCK | os.O_CLOEXEC)
         with os.fdopen(fd, 'rb') as inp:
-            st = os.fstat(inp.fileno())
-            if not stat.S_ISREG(st.st_mode) or st.st_size != len(OWNER_CONTENT) or \
-                    (root == Path('/') and st.st_uid != 0):
+            info = os.fstat(inp.fileno())
+            if (not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or
+                    info.st_size != len(OWNER_CONTENT) or
+                    stat.S_IMODE(info.st_mode) & 0o022 or
+                    (root == Path('/') and info.st_uid != 0)):
                 raise InstallError('Invalid installer ownership record')
             if inp.read(len(OWNER_CONTENT) + 1) != OWNER_CONTENT:
                 raise InstallError('Unknown installer ownership record version')
     except OSError as exc:
         raise InstallError('Cannot inspect installer ownership record safely') from exc
     return True
-
 
 def write_owner_record(root: Path = Path('/')) -> None:
     """Durably record root-authorized v2 installation intent BEFORE activation.
@@ -279,14 +290,14 @@ def write_owner_record(root: Path = Path('/')) -> None:
     if folder.exists():
         raise InstallError('Installer ownership directory exists without a valid record')
     folder.parent.mkdir(parents=True, exist_ok=True)
-    # The checked-out v2 installer is root-run; no secret is stored here.
-    folder.mkdir(mode=0o700)
-    os.chmod(folder, 0o700)
+    # Only a fixed non-secret v2 marker is stored; preflight can read it.
+    folder.mkdir(mode=0o755)
+    os.chmod(folder, 0o755)
     try:
-        fd = os.open(file, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+        fd = os.open(file, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o644)
         with os.fdopen(fd, 'wb') as out:
             # Apply the exact non-secret mode irrespective of root's umask.
-            os.fchmod(out.fileno(), 0o600)
+            os.fchmod(out.fileno(), 0o644)
             out.write(OWNER_CONTENT)
             out.flush()
             os.fsync(out.fileno())

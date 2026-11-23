@@ -371,6 +371,46 @@ class InstallerBackendTests(unittest.TestCase):
         self.assertEqual(old.read_bytes(), previous_bytes)
         self.assertEqual(self.services.restore_calls, 1)
 
+    def test_fresh_install_useradd_failure_rolls_back_and_can_retry(self):
+        # Regression: without a v2 ownership record, validating the fresh
+        # snapshot fails after useradd fails, and the wizard gets stuck in
+        # APPLYING even though no managed installation was written.
+        with mock.patch.object(self.services, 'ensure_agent_user',
+                               side_effect=RuntimeError('useradd unavailable')):
+            with self.assertRaises(installer.ControllerError) as caught:
+                self.backend.run(self.request(), ROOT, self.hashes)
+        self.assertEqual(caught.exception.code, 'rolled_back')
+        self.assertEqual(self.services.restore_calls, 1)
+        self.assertEqual(self.stage_entries(), [])
+        self.assertEqual(self.store.public_status()['privileged_transaction_state'],
+                         'none')
+        self.assertFalse(self.installed_paths().location(core.APP_FILES[0]).exists())
+        self.assertFalse(self.installed_paths().location(core.SYSTEMD_PATHS[0]).exists())
+        self.assertTrue(core.owner_record_exists(self.root))
+        self.assertEqual(self.backend.run(self.request(), ROOT, self.hashes).status,
+                         'installed')
+
+    def test_saved_identity_allows_agent_crash_leftover_hardlink(self):
+        self.existing_install()
+        saved = self.root / 'var/lib/linux-host-agent/installation-id'
+        leftover = saved.with_name('.installation-id.crashed.tmp')
+        os.link(saved, leftover)
+        self.assertEqual(saved.stat().st_nlink, 2)
+        self.assertEqual(installer.read_saved_identity(self.root), UUID)
+        result = self.backend.run(self.request('upgrade'), ROOT, self.hashes)
+        self.assertEqual(result.status, 'installed')
+        self.assertEqual(result.identity_preserved, 'verified')
+        self.assertEqual(leftover.read_text(), UUID + '\n')
+
+    def test_manual_rollback_path_checks_journal_under_shared_lock(self):
+        # The guard was already present in the CLI under its flock;
+        # retain a cheap regression assertion rather than editing it.
+        import inspect
+        source = inspect.getsource(core.run_cli)
+        under_lock = source[source.index("with lockfile.open('a+') as lock:"):]
+        self.assertLess(under_lock.index('require_no_wizard_transaction()'),
+                        under_lock.index('if args.rollback:'))
+
     def test_systemd_user_creation_matches_existing_shell_preflight(self):
         operations = installer.SystemdOperations()
         absent = mock.Mock(returncode=2)
@@ -407,7 +447,8 @@ class InstallerBackendTests(unittest.TestCase):
         private.chmod(0o600)
         with self.assertRaises(installer.ControllerError) as caught:
             self.backend.run(self.request(), ROOT, self.hashes)
-        self.assertEqual(caught.exception.code, 'unsupported_environment')
+        self.assertEqual(caught.exception.code, 'adoption_required')
+        self.assertIn('--adopt-retained-state', str(caught.exception))
         core.write_owner_record(self.root)  # Provenance from an earlier v2 install.
         self.assertEqual(self.backend.run(self.request(), ROOT, self.hashes).status,
                          'installed')

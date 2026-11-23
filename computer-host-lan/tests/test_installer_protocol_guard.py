@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import os
+import pwd
 import sys
 import tempfile
 import unittest
@@ -132,8 +133,8 @@ class InstalledProtocolTests(unittest.TestCase):
         core.write_owner_record(self.root)
         owner = self.root / core.OWNER_FILE.lstrip('/')
         self.assertEqual(owner.read_bytes(), b'v2\n')
-        self.assertEqual(owner.stat().st_mode & 0o777, 0o600)
-        self.assertEqual(owner.parent.stat().st_mode & 0o777, 0o700)
+        self.assertEqual(owner.stat().st_mode & 0o777, 0o644)
+        self.assertEqual(owner.parent.stat().st_mode & 0o777, 0o755)
         agent.unlink()  # v2 uninstall leaves state and record, no app files.
         self.assertEqual(self.classify(), 'v2')
         self.assertEqual(core.require_v2_or_clean(self.root), 'v2')
@@ -188,13 +189,68 @@ class InstalledProtocolTests(unittest.TestCase):
         with self.assertRaises(core.InstallError):
             core.require_v2_or_clean(self.root)
 
+    @unittest.skipUnless(os.geteuid() == 0 and hasattr(os, 'fork'),
+                         'requires root CI process to switch to an unprivileged user')
+    def test_owner_record_can_be_read_as_a_different_unprivileged_user(self):
+        # A same-UID fixture cannot find the regression: it can traverse
+        # a 0700 directory, whereas the actual Go wizard cannot.
+        core.write_owner_record(self.root)
+        self.root.chmod(0o755)  # TemporaryDirectory defaults to private.
+        (self.root / 'var').chmod(0o755)
+        (self.root / 'var/lib').chmod(0o755)
+        try:
+            other = pwd.getpwnam('nobody')
+        except KeyError:
+            self.skipTest('nobody account not available in fixture container')
+        pid = os.fork()
+        if pid == 0:
+            try:
+                try:
+                    os.setgroups([])
+                except PermissionError:
+                    pass  # Rootless containers may restrict supplemental groups.
+                try:
+                    os.setgid(other.pw_gid)
+                    os.setuid(other.pw_uid)
+                except PermissionError:
+                    os._exit(77)  # No CAP_SETUID in this CI container.
+                if (core.owner_record_exists(self.root) and
+                        core.require_v2_or_clean(self.root) == 'v2'):
+                    os._exit(0)
+            except Exception:
+                os._exit(2)
+            os._exit(1)
+        _, status = os.waitpid(pid, 0)
+        code = os.waitstatus_to_exitcode(status)
+        if code == 77:
+            self.skipTest('container cannot switch to another UID')
+        self.assertEqual(code, 0)
+
+    def test_owner_record_permission_error_is_a_clean_install_error(self):
+        core.write_owner_record(self.root)
+        with mock.patch.object(core.os, 'lstat',
+                               side_effect=PermissionError('hidden marker')):
+            with self.assertRaisesRegex(core.InstallError, 'Cannot inspect'):
+                core.owner_record_exists(self.root)
+
+    def test_owner_record_is_safe_under_umask_077(self):
+        original_umask = os.umask(0o077)
+        try:
+            core.write_owner_record(self.root)
+        finally:
+            os.umask(original_umask)
+        owner = self.root / core.OWNER_FILE.lstrip('/')
+        self.assertEqual(owner.parent.stat().st_mode & 0o777, 0o755)
+        self.assertEqual(owner.stat().st_mode & 0o777, 0o644)
+        self.assertEqual(core.require_v2_or_clean(self.root), 'v2')
+
     def test_marker_symlink_or_insecure_mode_is_refused(self):
         core.write_owner_record(self.root)
         marker = self.root / core.OWNER_FILE.lstrip('/')
         marker.chmod(0o666)
         with self.assertRaises(core.InstallError):
             self.classify()
-        marker.chmod(0o600)
+        marker.chmod(0o644)
         marker.unlink()
         marker.symlink_to(self.put('/elsewhere', b'v2\n'))
         with self.assertRaises(core.InstallError):
