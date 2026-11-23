@@ -58,8 +58,25 @@ After a crash, the OS releases the lock and
 `resume_recovery()` can exclusively acquire a new handle for the
 remaining journal. The lock fd is created once with no-follow
 and private permissions. Status opens it **read-only, without O_CREAT**
-and attempts a non-blocking exclusive lock. A held lock is reported as
-`in_progress` without reading a possibly half-written journal.
+and attempts a **non-blocking shared lock (`LOCK_SH | LOCK_NB`)**.
+Concurrent status calls can hold shared locks simultaneously and cannot
+misclassify another status reader as an active installation. A writer's
+exclusive lock prevents shared inspection, yielding `in_progress`
+without reading a potentially changing journal.
+
+Transaction owners obtain an **exclusive** lock (`LOCK_EX | LOCK_NB`).
+To tolerate a brief shared status probe, owner acquisition retries for a
+**hard 1.25-second monotonic deadline**, sleeping at most 25 ms between
+attempts. This still bounds waiting when another actual transaction owns
+the exclusive lock. Status never waits and never retries.
+
+**Fork safety:** Do not fork while holding `TransactionHandle`. A child
+inherits its lock file descriptor and could keep the parent transaction
+apparently `in_progress` after the parent exits. If a fork is unavoidable,
+close the *inherited handle* immediately in the child; never call
+`LOCK_UN` on that shared open-file description because it can unlock
+the parent's lock prematurely. Ordinary child execution and root privilege
+handoff must be designed to avoid inheriting a live transaction handle.
 
 **Important unfinished integration:** this private lock is not yet
 the same as the existing manual CLI install lock,
@@ -76,9 +93,12 @@ Root-side production storage will be:
 
 The journal and lock are 0600; private application directories are 0700.
 Existing `/var` and `/var/backups` may be normal root-owned 0755
-directories. If missing, these general-purpose parent directories are
-created with non-private 0755 mode (subject to umask); only the
-application-specific directories are private.
+directories and their permissions are never normalized. If absent, these
+general-purpose parents are created as **exactly 0755**, while new
+application-specific directories are **exactly 0700**. After a new directory
+is opened without following links and its owner is verified, `fchmod`
+sets the intended mode independently of the process umask, and `fsync`
+persists it. Existing directories are checked but never chmod'd.
 
 Fixed-component no-follow dirfd walking rejects symlinks and unexpected
 owners/modes. Regular journal and lock files must have one hardlink and
@@ -133,8 +153,11 @@ snapshot has been restored or that the SmartThings hub is reachable.
 non-root fixture directories; it does not call systemd/sudo or modify
 `hydra`. Coverage includes all phase transitions, ABORTED/ROLLED_BACK
 guards, COMMITTED cleanup, malicious journal input, symlinks, hardlinks,
-permissions, private redaction, failed write temp markers, a live subprocess
-holding the lifetime lock, and subprocess `os._exit()` crashes at
+permissions, private redaction, failed write temp markers, concurrent
+shared status readers, a short exclusive acquisition blocked by a status
+reader, an exclusive-owner contention timeout, strict new-directory modes
+under umask 077, preservation of pre-existing parent modes, a live
+subprocess holding the lifetime lock, and subprocess `os._exit()` crashes at
 **every** ordered phase followed by the permitted recovery transition.
 
 ### Remaining requirements before actual privileged installation
