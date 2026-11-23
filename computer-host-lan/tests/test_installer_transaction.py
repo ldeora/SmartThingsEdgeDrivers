@@ -332,6 +332,42 @@ class InstallerBackendTests(unittest.TestCase):
         self.assertEqual(self.stage_entries(), [])
         self.assertEqual(self.services.verify_calls, 1)  # No reinstallation.
 
+    def test_manual_cli_lock_rejects_symlink_hardlink_and_fifo(self):
+        # Manual and Go installs use the same lock in /run/lock. The manual
+        # CLI must not follow a planted symlink even if its target is safe.
+        target = self.root / 'manual-lock-target'
+        target.write_text('KEEP')
+        target.chmod(0o600)
+        planted = self.root / 'planted-install.lock'
+        planted.symlink_to(target)
+        with self.assertRaises(core.InstallError):
+            core.open_manual_install_lock(planted, owner_uid=self.uid)
+        self.assertEqual(target.read_text(), 'KEEP')
+        planted.unlink()
+
+        os.link(target, planted)
+        with self.assertRaises(core.InstallError):
+            core.open_manual_install_lock(planted, owner_uid=self.uid)
+        planted.unlink()
+
+        os.mkfifo(planted, 0o600)
+        with self.assertRaises(core.InstallError):
+            core.open_manual_install_lock(planted, owner_uid=self.uid)
+        planted.unlink()
+
+        target.chmod(0o666)
+        with self.assertRaises(core.InstallError):
+            core.open_manual_install_lock(target, owner_uid=self.uid)
+
+    def test_manual_cli_lock_accepts_existing_0644_without_chmod(self):
+        lockfile = self.root / 'legacy-manual.lock'
+        lockfile.touch(mode=0o600)
+        lockfile.chmod(0o644)
+        with core.open_manual_install_lock(lockfile, owner_uid=self.uid) as fd:
+            self.assertTrue(stat.S_ISREG(os.fstat(fd.fileno()).st_mode))
+            self.assertEqual(stat.S_IMODE(lockfile.stat().st_mode), 0o644)
+        self.assertEqual(stat.S_IMODE(lockfile.stat().st_mode), 0o644)
+
     def test_manual_cli_lock_blocks_wizard_without_creating_journal(self):
         fd = os.open(self.manual_lock, os.O_RDWR | os.O_CREAT, 0o600)
         try:
