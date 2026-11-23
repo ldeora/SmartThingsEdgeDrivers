@@ -45,7 +45,8 @@ class ControllerError(RuntimeError):
     def __init__(self, code: str, *, failure_stage: str | None = None):
         if code not in ('invalid_request', 'installation_busy', 'aborted',
                         'rolled_back', 'recovery_required',
-                        'unsupported_environment', 'adoption_required'):
+                        'unsupported_environment', 'adoption_required',
+                        'unsafe_lock'):
             code = 'recovery_required'
         # This is a deliberate, fixed message with no private paths or ID.
         # The future Go wizard may display it without needing privileged
@@ -142,7 +143,7 @@ def manual_install_lock(path: Path = _MANUAL_LOCK, *,
         info = os.fstat(fd)
         if (not stat.S_ISREG(info.st_mode) or info.st_uid != owner_uid or
                 info.st_nlink != 1 or stat.S_IMODE(info.st_mode) & 0o022):
-            raise ControllerError('unsupported_environment')
+            raise ControllerError('unsafe_lock')
         try:
             fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
@@ -151,7 +152,7 @@ def manual_install_lock(path: Path = _MANUAL_LOCK, *,
     except ControllerError:
         raise
     except OSError:
-        raise ControllerError('unsupported_environment') from None
+        raise ControllerError('unsafe_lock') from None
     finally:
         if fd is not None:
             os.close(fd)
