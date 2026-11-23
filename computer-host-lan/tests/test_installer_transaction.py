@@ -538,6 +538,17 @@ class InstallerBackendTests(unittest.TestCase):
         self.assertIsNone(core.require_no_wizard_transaction(
             root=self.root, owner_uid=self.uid))
 
+    def test_systemctl_timeout_is_per_operation_and_remains_recoverable(self):
+        expired = core.subprocess.TimeoutExpired(
+            ['systemctl', 'restart', 'linux-host-agent.service'], 120)
+        with mock.patch.object(core.subprocess, 'run',
+                               side_effect=expired) as runner:
+            with self.assertRaises(core.subprocess.CalledProcessError) as raised:
+                core.systemctl('restart', 'linux-host-agent.service')
+        self.assertEqual(raised.exception.returncode, 124)
+        self.assertEqual(runner.call_args.kwargs['timeout'], 120)
+        self.assertEqual(runner.call_args.kwargs['stdin'], core.subprocess.DEVNULL)
+
     def test_shared_core_power_activation_matches_socket_verification(self):
         from unittest.mock import call
         # Enabled but intentionally stopped power socket: enable --now
