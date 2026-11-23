@@ -715,6 +715,72 @@ class InstallerBackendTests(unittest.TestCase):
         self.assertEqual(result.status, 'nothing_to_recover')
         self.assertFalse((self.root / 'var/backups').exists())
 
+    def test_recover_orphaned_first_journal_write_cleans_without_mutation(self):
+        # Failed first INSPECTED write leaves a root-owned temp but no
+        # journal.json. Nothing has been staged or applied. -recover must
+        # make progress without requiring manual deletion of protected files.
+        old = self.existing_install()
+        original = old.read_bytes()
+        with mock.patch.object(journal.os, 'replace',
+                               side_effect=OSError('simulated initial EIO')):
+            with self.assertRaises(journal.UnsafeJournal):
+                self.store.begin('upgrade')
+        self.assertEqual(self.store.public_status()['privileged_transaction_state'],
+                         'recovery_required')
+        self.assertFalse((self.store.root /
+                          'var/backups/linux-host-agent/wizard-transactions/journal.json'
+                          ).exists())
+        result = self.backend.recover_interrupted()
+        self.assertEqual(result.status, 'cleaned')
+        self.assertEqual(old.read_bytes(), original)
+        self.assertEqual(self.services.activations, [])
+        self.assertEqual(self.services.restore_calls, 0)
+        self.assertEqual(self.services.verify_calls, 0)
+        self.assertEqual(self.stage_entries(), [])
+        self.assertEqual(self.store.public_status()['privileged_transaction_state'],
+                         'none')
+        # Recovery is idempotent and new explicit upgrades are permitted.
+        self.assertEqual(self.backend.recover_interrupted().status,
+                         'nothing_to_recover')
+        self.assertEqual(self.backend.run(
+            self.request('upgrade', expected_identity=UUID),
+            ROOT, self.hashes).status, 'installed')
+
+    def test_orphaned_journal_with_staged_payload_remains_blocked(self):
+        with mock.patch.object(journal.os, 'replace',
+                               side_effect=OSError('simulated initial EIO')):
+            with self.assertRaises(journal.UnsafeJournal):
+                self.store.begin('install')
+        stage_parent = self.root / 'var/lib/computer-host-installer'
+        stage_parent.mkdir(parents=True, mode=0o700)
+        stage_parent.chmod(0o700)
+        stage_dir = stage_parent / 'staging'
+        stage_dir.mkdir(mode=0o700)
+        retained = stage_dir / ('pending-' + 'a' * 32)
+        retained.mkdir(mode=0o700)
+        with self.assertRaises(installer.ControllerError) as err:
+            self.backend.recover_interrupted()
+        self.assertEqual(err.exception.code, 'recovery_required')
+        self.assertTrue(retained.is_dir())
+        self.assertEqual(self.store.public_status()['privileged_transaction_state'],
+                         'recovery_required')
+
+    def test_multiple_orphaned_journal_markers_remain_ambiguous(self):
+        with mock.patch.object(journal.os, 'replace',
+                               side_effect=OSError('simulated initial EIO')):
+            with self.assertRaises(journal.UnsafeJournal):
+                self.store.begin('install')
+        directory = self.root / 'var/backups/linux-host-agent/wizard-transactions'
+        extra = directory / ('.wizard-journal-' + 'c' * 32)
+        extra.write_bytes(b'invalid extra marker')
+        extra.chmod(0o600)
+        with self.assertRaises(installer.ControllerError) as err:
+            self.backend.recover_interrupted()
+        self.assertEqual(err.exception.code, 'recovery_required')
+        self.assertTrue(extra.exists())
+        self.assertEqual(self.store.public_status()['privileged_transaction_state'],
+                         'recovery_required')
+
     def test_recover_staged_preapply_does_not_mutate_managed_files(self):
         old, original, _ = self._simulate_crash_at('STAGED')
         result = self.backend.recover_interrupted()
