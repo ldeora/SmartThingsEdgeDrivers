@@ -46,6 +46,10 @@ class FakeSystemd:
         self.fail_verify = False
         self.fail_restore = False
         self.received_request = None
+        self.uninstall_stops = 0
+        self.uninstall_reloads = 0
+        self.fail_uninstall_stop = False
+        self.fail_uninstall_verify = False
 
     def capture_previous(self, transaction):
         return dict(self.original)
@@ -73,6 +77,26 @@ class FakeSystemd:
             elif not target.is_file() or target.read_bytes() != change.content:
                 return False
         return not self.fail_verify
+
+    def stop_for_uninstall(self):
+        self.uninstall_stops += 1
+        if not self.fail_uninstall_stop:
+            for key in ('agent_active', 'agent_enabled',
+                        'socket_active', 'socket_enabled'):
+                self.states[key] = False
+
+    def verify_uninstall_stopped(self):
+        return not self.states['agent_active'] and not self.states['socket_active']
+
+    def reload_after_uninstall(self):
+        self.uninstall_reloads += 1
+
+    def verify_uninstall_services(self):
+        return not self.fail_uninstall_verify and all(
+            not self.states[key] for key in (
+                'agent_active', 'agent_enabled',
+                'socket_active', 'socket_enabled')
+        )
 
     def restore_services(self, previous):
         self.restore_calls += 1
@@ -174,6 +198,163 @@ class InstallerBackendTests(unittest.TestCase):
         self.assertEqual(self.services.received_request.python_bin, '/usr/sbin/python3')
         self.assertEqual(self.store.public_status()['privileged_transaction_state'], 'none')
         self.assertEqual(self.stage_entries(), [])
+
+    def test_journaled_uninstall_removes_only_managed_files(self):
+        old = self.existing_install()
+        agent = self.installed_paths().location(core.APP_FILES[0])
+        previous_agent = agent.read_bytes()
+        retained = self.root / 'var/lib/linux-host-agent'
+        token = retained / 'control-token'
+        token.write_text('FIXTURE-SECRET-NEVER-LOG')
+        token.chmod(0o600)
+        unrelated = self.root / 'etc/systemd/network/10-existing-wol.link'
+        unrelated.parent.mkdir(parents=True, exist_ok=True)
+        unrelated.write_text('operator-managed WOL configuration')
+        power = self.installed_paths().location(core.POWER_DROPIN)
+        power.parent.mkdir(parents=True, exist_ok=True)
+        power.write_text('[Service]\\n')
+        previous = dict(self.services.original)
+
+        result = self.backend.uninstall()
+        self.assertEqual(result.status, 'uninstalled')
+        self.assertEqual(result.identity_preserved, 'verified')
+        self.assertEqual(self.services.uninstall_stops, 1)
+        self.assertEqual(self.services.uninstall_reloads, 1)
+        self.assertEqual(self.services.user_preflights, 0)
+        self.assertEqual(self.services.restore_calls, 0)
+        self.assertEqual(self.services.states['agent_active'], False)
+        for path in core.MANAGED_PATHS:
+            self.assertFalse(self.installed_paths().location(path).exists(), path)
+        self.assertTrue(core.owner_record_exists(self.root))
+        self.assertEqual((retained / 'installation-id').read_text(), UUID + '\n')
+        self.assertEqual(token.read_text(), 'FIXTURE-SECRET-NEVER-LOG')
+        self.assertEqual(unrelated.read_text(), 'operator-managed WOL configuration')
+        self.assertEqual(self.store.public_status()['privileged_transaction_state'],
+                         'none')
+        self.assertFalse(self.stage_entries())
+        snapshots = list((self.root / core.BACKUP_BASE.lstrip('/')).glob('snapshot-*'))
+        self.assertEqual(len(snapshots), 1)
+        # Snapshot authenticates the removed v2 application, and recovery
+        # material is deliberately retained for expert restore.
+        core.validate_v2_backup(snapshots[0], root=self.root)
+        self.assertIn(previous_agent, (snapshots[0] / '0.original').read_bytes() +
+                      b''.join(p.read_bytes() for p in snapshots[0].glob('*.original')))
+        with self.assertRaises(installer.ControllerError) as second:
+            self.backend.uninstall()
+        self.assertEqual(second.exception.code, 'unsupported_environment')
+        self.assertEqual(self.store.public_status()['privileged_transaction_state'],
+                         'none')
+        # Normal reinstall after an owner-record-retaining uninstall remains
+        # permitted through the established install transaction.
+        reinstalled = self.backend.run(self.request(), ROOT, self.hashes)
+        self.assertEqual(reinstalled.status, 'installed')
+        self.assertTrue(self.installed_paths().location(core.APP_FILES[0]).exists())
+
+    def test_journaled_uninstall_preserves_disabled_existing_state(self):
+        self.existing_install(active=False, enabled=False)
+        result = self.backend.uninstall()
+        self.assertEqual(result.status, 'uninstalled')
+        self.assertTrue(self.services.verify_uninstall_services())
+        self.assertEqual(self.services.restore_calls, 0)
+
+    def test_journaled_uninstall_refuses_unknown_and_v1_without_changes(self):
+        for agent_marker in (b"PROTOCOL = 'linux-host-agent'\\n", b'unknown'):
+            with self.subTest(agent_marker=agent_marker):
+                old = self.existing_install()
+                agent = self.installed_paths().location(core.APP_FILES[0])
+                agent.write_bytes(agent_marker)
+                before = old.read_bytes()
+                with self.assertRaises(installer.ControllerError) as error:
+                    self.backend.uninstall()
+                self.assertEqual(error.exception.code, 'unsupported_environment')
+                self.assertEqual(old.read_bytes(), before)
+                self.assertEqual(self.services.uninstall_stops, 0)
+                self.assertEqual(self.store.public_status()[
+                    'privileged_transaction_state'], 'none')
+                agent.write_bytes((ROOT / 'agent/linux_host_agent.py').read_bytes())
+
+    def test_uninstall_stop_must_be_verified_before_removing_files(self):
+        old = self.existing_install()
+        original = old.read_bytes()
+        self.services.fail_uninstall_stop = True
+        with self.assertRaises(installer.ControllerError) as error:
+            self.backend.uninstall()
+        self.assertEqual(error.exception.code, 'rolled_back')
+        self.assertEqual(old.read_bytes(), original)
+        self.assertEqual(self.services.restore_calls, 1)
+        self.assertEqual(self.store.public_status()['privileged_transaction_state'],
+                         'none')
+
+    def test_journaled_uninstall_failed_verification_rolls_back(self):
+        old = self.existing_install()
+        original = old.read_bytes()
+        self.services.fail_uninstall_verify = True
+        with self.assertRaises(installer.ControllerError) as error:
+            self.backend.uninstall()
+        self.assertEqual(error.exception.code, 'rolled_back')
+        self.assertEqual(old.read_bytes(), original)
+        self.assertEqual(self.services.restore_calls, 1)
+        self.assertTrue(self.services.verify_restored_services(
+            self.services.original))
+        self.assertEqual(self.store.public_status()['privileged_transaction_state'],
+                         'none')
+
+    def test_journaled_uninstall_failed_rollback_requires_recovery(self):
+        old = self.existing_install()
+        original = old.read_bytes()
+        self.services.fail_uninstall_verify = True
+        self.services.fail_restore = True
+        with self.assertRaises(installer.ControllerError) as error:
+            self.backend.uninstall()
+        self.assertEqual(error.exception.code, 'recovery_required')
+        self.assertEqual(self.store.public_status()['privileged_transaction_state'],
+                         'recovery_required')
+        self.assertEqual(old.read_bytes(), original)
+        self.services.fail_restore = False
+        outcome = self.backend.recover_interrupted()
+        self.assertEqual(outcome.status, 'rolled_back')
+        self.assertEqual(self.store.public_status()['privileged_transaction_state'],
+                         'none')
+
+    def test_uninstall_crash_after_removal_recovers_original_files_and_services(self):
+        old = self.existing_install()
+        original = old.read_bytes()
+        trans = self.installed_paths()
+        changes = [core.Change(path, None) for path in sorted(core.MANAGED_PATHS)]
+        with self.store.begin('uninstall') as journal:
+            journal.advance('INSPECTED', 'STAGED')
+            previous = self.services.capture_previous(trans)
+            snapshot = trans.snapshot(changes, previous=previous)
+            installer._sync_snapshot(snapshot)
+            journal.advance('STAGED', 'SNAPSHOTTED',
+                            snapshot_name=snapshot.name)
+            journal.advance('SNAPSHOTTED', 'APPLYING')
+            self.services.stop_for_uninstall()
+            trans.apply(changes)
+            journal.advance('APPLYING', 'ACTIVATING')
+            # Simulated SIGKILL: only the kernel locks are released.
+        self.assertFalse(old.exists())
+        recovered = self.backend.recover_interrupted()
+        self.assertEqual(recovered.status, 'rolled_back')
+        self.assertEqual(old.read_bytes(), original)
+        self.assertEqual(self.services.restore_calls, 1)
+        self.assertEqual(self.store.public_status()['privileged_transaction_state'],
+                         'none')
+
+    def test_uninstall_systemd_stops_services_before_unlinking(self):
+        ops = installer.SystemdOperations()
+        from unittest.mock import call
+        with mock.patch.object(core, 'systemctl') as ctl:
+            ops.stop_for_uninstall()
+            self.assertEqual(ctl.call_args_list, [
+                call('disable', '--now', 'linux-host-agent-power.socket',
+                     check=False),
+                call('disable', '--now', 'linux-host-agent.service',
+                     check=False),
+            ])
+        with mock.patch.object(core, 'state', return_value=False):
+            self.assertTrue(ops.verify_uninstall_stopped())
+            self.assertTrue(ops.verify_uninstall_services())
 
     def test_install_applies_actual_plan_and_cleans_transaction(self):
         # The new agent files and the unit templates are REALLY installed
