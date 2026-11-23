@@ -299,8 +299,8 @@ def _check_initial_orphan_record(directory: int, name: str,
 
     _write() uses a fixed sorted JSON encoding. A power loss or write error
     may leave any prefix of those bytes, including an empty file. Matching
-    that exact prefix also rejects a missing-journal APPLYING record (even
-    if it was itself truncated), rather than trusting directory layout.
+    that exact prefix rejects a missing-journal APPLYING record once
+    its bytes diverge from an initial write, rather than trusting layout.
     """
     if not _TEMP_NAME.fullmatch(name):
         raise UnsafeJournal('unexpected journal staging entry')
@@ -322,7 +322,8 @@ def _check_initial_orphan_record(directory: int, name: str,
         os.close(fd)
 
     # These are exactly the bytes preceding the transaction ID in the
-    # canonical, sorted first journal record. No later phase can match.
+    # canonical, sorted first journal record. Later-phase bytes fail once
+    # they differ; an empty or very short prefix cannot identify a phase.
     suffix = b'"}\n'
     for operation in _OPERATIONS:
         header = (b'{"operation":"' + operation.encode('ascii') +
