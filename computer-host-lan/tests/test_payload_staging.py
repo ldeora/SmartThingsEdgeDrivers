@@ -153,9 +153,9 @@ class PayloadStagingTests(unittest.TestCase):
     def test_source_changes_after_check_cannot_change_staged_bytes(self):
         original_walk = staging._walk_destination
         item = self.source / sorted(self.expected)[0]
-        def mutate_after_verified(root, owner):
+        def mutate_after_verified(root, owner, *, create):
             item.write_bytes(b'evil mutation after source validation')
-            return original_walk(root, owner)
+            return original_walk(root, owner, create=create)
         with mock.patch.object(staging, '_walk_destination',
                                side_effect=mutate_after_verified):
             with self.stage():
@@ -213,7 +213,7 @@ class PayloadStagingTests(unittest.TestCase):
 
     def test_reject_writable_system_parent_and_insecure_private_directory(self):
         system_parent = self.root / 'var'
-        system_parent.mkdir()
+        system_parent.mkdir(exist_ok=True)
         system_parent.chmod(0o777)
         with self.assertRaises(staging.StagingError):
             self.stage()
