@@ -388,6 +388,9 @@ func (p apiPlan) brief() string {
 type liveSelection struct {
 	api         apiClient
 	inspection  apiInspect
+	hubs        []discoveredHub
+	hubChoice   string // skip, manual, or discovered:<literal IPv4>
+	hubManual   string
 	powerChoice string
 	wolChoice   string
 	wolNIC      string
@@ -420,6 +423,36 @@ func (s *liveSelection) currentPlan() (apiPlan, error) {
 	}
 	return s.cached, s.cacheErr
 }
+func (s *liveSelection) selectedHub() string {
+	switch {
+	case s.hubChoice == "manual":
+		if validHubIPv4(s.hubManual) == nil {
+			return s.hubManual + " (entered manually; not contacted)"
+		}
+	case strings.HasPrefix(s.hubChoice, "discovered:"):
+		ip := strings.TrimPrefix(s.hubChoice, "discovered:")
+		for _, hub := range s.hubs {
+			if hub.IPv4 == ip {
+				return ip + " (Avahi candidate; not contacted or authenticated)"
+			}
+		}
+	}
+	return "Not selected (can choose later)"
+}
+
+func liveHubOptions(hubs []discoveredHub) []huh.Option[string] {
+	options := []huh.Option[string]{
+		huh.NewOption("Continue without selecting a hub", "skip"),
+		huh.NewOption("Enter a hub IPv4 address manually", "manual"),
+	}
+	for _, hub := range hubs {
+		if validHubIPv4(hub.IPv4) == nil {
+			options = append(options, huh.NewOption("Discovered candidate: "+hub.IPv4, "discovered:"+hub.IPv4))
+		}
+	}
+	return options
+}
+
 func (s *liveSelection) preview() string {
 	p, err := s.currentPlan()
 	if err != nil {
@@ -428,7 +461,14 @@ func (s *liveSelection) preview() string {
 	if p.SelectedPython != s.inspection.Python.SelectedInterpreter {
 		return "PLAN BLOCKED: interpreter changed after inspection; re-run inspection."
 	}
-	return p.brief()
+	result := p.brief() + "\nSmartThings hub: " + s.selectedHub()
+	if s.hubChoice == "manual" {
+		if warning := hubAddressWarning(s.hubManual); warning != "" {
+			result += "\n" + warning
+		}
+	}
+	result += "\nHub selection is advisory; no pairing or hub request was attempted."
+	return result
 }
 
 func liveForm(s *liveSelection) *huh.Form {
@@ -464,10 +504,25 @@ func liveForm(s *liveSelection) *huh.Form {
 				Validate(validateNICInput).Value(&s.wolNIC),
 		).Title("Interface").WithHideFunc(func() bool { return s.wolChoice != "pin" }),
 		huh.NewGroup(
+			huh.NewSelect[string]().
+				Title("Choose a SmartThings hub (optional)").
+				Description("Avahi discovery is unverified; manual IPv4 works without avahi-browse. No hub is contacted.").
+				Options(liveHubOptions(s.hubs)...).
+				Value(&s.hubChoice),
+		).Title("3. SmartThings hub"),
+		huh.NewGroup(
+			huh.NewInput().
+				Title("SmartThings hub IPv4 (required for manual selection)").
+				Description("Enter a literal IPv4 address. No connection, firewall or pairing changes.").
+				Placeholder("Type hub IPv4").
+				Validate(validHubIPv4).
+				Value(&s.hubManual),
+		).Title("Manual hub address").WithHideFunc(func() bool { return s.hubChoice != "manual" }),
+		huh.NewGroup(
 			huh.NewConfirm().
 				Title("Finish the REAL read-only file review?").
 				DescriptionFunc(func() string { return s.preview() },
-					[]any{&s.powerChoice, &s.wolChoice, &s.wolNIC}).
+					[]any{&s.powerChoice, &s.wolChoice, &s.wolNIC, &s.hubChoice, &s.hubManual}).
 				Affirmative("Finish review").Negative("Exit without changes").
 				Validate(func(accepted bool) error {
 					if !accepted {
@@ -482,7 +537,7 @@ func liveForm(s *liveSelection) *huh.Form {
 					}
 					return nil
 				}).Value(&s.finished),
-		).Title("3. Review"),
+		).Title("4. Review"),
 	)
 }
 
@@ -491,7 +546,7 @@ func runLiveInteractive(w io.Writer, api apiClient, info apiInspect) error {
 	if err != nil || stat.Mode()&os.ModeCharDevice == 0 {
 		return errors.New("live full-screen wizard needs a TTY; try -live -preview or -live -accessible")
 	}
-	s := liveSelection{api: api, inspection: info, powerChoice: "keep", wolChoice: "keep"}
+	s := liveSelection{api: api, inspection: info, hubs: discoverHubs(), hubChoice: "skip", powerChoice: "keep", wolChoice: "keep"}
 	fmt.Fprintln(w, "COMPUTER HOST LAN — LIVE READ-ONLY WIZARD")
 	fmt.Fprintln(w, "The API only inspects and plans; it cannot install or change the host.")
 	err = liveForm(&s).Run()
