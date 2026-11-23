@@ -25,8 +25,13 @@ class ProtectedJournalTests(unittest.TestCase):
         self.store = journal.ProtectedJournal(root=self.root, owner_uid=os.geteuid())
         self.directory = self.root / 'var/backups/linux-host-agent/wizard-transactions'
 
-    def private_record(self, data: dict | str, *, mode: int = 0o600):
+    def private_directory(self):
         self.directory.mkdir(parents=True, exist_ok=True)
+        (self.root / 'var/backups/linux-host-agent').chmod(0o700)
+        self.directory.chmod(0o700)
+
+    def private_record(self, data: dict | str, *, mode: int = 0o600):
+        self.private_directory()
         target = self.directory / 'journal.json'
         target.write_text(data if isinstance(data, str) else json.dumps(data), encoding='utf-8')
         target.chmod(mode)
@@ -96,7 +101,7 @@ class ProtectedJournalTests(unittest.TestCase):
     def test_reject_symlinked_journal_without_reading_target(self):
         outside = self.root / 'secret'
         outside.write_text('PRIVATE-TOKEN')
-        self.directory.mkdir(parents=True)
+        self.private_directory()
         (self.directory / 'journal.json').symlink_to(outside)
         with self.assertRaises(journal.UnsafeJournal) as raised:
             self.store.public_status()
@@ -118,7 +123,7 @@ class ProtectedJournalTests(unittest.TestCase):
             self.store.public_status()
 
     def test_reject_world_writable_parents_and_private_directory(self):
-        self.directory.mkdir(parents=True)
+        self.private_directory()
         (self.root / 'var').chmod(0o777)
         with self.assertRaises(journal.UnsafeJournal):
             self.store.public_status()
@@ -149,7 +154,7 @@ class ProtectedJournalTests(unittest.TestCase):
                     self.store.public_status()
 
     def test_incomplete_temp_markers_block_new_transaction(self):
-        self.directory.mkdir(parents=True)
+        self.private_directory()
         marker = self.directory / '.wizard-journal-uncertain'
         marker.write_text('possibly interrupted')
         self.assertEqual(self.store.public_status()['privileged_transaction_state'],
@@ -176,7 +181,7 @@ class ProtectedJournalTests(unittest.TestCase):
     def test_lock_symlink_rejected_without_touching_target(self):
         outside = self.root / 'outside'
         outside.write_text('keep')
-        self.directory.mkdir(parents=True)
+        self.private_directory()
         (self.directory / 'lock').symlink_to(outside)
         with self.assertRaises(journal.UnsafeJournal):
             self.store.begin('install')
