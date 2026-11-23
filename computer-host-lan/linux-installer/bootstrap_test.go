@@ -68,37 +68,22 @@ func TestRootInstalledHelperStatusSmoke(t *testing.T) {
 		t.Fatalf("root-installed read-only status failed: helperErr=%v, reply=%+v, processErr=%v, stdout=%q, stderr=%q",
 			helperErr, reply, processErr, out.Bytes(), stderr.Bytes())
 	}
-	// Reproduce the already deployed root-owned helper that fails to select
-	// Python when Gentoo reports /usr/sbin/python3. The explicit legacy
-	// fallback must verify the trusted script fingerprint and query only
-	// status through installer_root.py; it must not touch any agent files.
-	legacy, err := os.ReadFile("testdata/installer-entry-gentoo-legacy.sh")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(trustedDir, "installer-entry.sh"), legacy, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	status, err := legacyHelperStatusWithSystemPython(trustedDir)
-	if err != nil || status.Status != "passed" ||
-		status.PrivilegedTransactionState != "none" {
-		t.Fatalf("Known Gentoo legacy helper status fallback failed: %+v %v", status, err)
-	}
-	// Exercise the safe promotion path against that known old launcher:
-	// it may be replaced only after the read-only status succeeds.
+	// Exercise ordinary reviewed-helper upgrades, without retaining a
+	// root-only compatibility path for an unmerged draft launcher.
 	changed, err = prepareTrustedVersion(trustedDir, trustedLock, 0,
 		func() (string, error) {
-			resp, err := legacyHelperStatusWithSystemPython(trustedDir)
+			resp, err := runInstalledHelper(trustedDir,
+				privilegedRequest{SchemaVersion: 1, Action: "status"})
 			return resp.PrivilegedTransactionState, err
 		})
 	if err != nil || !changed {
-		t.Fatalf("Safe replacement of a recognized legacy helper failed: %+v %v", changed, err)
+		t.Fatalf("Safe replacement of current helper failed: changed=%t err=%v", changed, err)
 	}
-	status, err = runInstalledHelper(trustedDir,
+	status, err := runInstalledHelper(trustedDir,
 		privilegedRequest{SchemaVersion: 1, Action: "status"})
 	if err != nil || status.Status != "passed" ||
 		status.PrivilegedTransactionState != "none" {
-		t.Fatalf("Corrected promoted root helper cannot report status: %+v %v", status, err)
+		t.Fatalf("Promoted helper cannot report status: %+v %v", status, err)
 	}
 	if err := retirePreviousTrustedVersion(trustedDir, 0); err != nil {
 		t.Fatal(err)
@@ -187,7 +172,7 @@ func TestTrustedHelperMissingPythonErrorIsSanitized(t *testing.T) {
 	}
 }
 
-func TestGentooSystemPythonPathAndExactLegacyLauncherRecognition(t *testing.T) {
+func TestGentooSystemPythonPathsAccepted(t *testing.T) {
 	launcher, err := os.ReadFile("../scripts/installer-entry.sh")
 	if err != nil {
 		t.Fatal(err)
@@ -197,20 +182,54 @@ func TestGentooSystemPythonPathAndExactLegacyLauncherRecognition(t *testing.T) {
 			t.Fatalf("Installed launcher does not accept fixed trusted system directory %s", directory)
 		}
 	}
-	legacy, err := os.ReadFile("testdata/installer-entry-gentoo-legacy.sh")
-	if err != nil {
-		t.Fatal(err)
+}
+
+func TestInstalledHelperCommandTimeoutPolicy(t *testing.T) {
+	root := t.TempDir()
+	for _, action := range []string{"install", "upgrade", "repair", "recover"} {
+		cmd, cancel := installedHelperCommand(root, action)
+		if cmd.Cancel != nil {
+			t.Errorf("Mutation %s must not be SIGKILLed by Go's context deadline", action)
+		}
+		cancel()
 	}
-	if !knownGentooLauncherBug(legacy) {
-		t.Fatal("The reviewed legacy-launcher checksum no longer matches the fixture")
+	cmd, cancel := installedHelperCommand(root, "status")
+	defer cancel()
+	if cmd.Cancel == nil {
+		t.Fatal("Read-only status request must retain its bounded timeout")
 	}
-	if knownGentooLauncherBug(launcher) {
-		t.Fatal("The corrected launcher must not be accepted as the legacy defective version")
+}
+
+func TestInterruptedHelperReportsRecoveryNeeded(t *testing.T) {
+	sentinel := errors.New("privileged helper exited without JSON")
+	for _, state := range []string{"recovery_required", "incomplete", "in_progress"} {
+		status := privilegedResult{
+			SchemaVersion: 1, Operation: "status", Status: "passed",
+			PrivilegedTransactionState: state,
+		}
+		if !errors.Is(classifyInterruptedHelper(sentinel, status, nil),
+			errInstallerRecoveryPending) {
+			t.Fatalf("Interrupted helper with state %s must report recovery", state)
+		}
 	}
-	corrupted := append([]byte{}, legacy...)
-	corrupted[len(corrupted)-1] ^= 1
-	if knownGentooLauncherBug(corrupted) {
-		t.Fatal("A modified launcher must not trigger the narrow recovery path")
+	for _, tc := range []struct {
+		status privilegedResult
+		err    error
+	}{
+		{privilegedResult{SchemaVersion: 1, Operation: "status", Status: "passed",
+			PrivilegedTransactionState: "none"}, nil},
+		{privilegedResult{SchemaVersion: 1, Operation: "status", Status: "passed",
+			PrivilegedTransactionState: "recovery_required"}, errors.New("status unavailable")},
+		{privilegedResult{SchemaVersion: 1, Operation: "status", Status: "error",
+			PrivilegedTransactionState: "recovery_required"}, nil},
+		{privilegedResult{SchemaVersion: 1, Operation: "upgrade", Status: "passed",
+			PrivilegedTransactionState: "recovery_required"}, nil},
+		{privilegedResult{SchemaVersion: 1, Operation: "status", Status: "passed",
+			PrivilegedTransactionState: "recovery_required", SecretsIncluded: true}, nil},
+	} {
+		if !errors.Is(classifyInterruptedHelper(sentinel, tc.status, tc.err), sentinel) {
+			t.Fatal("Untrusted or clean status must not override original error")
+		}
 	}
 }
 
