@@ -298,6 +298,11 @@ class TransactionHandle:
             raise JournalConflict('transaction identity changed')
         return current
 
+    @property
+    def transaction_id(self) -> str:
+        """Internal protected staging binding, never a public status field."""
+        return self._record()['transaction_id']
+
     def advance(self, expected_phase: str, next_phase: str,
                 *, snapshot_name: str | None = None) -> None:
         if expected_phase not in _PHASES or next_phase not in _PHASES:
