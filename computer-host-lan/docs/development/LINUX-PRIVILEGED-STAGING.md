@@ -125,6 +125,43 @@ not authorization to execute anything.
   cleanup idempotent. Future root-side controller must complete it
   before clearing terminal journal state.
 
+**Required install/upgrade ordering (functionality invariant):**
+
+1. Hold the **journal transaction handle** throughout the operation.
+2. `stage_payload()` produces `ready-<txid>`; durably advance the journal
+   from `INSPECTED` to `STAGED`.
+3. Call `verified_source_path(trusted_hashes)`, then invoke the existing
+   installation engine **immediately while the stage receipt is still open**
+   and its exclusive lock keeps the protected payload stable.
+   The future trusted launcher must also hold the shared manual-install
+   exclusion lock; **this PR still does not execute the engine**.
+4. After activation/verification, durably record `COMMITTED` (or perform
+   verified rollback and record `ROLLED_BACK`; pre-apply cancellation may
+   record `ABORTED`).
+5. **Retire the ready stage, or discard its pending stage, before calling
+   `clear_finished()`.** Only then may the transaction journal be removed.
+
+An interruption after commit but before stage retirement is a **cleanup
+task**, not a failed installation. When the next wizard run calls `begin()`,
+it must **not** silently discard the terminal journal if a stage remains.
+The journal now refuses `begin()`, `clear_finished()` and
+`finish_terminal()` while any staged payload exists. Privileged status
+reports `recovery_required` for an unlocked terminal journal with a
+remaining stage. The controller can call `resume_finished_cleanup()`,
+`finish_retirement()`, then `clear_finished()`, and only afterward
+begin an upgrade or repair. An interrupted `pending-*` stage is cleared
+via `discard_pending()` while the matching journal still exists.
+
+This intentionally keeps the existing two fixed private directories instead
+of moving or merging them. The guard is a small functional correction in
+PR #75, and avoids a second payload-tree implementation inside the journal.
+
+An interruption after staging but before advancing to `STAGED` is also
+recoverable: `resume_recovery()` + `recover_ready()` under journal
+`INSPECTED`, then `advance('INSPECTED', 'STAGED')`, then
+`verified_source_path()`. Neither the stage name nor the receipt alone
+authorizes consuming the files.
+
 Every cleanup operation holds the staging lock, validates the fixed
 allowlist and types, unlinks files via parent directory descriptors, and
 fsyncs the containing directory. No recursive walk outside the fixed
@@ -164,10 +201,10 @@ A root-owned launcher added later must:
 7. Perform actual snapshot validation/rollback, preserve persistent
    key/UUID and existing stopped/disabled service state, and run PR #73
    runtime verification before recording `COMMITTED`.
-8. Stage cleanup must complete before clearing the terminal journal.
-   Recovery must resolve interrupted `pending-*` or `ready-*`
-   before starting another operation; don't accidentally reap a
-   completed journal while its staged payload remains.
+8. Stage cleanup must complete before clearing the terminal journal;
+   the journal now enforces this and preserves the transaction ID when a
+   `ready-*` or `pending-*` stage remains after a crash.
+   Recovery must resolve that stage before starting another operation.
 9. Publisher provenance/signature verification is a **separate**
    prerequisite from content hash matching.
 
@@ -184,7 +221,9 @@ exclusive staging lock, pending marker failures, guarded pending
 cleanup (including refusal of symlinked contents), complete
 stage→retire→stage-again, full receipt re-verification, inode-swap
 detection, crash reopen by journal identity, terminal cleanup after
-interruption, and a forked child's inability to retire the parent stage.
+interruption, refusal of premature journal cleanup, committed-crash
+recovery before a later upgrade, recovery between staging and STAGED,
+and a forked child's inability to retire the parent stage.
 
 CI on Debian/Ubuntu/Fedora and Python 3.10–3.14 remains a
 source-level safety check; it does not prove hardware power-loss
