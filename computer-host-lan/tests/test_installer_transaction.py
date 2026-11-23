@@ -371,8 +371,11 @@ class InstallerBackendTests(unittest.TestCase):
         target.chmod(0o600)
         planted = self.root / 'planted-install.lock'
         planted.symlink_to(target)
-        with self.assertRaises(core.InstallError):
+        with self.assertRaises(core.InstallError) as raised:
             core.open_manual_install_lock(planted, owner_uid=self.uid)
+        self.assertIn('/run/lock/linux-host-agent-install.lock',
+                      str(raised.exception))
+        self.assertIn('no installer is running', str(raised.exception))
         self.assertEqual(target.read_text(), 'KEEP')
         planted.unlink()
 
