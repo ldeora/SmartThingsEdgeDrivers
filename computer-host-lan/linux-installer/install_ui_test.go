@@ -147,3 +147,52 @@ func TestPrivilegedActionRejectsUnconfirmedSettings(t *testing.T) {
 		}
 	}
 }
+
+func TestUninstallRequiresSubmittedLiteralConfirmation(t *testing.T) {
+	for _, input := range []string{"", "UNINSTALL", "INSTALL\n", "yes\n", "uninstall\n", "UNINSTALL\n"} {
+		var out bytes.Buffer
+		calls := 0
+		err := confirmUninstall(strings.NewReader(input), &out, func(req privilegedRequest) (privilegedResult, error) {
+			calls++
+			if req.SchemaVersion != 2 || req.Action != "uninstall" || req.Power != "" || req.WOLInterface != nil {
+				t.Fatalf("Unexpected uninstall request: %+v", req)
+			}
+			return privilegedResult{Status: "uninstalled", IdentityPreserved: "verified"}, nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := 0
+		if input == "UNINSTALL\n" {
+			want = 1
+		}
+		if calls != want {
+			t.Fatalf("Confirmation %q invoked authorization %d times", input, calls)
+		}
+		for _, phrase := range []string{"control key", "recovery snapshots", "Wake-on-LAN", "SmartThings device will go offline", "not a full purge"} {
+			if !strings.Contains(out.String(), phrase) {
+				t.Fatalf("Review missing %q", phrase)
+			}
+		}
+	}
+}
+
+func TestUninstallCleanupAndRollbackMessages(t *testing.T) {
+	var out bytes.Buffer
+	err := confirmUninstall(strings.NewReader("UNINSTALL\n"), &out, func(req privilegedRequest) (privilegedResult, error) {
+		return privilegedResult{Status: "uninstalled_cleanup_required", IdentityPreserved: "not_verified"}, nil
+	})
+	if err != nil || !strings.Contains(out.String(), "-recover") {
+		t.Fatalf("Missing cleanup instruction: %s (%v)", out.String(), err)
+	}
+	out.Reset()
+	showRecoveryOutcome(&out, privilegedResult{RecoveryStatus: "rolled_back", RecoveryOperation: "uninstall"})
+	if !strings.Contains(out.String(), "uninstall was undone") || !strings.Contains(out.String(), "-uninstall again") {
+		t.Fatal(out.String())
+	}
+	out.Reset()
+	showRecoveryOutcome(&out, privilegedResult{RecoveryStatus: "cleaned", RecoveryOperation: "uninstall"})
+	if !strings.Contains(out.String(), "No uninstall or installation was resumed") {
+		t.Fatal(out.String())
+	}
+}
