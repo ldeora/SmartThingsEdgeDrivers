@@ -10,6 +10,16 @@ import (
 	"testing"
 )
 
+// Only change the fixture directory, not the process-wide umask.
+func protectedEvidenceFixture(t *testing.T) string {
+	t.Helper()
+	base := t.TempDir()
+	if err := os.Chmod(base, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	return base
+}
+
 func TestMissingHelperProvisioningEvidence(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("non-root helper provisioning fixture")
@@ -30,7 +40,7 @@ func TestMissingHelperProvisioningEvidence(t *testing.T) {
 		{"lock fifo", "lock-fifo", false}, {"lock nonempty", "lock-data", false}, {"lock permissions", "lock-mode", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			base := t.TempDir()
+			base := protectedEvidenceFixture(t)
 			root := filepath.Join(base, "helper")
 			manual := filepath.Join(base, "install.lock")
 			journal := filepath.Join(base, "var/backups/linux-host-agent/wizard-transactions")
@@ -94,6 +104,15 @@ func TestMissingHelperProvisioningEvidence(t *testing.T) {
 			default:
 				write(filepath.Join(journal, tc.kind), "evidence", 0o600)
 			}
+			// Existing-helper actions must see the same evidence without
+			// provisioning anything, including in clean cases.
+			err := checkMissingHelperForExistingAction(root, manual, os.Geteuid())
+			if (tc.clean && err != nil) || (!tc.clean && !errors.Is(err, errRecoveryHelperMissing)) {
+				t.Fatalf("status/recover preflight: %v", err)
+			}
+			if _, err := os.Lstat(root); !os.IsNotExist(err) {
+				t.Fatal("preflight provisioned a helper", err)
+			}
 			// Even a pre-existing next helper must not be discarded on refusal.
 			if !tc.clean {
 				mkdir(root + ".next")
@@ -123,7 +142,7 @@ func TestMissingHelperUninstallEvidencePrecedesMissingAgent(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("non-root helper provisioning fixture")
 	}
-	base := t.TempDir()
+	base := protectedEvidenceFixture(t)
 	stage := filepath.Join(base, "var/lib/computer-host-installer/staging/schema-2-fence")
 	if err := os.MkdirAll(stage, 0o700); err != nil {
 		t.Fatal(err)
@@ -137,17 +156,47 @@ func TestMissingHelperUninstallEvidencePrecedesMissingAgent(t *testing.T) {
 	}
 }
 
-func TestMissingRecoveryHelperDiagnostic(t *testing.T) {
-	var out bytes.Buffer
-	if err := relayBootstrapFailure(&out, "upgrade", errRecoveryHelperMissing); !errors.Is(err, errRecoveryHelperMissing) {
+func TestExistingActionHelperPreflightLockBehavior(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("non-root helper provisioning fixture")
+	}
+	base := protectedEvidenceFixture(t)
+	root := filepath.Join(base, "helper")
+	manual := filepath.Join(base, "manual.lock")
+	guard, err := lockInstaller(manual, os.Geteuid())
+	if err != nil {
 		t.Fatal(err)
 	}
-	reply, err := validatedPrivilegedReply(out.Bytes(), "upgrade")
-	if err != nil || reply.ErrorCode != "recovery_helper_missing" {
-		t.Fatalf("unexpected reply %+v %v", reply, err)
+	defer guard.Close()
+	if err := checkMissingHelperForExistingAction(root, manual, os.Geteuid()); !errors.Is(err, errInstallerBusy) {
+		t.Fatal("missing-helper check must respect installer lock", err)
 	}
-	message := userFacingPrivilegeFailure(reply).Error()
-	if !strings.Contains(message, "verified compatible recovery helper") || !strings.Contains(message, "Preserve") {
-		t.Fatal(message)
+	for _, path := range []string{root, root + ".previous"} {
+		if err := os.Mkdir(path, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := checkMissingHelperForExistingAction(root, manual, os.Geteuid()); err != nil {
+			t.Fatal("existing helper preflight must not acquire manual lock", err)
+		}
+		if err := os.Remove(path); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestMissingRecoveryHelperDiagnostic(t *testing.T) {
+	for _, action := range []string{"upgrade", "status", "recover"} {
+		var out bytes.Buffer
+		if err := relayBootstrapFailure(&out, action, errRecoveryHelperMissing); !errors.Is(err, errRecoveryHelperMissing) {
+			t.Fatal(err)
+		}
+		reply, err := validatedPrivilegedReply(out.Bytes(), action)
+		if err != nil || reply.ErrorCode != "recovery_helper_missing" {
+			t.Fatalf("unexpected reply %+v %v", reply, err)
+		}
+		message := userFacingPrivilegeFailure(reply).Error()
+		if !strings.Contains(message, "verified compatible recovery helper") || !strings.Contains(message, "Preserve") {
+			t.Fatal(message)
+		}
 	}
 }

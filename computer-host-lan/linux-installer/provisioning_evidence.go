@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"syscall"
+
+	"golang.org/x/sys/unix"
 )
 
 var errRecoveryHelperMissing = errors.New("protected transaction evidence may remain without an installed recovery helper")
@@ -77,11 +79,10 @@ func emptyEvidenceNamespace(base string, uid int, components []string, lock stri
 	if len(names) != 1 || names[0] != lock {
 		return false
 	}
-	// O_PATH (Linux amd64/arm64) observes metadata without opening a device,
+	// O_PATH observes metadata without opening a device,
 	// FIFO or other special file for I/O. NOFOLLOW permits inspecting a link
 	// itself, which fails the regular-file requirement below.
-	const oPath = 0x200000
-	lfd, err := syscall.Openat(int(dir.Fd()), lock, oPath|syscall.O_NOFOLLOW|syscall.O_CLOEXEC, 0)
+	lfd, err := syscall.Openat(int(dir.Fd()), lock, unix.O_PATH|syscall.O_NOFOLLOW|syscall.O_CLOEXEC, 0)
 	if err != nil {
 		return false
 	}
@@ -94,13 +95,39 @@ func emptyEvidenceNamespace(base string, uid int, components []string, lock stri
 // Called before uninstall's missing-agent preflight as well as before any
 // helper staging/retirement. A previous helper is handled by the existing
 // version-swap recovery path, not by this absence check.
-func guardMissingRecoveryHelper(root string, uid int) error {
+func recoveryHelpersAbsent(root string) (bool, error) {
 	for _, name := range []string{root, root + ".previous"} {
 		if _, err := os.Lstat(name); err == nil {
-			return nil
+			return false, nil
 		} else if !os.IsNotExist(err) {
-			return err
+			return false, err
 		}
 	}
+	return true, nil
+}
+
+func guardMissingRecoveryHelper(root string, uid int) error {
+	absent, err := recoveryHelpersAbsent(root)
+	if err != nil || !absent {
+		return err
+	}
 	return requireNoProvisioningEvidence(root, uid)
+}
+
+// Status and explicit recovery must not provision or retire a helper. Only
+// inspect evidence when both copies appear absent; leave the normal status
+// path independent of the manual lock (it can observe an active installer).
+// The bootstrap lifetime lock is held by the production caller.
+func checkMissingHelperForExistingAction(root, lock string, uid int) error {
+	absent, err := recoveryHelpersAbsent(root)
+	if err != nil || !absent {
+		return err
+	}
+	guard, err := lockInstaller(lock, uid)
+	if err != nil {
+		return err
+	}
+	defer guard.Close()
+	// Recheck under the shared lock before examining the evidence.
+	return guardMissingRecoveryHelper(root, uid)
 }

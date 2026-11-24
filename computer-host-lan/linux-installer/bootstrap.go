@@ -689,6 +689,9 @@ func rootBootstrap(reader io.Reader, writer io.Writer) error {
 	}
 	defer bootstrapGuard.Close()
 	if request.Action == "status" || request.Action == "recover" {
+		if err := checkMissingHelperForExistingAction(trustedDir, trustedLock, 0); err != nil {
+			return relayBootstrapFailure(writer, request.Action, err)
+		}
 		response, helperErr := runInstalledHelper(trustedDir, request)
 		if response.SchemaVersion == 1 {
 			// A committed operation can leave its previous trusted bundle
