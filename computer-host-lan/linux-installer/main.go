@@ -378,8 +378,9 @@ func main() {
 	apiPath := flag.String("api", "", "optional path to a read-only source API launcher; -install bundles its own")
 	install := flag.Bool("install", false, "guided real installation; explicit final approval and administrator authorization required")
 	rootMode := flag.Bool("root-bootstrap", false, "internal: fixed privileged bootstrap, never run the UI as root")
-	recoverMode := flag.Bool("recover", false, "explicitly recover an interrupted privileged installation")
-	elevation := flag.String("elevation", "auto", "authorization provider for install/recover: auto, sudo, doas, run0 or su")
+	recoverMode := flag.Bool("recover", false, "explicitly recover an interrupted installer operation")
+	uninstallMode := flag.Bool("uninstall", false, "guided removal of the agent; retain identity, backups and recovery helper")
+	elevation := flag.String("elevation", "auto", "authorization provider for install/uninstall/recover: auto, sudo, doas, run0 or su")
 	requestArg := flag.String("request", "", "internal: bounded non-secret JSON input for su-only root bootstrap")
 	flag.Parse()
 	requestFlagProvided := false
@@ -397,7 +398,7 @@ func main() {
 		os.Exit(2)
 	}
 	if *rootMode {
-		if *live || *install || *preview || *accessible || *apiPath != "" || *recoverMode || *elevation != "auto" {
+		if *live || *install || *preview || *accessible || *apiPath != "" || *recoverMode || *uninstallMode || *elevation != "auto" {
 			fmt.Fprintln(os.Stderr, "Invalid privileged bootstrap invocation.")
 			os.Exit(2)
 		}
@@ -418,9 +419,20 @@ func main() {
 		fmt.Fprintln(os.Stderr, "-request is supported only by the privileged bootstrap")
 		os.Exit(2)
 	}
-	if *elevation != "auto" && !*recoverMode && !*install {
-		fmt.Fprintln(os.Stderr, "-elevation is allowed only with -live -install or -recover")
+	if *elevation != "auto" && !*recoverMode && !*install && !*uninstallMode {
+		fmt.Fprintln(os.Stderr, "-elevation is allowed only with -live -install, -uninstall or -recover")
 		os.Exit(2)
+	}
+	if *uninstallMode {
+		if *install || *recoverMode || *live || *preview || *apiPath != "" {
+			fmt.Fprintln(os.Stderr, "-uninstall cannot be combined with other wizard modes")
+			os.Exit(2)
+		}
+		if err := runUninstallWizard(os.Stdin, os.Stdout, *elevation); err != nil {
+			fmt.Fprintln(os.Stderr, "Uninstall not completed:", err)
+			os.Exit(1)
+		}
+		return
 	}
 	if *recoverMode {
 		if *install || *live || *preview || *accessible || *apiPath != "" {
