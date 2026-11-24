@@ -6,6 +6,8 @@ from pathlib import Path
 import stat
 import sys
 import tempfile
+import traceback
+from types import SimpleNamespace
 import unittest
 from unittest import mock
 
@@ -67,7 +69,8 @@ class WolPublicationTests(unittest.TestCase):
         self.assertEqual(self.anchor.stat().st_nlink, 1)
         record = json.loads(self.receipt.read_bytes())
         self.assertEqual(record['anchor'],
-                         [self.anchor.stat().st_dev, self.anchor.stat().st_ino])
+                         [os.fstatvfs(self.policy_fd).f_fsid, self.anchor.stat().st_ino])
+        self.assertEqual(record['schema'], 2)
         self.assertEqual(self.state(), 'unpublished')
         self.assertEqual(list(self.policy.iterdir()), [self.anchor])
 
@@ -131,7 +134,7 @@ class WolPublicationTests(unittest.TestCase):
             return real_link(*args, **kwargs)
 
         with mock.patch.object(pub.os, 'link', side_effect=racing_link):
-            with self.assertRaises(FileExistsError):
+            with self.assertRaises(pub.PublicationConflict):
                 self.publish()
         self.assertFalse(os.path.samefile(self.anchor, self.target))
         with self.assertRaises(pub.PublicationError):
@@ -171,7 +174,7 @@ class WolPublicationTests(unittest.TestCase):
         self.prepare()
         self.publish()
         self.anchor.unlink()
-        with self.assertRaises(FileNotFoundError):
+        with self.assertRaises(pub.PublicationError):
             self.rollback()
         self.assertEqual(self.target.read_bytes(), pub.CONTENT)
 
@@ -189,12 +192,12 @@ class WolPublicationTests(unittest.TestCase):
         self.prepare()
         self.anchor.unlink()
         self.anchor.symlink_to(self.root / 'missing')
-        with self.assertRaises(OSError):
+        with self.assertRaises(pub.PublicationError):
             self.publish()
         self.assert_absent(self.target)
         self.receipt.unlink()
         self.receipt.symlink_to(self.root / 'missing')
-        with self.assertRaises(OSError):
+        with self.assertRaises(pub.PublicationError):
             self.rollback()
 
     def test_directory_identity_binding_prevents_transplant(self):
@@ -242,6 +245,8 @@ class WolPublicationTests(unittest.TestCase):
         self.prepare()
         original = json.loads(self.receipt.read_bytes())
         for changed in (dict(original, schema=True),
+                        dict(original, schema=1),
+                        dict(original, anchor=[0, 1]),
                         dict(original, transaction_id=OTHER),
                         dict(original, anchor=[True, 1]),
                         dict(original, anchor_gid=-1),
@@ -262,7 +267,7 @@ class WolPublicationTests(unittest.TestCase):
     def test_missing_receipt_does_not_adopt_anchor(self):
         self.prepare()
         self.receipt.unlink()
-        with self.assertRaises(FileNotFoundError):
+        with self.assertRaises(pub.PublicationError):
             self.publish()
         with self.assertRaises(pub.PublicationError):
             self.prepare()
@@ -284,14 +289,14 @@ class WolPublicationTests(unittest.TestCase):
                         raise OSError(errno.EIO, 'fixture')
                     return real_sync(fd)
                 with mock.patch.object(pub.os, 'fsync', side_effect=fail):
-                    with self.assertRaises(OSError):
+                    with self.assertRaises(pub.PublicationError):
                         self.invoke(pub.prepare, tx)
                 self.assert_absent(self.target)
 
     def test_failed_link_leaves_unpublished_anchor(self):
         self.prepare()
         with mock.patch.object(pub.os, 'link', side_effect=OSError(errno.EXDEV, 'fixture')):
-            with self.assertRaises(OSError):
+            with self.assertRaises(pub.PublicationError):
                 self.publish()
         self.assertEqual(self.state(), 'unpublished')
         self.rollback()
@@ -300,7 +305,7 @@ class WolPublicationTests(unittest.TestCase):
     def test_crash_after_link_before_directory_sync_is_recoverable(self):
         self.prepare()
         with mock.patch.object(pub.os, 'fsync', side_effect=OSError(errno.EIO, 'fixture')):
-            with self.assertRaises(OSError):
+            with self.assertRaises(pub.PublicationError):
                 self.publish()
         self.assertEqual(self.state(), 'published')
         self.rollback()
@@ -310,7 +315,7 @@ class WolPublicationTests(unittest.TestCase):
         self.prepare()
         self.publish()
         with mock.patch.object(pub.os, 'fsync', side_effect=OSError(errno.EIO, 'fixture')):
-            with self.assertRaises(OSError):
+            with self.assertRaises(pub.PublicationError):
                 self.rollback()
         self.assertEqual(self.state(), 'unpublished')
         self.rollback()
@@ -324,7 +329,7 @@ class WolPublicationTests(unittest.TestCase):
                 raise OSError(errno.EIO, 'fixture directory sync')
             return real_sync(fd)
         with mock.patch.object(pub.os, 'fsync', side_effect=fail_dir):
-            with self.assertRaises(OSError):
+            with self.assertRaises(pub.PublicationError):
                 self.publish()
         self.assertEqual(self.state(), 'published')
         self.rollback()
@@ -339,11 +344,71 @@ class WolPublicationTests(unittest.TestCase):
                 raise OSError(errno.EIO, 'fixture directory sync')
             return real_sync(fd)
         with mock.patch.object(pub.os, 'fsync', side_effect=fail_dir):
-            with self.assertRaises(OSError):
+            with self.assertRaises(pub.PublicationError):
                 self.rollback()
         self.assertEqual(self.state(), 'unpublished')
         self.rollback()
         self.assert_absent(self.target)
+
+    def test_changed_mount_device_number_does_not_block_recovery(self):
+        self.prepare()
+        self.publish()
+        # Simulate Btrfs subvolume st_dev reassignment while the inode
+        # numbers and filesystem IDs remain unchanged. Live checks still
+        # compare the *current* st_dev of target and anchor.
+        real_fstat = os.fstat
+        real_stat = os.stat
+
+        def changed(info):
+            fields = {name: getattr(info, name) for name in dir(info)
+                      if name.startswith('st_')}
+            fields['st_dev'] += 1000
+            return SimpleNamespace(**fields)
+
+        with mock.patch.object(pub.os, 'fstat',
+                               side_effect=lambda fd: changed(real_fstat(fd))), \
+             mock.patch.object(pub.os, 'stat',
+                               side_effect=lambda *a, **kw: changed(real_stat(*a, **kw))):
+            self.assertEqual(self.state(), 'published')
+            self.rollback()
+            self.assertEqual(self.state(), 'unpublished')
+        self.assert_absent(self.target)
+
+    def test_changed_or_unavailable_filesystem_id_refuses_recovery(self):
+        self.prepare()
+        self.publish()
+        original = os.fstatvfs(self.policy_fd).f_fsid
+        for fsid in (0, None, (original % (2**64 - 1)) + 1):
+            with self.subTest(fsid=fsid):
+                with mock.patch.object(pub.os, 'fstatvfs',
+                                       return_value=SimpleNamespace(f_fsid=fsid)):
+                    with self.assertRaises(pub.PublicationError):
+                        self.rollback()
+                self.assertTrue(self.target.is_file())
+
+    def test_unavailable_filesystem_identity_refuses_before_staging(self):
+        with mock.patch.object(pub.os, 'fstatvfs',
+                               return_value=SimpleNamespace(f_fsid=0)):
+            with self.assertRaises(pub.PublicationError):
+                self.prepare()
+        self.assert_absent(self.anchor)
+        self.assert_absent(self.receipt)
+
+    def test_filesystem_errors_never_expose_private_names(self):
+        self.prepare()
+        self.receipt.unlink()
+        with self.assertRaises(pub.PublicationError) as caught:
+            self.publish()
+        error = caught.exception
+        self.assertEqual(str(error), 'publication filesystem operation failed')
+        self.assertTrue(error.__suppress_context__)
+        self.assertNotIn(TX, ''.join(traceback.format_exception(
+            type(error), error, error.__traceback__)))
+        with mock.patch.object(pub.os, 'open',
+                               side_effect=OSError(errno.EIO, 'private', TX)):
+            with self.assertRaises(pub.PublicationError) as caught:
+                self.rollback()
+        self.assertNotIn(TX, str(caught.exception))
 
     def test_reopen_descriptors_recovers_published_target(self):
         self.prepare()
