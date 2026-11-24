@@ -114,20 +114,65 @@ func guardMissingRecoveryHelper(root string, uid int) error {
 	return requireNoProvisioningEvidence(root, uid)
 }
 
-// Status and explicit recovery must not provision or retire a helper. Only
-// inspect evidence when both copies appear absent; leave the normal status
-// path independent of the manual lock (it can observe an active installer).
-// The bootstrap lifetime lock is held by the production caller.
-func checkMissingHelperForExistingAction(root, lock string, uid int) error {
-	absent, err := recoveryHelpersAbsent(root)
-	if err != nil || !absent {
-		return err
+// Existing actions do not provision a new helper. When the current helper
+// is missing, inspect the fixed namespaces under the shared lock. Status
+// remains read-only; explicit recovery may restore an interrupted swap.
+// A nonzero reply is an authoritative no-execution outcome. The caller
+// holds the bootstrap lifetime lock across this decision and invocation.
+func prepareExistingHelperAction(root, lock string, uid int, action string) (privilegedResult, error) {
+	var reply privilegedResult
+	if action != "status" && action != "recover" {
+		return reply, errors.New("invalid existing helper action")
+	}
+	if _, err := os.Lstat(root); err == nil {
+		return reply, nil
+	} else if !os.IsNotExist(err) {
+		return reply, err
 	}
 	guard, err := lockInstaller(lock, uid)
 	if err != nil {
-		return err
+		return reply, err
 	}
 	defer guard.Close()
-	// Recheck under the shared lock before examining the evidence.
-	return guardMissingRecoveryHelper(root, uid)
+	// Recheck after acquiring the lock, before deciding or renaming.
+	if _, err := os.Lstat(root); err == nil {
+		return reply, nil
+	} else if !os.IsNotExist(err) {
+		return reply, err
+	}
+	previous := root + ".previous"
+	if _, err := os.Lstat(previous); err == nil {
+		if root == trustedDir && uid == 0 {
+			err = verifyParents(previous, uid)
+		} else if uid != 0 && uid == os.Geteuid() {
+			err = protectedPath(filepath.Dir(root), uid, true)
+			if err == nil {
+				err = protectedPath(previous, uid, true)
+			}
+		} else {
+			err = errRecoveryHelperMissing
+		}
+		if err != nil {
+			return reply, err
+		}
+		if action == "status" {
+			return privilegedResult{SchemaVersion: 1, Operation: action, Status: "passed", PrivilegedTransactionState: "recovery_required"}, nil
+		}
+		if err := os.Rename(previous, root); err != nil {
+			return reply, err
+		}
+		return reply, syncDirectory(filepath.Dir(root))
+	} else if !os.IsNotExist(err) {
+		return reply, err
+	}
+	if err := requireNoProvisioningEvidence(root, uid); err != nil {
+		return reply, err
+	}
+	reply = privilegedResult{SchemaVersion: 1, Operation: action, Status: "passed"}
+	if action == "status" {
+		reply.PrivilegedTransactionState = "none"
+	} else {
+		reply.RecoveryStatus = "nothing_to_recover"
+	}
+	return reply, nil
 }

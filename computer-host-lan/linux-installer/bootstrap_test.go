@@ -946,7 +946,7 @@ func TestUninstallPreflightAllowsManualAgentWithoutExistingHelper(t *testing.T) 
 	root := filepath.Join(parent, "computer-host-lan")
 	lock := filepath.Join(parent, "install.lock")
 	agent := filepath.Join(parent, "linux_host_agent.py")
-	if err := os.WriteFile(agent, []byte("fixture"), 0o755); err != nil {
+	if err := os.WriteFile(agent, []byte("PROTOCOL = 'computer-host-agent'\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	changed, err := prepareTrustedVersionForAction(root, lock, os.Geteuid(), func() (string, error) {

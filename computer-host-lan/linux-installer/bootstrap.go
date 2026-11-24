@@ -475,6 +475,11 @@ func prepareTrustedVersionForAction(root, lock string, uid int, status func() (s
 	} else if !os.IsNotExist(err) {
 		return false, err
 	}
+	if uninstallAgent != "" {
+		if err := requireV2UninstallTarget(root, uninstallAgent, uid); err != nil {
+			return false, err
+		}
+	}
 	// The installed helper just confirmed no protected transaction is
 	// outstanding. These version-swap artifacts are now safe to retire;
 	// leaving them indefinitely would prevent every subsequent upgrade.
@@ -583,24 +588,29 @@ func runInstalledHelper(root string, request privilegedRequest) (privilegedResul
 }
 
 func completeTrustedVersion(root string, ownerUID int, restore bool) error {
+	return completeTrustedVersionLocked(root, trustedLock, ownerUID, restore, func() (privilegedResult, error) {
+		return runInstalledHelper(root, privilegedRequest{SchemaVersion: 1, Action: "status"})
+	})
+}
+
+func completeTrustedVersionLocked(root, lock string, ownerUID int, restore bool, status func() (privilegedResult, error)) error {
 	// The Python backend releases the manual lock after its transaction.
 	// Reacquire it before touching installed helper directories; otherwise
 	// a manual installation could begin between backend completion and
 	// the Go bootstrap's previous-version cleanup.
-	guard, err := lockInstaller(trustedLock, ownerUID)
+	guard, err := lockInstaller(lock, ownerUID)
 	if err != nil {
 		return err
 	}
 	defer guard.Close()
-	state, err := runInstalledHelper(root,
-		privilegedRequest{SchemaVersion: 1, Action: "status"})
+	state, err := status()
 	if err != nil || state.PrivilegedTransactionState != "none" {
 		return errors.New("cannot change helper version while recovery is pending")
 	}
 	if restore {
 		err = restorePreviousTrustedVersion(root, ownerUID)
 	} else {
-		err = retirePreviousTrustedVersion(root, ownerUID)
+		err = retireObsoleteHelperArtifacts(root, ownerUID)
 	}
 	if err != nil {
 		return err
@@ -637,6 +647,8 @@ func relayBootstrapFailure(writer io.Writer, action string, failure error) error
 		code = "installation_busy"
 	} else if errors.Is(failure, errUnsafeInstallerLock) {
 		code = "unsafe_lock"
+	} else if errors.Is(failure, errUnsupportedUninstall) {
+		code = "unsupported_environment"
 	} else if errors.Is(failure, errNotInstalled) {
 		code = "not_installed"
 	} else if errors.Is(failure, errRecoveryHelperMissing) {
@@ -689,8 +701,12 @@ func rootBootstrap(reader io.Reader, writer io.Writer) error {
 	}
 	defer bootstrapGuard.Close()
 	if request.Action == "status" || request.Action == "recover" {
-		if err := checkMissingHelperForExistingAction(trustedDir, trustedLock, 0); err != nil {
+		preflight, err := prepareExistingHelperAction(trustedDir, trustedLock, 0, request.Action)
+		if err != nil {
 			return relayBootstrapFailure(writer, request.Action, err)
+		}
+		if preflight.SchemaVersion != 0 {
+			return relayHelperResponse(writer, request.Action, preflight, nil)
 		}
 		response, helperErr := runInstalledHelper(trustedDir, request)
 		if response.SchemaVersion == 1 {
@@ -699,11 +715,7 @@ func rootBootstrap(reader io.Reader, writer io.Writer) error {
 			// may retire that bundle using the same locked, clean-status
 			// gate as normal completion, never by restoring it.
 			if request.Action == "recover" && helperErr == nil && response.Status == "passed" {
-				if _, err := os.Lstat(trustedDir + ".previous"); err == nil {
-					if err := completeTrustedVersion(trustedDir, 0, false); err != nil {
-						return relayBootstrapFailure(writer, request.Action, err)
-					}
-				} else if !os.IsNotExist(err) {
+				if err := finishHelperRetirementIfNeeded(trustedDir, 0); err != nil {
 					return relayBootstrapFailure(writer, request.Action, err)
 				}
 			}
@@ -747,8 +759,8 @@ func rootBootstrap(reader io.Reader, writer io.Writer) error {
 	}
 	// Once verified success and cleanup is complete the old helper may be
 	// retired. A retained previous copy is never executed automatically.
-	if old && (response.Status == "installed" || response.Status == "uninstalled") {
-		if err := completeTrustedVersion(trustedDir, 0, false); err != nil {
+	if response.Status == "installed" || response.Status == "uninstalled" {
+		if err := finishHelperRetirementIfNeeded(trustedDir, 0); err != nil {
 			// Committed operations must not be presented as failed
 			// solely because previous launcher cleanup could not finish.
 			response.Status += "_cleanup_required"

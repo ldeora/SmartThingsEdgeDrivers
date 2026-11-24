@@ -785,14 +785,29 @@ func runLiveAccessibleWithHubsMode(reader io.Reader, writer io.Writer, api apiCl
 				fmt.Fprint(writer, "Finish preview? [Y/n]: ")
 			}
 		}
-		if !scanner.Scan() {
-			if err := scanner.Err(); err != nil {
+		var raw string
+		if installing {
+			// Do not buffer any part of the installation conversation:
+			// input after the submitted confirmation belongs to PAM.
+			line, err := readConfirmationLine(reader)
+			if err == io.EOF || err == io.ErrUnexpectedEOF {
+				fmt.Fprintln(writer, "\nSetup cancelled. No changes made.")
+				return nil
+			}
+			if err != nil {
 				return err
 			}
-			fmt.Fprintln(writer, "\nSetup preview cancelled. No changes made.")
-			return nil
+			raw = strings.TrimSpace(line)
+		} else {
+			if !scanner.Scan() {
+				if err := scanner.Err(); err != nil {
+					return err
+				}
+				fmt.Fprintln(writer, "\nSetup preview cancelled. No changes made.")
+				return nil
+			}
+			raw = strings.TrimSpace(scanner.Text())
 		}
-		raw := strings.TrimSpace(scanner.Text())
 		answer := strings.ToLower(raw)
 		switch answer {
 		case "quit", "exit", "q":
