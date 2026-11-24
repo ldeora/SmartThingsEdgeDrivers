@@ -225,3 +225,83 @@ func TestConfirmationDoesNotConsumeTypedAheadInput(t *testing.T) {
 		t.Fatal("Unbounded confirmation accepted")
 	}
 }
+
+func TestInstallationOutcomeUsesIdentityAndPowerChoices(t *testing.T) {
+	s := &liveSelection{firewalldActive: true}
+	for _, identity := range []string{"verified", "not_verified"} {
+		for _, power := range []string{"preserve", "enable", "disable"} {
+			t.Run(identity+"_"+power, func(t *testing.T) {
+				var out bytes.Buffer
+				showInstallationOutcome(&out, s,
+					privilegedRequest{Action: "install", Power: power},
+					privilegedResult{Status: "installed_cleanup_required", IdentityPreserved: identity})
+				text := out.String()
+				for _, phrase := range []string{"refresh", "Scan nearby", "Avahi discovery is not confirmed",
+					"firewalld is active", "persistent WOL configuration were not performed", "-recover"} {
+					if !strings.Contains(text, phrase) {
+						t.Fatalf("missing %q: %s", phrase, text)
+					}
+				}
+				if identity == "verified" {
+					if !strings.Contains(text, "Existing agent identity verified.") ||
+						!strings.Contains(text, "Only if no device is registered") ||
+						strings.Contains(text, "For first-time onboarding") {
+						t.Fatal(text)
+					}
+				} else if !strings.Contains(text, "For first-time onboarding") ||
+					strings.Contains(text, "Existing agent identity verified.") {
+					t.Fatal(text)
+				}
+				switch power {
+				case "enable":
+					if !strings.Contains(text, "allowPower") || !strings.Contains(text, "controlKey") ||
+						!strings.Contains(text, "does not verify key equality") {
+						t.Fatal(text)
+					}
+				case "preserve":
+					if !strings.Contains(text, "unchanged and already configured control key normally needs no update") {
+						t.Fatal(text)
+					}
+				case "disable":
+					if !strings.Contains(text, "no control key setup is needed") || strings.Contains(text, "allowPower") {
+						t.Fatal(text)
+					}
+				}
+			})
+		}
+	}
+}
+
+func TestNetworkObservationNeverInfersConnectivityFromMissingFirewallEvidence(t *testing.T) {
+	info := apiInspect{}
+	got := observeNetwork(info, false)
+	if got.AvahiPrerequisites != "not_verified" || got.Firewalld != "not_verified" {
+		t.Fatalf("missing probes claimed verification: %+v", got)
+	}
+	info.Checks = []apiCheck{{ID: "avahi_discovery", Status: "passed"}}
+	got = observeNetwork(info, true)
+	if got.AvahiPrerequisites != "passed" || got.Firewalld != "active" {
+		t.Fatalf("confirmed observations lost: %+v", got)
+	}
+}
+
+func TestInstallationOutcomeDistinguishesNewInstallAndUnverifiedUpgrade(t *testing.T) {
+	for _, tc := range []struct {
+		action   string
+		identity string
+		want     string
+		absent   string
+	}{
+		{"install", "not_verified", "New agent installation completed;", "Previous agent identity was not verified."},
+		{"upgrade", "not_verified", "Previous agent identity was not verified.", "New agent installation completed;"},
+		{"install", "verified", "Existing agent identity verified.", "New agent installation completed;"},
+	} {
+		var out bytes.Buffer
+		showInstallationOutcome(&out, &liveSelection{},
+			privilegedRequest{Action: tc.action, Power: "preserve"},
+			privilegedResult{Status: "installed", IdentityPreserved: tc.identity})
+		if !strings.Contains(out.String(), tc.want) || strings.Contains(out.String(), tc.absent) {
+			t.Fatalf("unexpected wording: %s", out.String())
+		}
+	}
+}

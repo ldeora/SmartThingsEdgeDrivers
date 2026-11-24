@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -26,13 +27,18 @@ func TestCLIRejectsAmbiguousOrUnauthorizedOptions(t *testing.T) {
 		{"recover", "--confirm", "RECOVER", "--wol-interface", "eth0"},
 		{"status", "--confirm", ""}, {"status", "--elevation", "auto", "extra"},
 		{"rollback", "--confirm", "ROLLBACK"}, {"status", "--request", "{}"},
+		{"plan"}, {"plan", "--action", "uninstall"},
+		{"plan", "--action", "install", "--confirm", "INSTALL"},
+		{"plan", "--action", "upgrade", "--elevation", "auto"},
+		{"plan", "--action", "repair", "--action", "upgrade"},
+		{"upgrade", "--confirm", "UPGRADE", "--action", "install"},
 	}
 	for _, args := range cases {
 		t.Run(strings.Join(args, "_"), func(t *testing.T) {
 			result, code := executeCLI(args, false,
-				func(cliOptions) (privilegedRequest, error) {
+				func(cliOptions) (cliPrepared, error) {
 					t.Fatal("invalid arguments reached preflight")
-					return privilegedRequest{}, nil
+					return cliPrepared{}, nil
 				}, func(privilegedRequest, bool, string) (privilegedResult, error) {
 					t.Fatal("invalid arguments reached authorization")
 					return privilegedResult{}, nil
@@ -140,8 +146,8 @@ func TestCLIResultAndExitCodeContracts(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			result, code := executeCLI([]string{"upgrade", "--confirm", "UPGRADE", "--elevation", "doas"}, false,
-				func(o cliOptions) (privilegedRequest, error) {
-					return privilegedRequest{SchemaVersion: 1, Action: o.action, Power: o.power}, nil
+				func(o cliOptions) (cliPrepared, error) {
+					return cliPrepared{request: privilegedRequest{SchemaVersion: 1, Action: o.action, Power: o.power}}, nil
 				}, func(req privilegedRequest, interactive bool, method string) (privilegedResult, error) {
 					if interactive || method != "doas" || req.Power != "preserve" {
 						t.Fatal("incorrect authorization options")
@@ -157,8 +163,8 @@ func TestCLIResultAndExitCodeContracts(t *testing.T) {
 
 func TestCLIPreflightFailureDoesNotAuthorize(t *testing.T) {
 	result, code := executeCLI([]string{"install", "--confirm", "INSTALL"}, false,
-		func(cliOptions) (privilegedRequest, error) {
-			return privilegedRequest{}, errors.New("private path")
+		func(cliOptions) (cliPrepared, error) {
+			return cliPrepared{}, errors.New("private path")
 		}, nil)
 	if code != 1 || result.ErrorCode != "preflight_failed" || result.SecretsIncluded {
 		t.Fatalf("unexpected result: %+v, %d", result, code)
@@ -195,5 +201,131 @@ func TestCLIStatusExitCodes(t *testing.T) {
 				t.Fatalf("status evidence lost: %+v", result)
 			}
 		})
+	}
+}
+
+func TestCLIPlanUsesSharedPreflightWithoutAuthorization(t *testing.T) {
+	api := fixtureClient(t)
+	info, err := api.inspect()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, action := range []string{"install", "upgrade", "repair"} {
+		info.Installation.Detected = action != "install"
+		result, code := executeCLI([]string{"plan", "--action", action, "--power", "enable",
+			"--wol-interface", "LAN0"}, false,
+			func(o cliOptions) (cliPrepared, error) {
+				return cliInstallPreflight(o, api, info, true)
+			}, func(privilegedRequest, bool, string) (privilegedResult, error) {
+				t.Fatal("read-only plan reached authorization")
+				return privilegedResult{}, nil
+			})
+		if code != 0 || result.Status != "planned" || result.Operation != "plan" ||
+			result.PlannedAction != action || result.Plan == nil || result.Plan.ChangesApplied ||
+			result.Plan.RuntimeVerified || result.Plan.SecretsIncluded || result.SecretsIncluded ||
+			result.PrivilegedTransactionState != "unknown" || result.IdentityPreserved != "not_verified" ||
+			result.Plan.PowerOption != "enable" || !result.Plan.WOLInterfaceRequested ||
+			result.Network == nil || result.Network.Firewalld != "active" || result.Onboarding != "" {
+			t.Fatalf("unexpected plan: %+v, %d", result, code)
+		}
+	}
+	info.Installation.Detected = true
+	result, code := executeCLI([]string{"plan", "--action", "install"}, false,
+		func(o cliOptions) (cliPrepared, error) {
+			return cliInstallPreflight(o, api, info, false)
+		}, nil)
+	if code != 1 || result.ErrorCode != "preflight_failed" || result.Plan != nil {
+		t.Fatalf("mismatched plan accepted: %+v, %d", result, code)
+	}
+}
+
+func TestCLIInstallOutcomeCarriesScopedNetworkAndOnboarding(t *testing.T) {
+	for _, identity := range []string{"verified", "not_verified"} {
+		api := fixtureClient(t)
+		info, err := api.inspect()
+		if err != nil {
+			t.Fatal(err)
+		}
+		result, code := executeCLI([]string{"upgrade", "--confirm", "UPGRADE"}, false,
+			func(o cliOptions) (cliPrepared, error) {
+				return cliInstallPreflight(o, api, info, false)
+			}, func(req privilegedRequest, interactive bool, method string) (privilegedResult, error) {
+				return privilegedResult{SchemaVersion: 1, Operation: req.Action,
+					Status: "installed", IdentityPreserved: identity}, nil
+			})
+		want := "check_or_discover"
+		if identity == "verified" {
+			want = "check_existing_device"
+		}
+		if code != 0 || result.Onboarding != want || result.Network == nil ||
+			result.Network.Firewalld != "not_verified" || result.Plan != nil {
+			t.Fatalf("unexpected completion: %+v, %d", result, code)
+		}
+	}
+}
+
+func TestCLIReportsBlockedChecksEvenWhenPlanFails(t *testing.T) {
+	api := fixtureClient(t)
+	info, err := api.inspect()
+	if err != nil {
+		t.Fatal(err)
+	}
+	info.Checks = append(info.Checks,
+		apiCheck{ID: "systemd_pid1", Status: "blocked"},
+		apiCheck{ID: "tool_systemctl", Status: "blocked"})
+	for _, args := range [][]string{
+		{"plan", "--action", "upgrade"},
+		{"upgrade", "--confirm", "UPGRADE"},
+	} {
+		for _, planAPI := range []apiClient{api, scriptClient(t, "#!/bin/sh\nexit 1\n")} {
+			result, code := executeCLI(args, false,
+				func(o cliOptions) (cliPrepared, error) {
+					return cliInstallPreflight(o, planAPI, info, false)
+				}, func(privilegedRequest, bool, string) (privilegedResult, error) {
+					t.Fatal("blocked preflight reached authorization")
+					return privilegedResult{}, nil
+				})
+			if code != 1 || result.ErrorCode != "preflight_failed" ||
+				result.Plan != nil || result.SecretsIncluded {
+				t.Fatalf("unexpected failure: %+v, %d", result, code)
+			}
+			if args[0] == "plan" && result.PlannedAction != "upgrade" {
+				t.Fatal("requested action missing")
+			}
+			raw, err := json.Marshal(result)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var decoded struct {
+				Checks []apiCheck `json:"checks"`
+			}
+			if err := json.Unmarshal(raw, &decoded); err != nil {
+				t.Fatal(err)
+			}
+			if len(decoded.Checks) != len(info.Checks) {
+				t.Fatalf("missing check evidence: %s", raw)
+			}
+			for i, check := range info.Checks {
+				if decoded.Checks[i] != check {
+					t.Fatalf("check evidence changed: %s", raw)
+				}
+			}
+		}
+	}
+}
+
+func TestCLIInspectionDiagnosticsRefuseUnknownValues(t *testing.T) {
+	for _, checks := range [][]apiCheck{
+		nil,
+		{{ID: "private-path", Status: "blocked"}},
+		{{ID: "systemd_pid1", Status: "private-data"}},
+	} {
+		result, code := executeCLI([]string{"plan", "--action", "install"}, false,
+			func(o cliOptions) (cliPrepared, error) {
+				return cliInstallPreflight(o, apiClient{}, apiInspect{Checks: checks}, false)
+			}, nil)
+		if code != 1 || result.ErrorCode != "preflight_failed" || len(result.Checks) != 0 {
+			t.Fatalf("unsafe diagnostics: %+v, %d", result, code)
+		}
 	}
 }

@@ -1397,13 +1397,59 @@ class InstallerBackendTests(unittest.TestCase):
         self.assertEqual(leftover.read_text(), UUID + '\n')
 
     def test_manual_rollback_path_checks_journal_under_shared_lock(self):
-        # Retain the invariant: the manual CLI must check the wizard
-        # journal only AFTER taking the same hardened cross-installer lock.
-        import inspect
-        source = inspect.getsource(core.run_cli)
-        under_lock = source[source.index('with open_manual_install_lock(lockfile) as lock:'):]
-        self.assertLess(under_lock.index('require_no_wizard_transaction()'),
-                        under_lock.index('if args.rollback:'))
+        # Exercise the real legacy CLI with host mutation boundaries mocked.
+        backup_base = self.root / 'manual-backups'
+        backup = backup_base / 'snapshot-fixture'
+        backup.mkdir(parents=True)
+        for blocked in (True, False):
+            with self.subTest(blocked=blocked):
+                lock = mock.MagicMock()
+                lock.__enter__.return_value = lock
+                lock.fileno.return_value = 42
+                events = []
+
+                def flock(fd, operation):
+                    self.assertEqual((fd, operation), (42, fcntl.LOCK_EX))
+                    events.append('locked')
+
+                def guard():
+                    self.assertEqual(events, ['locked'])
+                    events.append('journal')
+                    if blocked:
+                        raise core.InstallError('fixture outstanding journal')
+
+                def restore(path):
+                    self.assertEqual(events, ['locked', 'journal'])
+                    self.assertEqual(path, backup)
+                    events.append('restore')
+                    return {}
+
+                with (mock.patch.object(core.os, 'geteuid', return_value=0),
+                      mock.patch.object(core, 'BACKUP_BASE', str(backup_base)),
+                      mock.patch.object(core, 'validate_v2_backup'),
+                      mock.patch.object(core.Path, 'mkdir'),
+                      mock.patch.object(core, 'open_manual_install_lock',
+                                        return_value=lock),
+                      mock.patch.object(core.fcntl, 'flock', side_effect=flock),
+                      mock.patch.object(core, 'require_no_wizard_transaction',
+                                        side_effect=guard),
+                      mock.patch.object(core, 'write_owner_record') as owner,
+                      mock.patch.object(core, 'InstallTransaction') as trans,
+                      mock.patch.object(core, 'restore_services') as services):
+                    trans.return_value.restore.side_effect = restore
+                    if blocked:
+                        with self.assertRaises(core.InstallError):
+                            core.run_cli(['--rollback', str(backup)])
+                        self.assertEqual(events, ['locked', 'journal'])
+                        owner.assert_not_called()
+                        trans.return_value.restore.assert_not_called()
+                        services.assert_not_called()
+                    else:
+                        self.assertEqual(core.run_cli(['--rollback', str(backup)]), 0)
+                        self.assertEqual(events, ['locked', 'journal', 'restore'])
+                        owner.assert_called_once()
+                        services.assert_called_once_with({})
+                lock.__exit__.assert_called_once()
 
     def test_systemd_user_creation_matches_existing_shell_preflight(self):
         operations = installer.SystemdOperations()
