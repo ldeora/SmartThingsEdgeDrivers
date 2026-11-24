@@ -1,10 +1,16 @@
 # Linux installer release authentication — design for #84
 
-**Proposal only; no attested release exists yet.** Use GitHub public-repository
-artifact attestations (Sigstore-backed build provenance) for the standalone
-Linux installer. Unlike a checksum shipped alongside the executable, a signed
-provenance statement binds the digest to an authenticated workflow and source
-revision. This is provenance, not proof of code safety.
+**No attested release exists yet.** The protected executable handoff is
+implemented in PR #163, pending independent review and merge. The dedicated
+tag-only build/attestation/publication workflow below remains the next
+implementation increment. Nothing in this document authorizes a release tag,
+publication, or changes to existing RC assets.
+
+Use GitHub public-repository artifact attestations (Sigstore-backed build
+provenance) for the standalone Linux installer. Unlike a checksum shipped
+alongside the executable, a signed provenance statement binds the digest to
+an authenticated workflow and source revision. This is provenance, not proof
+of code safety.
 References: [GitHub artifact attestations](https://docs.github.com/en/actions/concepts/security/artifact-attestations),
 [verification CLI](https://cli.github.com/manual/gh_attestation_verify).
 
@@ -67,10 +73,34 @@ No offline verification procedure has yet been accepted for this project.
 
 Any nonzero result or unexpected signer/ref/commit means do not execute.
 Use actual final filename and documented minimum verifier version at release.
-A valid attestation is not an independent code review. Establish and test a
-protected executable handoff that prevents replacing bytes/parent between
-verification and elevation; current user-owned executable is a residual
-trust gap. Keep ordinary-user wizard/CLI behavior; do not run UI as root.
+A valid attestation is not an independent code review.
+
+### Protected executable handoff — PR #163 (pending review)
+
+The new handoff snapshots `/proc/self/exe`, not the mutable pathname returned
+by `os.Executable()`, into a private user-owned 0700 directory. The root
+authorization provider invokes only a root-owned, non-writable system Python
+3.10+ interpreter in isolated mode. Its fixed launcher opens the snapshot
+directory/file with no-follow descriptor-relative operations, checks owner,
+mode, link count, size and identity, copies the bytes into a fresh 0700
+directory below root-owned `/run/computer-host-lan`, fsyncs the copy and
+directories, and verifies SHA-256 against the digest computed from the
+running image. It executes that root-only copy; the Go root bootstrap refuses
+to run unless `/proc/self/exe` resolves to the expected root-owned handoff
+path. The wrapper removes the temporary root copy after the bootstrap exits.
+sudo, doas, run0 and su retain their existing input/password semantics.
+
+This pins the elevated process to the image already running in the ordinary
+user process and prevents a pathname replacement between that launch and
+elevation from changing the bytes executed as root. The handoff does not
+verify the Sigstore attestation itself; the operator must independently
+verify the release before launching it. It also does not make an untrusted
+binary safe to launch or protect a file replaced before its first user-mode
+execution. If the threat model is expanded to include that initial
+verify-to-exec window, a separate trusted fd-aware verify-and-exec launcher
+must be designed rather than claiming this handoff closes it.
+
+Keep ordinary-user wizard/CLI behavior; never run the UI as root.
 
 ## Acceptance before closing #84
 
