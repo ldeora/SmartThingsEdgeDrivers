@@ -11,6 +11,7 @@ InstallTransaction class supports unprivileged filesystem fixture tests.
 from __future__ import annotations
 
 import argparse
+from contextlib import ExitStack
 from dataclasses import dataclass
 import errno
 import fcntl
@@ -18,6 +19,7 @@ import json
 import os
 from pathlib import Path
 import re
+import secrets
 import shutil
 import stat
 import subprocess
@@ -279,34 +281,103 @@ def owner_record_exists(root: Path = Path('/')) -> bool:
     return True
 
 def write_owner_record(root: Path = Path('/')) -> None:
-    """Durably record root-authorized v2 installation intent BEFORE activation.
+    """Publish a complete v2 intent directory before activation.
 
-    Retain after uninstall or an interrupted/rolled-back fresh installation.
-    This protects v2 retained-state reinstall without adopting legacy v1.
-    Must only be called after the coexistence guard while holding the lock.
+    Caller must hold the shared installer lock and have authorized v2
+    intent. Never repair or adopt a preexisting incomplete final marker.
+    A killed writer may leave a private-named sibling, which is never an
+    ownership record. Existing valid markers are synced again on retry.
     """
     folder, file = _owner_paths(root)
-    if owner_record_exists(root):
-        return
-    if folder.exists():
-        raise InstallError('Installer ownership directory exists without a valid record')
-    folder.parent.mkdir(parents=True, exist_ok=True)
-    # Only a fixed non-secret v2 marker is stored; preflight can read it.
-    folder.mkdir(mode=0o755)
-    os.chmod(folder, 0o755)
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
+    uid = 0 if root == Path('/') else os.geteuid()
+
+    def check_directory(fd):
+        info = os.fstat(fd)
+        if info.st_uid != uid or stat.S_IMODE(info.st_mode) & 0o022:
+            raise InstallError('Unsafe installer ownership parent')
+
     try:
-        fd = os.open(file, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o644)
-        with os.fdopen(fd, 'wb') as out:
-            # Apply the exact non-secret mode irrespective of root's umask.
-            os.fchmod(out.fileno(), 0o644)
-            out.write(OWNER_CONTENT)
-            out.flush()
-            os.fsync(out.fileno())
-        dirfd = os.open(folder, os.O_RDONLY | os.O_DIRECTORY)
-        try:
-            os.fsync(dirfd)
-        finally:
-            os.close(dirfd)
+        with ExitStack() as stack:
+            fd = os.open(root, flags)
+            stack.callback(os.close, fd)
+            check_directory(fd)
+            ancestors = [fd]
+            for component in folder.parent.relative_to(root).parts:
+                created = False
+                try:
+                    child = os.open(component, flags, dir_fd=fd)
+                except FileNotFoundError:
+                    os.mkdir(component, 0o700, dir_fd=fd)
+                    created = True
+                    child = os.open(component, flags, dir_fd=fd)
+                stack.callback(os.close, child)
+                check_directory(child)
+                if created:
+                    os.fchmod(child, 0o755)
+                ancestors.append(child)
+                fd = child
+
+            if owner_record_exists(root):
+                published = os.open(folder.name, flags, dir_fd=fd)
+                stack.callback(os.close, published)
+                check_directory(published)
+                marker = os.open(file.name, os.O_RDONLY | os.O_NOFOLLOW |
+                                 os.O_NONBLOCK | os.O_CLOEXEC, dir_fd=published)
+                stack.callback(os.close, marker)
+                # Retry must cover a crash after publication, before sync.
+                os.fsync(marker)
+                os.fsync(published)
+            else:
+                try:
+                    os.stat(folder.name, dir_fd=fd, follow_symlinks=False)
+                except FileNotFoundError:
+                    pass
+                else:
+                    raise InstallError(
+                        'Installer ownership directory exists without a valid record')
+                name = '.linux-host-agent-installer-pending-' + secrets.token_hex(16)
+                os.mkdir(name, 0o700, dir_fd=fd)
+                pending = None
+                renamed = False
+                try:
+                    pending = os.open(name, flags, dir_fd=fd)
+                    check_directory(pending)
+                    marker = os.open(file.name, os.O_WRONLY | os.O_CREAT |
+                                     os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
+                                     0o600, dir_fd=pending)
+                    with os.fdopen(marker, 'wb') as out:
+                        os.fchmod(out.fileno(), 0o644)
+                        out.write(OWNER_CONTENT)
+                        out.flush()
+                        os.fsync(out.fileno())
+                    os.fchmod(pending, 0o755)
+                    os.fsync(pending)
+                    # The root-owned parent and shared installer lock
+                    # exclude competing writers. Never replace an observed
+                    # preexisting final entry, even if it is empty.
+                    try:
+                        os.stat(folder.name, dir_fd=fd, follow_symlinks=False)
+                    except FileNotFoundError:
+                        pass
+                    else:
+                        raise InstallError('Installer ownership entry already exists')
+                    os.rename(name, folder.name, src_dir_fd=fd, dst_dir_fd=fd)
+                    renamed = True
+                finally:
+                    if pending is not None:
+                        if not renamed:
+                            try:
+                                os.unlink(file.name, dir_fd=pending)
+                            except FileNotFoundError:
+                                pass
+                        os.close(pending)
+                    if not renamed:
+                        os.rmdir(name, dir_fd=fd)
+            # Sync every existing ancestor, not only ones created in this
+            # invocation: recovery may follow an interrupted mkdir/rename.
+            for ancestor in reversed(ancestors):
+                os.fsync(ancestor)
     except OSError as exc:
         raise InstallError('Cannot safely write installer ownership record') from exc
 
