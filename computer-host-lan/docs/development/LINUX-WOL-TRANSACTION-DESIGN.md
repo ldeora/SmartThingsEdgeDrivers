@@ -13,20 +13,32 @@ already uses explicit LoadState, ActiveState and UnitFileState evidence.
 
 The wizard's installer transaction now applies those explicit observations
 to install/upgrade/uninstall snapshot capture, successful installation and
-rollback verification. An existing installation must expose loaded stable
-active/inactive and persistent enabled/disabled states for both the agent
-and its power socket. A fresh install requires explicit absence of both.
-Transitional, masked, failed, runtime-only, partially missing or unknown
-states cannot be represented faithfully by the existing boolean snapshot
-schema and must abort before application. A stopped agent still skips
-HTTP health verification, not service verification. Rollback of a fresh
-install requires explicit absence; rollback of an existing installation
-requires loaded units with the original stable states.
+rollback verification. Existing agent/socket units must have loaded
+persistent enabled/disabled states. A definite failed state or
+activating/auto-restart is recorded as inactive for rollback, retaining
+enablement, with an optional retry flag for successful repair/upgrade.
+After APPLYING, stop and clear failure/start-limit state before retrying
+the broken service. Intentionally stopped healthy agents are not started.
+Other transitional, masked, runtime-only, partially missing or unknown
+states abort before application. A fresh install requires explicit absence
+of all three units and no managed dependency entries.
 
-This change does not alter the snapshot schema, activation commands,
-manual installer semantics, root protocol, WOL policy, or network settings.
-A legacy snapshot from an unusual partial installation may now need manual
-recovery instead of an unsupported claim of successful restoration.
+Fresh-install rollback disables/stops and resets failed units while their
+files are still present, then verifies quiescence and absence of managed
+dependency links before removing files. After restoration and daemon reload,
+clear failure counters and verify explicit absence of all three units and
+no dangling managed entries in persistent/runtime dependency directories.
+Uninstall similarly resets failed units and checks dependency entries.
+Existing-install rollback restores normalized activity and original enablement,
+not a synthetic failed state. Failed reset/stop/disable commands do not
+count as success: the explicit final observations decide. A stopped agent
+skips HTTP health verification, not service verification.
+
+This retains the existing snapshot schema, with optional retry metadata
+used only for forward activation. Manual installer semantics, root protocol,
+WOL policy and network settings are unchanged. An unusual legacy snapshot
+or unresolved administrator-created dependency link may need manual
+recovery; do not delete an ambiguous link to claim success.
 Validate fresh-install absence and stable installed states on real systemd
 versions before general release. No deliberate physical fault injection on
 a working host is needed.
@@ -83,8 +95,11 @@ arbitrary network targets into core.MANAGED_PATHS or the agent snapshot
 restore allowlist. WOL before-state records require a distinct validated
 format and a dedicated recovery dispatcher. Old helpers must fail
 closed on an unknown operation, never reinterpret WOL as an agent
-transaction or clean up its snapshot. Test upgrade, downgrade and
-interruption boundaries before wiring a new root request.
+transaction or clean up its snapshot. A regression test pins the current
+journal reader's refusal of an unknown configure_wol record, including
+status, begin and resume_recovery. When adding the new format, retain a
+frozen old-reader compatibility fixture and test both upgrade/downgrade
+and interruption boundaries before wiring a new root request.
 
 A prospective operation follows:
 
