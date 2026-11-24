@@ -66,8 +66,10 @@ available after uninstall; a separate purge would need separate consent.
 - The standalone Go wizard requires a terminal, non-root UI execution,
   and a submitted literal `UNINSTALL` line after a clear scope/retention
   review. Any other response or EOF cancels. Other wizard modes cannot
-  be combined with uninstall; `-accessible` is allowed (the form is
-  always plain text).
+  be combined with uninstall, including `-accessible` (the form is
+  always plain text, just like recovery). Confirmation reads only the
+  submitted line so that subsequent terminal input is not consumed before
+  administrator authentication.
 - The sole new request is `{"schema_version":2,"action":"uninstall"}`.
   Both Go and Python reject duplicates, extra fields (even null/empty
   installation settings), unknown versions and schema-v1 uninstall.
@@ -75,8 +77,16 @@ available after uninstall; a separate purge would need separate consent.
   cannot authorize removal. Existing schema-v1 requests still work.
 - The existing fixed-path root bootstrap validates and promotes its
   embedded trusted helper under the same locks; it refuses to replace
-  a helper while recovery is pending. No arbitrary source, network
-  setting, command, ID, or path is accepted in the uninstall request.
+  a helper while recovery is pending. For uninstall, a fixed managed-agent
+  path is checked under the shared installer lock before helper staging or
+  promotion. A missing agent returns `not_installed` without creating a
+  persistent helper or replacing a retained one; a pending transaction
+  reported by an existing trusted helper takes precedence. Only temporary
+  runtime locks may be created. An existing manually installed agent can
+  still be considered for uninstall without a previous wizard helper; the
+  Python backend independently checks v2 provenance under its own lock.
+  No arbitrary source, network setting, command, ID, or path is accepted
+  in the uninstall request.
 - Results retain the schema-v1 envelope for compatibility. Both Go reply
   boundaries validate action-bound `uninstalled` and
   `uninstalled_cleanup_required` outcomes and fixed diagnostic enum
@@ -84,7 +94,9 @@ available after uninstall; a separate purge would need separate consent.
 - Explicit recovery reports the fixed operation kind when available.
   It cleans terminal payload-free journals even if read-only status is
   `none`, and may retire a previous trusted helper only after a clean
-  protected status check under the manual installer lock. An interrupted
+  protected status check under the manual installer lock. Recovery may
+  retain the newer trusted helper alongside the restored older agent;
+  the helper and agent versions need not match. An interrupted
   uninstall rollback restores the installation and requires another
   explicit uninstall confirmation if removal is still desired.
 - The physical uninstall/reinstall acceptance gate remains independent
