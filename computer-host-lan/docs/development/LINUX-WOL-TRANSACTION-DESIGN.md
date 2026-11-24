@@ -15,7 +15,8 @@ The wizard's installer transaction now applies those explicit observations
 to install/upgrade/uninstall snapshot capture, successful installation and
 rollback verification. Existing agent/socket units must have loaded
 persistent enabled/disabled states. A definite failed state or
-activating/auto-restart is recorded as inactive for rollback, retaining
+activating/auto-restart (including auto-restart-queued) is recorded as
+inactive for rollback, retaining
 enablement, with an optional retry flag for successful repair/upgrade.
 After APPLYING, stop and clear failure/start-limit state before retrying
 the broken service. Intentionally stopped healthy agents are not started.
@@ -39,6 +40,37 @@ used only for forward activation. Manual installer semantics, root protocol,
 WOL policy and network settings are unchanged. An unusual legacy snapshot
 or unresolved administrator-created dependency link may need manual
 recovery; do not delete an ambiguous link to claim success.
+
+### Diagnosing a fresh-install state refusal
+
+A pre-apply existing_state failure can indicate a systemd query failure,
+nonrepresentable service state, or leftover managed dependency entries.
+The existing public protocol does not distinguish these yet. Inspect
+LoadState, ActiveState, SubState and UnitFileState for the agent, power
+socket and helper. For dependency entries, the following read-only
+commands report matching names and symlinked dependency directories
+without traversing links:
+
+```sh
+for dir in /etc/systemd/system /run/systemd/system; do
+    [ -d "$dir" ] || continue
+    find -P "$dir" -mindepth 2 -maxdepth 2 \
+        \( -name linux-host-agent.service -o \
+           -name linux-host-agent-power.service -o \
+           -name linux-host-agent-power.socket \) -print
+    find -P "$dir" -mindepth 1 -maxdepth 1 -type l \
+        \( -name '*.wants' -o -name '*.requires' -o \
+           -name '*.upholds' \) -print
+done
+```
+
+A symlinked dependency directory, even if administrator-created and
+legitimate, is deliberately not traversed by the protected verifier.
+Unreadable trees and unresolved managed entries prevent fresh install or
+rollback from claiming a clean state. Investigate ownership and intent
+before any manual cleanup; do not delete links just to pass the check.
+A dedicated redacted diagnostic in the inspector or wizard is follow-up
+work; no public error protocol change is required for this increment.
 Validate fresh-install absence and stable installed states on real systemd
 versions before general release. No deliberate physical fault injection on
 a working host is needed.
