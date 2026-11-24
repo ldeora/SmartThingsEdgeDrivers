@@ -5,8 +5,9 @@ No external Python dependencies. The installer never reads or backs up the
 persistent installation ID and control token, and does not change firewalls,
 networking, WOL rules or unrelated system units.
 
-This tool is invoked by install-agent.sh after root/Python/user preflight. The
-InstallTransaction class supports unprivileged filesystem fixture tests.
+Shared primitives for the protected installer and read-only source diagnostics.
+The standalone CLI cannot mutate the host; InstallTransaction remains available
+to the protected controller and unprivileged filesystem fixture tests.
 """
 from __future__ import annotations
 
@@ -670,30 +671,32 @@ def require_no_wizard_transaction(*, root: Path = Path('/'),
 
 
 def run_cli(argv=None) -> int:
-    parser = argparse.ArgumentParser(description='Install/rollback Linux Host systemd agent')
+    parser = argparse.ArgumentParser(description='Read-only Linux Host installation diagnostics')
     action = parser.add_mutually_exclusive_group(required=True)
-    action.add_argument('--install', action='store_true')
+    action.add_argument('--install', action='store_true', help='retired; use verified release installer')
     action.add_argument('--plan', action='store_true', help='preview file changes; no root needed')
     action.add_argument('--check-wizard-journal', action='store_true',
-                        help='read-only root journal status for manual installer preflight')
+                        help='read-only root journal diagnostic')
     action.add_argument('--check-existing', action='store_true',
                         help='read-only v1/v2 coexistence guard; no root needed')
-    action.add_argument('--rollback', type=Path)
-    action.add_argument('--uninstall', action='store_true')
+    action.add_argument('--rollback', type=Path, help='historical restoration not supported')
+    action.add_argument('--uninstall', action='store_true', help='retired; use verified release installer')
     parser.add_argument('--source', type=Path)
     parser.add_argument('--python', dest='python_bin')
     parser.add_argument('--enable-power', action='store_true')
     parser.add_argument('--disable-power', action='store_true')
     parser.add_argument('--wol-interface', default=None)
     parser.add_argument('--adopt-retained-state', action='store_true',
-                        help='expert-only: confirm orphaned state belongs to v2; no managed files')
+                        help='retired; retained-state adoption not supported')
     args = parser.parse_args(argv)
+    if args.install or args.uninstall or args.rollback is not None:
+        raise InstallError('Legacy mutation disabled; use the independently verified release installer wizard/CLI. Historical restore is not supported; preserve backups and seek recovery guidance.')
+    if args.adopt_retained_state:
+        raise InstallError('Retained-state adoption is not supported; preserve identity and seek recovery guidance.')
     if os.geteuid() != 0 and not (args.plan or args.check_existing):
         parser.error('must run as root')
-    if args.adopt_retained_state and not (args.install or args.plan or args.check_existing):
-        parser.error('--adopt-retained-state only applies to installation and read-only checks')
-    if (args.install or args.plan) and (not args.source or not args.python_bin):
-        parser.error('installation needs --source and --python')
+    if args.plan and (not args.source or not args.python_bin):
+        parser.error('plan needs --source and --python')
     if args.enable_power and args.disable_power:
         parser.error('power enable/disable flags conflict')
     if args.wol_interface and (len(args.wol_interface) > 15 or
@@ -711,10 +714,7 @@ def run_cli(argv=None) -> int:
             return 2
         return 0
     if args.plan:
-        existing = require_v2_or_clean(adopt_retained_state=args.adopt_retained_state)
-        if existing == 'adopted':
-            print('WARNING: explicit adoption requested; verify retained identity belongs to v2.',
-                  file=sys.stderr)
+        require_v2_or_clean()
         trans = InstallTransaction()
         changes = generate_plan(args.source, args.python_bin, enable_power=args.enable_power,
                                 disable_power=args.disable_power, wol_interface=args.wol_interface,
@@ -728,99 +728,7 @@ def run_cli(argv=None) -> int:
         print('Dry run only: no files, services, firewall or WOL settings changed.')
         return 0
 
-    trans = InstallTransaction()
-    backup_target = None
-    if args.rollback:
-        # Recovery is evaluated against the protected SNAPSHOT, not current
-        # damaged files. Validate before touching backup dirs or lockfiles.
-        backup_base_path = Path(BACKUP_BASE)
-        if backup_base_path.is_symlink() or args.rollback.is_symlink():
-            raise InstallError('Refusing linked backup location')
-        backup_base = backup_base_path.resolve(strict=True)
-        backup_target = args.rollback.resolve(strict=True)
-        if backup_target.parent != backup_base or backup_target.is_symlink():
-            raise InstallError('Backup must be a direct child of ' + str(backup_base))
-        validate_v2_backup(backup_target)
-    else:
-        # Fail before creating a backup directory or installation lock.
-        require_v2_or_clean(adopt_retained_state=args.adopt_retained_state)
-        backup_base = Path(BACKUP_BASE)
-        if backup_base.is_symlink():
-            raise InstallError('Refusing linked backup directory')
-        backup_base.mkdir(parents=True, exist_ok=True, mode=0o700)
-        os.chmod(backup_base, 0o700)
-
-    lockfile = Path('/run/lock/linux-host-agent-install.lock')
-    lockfile.parent.mkdir(parents=True, exist_ok=True)
-    with open_manual_install_lock(lockfile) as lock:
-        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
-        # Manual commands may run AFTER a wizard crash. The same flock
-        # prevents overlap in time but only this guard prevents later
-        # rollback from overwriting a newer manual installation.
-        require_no_wizard_transaction()
-        if args.rollback:
-            # Revalidate backup contents under the lock before any restore.
-            validate_v2_backup(backup_target)
-            # Old v2 backups may predate owner records. A verified v2 source
-            # is sufficient to establish our responsibility for restoration.
-            write_owner_record()
-            previous = trans.restore(backup_target)
-            restore_services(previous)
-            print(f'Restored backup {backup_target}; persistent ID, token and WOL unchanged.')
-            return 0
-
-        # Detection is repeated while holding the lock: scripts should not
-        # race each other to adopt, delete, or replace the same managed paths.
-        existing = require_v2_or_clean(adopt_retained_state=args.adopt_retained_state)
-        previous = dict(first_install=not trans.location(SYSTEMD_PATHS[0]).exists(),
-                        agent_active=state('linux-host-agent.service','is-active'),
-                        agent_enabled=state('linux-host-agent.service','is-enabled'),
-                        socket_active=state('linux-host-agent-power.socket','is-active'),
-                        socket_enabled=state('linux-host-agent-power.socket','is-enabled'),
-                        newly_enabled_power=args.enable_power)
-        is_existing_power = trans.location(POWER_DROPIN).exists()
-        changes = generate_plan(args.source, args.python_bin, enable_power=args.enable_power,
-                                disable_power=args.disable_power, wol_interface=args.wol_interface,
-                                is_existing_power=is_existing_power,
-                                avahi_dir=Path('/etc/avahi/services').is_dir(),
-                                uninstall=args.uninstall)
-        if existing == 'adopted':
-            print('WARNING: explicit retained v2 state adoption. Existing SmartThings ID/key '
-                  'will be preserved; no v1 migration is supported.', file=sys.stderr)
-        # Persist *v2 intent* before activating systemd. On a failed first
-        # activation, systemd can already have created the retained state
-        # directory; the marker then authorizes a safe retry after rollback.
-        write_owner_record()
-        backup = trans.snapshot(changes, previous=previous)
-        print(f'Recovery snapshot: {backup}', flush=True)
-        try:
-            if args.uninstall:
-                systemctl('disable', '--now', 'linux-host-agent.service', check=False)
-                systemctl('disable', '--now', 'linux-host-agent-power.socket', check=False)
-            trans.apply(changes)
-            if args.uninstall:
-                systemctl('daemon-reload')
-            else:
-                activate(previous, power_enabled=args.enable_power or (is_existing_power and not args.disable_power),
-                         disable_power=args.disable_power)
-        except Exception as exc:
-            print(f'Activation/install error: {type(exc).__name__}; restoring {backup}', flush=True)
-            try:
-                # The just-created snapshot is v2-provenanced even if the
-                # current files are half-replaced.
-                validate_v2_backup(backup)
-                trans.restore(backup)
-                restore_services(previous)
-            except Exception as recovery_error:
-                raise InstallError(f'Auto-rollback failed ({type(recovery_error).__name__}). Restore manually from {backup}') from exc
-            raise
-        print(f'Backup saved: {backup}')
-        if args.uninstall:
-            print('Managed files removed; v2 installer ownership, persistent UUID, '
-                  'control token, WOL and backups retained.')
-        else:
-            print('Agent installed/upgraded; persistent UUID and key retained.')
-        return 0
+    raise InstallError('Unsupported read-only operation')
 
 
 if __name__ == '__main__':

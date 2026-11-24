@@ -2,11 +2,13 @@
 
 **Proposed design for #101; no new privileged operation is implemented.**
 Review separately before any change to the helper, journal or CLI. Existing
-rc.2 shell commands remain unchanged. This is not persistent WOL work.
+rc.2 shell commands remain unchanged. Development source now explicitly
+refuses historical restoration and adoption; the following legacy evidence
+describes the retired path, not a supported operation. This is not persistent WOL work.
 
 ## Current evidence and constraints
 
-- `install_core.run_cli --rollback` selects a direct child of the backup
+- The retired `install_core.run_cli --rollback` path selected a direct child of the backup
   base, validates v2 backup provenance, acquires the shared lock, checks
   the protected journal and restores the old snapshot. It does not
   journal the current before-state. Its service observations are legacy

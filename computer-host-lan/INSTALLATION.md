@@ -49,7 +49,14 @@ Invoke-RestMethod http://127.0.0.1:8765/v2/metrics
 Omit `-HubIPv4` to allow LocalSubnet on Private Windows profiles. **Unlike Setup.exe, PowerShell upgrades require `-EnablePower` again if you want to retain remote power actions.** Without that flag, the script disables them; persistent identity and key remain unchanged. Private key inspection: `Get-Content "$env:ProgramData\ComputerHostAgent\control-token"`. For the script installation use `.\scripts\Uninstall-WindowsAgent.ps1` without `-PurgeState` when preserving your identity.
 
 
-## Linux (systemd)
+## Linux (systemd) — published rc.2 only
+
+**Version boundary:** the commands below apply only to the immutable
+published rc.2 source ZIP, not a checkout of main or a development source
+archive. Current development source refuses legacy mutation commands.
+An authenticated standalone installer is planned for the next release;
+no attested release is available yet. Do not elevate source scripts or
+substitute an unsigned CI artifact.
 
 Requires Python 3.10+, systemd as PID1, Avahi/mDNS for automatic discovery and administrator rights to install. From the *matching* Computer Host LAN source directory:
 
@@ -64,15 +71,41 @@ avahi-browse -rt _computerhost._tcp
 
 Power control is separate and opt-in: `sudo ./scripts/install-agent.sh --enable-power --wol-interface YOUR_ETHERNET_INTERFACE`. Do not change persistent WOL configuration unless deliberately choosing the existing `--configure-wol` path. Keep the key in `/var/lib/linux-host-agent/control-token` private. Read [Linux parity acceptance](docs/development/LINUX-PARITY-ACCEPTANCE.md) before physical tests.
 
-The earlier Linux Host LAN uses protocol v1 and a different discovery namespace; do not install it alongside the new agent on the same listener. **New source versions under development** refuse v1 and ambiguous installations instead of silently replacing them. There is no automatic v1 migration. Retain the old SmartThings device, ID and key until a dedicated migration is available. Record a rollback snapshot and the driver choice before migration.
+The earlier Linux Host LAN uses protocol v1 and a different discovery
+namespace; do not install it alongside the new agent on the same listener.
+There is no automatic v1 migration. Retain the old SmartThings device, ID
+and key until a dedicated migration is available.
 
-In newer development source builds, a small protected v2 ownership marker is kept after uninstall or a failed first installation. It permits reinstall while preserving an existing v2 host identity. If only retained private state remains without a v2 marker, automatic installation is intentionally refused: first verify the state is actually from v2, then use the manual expert-only `sudo ./scripts/install-agent.sh --adopt-retained-state` option. This cannot override detectable v1 files. The experimental Go wizard does not yet implement v1 migration, privileged installation or automatic adoption.
+### Development source and intended v1.0 cutover
 
-The new manual CLI also refuses installation, uninstall and rollback while a wizard transaction still needs recovery. **Do not manually delete a pending wizard journal or stage** to make an upgrade proceed: complete the original protected recovery first. This affects only source builds containing the new backend; the published rc.2 installer remains unchanged.
+The source scripts are now read-only diagnostics or explicit refusals.
+Use `./scripts/preflight.sh` and `./scripts/install-agent.sh --dry-run`
+as an ordinary user for source inspection only. The legacy plan is
+informational, not the protected controller's authorization or a guarantee
+that installation will succeed.
+
+The future independently verified Linux executable is the single supported
+entry point for install, upgrade, repair, uninstall and interrupted
+transaction recovery, through its wizard and explicit CLI. The CLI is
+still development-only pending release qualification. See the
+[consolidation contract](docs/development/LINUX-INSTALLER-CONSOLIDATION.md)
+and [authentication procedure](docs/development/LINUX-INSTALLER-RELEASE-AUTHENTICATION.md).
+Do not use a source script as a substitute.
+
+Ambiguous retained state without a v2 ownership marker must be investigated;
+automatic adoption and historical snapshot restore are not supported in
+v1.0. Do not delete or regenerate the UUID/key or remove backups to bypass
+a refusal. Persistent WOL configuration remains an administrator-managed
+network setting; the source WOL utility now only previews possible changes.
+The agent's WOL interface pin is distinct from persistent WOL configuration.
+
+**Do not manually delete a pending protected journal or stage.** Interrupted
+transaction recovery must use a verified compatible protected installer;
+it is not a way to restore an arbitrary historical backup.
 
 ## Updates and caveats
 
-A GitHub Actions artifact is temporary and is **not** a permanent published prerelease. Install only assets associated with a fixed release/tag and matching checksums. Package signing has not been implemented. Keep applications saved before power tests. Do not use production or workplace computers for initial hardware experiments.
+A GitHub Actions artifact is temporary and is **not** a permanent published prerelease. Install only assets associated with a fixed release/tag and matching checksums. The published rc.2 packages are not authenticated by artifact attestation. The new release workflow is implemented but has not yet produced an accepted attested release. Keep applications saved before power tests. Do not use production or workplace computers for initial hardware experiments.
 
 ## Current upgrade and recovery guidance
 

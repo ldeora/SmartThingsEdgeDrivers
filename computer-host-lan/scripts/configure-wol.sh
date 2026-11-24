@@ -1,10 +1,10 @@
 #!/usr/bin/env sh
-# Explicit opt-in WOL setup for systemd Linux with NetworkManager or udev .link.
-# Dry-run by default. Never restarts networking or changes interfaces on its own.
+# Read-only WOL planning for systemd Linux with NetworkManager or udev .link.
+# Persistent/runtime modification is deferred; never apply changes here.
 set -eu
 IFACE=''
 APPLY=0
-usage() { echo "Usage: $0 --interface IFNAME [--apply]" >&2; exit 2; }
+usage() { echo "Usage (read-only): $0 --interface IFNAME" >&2; exit 2; }
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --interface) [ "$#" -ge 2 ] || usage; IFACE=$2; shift 2 ;;
@@ -15,9 +15,9 @@ done
 [ -n "$IFACE" ] || usage
 case "$IFACE" in *[!a-zA-Z0-9_.-]*|'') usage;; esac
 [ "${#IFACE}" -le 15 ] || usage
-if [ "$APPLY" -eq 1 ] && [ "$(id -u)" -ne 0 ]; then
-  echo 'Run --apply as root. Dry runs do not require root.' >&2
-  exit 1
+if [ "$APPLY" -eq 1 ]; then
+  echo 'Automated WOL configuration is not supported by the v1.0 installer. Preserve existing network settings; this tool is read-only.' >&2
+  exit 2
 fi
 [ -e "/sys/class/net/$IFACE/address" ] || { echo "No such interface: $IFACE" >&2; exit 1; }
 command -v ethtool >/dev/null 2>&1 || { echo 'ethtool is required for WOL checks.' >&2; exit 1; }
@@ -62,10 +62,6 @@ if systemctl is-active --quiet NetworkManager.service 2>/dev/null; then
   UUID=$(nmcli -g GENERAL.CON-UUID device show "$IFACE" 2>/dev/null || true)
   case "$UUID" in ''|'--') echo "No active NetworkManager connection for $IFACE." >&2; exit 1;; esac
   echo "NetworkManager: will set 802-3-ethernet.wake-on-lan=magic for connection $UUID"
-  if [ "$APPLY" -eq 1 ]; then
-    [ "$(id -u)" -eq 0 ] || { echo 'Run --apply as root.' >&2; exit 1; }
-    nmcli connection modify "$UUID" 802-3-ethernet.wake-on-lan magic
-  fi
 else
   command -v udevadm >/dev/null 2>&1 || { echo 'systemd-udev is needed for persistent .link configuration.' >&2; exit 1; }
   MAC_COMPACT=$(printf '%s' "$MAC" | tr -d ':' | tr 'ABCDEF' 'abcdef')
@@ -103,35 +99,9 @@ else
     fi
     echo "Existing WOL .link configuration: $LINK_FILE"
   else
-    echo "Will create $LINK_FILE with [Match] MACAddress and [Link] WakeOnLan=magic."
-    if [ "$APPLY" -eq 1 ]; then
-      [ "$(id -u)" -eq 0 ] || { echo 'Run --apply as root.' >&2; exit 1; }
-      install -d -m 0755 "$LINK_DIR"
-      TMP=$(mktemp "$LINK_DIR/.linux-host-wol.XXXXXXXX")
-      trap 'rm -f "$TMP"' EXIT HUP INT TERM
-      printf '[Match]\nMACAddress=%s\n\n[Link]\nNamePolicy=keep kernel database onboard slot path\nWakeOnLan=magic\n' "$MAC" > "$TMP"
-      chmod 0644 "$TMP"
-      # Never overwrite files on an automated reinstall.
-      # Atomic no-clobber creation: never overwrite a concurrent file.
-      ln "$TMP" "$LINK_FILE"
-      rm -f "$TMP"
-      trap - EXIT HUP INT TERM
-    fi
+    echo "Proposed $LINK_FILE with [Match] MACAddress and [Link] WakeOnLan=magic."
   fi
   echo 'NOTE: systemd-udev applies the first matching .link file in lexical order.'
   echo 'Verify with: networkctl status IFACE / udevadm test-builtin net_setup_link ...'
 fi
-if [ "$APPLY" -eq 1 ]; then
-  # Immediate runtime enablement; persistent configuration takes effect
-  # at next boot/link reinitialization. Do not bounce the network here.
-  ethtool -s "$IFACE" wol g
-  if query_wol; then
-    printf '%s\n' "$WOL_INFO" | grep -i 'Wake-on'
-  else
-    echo 'WOL was set, but verification query failed; verify as root with ethtool.' >&2
-    exit 1
-  fi
-  echo 'Reboot and verify Wake-on: g before trusting remote power-on.'
-else
-  echo 'Dry run. Use --apply to make persistent and current changes.'
-fi
+echo 'Dry run. No persistent or current WOL settings changed.'
