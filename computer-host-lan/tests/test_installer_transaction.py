@@ -246,7 +246,7 @@ class InstallerBackendTests(unittest.TestCase):
                             for p in snapshots[0].glob('*.original')))
         with self.assertRaises(installer.ControllerError) as second:
             self.backend.uninstall()
-        self.assertEqual(second.exception.code, 'unsupported_environment')
+        self.assertEqual(second.exception.code, 'not_installed')
         self.assertEqual(self.store.public_status()['privileged_transaction_state'],
                          'none')
         # Normal reinstall after an owner-record-retaining uninstall remains
@@ -256,6 +256,25 @@ class InstallerBackendTests(unittest.TestCase):
         reinstalled = self.backend.run(self.request(), ROOT, self.hashes)
         self.assertEqual(reinstalled.status, 'installed')
         self.assertTrue(self.installed_paths().location(core.APP_FILES[0]).exists())
+
+    def test_uninstall_clean_host_refused_without_transaction(self):
+        with self.assertRaises(installer.ControllerError) as error:
+            self.backend.uninstall()
+        self.assertEqual(error.exception.code, 'not_installed')
+        self.assertEqual(self.services.uninstall_stops, 0)
+        self.assertEqual(self.store.public_status()['privileged_transaction_state'],
+                         'none')
+        self.assertFalse(self.installed_paths().location(core.APP_FILES[0]).exists())
+
+    def test_uninstall_pending_transaction_takes_priority_over_absent_agent(self):
+        with self.store.begin('uninstall') as journal:
+            journal.advance('INSPECTED', 'STAGED')
+        with self.assertRaises(installer.ControllerError) as error:
+            self.backend.uninstall()
+        self.assertEqual(error.exception.code, 'recovery_required')
+        self.assertEqual(self.services.uninstall_stops, 0)
+        self.assertEqual(self.store.public_status()['privileged_transaction_state'],
+                         'incomplete')
 
     def test_journaled_uninstall_preserves_disabled_existing_state(self):
         self.existing_install(active=False, enabled=False)
