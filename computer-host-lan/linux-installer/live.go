@@ -202,15 +202,8 @@ func (c apiClient) inspect() (apiInspect, error) {
 		value.Python.VersionSupported != (value.Python.SelectedInterpreter != "") {
 		return apiInspect{}, apiError{"invalid_response"}
 	}
-	for _, check := range value.Checks {
-		switch check.Status {
-		case "passed", "blocked", "warning", "not_verified":
-		default:
-			return apiInspect{}, apiError{"invalid_response"}
-		}
-		if !knownCheck(check.ID) {
-			return apiInspect{}, apiError{"invalid_response"}
-		}
+	if preflightChecks(value) == nil {
+		return apiInspect{}, apiError{"invalid_response"}
 	}
 	if !fileState(value.Installation.ServiceFile) || !fileState(value.Installation.PowerDropin) ||
 		!fileState(value.Installation.AvahiServiceFile) ||
@@ -221,6 +214,29 @@ func (c apiClient) inspect() (apiInspect, error) {
 		return apiInspect{}, apiError{"invalid_response"}
 	}
 	return value, nil
+}
+
+// Copy only the fixed inspector enums. Never expose a raw diagnostic,
+// even if the plan call fails before approvedRootRequest checks prerequisites.
+func preflightChecks(info apiInspect) []apiCheck {
+	if len(info.Checks) == 0 || len(info.Checks) > 20 {
+		return nil
+	}
+	checks := make([]apiCheck, 0, len(info.Checks))
+	seen := make(map[string]bool)
+	for _, check := range info.Checks {
+		if !knownCheck(check.ID) || seen[check.ID] {
+			return nil
+		}
+		seen[check.ID] = true
+		switch check.Status {
+		case "passed", "blocked", "warning", "not_verified":
+			checks = append(checks, check)
+		default:
+			return nil
+		}
+	}
+	return checks
 }
 
 func knownCheck(id string) bool {

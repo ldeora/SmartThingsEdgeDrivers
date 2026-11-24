@@ -319,6 +319,7 @@ func TestCLIInspectionDiagnosticsRefuseUnknownValues(t *testing.T) {
 		nil,
 		{{ID: "private-path", Status: "blocked"}},
 		{{ID: "systemd_pid1", Status: "private-data"}},
+		{{ID: "systemd_pid1", Status: "passed"}, {ID: "systemd_pid1", Status: "blocked"}},
 	} {
 		result, code := executeCLI([]string{"plan", "--action", "install"}, false,
 			func(o cliOptions) (cliPrepared, error) {
@@ -327,5 +328,13 @@ func TestCLIInspectionDiagnosticsRefuseUnknownValues(t *testing.T) {
 		if code != 1 || result.ErrorCode != "preflight_failed" || len(result.Checks) != 0 {
 			t.Fatalf("unsafe diagnostics: %+v, %d", result, code)
 		}
+	}
+}
+
+func TestCLIInspectorRejectsDuplicateCheckIDs(t *testing.T) {
+	duplicate := strings.Replace(fixtureInspect, `"id":"avahi_discovery"`, `"id":"linux"`, 1)
+	api := scriptClient(t, "#!/bin/sh\ncat <<'JSON'\n"+duplicate+"\nJSON\n")
+	if _, err := api.inspect(); err == nil {
+		t.Fatal("duplicate inspector check accepted")
 	}
 }

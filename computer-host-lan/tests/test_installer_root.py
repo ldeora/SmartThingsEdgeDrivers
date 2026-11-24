@@ -333,7 +333,9 @@ class RootProtocolTests(unittest.TestCase):
         self.assertIn('/usr/libexec/computer-host-lan/' + entry[0] + ' --request-stdin',
                       documentation)
 
-    def test_installed_shell_entry_uses_manual_selector_precedence(self):
+    def test_installed_shell_entry_static_contract_and_syntax(self):
+        # Fixed path and argv packaging guard. Selection and environment
+        # behavior are tested by executing fixture launchers below.
         shell = (ROOT / 'scripts/installer-entry.sh').read_text()
         selector = (ROOT / 'scripts/python-selector.sh').read_text()
         order = 'python3 python3.14 python3.13 python3.12 python3.11 python3.10'
@@ -378,6 +380,50 @@ class RootProtocolTests(unittest.TestCase):
             run = subprocess.run(['/bin/sh', '-c', program], text=True,
                                  capture_output=True, timeout=10)
             self.assertEqual(run.stdout, str(folder / 'python3'))
+
+    def test_installed_entry_uses_fixed_path_and_scrubs_python_environment(self):
+        # Execute the complete shell entry with private stand-ins for the
+        # fixed system PATH/allowlist. Final Python is only an argv recorder.
+        source = (ROOT / 'scripts/installer-entry.sh').read_text()
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            system = base / 'system'
+            hostile = base / 'hostile'
+            system.mkdir()
+            hostile.mkdir()
+            log = base / 'calls'
+
+            def stub(folder, name, body):
+                file = folder / name
+                file.write_text('#!/bin/sh\n' + body + '\n')
+                file.chmod(0o755)
+
+            stub(hostile, 'id', 'printf "0\\n"')
+            stub(hostile, 'python3', 'printf "HOSTILE\\n" >> "$CALL_LOG"; exit 99')
+            stub(system, 'python3', 'printf "old:%s\\n" "$*" >> "$CALL_LOG"; exit 1')
+            stub(system, 'python3.14', '''printf 'selected:%s\\n' "$*" >> "$CALL_LOG"
+[ "${PYTHONPATH+x}${PYTHONHOME+x}${PYTHONSTARTUP+x}${PYTHONUSERBASE+x}" = "" ] || exit 99
+exit 0''')
+            fixed = 'PATH=/usr/sbin:/usr/bin:/sbin:/bin'
+            allowed = '/usr/sbin/*|/usr/bin/*|/sbin/*|/bin/*)'
+            self.assertEqual(source.count(fixed), 1)
+            self.assertEqual(source.count(allowed), 1)
+            fixture = base / 'entry.sh'
+            fixture.write_text(source.replace(fixed, 'PATH=' + str(system))
+                               .replace(allowed, str(system) + '/*)'))
+            result = subprocess.run(['/bin/sh', str(fixture), '--request-stdin'],
+                                    env={'PATH': str(hostile), 'CALL_LOG': str(log),
+                                         'PYTHONPATH': 'bad', 'PYTHONHOME': 'bad',
+                                         'PYTHONSTARTUP': 'bad', 'PYTHONUSERBASE': 'bad'},
+                                    input='{}', text=True, capture_output=True, timeout=10)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            calls = log.read_text().splitlines()
+            self.assertEqual(len(calls), 3)
+            self.assertTrue(calls[0].startswith('old:-I -S -B -c '))
+            self.assertTrue(calls[1].startswith('selected:-I -S -B -c '))
+            self.assertEqual(calls[2], 'selected:-I -S -B '
+                             '/usr/libexec/computer-host-lan/installer_root.py '
+                             '--request-stdin --selected-python ' + str(system / 'python3.14'))
 
     def test_source_checkout_never_satisfies_root_entrypoint(self):
         # Even when CI itself runs as UID=0, the helper is not trusted

@@ -135,27 +135,6 @@ type cliResult struct {
 	Checks        []apiCheck          `json:"checks,omitempty"`
 }
 
-// Copy only the fixed inspector enums. Never expose a raw diagnostic,
-// even if the plan call fails before approvedRootRequest checks prerequisites.
-func preflightChecks(info apiInspect) []apiCheck {
-	if len(info.Checks) == 0 || len(info.Checks) > 20 {
-		return nil
-	}
-	checks := make([]apiCheck, 0, len(info.Checks))
-	for _, check := range info.Checks {
-		if !knownCheck(check.ID) {
-			return nil
-		}
-		switch check.Status {
-		case "passed", "blocked", "warning", "not_verified":
-			checks = append(checks, check)
-		default:
-			return nil
-		}
-	}
-	return checks
-}
-
 func cliInstallPreflight(o cliOptions, api apiClient, info apiInspect, firewallActive bool) (cliPrepared, error) {
 	prepared := cliPrepared{checks: preflightChecks(info)}
 	if len(prepared.checks) == 0 {

@@ -1,5 +1,7 @@
 # Computer Host LAN — Linux installer design specification
 
+> **Historical design note:** Describes the implementation at its original milestone. For current behavior, see [Linux installer architecture](LINUX-INSTALLER-ARCHITECTURE.md).
+
 **Status:** proposed / design only  
 **Date:** 2026-11-22  
 **Scope:** the `computer-host-lan/` protocol-v2 Linux agent and its systemd installation lifecycle.  

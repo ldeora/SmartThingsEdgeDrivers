@@ -1,5 +1,7 @@
 # Journaled Linux uninstall — backend foundation
 
+> **Historical design note:** Describes the implementation at its original milestone. For current behavior, see [Linux installer architecture](LINUX-INSTALLER-ARCHITECTURE.md).
+
 Status: **draft / integrated wizard**. PR #87 merged the root-side
 transaction engine. The follow-up implements issue #89 with a standalone
 `-uninstall` mode, literal confirmation and independent administrator

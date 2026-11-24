@@ -391,7 +391,7 @@ class StagedPayload:
     """Process-bound receipt holding stage EX lock and identity-pinned fds.
 
     CLOEXEC intentionally prevents fd inheritance by an executed child.
-    The future root launcher must use a separately authenticated, verified
+    The installed root controller uses a separately authenticated, verified
     source path after checking the active journal binding.
     """
 
