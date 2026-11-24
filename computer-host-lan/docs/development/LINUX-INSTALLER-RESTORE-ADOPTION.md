@@ -142,6 +142,41 @@ metadata and active/incomplete journal. Identity preservation must be
 verified after activation where applicable; key equality is a separate
 claim, not derived from UUID. Do not return private data.
 
+## Primitive implementation status
+
+The first safety increment implements two independent pieces:
+
+- The shared v2 marker writer now prepares a complete sibling directory
+  with the fixed marker, syncs marker and directory, publishes it by
+  rename under the existing shared lock, and syncs all fixed ancestors.
+  Existing valid markers are synced again on retry. Root-owned,
+  non-writable, no-follow directory ancestry is required. This addresses
+  publication, not authorization: existing installation/recovery callers
+  retain their original consent rules. An incomplete final directory
+  from an older writer is still refused; an interrupted new writer may
+  leave an ignored randomly named sibling. No automatic scavenging or
+  promotion of abandoned siblings. Do not remove them without separate
+  administrator inspection while no installation is active.
+- Experimental `scripts/historical_snapshot.py` inspects only a complete
+  installed-state schema-1 candidate against independently supplied
+  expected manifest/file SHA-256 values and agent version. It opens fixed
+  protected directory components without following links, bounds reads,
+  rejects ambiguous metadata and extra/linked entries, and returns
+  immutable bytes rather than a path to reread. It does not distinguish
+  legacy boolean service observations from identically shaped protected
+  observations. The authenticated origin/service-state evidence and
+  version-compatibility policy must therefore be supplied by a future
+  reviewed trust mechanism. Digests calculated from the candidate itself
+  do not establish that evidence. No production caller, packaging change,
+  new manifest writer or restore eligibility grant exists. Initial tests
+  use synthetic expectations only.
+
+The new marker publication closes the normal mkdir/partial-write window
+at the final path. It is not a physical power-loss durability claim.
+It does not yet implement explicit adoption intent in the journal or
+reconcile old incomplete markers. Historical restore and adoption remain
+unavailable through the Go helper and CLI.
+
 ## Implementation order and acceptance
 
 1. Specify strict historical snapshot eligibility and provenance/version

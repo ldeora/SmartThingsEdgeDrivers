@@ -245,6 +245,80 @@ class InstalledProtocolTests(unittest.TestCase):
         self.assertEqual(owner.stat().st_mode & 0o777, 0o644)
         self.assertEqual(core.require_v2_or_clean(self.root), 'v2')
 
+    def test_owner_record_publication_failure_before_rename_is_retryable(self):
+        folder = self.root / core.OWNER_DIR.lstrip('/')
+        with mock.patch.object(core.os, 'rename',
+                               side_effect=OSError('fixture rename failure')):
+            with self.assertRaises(core.InstallError):
+                core.write_owner_record(self.root)
+        self.assertFalse(folder.exists())
+        self.assertFalse(core.owner_record_exists(self.root))
+        self.assertEqual(list(folder.parent.iterdir()), [])
+        core.write_owner_record(self.root)
+        self.assertTrue(core.owner_record_exists(self.root))
+
+    def test_owner_record_post_publication_sync_failure_retries_ancestors(self):
+        folder = self.root / core.OWNER_DIR.lstrip('/')
+        real_sync = os.fsync
+        observed = []
+
+        def sync(fd):
+            info = os.fstat(fd)
+            if folder.exists():
+                for path in (folder, folder.parent, folder.parent.parent, self.root):
+                    expected = path.stat()
+                    if (info.st_dev, info.st_ino) == (expected.st_dev, expected.st_ino):
+                        observed.append(path)
+                        if path == folder.parent:
+                            raise OSError('fixture parent sync failure')
+            real_sync(fd)
+
+        with mock.patch.object(core.os, 'fsync', side_effect=sync):
+            with self.assertRaises(core.InstallError):
+                core.write_owner_record(self.root)
+        self.assertTrue(core.owner_record_exists(self.root))
+        self.assertIn(folder.parent, observed)
+        observed.clear()
+
+        def record(fd):
+            info = os.fstat(fd)
+            for path in (folder, folder.parent, folder.parent.parent, self.root):
+                expected = path.stat()
+                if (info.st_dev, info.st_ino) == (expected.st_dev, expected.st_ino):
+                    observed.append(path)
+            real_sync(fd)
+
+        with mock.patch.object(core.os, 'fsync', side_effect=record):
+            core.write_owner_record(self.root)
+        self.assertEqual(observed, [folder, folder.parent, folder.parent.parent, self.root])
+
+    def test_owner_record_ignores_interrupted_pending_directory(self):
+        folder = self.root / core.OWNER_DIR.lstrip('/')
+        pending = folder.parent / ('.linux-host-agent-installer-pending-' + 'a' * 32)
+        pending.mkdir(parents=True, mode=0o700)
+        (pending / 'protocol').write_bytes(b'v2\\n')
+        self.assertFalse(core.owner_record_exists(self.root))
+        self.assertEqual(self.classify(), 'absent')
+        core.write_owner_record(self.root)
+        self.assertTrue(core.owner_record_exists(self.root))
+        self.assertTrue(pending.is_dir())  # No scavenging arbitrary siblings.
+
+    def test_owner_record_never_overwrites_incomplete_final_directory(self):
+        folder = self.root / core.OWNER_DIR.lstrip('/')
+        folder.mkdir(parents=True)
+        self.assertFalse(core.owner_record_exists(self.root))
+        with self.assertRaises(core.InstallError):
+            core.write_owner_record(self.root)
+        self.assertEqual(list(folder.iterdir()), [])
+
+    def test_owner_record_refuses_writable_parent(self):
+        parent = (self.root / core.OWNER_DIR.lstrip('/')).parent
+        parent.mkdir(parents=True)
+        parent.chmod(0o777)
+        with self.assertRaises(core.InstallError):
+            core.write_owner_record(self.root)
+        self.assertFalse((parent / 'linux-host-agent-installer').exists())
+
     def test_marker_symlink_or_insecure_mode_is_refused(self):
         core.write_owner_record(self.root)
         marker = self.root / core.OWNER_FILE.lstrip('/')

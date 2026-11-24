@@ -1824,6 +1824,24 @@ class InstallerBackendTests(unittest.TestCase):
         self.assertEqual(self.backend.run(self.request(), ROOT, self.hashes).status,
                          'installed')
 
+    def test_first_install_recovery_retries_failed_owner_publication(self):
+        self._simulate_crash_at('APPLYING', fresh=True)
+        marker = self.root / core.OWNER_FILE.lstrip('/')
+        with mock.patch.object(core.os, 'rename',
+                               side_effect=OSError('fixture publication failure')):
+            with self.assertRaises(installer.ControllerError) as caught:
+                self.backend.recover_interrupted()
+            self.assertEqual(caught.exception.code, 'recovery_required')
+        self.assertFalse(marker.exists())
+        self.assertEqual(self.store.public_status()['privileged_transaction_state'],
+                         'recovery_required')
+        self.assertTrue(self.stage_entries())
+        self.assertEqual(self.backend.recover_interrupted().status, 'rolled_back')
+        self.assertTrue(core.owner_record_exists(self.root))
+        self.assertEqual(self.store.public_status()['privileged_transaction_state'],
+                         'none')
+        self.assertFalse(self.stage_entries())
+
     def test_recovery_refuses_missing_or_unsafe_snapshot_without_mutating(self):
         old, _, snapshot = self._simulate_crash_at('ACTIVATING')
         damaged = old.read_bytes()
