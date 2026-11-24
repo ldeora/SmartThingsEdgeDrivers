@@ -85,13 +85,29 @@ def _read_receipt(namespace, name, uid, expected, *, sync=False):
     return True
 
 
+# Explicit allowlist: a new PlanError is not automatically evidence of
+# corruption. Unstable reads/identity, operational failures and unknown
+# codes must preserve the stage in place.
+_CORRUPTION_CODES = frozenset((
+    'invalid_plan_manifest', 'invalid_plan_services', 'invalid_plan_item',
+    'invalid_absent_item', 'inconsistent_plan_services',
+    'adopt_plan_intent_mismatch', 'plan_too_large', 'invalid_plan_file_size',
+    'plan_manifest_digest_mismatch', 'noncanonical_plan_manifest',
+    'plan_file_digest_mismatch', 'unexpected_plan_entries',
+))
+
+
 def _require_corrupt(fd, record, uid):
     # Safe opaque inventory is checked independently first. Only definite
     # structural/content validation failure or a missing required file is
     # corruption; permission, I/O, unsafe metadata and other errors refuse.
     try:
         stage._inspect(fd, record, uid, record['evidence']['staged_plan_sha256'])
-    except (stage.PlanError, contract.ContractError, FileNotFoundError):
+    except stage.PlanError as exc:
+        if str(exc) not in _CORRUPTION_CODES:
+            raise _ERROR('stage_quarantine_corruption_not_established') from None
+        return
+    except (contract.ContractError, FileNotFoundError):
         return
     raise _ERROR('healthy_stage_requires_normal_retirement')
 
@@ -135,7 +151,12 @@ def quarantine_corrupt_stage(handle, *, confirmation, verify):
             had_receipt = _read_receipt(namespace, receipt_name, handle.uid, receipt)
             if dst is not None and not had_receipt:
                 raise _ERROR('stage_quarantine_receipt_missing')
-            if verify(json.loads(frozen)) is not True:
+            handle._stage_quarantine_verifying = True
+            try:
+                verified = verify(json.loads(frozen))
+            finally:
+                handle._stage_quarantine_verifying = False
+            if verified is not True:
                 raise _ERROR('quarantine_outcome_not_verified')
             if journal.canonical(handle.record()) != frozen:
                 raise _ERROR('quarantine_journal_changed')

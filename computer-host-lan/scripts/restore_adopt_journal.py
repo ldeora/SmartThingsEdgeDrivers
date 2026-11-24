@@ -129,6 +129,7 @@ class Handle:
         self._failed = False
         self._stage_retirement_verified = False
         self._stage_quarantine_receipt = None
+        self._stage_quarantine_verifying = False
 
     def record(self):
         if not self._active or self._failed or self._pid != os.getpid():

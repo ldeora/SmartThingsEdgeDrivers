@@ -257,8 +257,56 @@ class StageQuarantineTests(unittest.TestCase):
         with self.store.transaction(ADOPT) as handle:
             self.ready(handle)
             def verify(_):
-                with self.assertRaises(stage.legacy_stage.StagingConflict):
+                with self.assertRaisesRegex(stage.legacy_stage.StagingConflict,
+                                            '^stage_quarantine_verifier_reentrant_lock$'):
                     stage.read_plan(handle)
                 return True
             self.assertEqual(self.move(handle, verify), 'quarantined')
+            handle.clear_finished(lambda _: True)
+
+    def test_unstable_or_unknown_validation_failure_is_not_corruption(self):
+        with self.store.transaction(ADOPT) as handle:
+            source = self.ready(handle, corrupt=False)
+            original = {p.name: p.read_bytes() for p in source.iterdir()}
+            for code in ('plan_file_changed', 'stage_identity_changed',
+                         'future_unknown_plan_error'):
+                with self.subTest(code=code):
+                    verifier = mock.Mock(return_value=True)
+                    with mock.patch.object(stage, '_inspect', side_effect=stage.PlanError(code)):
+                        with self.assertRaisesRegex(before.BeforeStateError,
+                                                    '^stage_quarantine_corruption_not_established$'):
+                            self.move(handle, verifier)
+                    verifier.assert_not_called()
+                    self.assertEqual({p.name: p.read_bytes() for p in source.iterdir()}, original)
+                    self.assertFalse(quarantine.has_artifacts(handle))
+            stage.retire_terminal_plan(handle)
+            handle.clear_finished(lambda _: True)
+
+    def test_unstable_second_validation_refuses_publication(self):
+        with self.store.transaction(ADOPT) as handle:
+            source = self.ready(handle)
+            with mock.patch.object(stage, '_inspect', side_effect=[
+                    stage.PlanError('invalid_plan_file_size'),
+                    stage.PlanError('plan_file_changed')]):
+                verifier = mock.Mock(return_value=True)
+                with self.assertRaisesRegex(before.BeforeStateError,
+                                            '^stage_quarantine_corruption_not_established$'):
+                    self.move(handle, verifier)
+                verifier.assert_called_once()
+            self.assertTrue(source.exists())
+            self.assertFalse(quarantine.has_artifacts(handle))
+            self.assertEqual(self.move(handle), 'quarantined')
+            handle.clear_finished(lambda _: True)
+
+    def test_verifier_exception_does_not_leave_reentrancy_guard_set(self):
+        with self.store.transaction(ADOPT) as handle:
+            self.ready(handle)
+            with self.assertRaises(RuntimeError):
+                self.move(handle, mock.Mock(side_effect=RuntimeError('fixture verifier')))
+            self.assertFalse(quarantine.has_artifacts(handle))
+            # The stage lock and guard are released after callback failure.
+            with self.assertRaises(stage.PlanError) as caught:
+                stage.read_plan(handle)
+            self.assertEqual(str(caught.exception), 'invalid_plan_file_size')
+            self.assertEqual(self.move(handle), 'quarantined')
             handle.clear_finished(lambda _: True)
