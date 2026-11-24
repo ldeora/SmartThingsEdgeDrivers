@@ -1046,6 +1046,30 @@ class InstallerBackendTests(unittest.TestCase):
         self.assertFalse(enabled[agent])
         self.assertFalse(link.is_symlink())
 
+    def test_enablement_scan_accepts_empty_trees_and_rejects_dangling_managed_entries(self):
+        transaction = self.installed_paths()
+        self.assertTrue(installer._enablement_absent(transaction))
+        unrelated = self.root / 'etc/systemd/system/multi-user.target.wants/other.service'
+        unrelated.parent.mkdir(parents=True)
+        unrelated.symlink_to('/nonexistent/other.service')
+        self.assertTrue(installer._enablement_absent(transaction))
+        for base in ('etc', 'run'):
+            for suffix in ('wants', 'requires', 'upholds'):
+                with self.subTest(base=base, suffix=suffix):
+                    entry = (self.root / base / 'systemd/system' /
+                             ('example.target.' + suffix) / 'linux-host-agent-power.socket')
+                    entry.parent.mkdir(parents=True, exist_ok=True)
+                    entry.symlink_to('/nonexistent/managed.socket')
+                    self.assertFalse(installer._enablement_absent(transaction))
+                    entry.unlink()
+                    self.assertTrue(installer._enablement_absent(transaction))
+
+    def test_enablement_scan_refuses_symlinked_dependency_directory(self):
+        directory = self.root / 'etc/systemd/system'
+        directory.mkdir(parents=True)
+        (directory / 'linked.target.wants').symlink_to(self.root)
+        self.assertFalse(installer._enablement_absent(self.installed_paths()))
+
     def test_fresh_rollback_dangling_enablement_blocks_before_removing_files(self):
         link = self.root / 'etc/systemd/system/multi-user.target.wants/linux-host-agent.service'
         def fail_activation(*args, **kwargs):
