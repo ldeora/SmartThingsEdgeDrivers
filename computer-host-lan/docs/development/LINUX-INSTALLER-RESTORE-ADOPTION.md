@@ -184,14 +184,22 @@ The protected controller now writes a separate schema-version-1 receipt
 not inside the schema-1 snapshot. The protected writer issues it after
 syncing the snapshot and before recording SNAPSHOTTED, with the shared
 installer and journal locks held. It records local capture origin,
-transaction/operation, manifest digest, hashes of present captured files,
-captured path coverage, observed old agent VERSION (or null), and the
+transaction/operation, manifest digest, hashes and observed copy modes of
+present captured files, captured path coverage, observed old agent VERSION (or null), and the
 actual protected capture_previous result, including retry flags when
 present. It explicitly says release authenticity not_verified. A receipt
 is not evidence of a committed transaction, verified historical runtime,
 or publisher authentication. No legacy snapshot is retroactively certified.
 
 The existing rollback manifest, file scope and recovery reader are unchanged.
+Snapshot copies may preserve damaged installed permissions (for example a
+group-writable Avahi service). Capture records those modes without refusing
+repair solely because of the mode. The private snapshot directory, manifest
+and receipt still require protected permissions; copies must remain bounded,
+stable, regular, single-link and owned by the expected installer owner.
+Historical eligibility independently requires the exact safe installed and
+copy modes, consistent with the recorded capture modes. A later chmod of a
+backup copy cannot make an unsafe capture eligible.
 Ordinary upgrades can have partial plans because optional files are retained
 untouched; complete historical eligibility requires every MANAGED_PATHS
 entry, including explicit absence for optional files. Complete coverage is
@@ -206,9 +214,12 @@ expectations and compatibility policy still needs implementation.
 The receipt is mode 0600, created and synced before non-replacing
 publication and ancestor synchronization. Publication or validation
 failure aborts before managed mutation. A crash can leave an ignored
-temporary receipt or an extra hard link; historical inspection refuses
-unsafe receipts, while original recovery remains independent of them.
-No automatic orphan cleanup, receipt selection CLI or restore is exposed.
+temporary .snapshot-provenance-<hex> receipt or an extra hard link;
+historical inspection refuses unsafe receipts, while original recovery
+remains independent of them. Cleanup of abandoned receipts and ownership
+marker siblings is deferred to a separate, lock-protected review; do not
+automatically remove or promote them. No receipt selection CLI or restore
+is exposed.
 
 Experimental `scripts/retained_state_eligibility.py` inspects the orphan
 layout only. It requires the existing non-root linuxhost account/group,
@@ -219,8 +230,10 @@ and lowercase 64-hex control token (newline-terminated, as written by the
 agent). It checks read stability and returns only fixed evidence fields,
 never values or hashes. Missing/extra/unsafe files, incomplete marker and
 ambiguous accounts are refused, not repaired. This is conservative:
-legitimate older layouts or leftover agent temporary files may require
-separate expert review. Account layout does not establish account history;
+legitimate older layouts or leftover agent temporary files (such as
+.installation-id.<hex>.tmp or .control-token.<hex>.tmp from interrupted
+publication) make the candidate ineligible and require separate expert
+review. The inspector neither unlinks these names nor changes link counts. Account layout does not establish account history;
 format does not establish v2 provenance. Service quiescence, journal
 eligibility, consent, and revalidation under lock at adoption time are
 separate gates. The reader is not in the embedded bundle and has no

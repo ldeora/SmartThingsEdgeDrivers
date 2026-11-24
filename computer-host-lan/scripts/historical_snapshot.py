@@ -234,7 +234,7 @@ def inspect_protected_candidate(root: Path, name: str, *,
             receipt = json.loads(raw.decode('utf-8'), object_pairs_hook=_unique)
             keys = {'schema_version', 'origin', 'snapshot_name', 'transaction_id',
                     'operation', 'capture_phase', 'manifest_sha256', 'file_sha256',
-                    'coverage', 'captured_paths', 'agent_version',
+                    'copy_modes', 'coverage', 'captured_paths', 'agent_version',
                     'service_observation', 'previous', 'release_authenticity'}
             if (type(receipt) is not dict or set(receipt) != keys or
                     type(receipt['schema_version']) is not int or receipt['schema_version'] != 1 or
@@ -250,6 +250,9 @@ def inspect_protected_candidate(root: Path, name: str, *,
                     receipt['service_observation'] != 'protected_capture_previous' or
                     receipt['release_authenticity'] != 'not_verified' or
                     receipt['file_sha256'] != expected_file_hashes or
+                    type(receipt['copy_modes']) is not dict or
+                    any(type(mode) is not int or not 0 <= mode <= 0o7777
+                        for mode in receipt['copy_modes'].values()) or
                     type(receipt['previous']) is not dict or
                     any(type(value) is not bool for value in receipt['previous'].values())):
                 raise SnapshotEligibilityError('protected_receipt_ineligible')
@@ -258,7 +261,13 @@ def inspect_protected_candidate(root: Path, name: str, *,
                 expected_file_hashes=expected_file_hashes,
                 expected_agent_version=expected_agent_version,
                 owner_uid=owner_uid, owner_gid=owner_gid)
-            if (dict(candidate.service_state) != receipt['previous'] or
+            # inspect_candidate independently checks the actual copy
+            # mode against the required installed mode. The capture
+            # evidence must agree, even if the copy was later chmod'ed.
+            if (receipt['copy_modes'] != {item.path: item.mode
+                                          for item in candidate.files
+                                          if item.content is not None} or
+                    dict(candidate.service_state) != receipt['previous'] or
                     _stamp(info) != _stamp(os.stat(
                         receipt_name, dir_fd=fd, follow_symlinks=False))):
                 raise SnapshotEligibilityError('protected_receipt_mismatch')

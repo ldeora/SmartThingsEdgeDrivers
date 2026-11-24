@@ -148,7 +148,10 @@ class HistoricalCandidateTests(unittest.TestCase):
             'snapshot_name': self.backup.name, 'transaction_id': 'a' * 32,
             'operation': 'upgrade', 'capture_phase': 'STAGED',
             'manifest_sha256': self.expected_manifest,
-            'file_sha256': self.expected_files, 'coverage': 'complete',
+            'file_sha256': self.expected_files,
+            'copy_modes': {item['path']: (self.backup / item['file']).stat().st_mode & 0o7777
+                           for item in manifest['items'] if item['existed']},
+            'coverage': 'complete',
             'captured_paths': sorted(core.MANAGED_PATHS), 'agent_version': '0.4.6',
             'service_observation': 'protected_capture_previous',
             'previous': manifest['previous'], 'release_authenticity': 'not_verified',
@@ -183,11 +186,26 @@ class HistoricalCandidateTests(unittest.TestCase):
                 {'origin': 'legacy'}, {'snapshot_name': 'snapshot-other'},
                 {'operation': 'install'}, {'capture_phase': 'COMMITTED'},
                 {'release_authenticity': 'verified'}, {'transaction_id': 'wrong'},
-                {'previous': {'agent_active': False}}):
+                {'previous': {'agent_active': False}},
+                {'copy_modes': {}},
+                {'copy_modes': {core.APP_FILES[0]: True}}):
             with self.subTest(updates=updates):
                 self.write_receipt(**updates)
                 with self.assertRaises(historical.SnapshotEligibilityError):
                     self.inspect_protected()
+
+    def test_capture_of_unsafe_mode_remains_ineligible_after_copy_chmod(self):
+        # The receipt preserves the observed mode even when the copy
+        # is subsequently repaired. Content digests alone are insufficient.
+        copy = self.agent_backup()
+        copy.chmod(0o775)
+        self.write_receipt()
+        with self.assertRaises(historical.SnapshotEligibilityError):
+            self.inspect_protected()
+        copy.chmod(0o755)
+        with self.assertRaisesRegex(historical.SnapshotEligibilityError,
+                                    'protected_receipt_mismatch'):
+            self.inspect_protected()
 
     def test_protected_receipt_rejects_links_and_permissions(self):
         receipt = self.write_receipt()

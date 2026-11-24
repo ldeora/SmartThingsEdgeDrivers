@@ -660,13 +660,16 @@ def _snapshot_provenance(root: Path, backup: Path, journal, previous: dict,
             info = os.fstat(stream.fileno())
             if (not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or
                     info.st_uid != owner_uid or info.st_size > limit or
-                    stat.S_IMODE(info.st_mode) & (0o077 if private else 0o022)):
+                    (private and stat.S_IMODE(info.st_mode) & 0o077)):
                 raise ControllerError('recovery_required')
+            # copy2 preserves the original installed mode. The containing
+            # directory is private and root-controlled, so capture even a
+            # damaged mode; historical eligibility applies stricter rules.
             data = stream.read(limit + 1)
             if (len(data) != info.st_size or len(data) > limit or
                     stamp(info) != stamp(os.fstat(stream.fileno()))):
                 raise ControllerError('recovery_required')
-            return data
+            return data, stat.S_IMODE(info.st_mode)
 
     with ExitStack() as stack:
         fd = os.open(root, flags)
@@ -683,8 +686,8 @@ def _snapshot_provenance(root: Path, backup: Path, journal, previous: dict,
         stack.callback(os.close, directory)
         check_directory(directory, True)
         before = stamp(os.fstat(directory))
-        raw = read(directory, 'manifest.json',
-                   core.MAX_BACKUP_MANIFEST_BYTES, True)
+        raw, _ = read(directory, 'manifest.json',
+                      core.MAX_BACKUP_MANIFEST_BYTES, True)
 
         def unique(pairs):
             result = {}
@@ -705,6 +708,7 @@ def _snapshot_provenance(root: Path, backup: Path, journal, previous: dict,
         seen = set()
         entries = {'manifest.json'}
         digests = {}
+        copy_modes = {}
         version = None
         total = 0
         for index, item in enumerate(manifest['items']):
@@ -723,7 +727,8 @@ def _snapshot_provenance(root: Path, backup: Path, journal, previous: dict,
                     item['file'] != filename or
                     any(type(item[key]) is not int for key in ('mode', 'uid', 'gid'))):
                 raise ControllerError('recovery_required')
-            data = read(directory, filename, _PROVENANCE_MAX_ITEM)
+            data, copy_mode = read(directory, filename, _PROVENANCE_MAX_ITEM)
+            copy_modes[path] = copy_mode
             total += len(data)
             if total > _PROVENANCE_MAX_TOTAL:
                 raise ControllerError('recovery_required')
@@ -746,6 +751,7 @@ def _snapshot_provenance(root: Path, backup: Path, journal, previous: dict,
             'capture_phase': 'STAGED',
             'manifest_sha256': hashlib.sha256(raw).hexdigest(),
             'file_sha256': digests,
+            'copy_modes': copy_modes,
             'coverage': 'complete' if seen == core.MANAGED_PATHS else 'partial',
             'captured_paths': sorted(seen),
             'agent_version': version,

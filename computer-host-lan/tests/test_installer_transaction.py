@@ -838,6 +838,9 @@ class InstallerBackendTests(unittest.TestCase):
                     item['path']: hashlib.sha256(
                         (backup / item['file']).read_bytes()).hexdigest()
                     for item in manifest['items'] if item['existed']})
+                self.assertEqual(evidence['copy_modes'], {
+                    item['path']: stat.S_IMODE((backup / item['file']).stat().st_mode)
+                    for item in manifest['items'] if item['existed']})
                 self.assertEqual(evidence['captured_paths'],
                                  sorted(item['path'] for item in manifest['items']))
                 self.assertIsNotNone(evidence['agent_version'])
@@ -850,6 +853,50 @@ class InstallerBackendTests(unittest.TestCase):
             result = self.backend.run(self.request('upgrade'), ROOT, self.hashes)
         self.assertEqual(result.status, 'installed')
         self.assertEqual(len(checked), 1)
+
+    def test_provenance_does_not_prevent_repairing_loose_managed_modes(self):
+        import historical_snapshot as historical
+        for operation, mode in (('upgrade', 0o664), ('repair', 0o646)):
+            with self.subTest(operation=operation, mode=oct(mode)):
+                self.existing_install()
+                avahi = self.installed_paths().location(core.AVAHI_PATH)
+                avahi.parent.mkdir(parents=True, exist_ok=True)
+                changes = core.generate_plan(
+                    ROOT, '/usr/bin/python3', enable_power=True, disable_power=False,
+                    wol_interface='eth0', is_existing_power=False, avahi_dir=True)
+                self.assertEqual({change.path for change in changes}, core.MANAGED_PATHS)
+                self.installed_paths().apply(changes)
+                avahi.chmod(mode)
+                expected = {change.path: hashlib.sha256(change.content).hexdigest()
+                            for change in changes}
+                version, = installer._PROVENANCE_VERSION.findall(
+                    next(change.content for change in changes
+                         if change.path == core.APP_FILES[0]))
+                base = self.root / core.BACKUP_BASE.lstrip('/')
+                before = set(base.glob('snapshot-*'))
+                result = self.backend.run(self.request(
+                    operation, enable_power=True, wol_interface='eth0'),
+                    ROOT, self.hashes)
+                self.assertEqual(result.status, 'installed')
+                self.assertEqual(stat.S_IMODE(avahi.stat().st_mode), 0o644)
+                backup, = set(base.glob('snapshot-*')) - before
+                evidence = json.loads((base / ('.' + backup.name + '.protected.json')).read_text())
+                self.assertEqual(evidence['coverage'], 'complete')
+                self.assertEqual(evidence['copy_modes'][core.AVAHI_PATH], mode)
+                manifest = json.loads((backup / 'manifest.json').read_text())
+                item = next(item for item in manifest['items']
+                            if item['path'] == core.AVAHI_PATH)
+                self.assertEqual(item['mode'], mode)
+                self.assertEqual(stat.S_IMODE((backup / item['file']).stat().st_mode), mode)
+                core.validate_v2_backup(backup, root=self.root)
+                with self.assertRaisesRegex(historical.SnapshotEligibilityError,
+                                            'invalid_snapshot_metadata'):
+                    historical.inspect_protected_candidate(
+                        self.root, backup.name, expected_file_hashes=expected,
+                        expected_agent_version=version.decode('ascii'),
+                        owner_uid=self.uid, owner_gid=os.getegid())
+                self.assertEqual(self.store.public_status()['privileged_transaction_state'],
+                                 'none')
 
     def test_uninstall_provenance_preserves_complete_coverage_not_eligibility(self):
         self.existing_install()
