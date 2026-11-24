@@ -338,6 +338,9 @@ def retire_terminal_plan(handle):
         try:
             if name == ready and evidence is not None:
                 _inspect(directory, record, handle.uid, evidence['staged_plan_sha256'])
+            # A retiring name records the earlier complete validation
+            # and durable retirement boundary. Deletion may have removed
+            # part of the tree; validate survivors, not the original digest.
             stamps = _retirement_entries(directory, handle.uid,
                                          partial=name != ready or evidence is None)
             if (not os.path.samestat(os.fstat(directory),

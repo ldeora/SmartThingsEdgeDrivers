@@ -489,10 +489,128 @@ reconciliation. No generic cleanup or guessing based on a filename.
 This deliberately conservative first implementation can still require
 expert intervention after a partial write.
 
-Remaining: strict before-state receipt writer/reader for v2 operations,
-actual phase-specific evidence verification controller, partial-write
-reconciliation policy and compatible helper provisioning. Never claim a
-valid record or stage alone proves authorization or restored state.
+If a discarded temporary record proposed VERIFYING -> COMMITTED, the
+durable VERIFYING phase still controls recovery: roll back even if all
+forward changes and checks had actually succeeded. A fully applied plan
+is not a durably committed transaction. This is expected behavior, not
+a recovery regression.
+
+A corrupt bound ready stage cannot be retired by the normal path even
+after a terminal record. Before live use provide a separately reviewed
+explicit administrator quarantine path (not force-delete or automatic
+digest bypass): independently verify the terminal managed/service and
+credential outcome, exact transaction identity and safe stage layout,
+then durably move the stage into a fixed protected non-executable
+quarantine namespace outside the active staging scan. Require a
+transaction-bound quarantine receipt, no replacement, checked same
+filesystem publication and synchronization of both parents, and a
+retry-safe check before journal clearing. Preserve bytes and refuse
+unsafe or foreign objects; neither quarantined stage nor its receipt
+can authorize forward work. Until implemented and accepted, preserve
+the stage and journal for expert review. Do not offer a live manual
+deletion recipe. A retiring stage has already crossed the verified
+retirement boundary; partial deletion precludes checking the original
+whole-tree digest, so retries inspect surviving entries only.
+
+## Experimental schema-2 current-before-state receipts
+
+restore_adopt_before.py captures the actual fixed managed paths in
+a disposable fixture root after STAGED, while the existing manual and
+journal locks are held. It rechecks the journal-bound staged plan first.
+Read only the eight approved managed paths through no-follow directory
+descriptors; only ENOENT means absence. Present files must be regular,
+single-link, exact installed mode, expected owner/group and bounded size.
+The initial policy accepts complete, structurally v2 installed state
+for restore (or all managed files absent with all service flags false),
+and only all-absent managed files for adoption. No partial, damaged,
+legacy or unsafe layout. Unlike install/upgrade/repair's existing
+capture policy, restore deliberately refuses damaged installed modes
+rather than preserving them for rollback. An otherwise safe managed
+regular file with an unexpected mode produces the fixed
+current_state_permissions_damaged diagnostic. For a recognized v2
+installation, the future user-facing diagnostic should instruct the
+operator to finish abort/recovery and clear the pending transaction,
+then use the supported repair operation before retrying restore.
+Do not advise repair for unknown protocol, unsafe objects, ownership
+mismatches or ambiguous state; do not repair permissions implicitly
+during restore. The existing v1 repair capture semantics are unchanged.
+
+Restore onto a genuinely clean host is an intended supported case,
+conditional on independently verified clean layout and service state.
+An empty managed-file capture with false service flags alone is not
+that proof. Unmarked retained private state requires the explicit
+adoption path; restore must not implicitly adopt it. The eventual
+controller must separately establish account, owner marker, retained
+state, and service/enablement eligibility, and define safe activation
+and recovery for the clean case before exposing it. These file/boolean
+checks alone are not proof of protocol provenance, clean systemd
+state or orphan eligibility.
+
+The new rollback format deliberately differs from schema-1 historical
+source snapshots: snapshot-v2-TRANSACTION is a fixed, exclusive directory
+under the protected backup base. Manifest schema 2 records transaction,
+operation, exact intent, complete sorted managed file metadata, SHA-256
+and explicit null absence, and four observed service booleans. File
+copies have private mode 0600; original intended metadata is in the
+manifest. receipt.json (schema_version 2) binds the transaction,
+operation, capture phase STAGED, distinct new snapshot name, manifest
+digest and staged-plan digest; release_authenticity is not_verified.
+No UUID, key, credential hash, owner marker or account data is captured.
+This is a current-before-state receipt, not publisher or historical
+release provenance. Legacy snapshot validators refuse schema 2.
+
+The receipt is written last, after the complete manifest and file
+copies. Sync all files, directory and fixed ancestors, re-read and
+validate receipt and pinned file bytes, then compare with fresh current
+file and service observations. Publication uncertainty poisons the
+handle, and an incomplete or already existing deterministic snapshot
+is preserved rather than overwritten. Only a later verified
+SNAPSHOTTED transition binds its digest in the durable journal.
+Unbound partial snapshots are forensic evidence, not eligible recovery
+sources; their eventual cleanup requires a separate reviewed policy.
+A failed publication that leaves the deterministic snapshot directory
+prevents recapture in that transaction. It must take the verified
+pre-apply abort path; do not retry capture with a different name.
+Stage retirement and terminal journal clearing do not prove that an
+unbound before-state directory is absent, and do not delete it. Preserve
+such directories independently of stage retirement. A future operator
+reconciliation/quarantine policy must distinguish unbound forensic
+snapshots from bound rollback evidence and must not retire a referenced
+rollback source.
+A read at STAGED uses the freshly produced capture reference; later
+reads use the journal's immutable name and receipt digest, never a
+caller override. The reader checks exact binding, canonical manifests,
+complete metadata, hashes, names and limits and returns pinned bytes.
+The restore source is never used as the current-before-state snapshot.
+
+restore_adopt_verify.py now supplies concrete fixture verification
+for bind_stage (independent expected rendered plan, not hashes derived
+from the stage) and bind_before (bound receipt and actual current
+managed bytes/metadata and service observation). check_apply_evidence
+rechecks the staged plan and receipt against independent expectations
+and fresh current state; it does not advance to APPLYING.
+The eventual SNAPSHOTTED -> APPLYING verifier must invoke this check
+inside the same active handle and lock scope, together with the other
+operation-specific eligibility and continuity checks. An earlier
+successful read-only call is never permission to mutate; the controller
+must use the pinned evidence from that transition and require durable
+APPLYING publication before any managed change.
+check_rollback_evidence compares actual current fixture files and
+observed service flags against the journal-bound before-state; it does
+not mark ROLLED_BACK. The generic low-level fixture transition API
+remains for persistence tests. A future controller must also verify
+actual systemd observations and enablement absence, account/owner
+marker policy, retained UUID/key equality without logging private
+values, authenticated source and current eligibility/consent. These
+checks must be bound to the relevant transitions rather than treating
+a fixture observer or structural record as proof. Neither module
+invokes systemd, applies files, changes credentials or permits live
+roots. No production or embedded bundle changes.
+
+Remaining: actual phase-specific execution and recovery verification,
+partial-write and unbound snapshot reconciliation policy, quarantine
+implementation and compatible helper provisioning. Never claim a valid
+record or stage alone proves authorization or restored state.
 The existing v1 writer, recovery, Go bootstrap and bundle remain unchanged.
 
 ## Implementation order and acceptance
