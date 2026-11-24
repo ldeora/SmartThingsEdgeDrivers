@@ -49,13 +49,33 @@ sessions without an interactive polkit agent can explicitly select `su`.
 # Remote SSH with a PTY and root-password su, even when run0 is installed:
 ./computer-host-linux-installer-test -live -install -accessible -elevation su
 
-# Resolve a previously interrupted install with the existing installed helper:
+# Resolve a previously interrupted operation with the existing installed helper:
 ./computer-host-linux-installer-test -recover
+
+# Guided uninstall (requires a terminal, literal UNINSTALL and administrator authorization):
+./computer-host-linux-installer-test -uninstall
 ```
 
-This draft still **does not** provide journaled uninstall, a power-key
-Show/Copy screen, automatic SmartThings pairing, firewall changes,
-persistent WOL configuration or release-authenticity verification.
+### Journaled uninstall (development only)
+
+The separate `-uninstall` mode removes the managed agent files, systemd
+units/drop-ins and Avahi service, after verifying that the units are
+stopped and the enabled units disabled. It retains the private installation
+ID and control key, v2 ownership marker, linuxhost account, root-owned
+recovery helper, historical snapshots, and operator-managed network/WOL
+and firewall configuration. It does not unpair SmartThings. The existing
+device goes offline until removed manually or the agent is reinstalled.
+No changes are authorized until a submitted literal `UNINSTALL`
+confirmation and administrator authorization. Use `-recover` after an
+interrupted transaction: rollback restores the prior installation, while
+terminal cleanup never resumes removal. A later uninstall requires
+fresh explicit confirmation. The privileged request for uninstall uses
+schema version 2 with exactly two fields; existing schema-v1 operations
+and the schema-v1 result envelope remain compatible.
+
+This draft still **does not** provide a power-key Show/Copy screen,
+automatic SmartThings pairing, firewall changes, persistent WOL
+configuration or release-authenticity verification.
 Do not treat the test-only CI binary as a production release.
 Read the integration document for recovery and first-live-test gates.
 
