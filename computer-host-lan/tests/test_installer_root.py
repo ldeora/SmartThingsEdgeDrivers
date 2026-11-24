@@ -187,6 +187,21 @@ class RootProtocolTests(unittest.TestCase):
             with self.subTest(payload=payload), self.assertRaises(bridge.RequestError):
                 bridge.parse_request(payload)
 
+    def test_unexpected_uninstall_outcome_requires_recovery(self):
+        from installer_transaction import ControllerError
+
+        request = bridge.parse_request(b'{"schema_version":2,"action":"uninstall"}')
+        for status, identity in (('unexpected', 'verified'),
+                                 ('uninstalled', 'unexpected')):
+            self.backend.removed.status = status
+            self.backend.removed.identity_preserved = identity
+            with self.subTest(status=status, identity=identity):
+                with self.assertRaises(ControllerError) as error:
+                    bridge.dispatch(request, self.manifest, backend=self.backend,
+                                    journal=self.journal,
+                                    selected_python='/usr/sbin/python3')
+                self.assertEqual(error.exception.code, 'recovery_required')
+
     def test_recovery_exposes_only_fixed_operation(self):
         for operation in ('uninstall', 'upgrade', 'private-value', None):
             self.backend.recovered.operation = operation
