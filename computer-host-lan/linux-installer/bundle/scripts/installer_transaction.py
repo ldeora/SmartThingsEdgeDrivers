@@ -47,7 +47,7 @@ class ControllerError(RuntimeError):
         if code not in ('invalid_request', 'installation_busy', 'aborted',
                         'rolled_back', 'recovery_required',
                         'unsupported_environment', 'adoption_required',
-                        'unsafe_lock'):
+                        'unsafe_lock', 'not_installed'):
             code = 'recovery_required'
         # This is a deliberate, fixed message with no private paths or ID.
         # The future Go wizard may display it without needing privileged
@@ -566,9 +566,8 @@ class InstallerBackend:
     def uninstall(self) -> UninstallOutcome:
         """Journaled v2 uninstall of managed files and services only.
 
-        This backend method is intentionally not yet exposed by the root
-        request router or the Go wizard. The separate explicit-confirmation
-        integration must be reviewed before authorizing an uninstall.
+        Called by the authenticated root request router after explicit
+        wizard confirmation and administrator authorization.
         Retain the protected UUID/token, owner record, user, WOL NIC policy,
         recovery snapshots, and installed root helper (for -recover).
         """
@@ -578,12 +577,16 @@ class InstallerBackend:
                 # A retained v2 owner record after uninstall is NOT proof
                 # that an agent remains installed. Refuse absent, v1 and
                 # ambiguous states before starting any durable transaction.
-                if core.require_v2_or_clean(self.root) != 'v2':
-                    raise ControllerError('unsupported_environment')
+                if ProtectedJournal(root=self.root, owner_uid=self.owner_uid
+                                    ).public_status()['privileged_transaction_state'] != 'none':
+                    raise ControllerError('recovery_required')
+                protocol = core.require_v2_or_clean(self.root)
                 transaction = core.InstallTransaction(self.root)
                 agent = transaction.location(core.APP_FILES[0])
                 transaction.refuse_links(agent)
-                if not agent.is_file():
+                if not agent.exists():
+                    raise ControllerError('not_installed')
+                if protocol != 'v2' or not agent.is_file():
                     raise ControllerError('unsupported_environment')
             except core.InstallError:
                 raise ControllerError('unsupported_environment') from None
