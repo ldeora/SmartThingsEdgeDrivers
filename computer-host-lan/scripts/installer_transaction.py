@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
-"""Root-side Linux installer lifecycle foundation (NO elevation or CLI).
+"""Root-side Linux installer transaction engine (no elevation or public CLI).
 
-This module is not callable by the Go wizard yet. A future independently
-installed root-owned launcher must authenticate the payload manifest and
-invoke the controller from protected code after explicit authorization.
-Do not run/import this module as root from an untrusted checkout.
+The Go bootstrap installs the root-owned launcher and verified manifest;
+installer_root.py dispatches explicitly authorized wizard and CLI requests
+to this controller. Do not run/import as root from an untrusted checkout.
 """
 from __future__ import annotations
 
@@ -50,7 +49,7 @@ class ControllerError(RuntimeError):
                         'unsafe_lock', 'not_installed'):
             code = 'recovery_required'
         # This is a deliberate, fixed message with no private paths or ID.
-        # The future Go wizard may display it without needing privileged
+        # The Go wizard may display it without needing privileged
         # access to the retained agent state.
         message = (
             'Retained agent state cannot be automatically identified. '
@@ -731,7 +730,7 @@ class InstallerBackend:
             except core.InstallError:
                 # The wizard cannot automatically adopt legacy private
                 # state. Distinguish *orphan-only* retained state from v1
-                # or partially installed files, so the future UI can give
+                # or partially installed files, so the UI can give
                 # the operator the existing manual recovery instruction.
                 try:
                     adoptable = (core.require_v2_or_clean(

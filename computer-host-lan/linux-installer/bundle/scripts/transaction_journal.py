@@ -446,7 +446,7 @@ class TransactionHandle:
     def mark_rolled_back(self, verify_restored: Callable[[str], bool]) -> None:
         """Record a completed rollback ONLY after trusted verification.
 
-        The callback is a future privileged engine responsibility. It must
+        The callback is the privileged engine's responsibility. It must
         validate snapshot ownership/content AND restored managed files,
         identity and services. This module does not perform the rollback.
         """
