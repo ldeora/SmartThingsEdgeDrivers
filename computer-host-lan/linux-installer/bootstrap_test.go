@@ -745,3 +745,158 @@ func TestEmbeddedReadOnlyAPIContainsNoWritableRootHelper(t *testing.T) {
 		t.Fatal("Privileged root helper must not be extracted for read-only preview")
 	}
 }
+
+func TestSchemaV2UninstallRequestHasExactlyTwoFields(t *testing.T) {
+	input := `{"schema_version":2,"action":"uninstall"}`
+	req, err := decodePrivilegedRequest(strings.NewReader(input))
+	if err != nil {
+		t.Fatal(err)
+	}
+	wire, err := pythonRequest(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fields map[string]any
+	if json.Unmarshal(wire, &fields) != nil || len(fields) != 2 ||
+		fields["action"] != "uninstall" || fields["schema_version"] != float64(2) {
+		t.Fatalf("Unexpected root uninstall request: %s", wire)
+	}
+	for _, bad := range []string{
+		`{"schema_version":1,"action":"uninstall"}`,
+		`{"schema_version":2,"action":"install","power":"preserve"}`,
+		`{"schema_version":2,"action":"uninstall","power":""}`,
+		`{"schema_version":2,"action":"uninstall","wol_interface":null}`,
+		`{"schema_version":2,"action":"uninstall","source":"/tmp"}`,
+		`{"schema_version":2,"action":"uninstall","action":"uninstall"}`,
+		`{"schema_version":1,"schema_version":2,"action":"uninstall"}`,
+		`{"schema_version":2,"Action":"uninstall"}`,
+		`{"schema_version":2.0,"action":"uninstall"}`,
+		input + " {}",
+	} {
+		if _, err := decodePrivilegedRequest(strings.NewReader(bad)); err == nil {
+			t.Fatalf("Accepted invalid request %s", bad)
+		}
+	}
+}
+
+func TestUninstallRepliesValidatedAtBothBoundaries(t *testing.T) {
+	for _, status := range []string{"uninstalled", "uninstalled_cleanup_required", "installed", "passed", "arbitrary"} {
+		for _, action := range []string{"uninstall", "upgrade", "recover"} {
+			reply := privilegedResult{SchemaVersion: 1, Operation: action,
+				Status: status, IdentityPreserved: "verified"}
+			want := (action == "uninstall" && (status == "uninstalled" || status == "uninstalled_cleanup_required")) ||
+				(action == "upgrade" && status == "installed") || (action == "recover" && status == "passed")
+			wire, err := json.Marshal(reply)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, uiErr := validatedPrivilegedReply(wire, action)
+			var out bytes.Buffer
+			rootErr := relayHelperResponse(&out, action, reply, nil)
+			if (uiErr == nil) != want || (rootErr == nil) != want || (out.Len() != 0) != want {
+				t.Fatalf("status=%s action=%s want=%t ui=%v root=%v", status, action, want, uiErr, rootErr)
+			}
+		}
+	}
+	for _, reply := range []privilegedResult{
+		{SchemaVersion: 1, Operation: "uninstall", Status: "uninstalled", IdentityPreserved: "private-value"},
+		{SchemaVersion: 1, Operation: "uninstall", Status: "uninstalled", IdentityPreserved: "verified", RecoveryOperation: "uninstall"},
+		{SchemaVersion: 1, Operation: "uninstall", Status: "uninstalled", IdentityPreserved: "verified", ErrorCode: "private-value"},
+	} {
+		var out bytes.Buffer
+		if err := relayHelperResponse(&out, "uninstall", reply, nil); err == nil || out.Len() != 0 {
+			t.Fatal("Unsafe response relayed")
+		}
+	}
+}
+
+func TestUninstallPreflightRefusesMissingAgentWithoutPromotion(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("temporary non-root bootstrap fixture")
+	}
+	parent := t.TempDir()
+	root := filepath.Join(parent, "computer-host-lan")
+	lock := filepath.Join(parent, "install.lock")
+	agent := filepath.Join(parent, "opt", "linux-host-agent", "linux_host_agent.py")
+	uid := os.Geteuid()
+	changed, err := prepareTrustedVersionForAction(root, lock, uid, func() (string, error) {
+		t.Fatal("clean host must not invoke a nonexistent helper")
+		return "", nil
+	}, agent)
+	if changed || !errors.Is(err, errNotInstalled) {
+		t.Fatalf("Clean uninstall preflight: changed=%v err=%v", changed, err)
+	}
+	for _, path := range []string{root, root + ".next", root + ".previous", root + ".failed"} {
+		if _, err := os.Lstat(path); !os.IsNotExist(err) {
+			t.Fatalf("Clean uninstall created helper path %s: %v", path, err)
+		}
+	}
+	// A retained helper must be inspected under the same manual lock.
+	// Its pending journal takes priority over missing managed files.
+	if err := os.Mkdir(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	marker := filepath.Join(root, "keep")
+	if err := os.WriteFile(marker, []byte("unchanged"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, state := range []string{"none", "recovery_required"} {
+		want := errNotInstalled
+		if state != "none" {
+			want = errInstallerRecoveryPending
+		}
+		changed, err := prepareTrustedVersionForAction(root, lock, uid, func() (string, error) {
+			if guard, err := lockInstaller(lock, uid); err == nil {
+				guard.Close()
+				t.Fatal("Preflight status was not checked under the shared lock")
+			}
+			return state, nil
+		}, agent)
+		if changed || !errors.Is(err, want) {
+			t.Fatalf("Retained helper state %s: changed=%v err=%v", state, changed, err)
+		}
+		if content, err := os.ReadFile(marker); err != nil || string(content) != "unchanged" {
+			t.Fatal("Missing agent must not replace retained helper")
+		}
+		if _, err := os.Lstat(root + ".next"); !os.IsNotExist(err) {
+			t.Fatal("Missing agent must not stage a helper")
+		}
+	}
+}
+
+func TestUninstallPreflightAllowsManualAgentWithoutExistingHelper(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("temporary non-root bootstrap fixture")
+	}
+	parent := t.TempDir()
+	root := filepath.Join(parent, "computer-host-lan")
+	lock := filepath.Join(parent, "install.lock")
+	agent := filepath.Join(parent, "linux_host_agent.py")
+	if err := os.WriteFile(agent, []byte("fixture"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	changed, err := prepareTrustedVersionForAction(root, lock, os.Geteuid(), func() (string, error) {
+		t.Fatal("first helper promotion must not invoke old status")
+		return "", nil
+	}, agent)
+	if changed || err != nil {
+		t.Fatalf("Existing agent without helper: changed=%v err=%v", changed, err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "installer_root.py")); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestUninstallMissingAgentDiagnostic(t *testing.T) {
+	var out bytes.Buffer
+	if err := relayBootstrapFailure(&out, "uninstall", errNotInstalled); !errors.Is(err, errNotInstalled) {
+		t.Fatal(err)
+	}
+	reply, err := validatedPrivilegedReply(out.Bytes(), "uninstall")
+	if err != nil || reply.ErrorCode != "not_installed" {
+		t.Fatalf("Unexpected absent-agent response: %+v %v", reply, err)
+	}
+	if !strings.Contains(userFacingPrivilegeFailure(reply).Error(), "nothing to uninstall") {
+		t.Fatal("Missing actionable absent-agent diagnostic")
+	}
+}

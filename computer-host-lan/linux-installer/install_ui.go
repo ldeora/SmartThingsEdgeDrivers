@@ -280,12 +280,48 @@ func validatedPrivilegedReply(data []byte, action string) (privilegedResult, err
 		if action != "install" && action != "upgrade" && action != "repair" {
 			return privilegedResult{}, errors.New("unexpected installation outcome")
 		}
+	case "uninstalled", "uninstalled_cleanup_required":
+		if action != "uninstall" {
+			return privilegedResult{}, errors.New("unexpected uninstall outcome")
+		}
+		if reply.IdentityPreserved != "verified" && reply.IdentityPreserved != "not_verified" {
+			return privilegedResult{}, errors.New("invalid uninstall identity outcome")
+		}
 	case "passed":
 		if action != "status" && action != "recover" {
 			return privilegedResult{}, errors.New("unexpected status outcome")
 		}
 	default:
 		return privilegedResult{}, errors.New("unrecognized privileged result")
+	}
+	// Every string that can be relayed across the privileged boundary
+	// must be a fixed enum, including optional legacy response fields.
+	if reply.Status != "error" && reply.ErrorCode != "" {
+		return privilegedResult{}, errors.New("unexpected error code in success reply")
+	}
+	switch reply.IdentityPreserved {
+	case "", "verified", "not_verified":
+	default:
+		return privilegedResult{}, errors.New("invalid identity outcome")
+	}
+	switch reply.PrivilegedTransactionState {
+	case "", "none", "in_progress", "incomplete", "recovery_required":
+	default:
+		return privilegedResult{}, errors.New("invalid transaction state")
+	}
+	switch reply.RecoveryStatus {
+	case "", "aborted", "rolled_back", "cleaned", "nothing_to_recover":
+	default:
+		return privilegedResult{}, errors.New("invalid recovery outcome")
+	}
+	switch reply.RecoveryOperation {
+	case "", "install", "upgrade", "repair", "uninstall":
+	default:
+		return privilegedResult{}, errors.New("invalid recovery operation")
+	}
+	if reply.RecoveryOperation != "" && (action != "recover" || reply.Status != "passed" ||
+		reply.RecoveryStatus == "" || reply.RecoveryStatus == "nothing_to_recover") {
+		return privilegedResult{}, errors.New("unexpected recovery operation")
 	}
 	return reply, nil
 }
@@ -312,7 +348,7 @@ func knownPrivilegedError(code string) bool {
 		"recovery_required", "unsupported_environment", "adoption_required",
 		"unsupported_python", "untrusted_root_launcher",
 		"invalid_trusted_manifest", "duplicate_key", "bootstrap_failed",
-		"unsafe_lock":
+		"unsafe_lock", "not_installed":
 		return true
 	}
 	return false
@@ -325,16 +361,24 @@ func userFacingPrivilegeFailure(reply privilegedResult) error {
 	case "unsafe_lock":
 		return errors.New("an installer lock is unsafe. After confirming no installation or recovery is running, ask an administrator to inspect /run/lock/linux-host-agent-install.lock and /run/computer-host-lan/bootstrap.lock; do not delete lock files during an active installation")
 	case "rolled_back":
+		if reply.Operation == "uninstall" {
+			return errors.New("uninstall was undone; previous files and service state were restored. Check prerequisites and run -uninstall again if desired")
+		}
 		return errors.New("installation could not complete; previous files and service state were restored. Check prerequisites and retry")
 	case "recovery_required":
-		return errors.New("installation requires recovery. Run this wizard with -recover before retrying; preserve the protected journal and backup")
+		return errors.New("installer transaction requires recovery. Run this wizard with -recover before retrying; preserve the protected journal and backup")
 	case "adoption_required":
 		return errors.New("retained agent state needs v2 verification. Use the manual Linux installer with --adopt-retained-state after confirming its provenance")
 	case "unsupported_python":
 		return errors.New("a system Python 3.10 or newer is required; install a compatible interpreter without changing the system default")
+	case "not_installed":
+		return errors.New("no installed Linux agent was found; nothing to uninstall. Retained state and recovery files have not been removed")
 	case "unsupported_environment":
 		return errors.New("the existing installation or operating environment needs attention. Check the read-only inspection before retrying")
 	case "aborted":
+		if reply.Operation == "uninstall" {
+			return errors.New("uninstall was aborted before applying changes; inspect the existing installation and snapshot prerequisites before retrying")
+		}
 		switch reply.FailureStage {
 		case "payload":
 			return errors.New("installation aborted before applying changes (payload verification/staging); check protected payload staging prerequisites")
@@ -528,6 +572,99 @@ func runInstallingWizard(accessible bool, apiPath string, reader io.Reader, writ
 	return installSelection(s, writer, true, method)
 }
 
+// Read only the submitted line, not subsequent input that may belong
+// to PAM (su). Bound the confirmation length and reject EOF without a
+// newline; unlike bufio.Reader this cannot prefetch the next line.
+func readConfirmationLine(reader io.Reader) (string, error) {
+	var line strings.Builder
+	var next [1]byte
+	for line.Len() < 128 {
+		if _, err := io.ReadFull(reader, next[:]); err != nil {
+			return "", err
+		}
+		if next[0] == '\n' {
+			return line.String(), nil
+		}
+		line.WriteByte(next[0])
+	}
+	return "", errors.New("confirmation line too long")
+}
+
+// Plain text is intentional: uninstall uses the same accessible review
+// and literal confirmation on every terminal, without a default Yes action.
+func confirmUninstall(reader io.Reader, writer io.Writer,
+	authorize func(privilegedRequest) (privilegedResult, error)) error {
+	fmt.Fprintln(writer, "COMPUTER HOST LAN — LINUX UNINSTALL")
+	fmt.Fprintln(writer, "Removes the managed agent files, systemd units/drop-ins and Avahi service.")
+	fmt.Fprintln(writer, "Stops and disables the agent and power socket, and stops the power helper.")
+	fmt.Fprintln(writer, "Retains the private installation ID and control key, v2 ownership record,")
+	fmt.Fprintln(writer, "linuxhost account, historical recovery snapshots and trusted recovery helper.")
+	fmt.Fprintln(writer, "External Wake-on-LAN/network policies and firewall rules are unchanged.")
+	fmt.Fprintln(writer, "The SmartThings device will go offline; remove it manually if no longer needed.")
+	fmt.Fprintln(writer, "A later reinstall can reuse the retained identity. This is not a full purge.")
+	fmt.Fprint(writer, "Type UNINSTALL to authorize removal (anything else cancels): ")
+	raw, err := readConfirmationLine(reader)
+	if err != nil && err != io.EOF {
+		return err
+	}
+	// EOF without an actual submitted line is not confirmation.
+	if err == io.EOF || strings.TrimSpace(raw) != "UNINSTALL" {
+		fmt.Fprintln(writer, "Uninstall cancelled. No changes made.")
+		return nil
+	}
+	fmt.Fprintln(writer, "Authorizing uninstall. This can take several minutes.")
+	reply, err := authorize(privilegedRequest{SchemaVersion: 2, Action: "uninstall"})
+	if err != nil {
+		return err
+	}
+	switch reply.Status {
+	case "uninstalled":
+		fmt.Fprintln(writer, "Computer Host LAN: uninstalled.")
+	case "uninstalled_cleanup_required":
+		fmt.Fprintln(writer, "Computer Host LAN: uninstalled; installer cleanup is still required.")
+		fmt.Fprintln(writer, "Run this wizard with -recover to finish any pending transaction cleanup.")
+	default:
+		return errors.New("unexpected uninstall outcome")
+	}
+	if reply.IdentityPreserved == "verified" {
+		fmt.Fprintln(writer, "Retained installation identity verified.")
+	} else {
+		fmt.Fprintln(writer, "No saved installation identity could be verified.")
+	}
+	fmt.Fprintln(writer, "Private state, recovery snapshots and the recovery helper are retained.")
+	fmt.Fprintln(writer, "The SmartThings device is not automatically removed.")
+	return nil
+}
+
+func runUninstallWizard(reader io.Reader, writer io.Writer, method string) error {
+	if os.Geteuid() == 0 {
+		return errors.New("run the wizard as your normal user; administrator authorization follows confirmation")
+	}
+	info, err := os.Stdin.Stat()
+	if err != nil || info.Mode()&os.ModeCharDevice == 0 {
+		return errors.New("interactive uninstall needs a terminal")
+	}
+	return confirmUninstall(reader, writer, func(request privilegedRequest) (privilegedResult, error) {
+		return executeAuthorizedBootstrap(request, true, method)
+	})
+}
+
+func showRecoveryOutcome(writer io.Writer, response privilegedResult) {
+	fmt.Fprintln(writer, "Recovery outcome:", response.RecoveryStatus)
+	switch response.RecoveryStatus {
+	case "rolled_back":
+		if response.RecoveryOperation == "uninstall" {
+			fmt.Fprintln(writer, "Interrupted uninstall was undone. Previous files and services were restored; run -uninstall again if desired.")
+		} else {
+			fmt.Fprintln(writer, "Previous files and service state were restored; retry the intended operation explicitly.")
+		}
+	case "aborted":
+		fmt.Fprintln(writer, "Interrupted operation was aborted before managed changes. Retry explicitly if desired.")
+	case "cleaned":
+		fmt.Fprintln(writer, "Finished transaction cleanup. No uninstall or installation was resumed.")
+	}
+}
+
 func runRecoveryWizard(reader io.Reader, writer io.Writer, method string) error {
 	if os.Geteuid() == 0 {
 		return errors.New("run the wizard as your normal user; sudo is requested after confirmation")
@@ -536,14 +673,14 @@ func runRecoveryWizard(reader io.Reader, writer io.Writer, method string) error 
 	if err != nil || info.Mode()&os.ModeCharDevice == 0 {
 		return errors.New("interactive recovery needs a terminal")
 	}
-	fmt.Fprintln(writer, "Computer Host LAN — recover a previously interrupted installation.")
-	fmt.Fprintln(writer, "This restores the last managed-file snapshot and previous service state.")
+	fmt.Fprintln(writer, "Computer Host LAN — recover a previously interrupted installer operation.")
+	fmt.Fprintln(writer, "This rolls back an interrupted operation or finishes terminal cleanup; it never resumes deletion.")
 	fmt.Fprint(writer, "Type RECOVER to authorize the existing trusted helper: ")
-	raw, err := bufio.NewReader(reader).ReadString('\n')
+	raw, err := readConfirmationLine(reader)
 	if err != nil && err != io.EOF {
 		return err
 	}
-	if strings.TrimSpace(raw) != "RECOVER" {
+	if err == io.EOF || strings.TrimSpace(raw) != "RECOVER" {
 		fmt.Fprintln(writer, "Recovery cancelled. No changes made.")
 		return nil
 	}
@@ -552,6 +689,6 @@ func runRecoveryWizard(reader io.Reader, writer io.Writer, method string) error 
 	if err != nil {
 		return err
 	}
-	fmt.Fprintln(writer, "Recovery outcome:", response.RecoveryStatus)
+	showRecoveryOutcome(writer, response)
 	return nil
 }

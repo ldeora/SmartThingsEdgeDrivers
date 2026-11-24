@@ -113,10 +113,15 @@ def parse_request(raw: bytes) -> dict:
         payload = json.loads(raw.decode('utf-8'), object_pairs_hook=_unique_pairs)
     except (UnicodeError, ValueError, TypeError) as exc:
         raise RequestError('invalid_request') from exc
-    if not isinstance(payload, dict) or payload.get('schema_version') != 1 or (
-            type(payload['schema_version']) is not int):
+    if not isinstance(payload, dict) or type(payload.get('schema_version')) is not int:
         raise RequestError('invalid_request')
     action = payload.get('action')
+    if payload['schema_version'] == 2:
+        if action != 'uninstall' or set(payload) != {'schema_version', 'action'}:
+            raise RequestError('invalid_request')
+        return dict(action='uninstall')
+    if payload['schema_version'] != 1:
+        raise RequestError('invalid_request')
     if type(action) is not str or action not in _ACTIONS:
         raise RequestError('invalid_request')
     if action in ('status', 'recover'):
@@ -222,8 +227,11 @@ def dispatch(request: dict, trusted_manifest: dict, *, backend, journal,
                     secrets_included=False)
     if action == 'recover':
         done = backend.recover_interrupted()
-        return dict(status='passed', operation='recover',
-                    recovery_status=done.status, secrets_included=False)
+        result = dict(status='passed', operation='recover',
+                      recovery_status=done.status, secrets_included=False)
+        if done.operation in ('install', 'upgrade', 'repair', 'uninstall'):
+            result['recovery_operation'] = done.operation
+        return result
     # The installed root-owned shell has already selected and version-checked
     # this executable from fixed system paths. sys.executable is *not*
     # reliable on Gentoo's python-exec wrappers: it can instead be
@@ -231,6 +239,17 @@ def dispatch(request: dict, trusted_manifest: dict, *, backend, journal,
     # allowlist to accept all of /usr/lib.
     if selected_python not in _SYSTEM_PYTHON_COMMANDS:
         raise RequestError('invalid_request')
+    if action == 'uninstall':
+        if set(request) != {'action'}:
+            raise RequestError('invalid_request')
+        done = backend.uninstall()
+        if (done.status not in ('uninstalled', 'uninstalled_cleanup_required') or
+                done.identity_preserved not in ('verified', 'not_verified')):
+            from installer_transaction import ControllerError
+            raise ControllerError('recovery_required')
+        return dict(status=done.status, operation='uninstall',
+                    identity_preserved=done.identity_preserved,
+                    secrets_included=False)
     from installer_transaction import InstallRequest
     power = request['power']
     options = InstallRequest(

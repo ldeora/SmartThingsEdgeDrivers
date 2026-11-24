@@ -1,9 +1,10 @@
 # Journaled Linux uninstall — backend foundation
 
-Status: **draft / backend-only**. This work extends the merged Linux
-transaction engine. It does **not** expose an `uninstall` action through
-`installer_root.py`, the privileged Go request decoder, or the wizard.
-No new way for an unprivileged process to authorize deletion is introduced.
+Status: **draft / integrated wizard**. PR #87 merged the root-side
+transaction engine. The follow-up implements issue #89 with a standalone
+`-uninstall` mode, literal confirmation and independent administrator
+authorization. This is not a production release and no physical uninstall
+has been authorized yet.
 
 ## Scope and promises
 
@@ -60,19 +61,47 @@ The UI must explain that rollback has undone an interrupted uninstall
 and that the user may explicitly retry. Historical snapshots remain
 available after uninstall; a separate purge would need separate consent.
 
-## Remaining integration steps (subsequent PR)
+## Privileged request and user confirmation
 
-- Add an explicit versioned root action with a dedicated minimal,
-  fixed-schema uninstall request. Do not reuse free-form install options
-  or allow unprivileged paths, commands, private identifiers or tokens.
-- Add a separate uninstall wizard entry point requiring the literal
-  `UNINSTALL` confirmation before administrator authorization, with
-  an explanation of retained identity, backups and remaining root helper.
-- Add Go/Python protocol and UI tests, including refusal without
-  confirmation, v1/unknown installation, interrupted uninstall recovery
-  and deliberately stopped units.
-- Run a supervised reversible hardware acceptance test only after the
-  backend and authorization boundary receive independent review.
+- The standalone Go wizard requires a terminal, non-root UI execution,
+  and a submitted literal `UNINSTALL` line after a clear scope/retention
+  review. Any other response or EOF cancels. Other wizard modes cannot
+  be combined with uninstall, including `-accessible` (the form is
+  always plain text, just like recovery). Confirmation reads only the
+  submitted line so that subsequent terminal input is not consumed before
+  administrator authentication.
+- The sole new request is `{"schema_version":2,"action":"uninstall"}`.
+  Both Go and Python reject duplicates, extra fields (even null/empty
+  installation settings), unknown versions and schema-v1 uninstall.
+  The trusted Python handoff is required; the legacy status-only entry
+  cannot authorize removal. Existing schema-v1 requests still work.
+- The existing fixed-path root bootstrap validates and promotes its
+  embedded trusted helper under the same locks; it refuses to replace
+  a helper while recovery is pending. For uninstall, a fixed managed-agent
+  path is checked under the shared installer lock before helper staging or
+  promotion. A missing agent returns `not_installed` without creating a
+  persistent helper or replacing a retained one; a pending transaction
+  reported by an existing trusted helper takes precedence. Only temporary
+  runtime locks may be created. An existing manually installed agent can
+  still be considered for uninstall without a previous wizard helper; the
+  Python backend independently checks v2 provenance under its own lock.
+  No arbitrary source, network setting, command, ID, or path is accepted
+  in the uninstall request.
+- Results retain the schema-v1 envelope for compatibility. Both Go reply
+  boundaries validate action-bound `uninstalled` and
+  `uninstalled_cleanup_required` outcomes and fixed diagnostic enum
+  values. No private identifier is relayed.
+- Explicit recovery reports the fixed operation kind when available.
+  It cleans terminal payload-free journals even if read-only status is
+  `none`, and may retire a previous trusted helper only after a clean
+  protected status check under the manual installer lock. Recovery may
+  retain the newer trusted helper alongside the restored older agent;
+  the helper and agent versions need not match. An interrupted
+  uninstall rollback restores the installation and requires another
+  explicit uninstall confirmation if removal is still desired.
+- The physical uninstall/reinstall acceptance gate remains independent
+  security review, green CI, and a supervised reversible test with
+  verified backups. Do not test on a working host without approval.
 
 ## Independent release work
 
