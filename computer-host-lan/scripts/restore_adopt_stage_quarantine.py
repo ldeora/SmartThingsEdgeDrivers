@@ -119,11 +119,12 @@ def quarantine_corrupt_stage(handle, *, confirmation, verify):
     including managed state, services, credential continuity and operator
     authorization, without relying on the corrupt plan. It must not call
     APIs that reacquire the stage lock. Called again on every retry.
+    RECONCILE_RECEIPT appends a verified missing suffix without moving
+    the stage or granting cleanup authority.
     """
     record = before._require_fixture(handle)
     handle._clean()
-    if confirmation != 'QUARANTINE' or not callable(verify):
-        raise _ERROR('quarantine_confirmation_required')
+    reconcile = q._reconcile_confirmation(handle, confirmation, verify)
     if record['phase'] not in contract._TERMINAL or record['evidence'] is None:
         raise _ERROR('bound_terminal_stage_required')
     source, destination, receipt_name = _names(record)
@@ -148,7 +149,13 @@ def quarantine_corrupt_stage(handle, *, confirmation, verify):
             receipt = _receipt(record, items)
             if len(receipt) > before._LIMIT:
                 raise _ERROR('quarantine_receipt_too_large')
-            had_receipt = _read_receipt(namespace, receipt_name, handle.uid, receipt)
+            if reconcile:
+                if src is None or dst is not None:
+                    raise _ERROR('partial_quarantine_receipt_requires_source')
+                observed = q._partial_receipt(namespace, receipt_name, handle.uid, receipt)
+                had_receipt = True
+            else:
+                had_receipt = _read_receipt(namespace, receipt_name, handle.uid, receipt)
             if dst is not None and not had_receipt:
                 raise _ERROR('stage_quarantine_receipt_missing')
             handle._stage_quarantine_verifying = True
@@ -164,7 +171,12 @@ def quarantine_corrupt_stage(handle, *, confirmation, verify):
             _check_active(handle, active, entries)
             if namespace is not None:
                 q._same_entry(base, q._NAMESPACE, namespace)
-                if _read_receipt(namespace, receipt_name, handle.uid, receipt) != had_receipt:
+                if reconcile:
+                    if q._partial_receipt(namespace, receipt_name, handle.uid, receipt) != observed:
+                        raise _ERROR('partial_quarantine_receipt_changed')
+                    if _present(namespace, destination):
+                        raise _ERROR('stage_quarantine_source_destination_conflict')
+                elif _read_receipt(namespace, receipt_name, handle.uid, receipt) != had_receipt:
                     raise _ERROR('quarantine_receipt_changed')
             q._same_entry(active if src is not None else namespace,
                           source if src is not None else destination, fd)
@@ -184,7 +196,13 @@ def quarantine_corrupt_stage(handle, *, confirmation, verify):
                 raise _ERROR('quarantine_cross_filesystem')
             if q._inventory(fd, handle.uid, sync=True, staged=True) != items:
                 raise _ERROR('quarantine_tree_changed')
-            if not had_receipt:
+            if reconcile:
+                _check_active(handle, active, entries)
+                q._same_entry(active, source, src)
+                if _present(namespace, destination):
+                    raise _ERROR('stage_quarantine_source_destination_conflict')
+                q._complete_partial_receipt(namespace, receipt_name, handle.uid, receipt, observed)
+            elif not had_receipt:
                 before.storage._write_file(namespace, receipt_name, receipt,
                                            before._hash(receipt), handle.uid)
             if not _read_receipt(namespace, receipt_name, handle.uid, receipt, sync=True):
@@ -192,6 +210,26 @@ def quarantine_corrupt_stage(handle, *, confirmation, verify):
             os.fsync(namespace)
             for ancestor in reversed(ancestors):
                 os.fsync(ancestor)
+            if reconcile:
+                _check_active(handle, active, entries)
+                q._same_entry(active, source, src)
+                q._same_entry(base, q._NAMESPACE, namespace)
+                if (_present(namespace, destination) or
+                        q._inventory(src, handle.uid, staged=True) != items or
+                        not _read_receipt(namespace, receipt_name, handle.uid, receipt)):
+                    raise _ERROR('quarantine_publication_changed')
+                os.fsync(active)
+                stage._sync_stage_ancestors(handle)
+                _check_active(handle, active, entries)
+                handle._failed = False
+                try:
+                    handle.record()
+                    handle._clean()
+                except BaseException:
+                    handle._failed = True
+                    raise
+                # Neither retirement nor quarantine completion certified.
+                return 'receipt_completed'
             if src is not None:
                 q._same_entry(active, source, fd)
                 q._same_entry(base, q._NAMESPACE, namespace)
