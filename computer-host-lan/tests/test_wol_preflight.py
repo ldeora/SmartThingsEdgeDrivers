@@ -65,8 +65,8 @@ class PreflightTests(unittest.TestCase):
             self.assertEqual(gate.tool_versions(self.run_query).udev, version)
 
     def test_version_gate_accepts_udevadm_packaging_suffix(self):
-        self.replies[('udevadm', '--version')] = '256 (256.5-1)\\n'
-        self.replies[('systemctl', '--version')] = 'systemd 256 (256.5-1)\\n'
+        self.replies[('udevadm', '--version')] = '256 (256.5-1)\n'
+        self.replies[('systemctl', '--version')] = 'systemd 256 (256.5-1)\n'
         versions = gate.tool_versions(self.run_query)
         self.assertIsNotNone(versions)
         self.assertEqual(versions.udev, 256)
