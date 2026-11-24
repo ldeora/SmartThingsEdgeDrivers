@@ -341,3 +341,78 @@ def matches_current(handle, before, observer):
         return _capture(handle, record, observer) == (before.files, before.services)
     except (OSError, BeforeStateError):
         return False
+
+
+@dataclass(frozen=True)
+class UnboundBeforeObservation:
+    """Internal layout observation, not a valid receipt or cleanup authority."""
+    status: str
+    manifest_present: bool = False
+    receipt_present: bool = False
+    original_count: int = 0
+
+
+def inspect_unbound_before(handle):
+    """Identify this verified-abort candidate's unbound forensic directory.
+
+    Read-only, under the existing fixture locks. A complete-looking tree
+    is not authenticated and cannot be rebound. No rename, deletion,
+    new receipt, journal transition, or proof of unchanged managed state.
+    A future explicit quarantine operation must independently verify
+    the terminal outcome and publication durability.
+    """
+    record = _require_fixture(handle)
+    handle._clean()
+    if (record['phase'] != 'ABORTED' or record['snapshot_name'] is not None or
+            record['before_receipt_sha256'] is not None):
+        raise BeforeStateError('unbound_abort_required')
+    name = _name(record)
+    if name == record['intent'].get('snapshot_name'):
+        raise BeforeStateError('before_source_collision')
+    try:
+        with ExitStack() as stack:
+            base, _ = _base(handle, stack)
+            try:
+                fd = os.open(name, _DIR, dir_fd=base)
+            except FileNotFoundError:
+                return UnboundBeforeObservation('absent')
+            stack.callback(os.close, fd)
+            _directory(fd, handle.uid, private=True)
+            # Capture cannot start before STAGED. An initial abort with
+            # no stage evidence cannot explain this directory.
+            if record['evidence'] is None:
+                raise BeforeStateError('unbound_snapshot_conflicts_with_journal')
+            before = historical._stamp(os.fstat(fd))
+            names = journal._entries(fd)
+            originals = {f'{i}.original' for i in range(len(core.MANAGED_PATHS))}
+            if not names <= originals | {'manifest.json', 'receipt.json'}:
+                raise BeforeStateError('unexpected_unbound_entries')
+            total = 0
+            for item in sorted(names):
+                file_fd = os.open(item, _FILE, dir_fd=fd)
+                try:
+                    info = os.fstat(file_fd)
+                    limit = stage._MAX_ITEM if item in originals else _LIMIT
+                    # Truncated/empty files are expected forensic evidence.
+                    # Never parse or trust their content in this path.
+                    if (not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or
+                            info.st_uid != handle.uid or info.st_gid != os.getegid() or
+                            stat.S_IMODE(info.st_mode) != 0o600 or info.st_size > limit or
+                            historical._stamp(info) != historical._stamp(
+                                os.stat(item, dir_fd=fd, follow_symlinks=False))):
+                        raise BeforeStateError('unsafe_unbound_entry')
+                    if item in originals:
+                        total += info.st_size
+                finally:
+                    os.close(file_fd)
+            if (total > stage._MAX_TOTAL or journal._entries(fd) != names or
+                    historical._stamp(os.fstat(fd)) != before or
+                    not os.path.samestat(os.fstat(fd),
+                        os.stat(name, dir_fd=base, follow_symlinks=False))):
+                raise BeforeStateError('unbound_snapshot_changed')
+            return UnboundBeforeObservation('preserved_unbound',
+                                            'manifest.json' in names,
+                                            'receipt.json' in names,
+                                            len(names & originals))
+    except OSError:
+        raise BeforeStateError('unbound_snapshot_unavailable') from None

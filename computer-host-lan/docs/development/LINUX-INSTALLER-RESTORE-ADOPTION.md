@@ -482,12 +482,22 @@ it must be a valid next transition; without a record it must be an
 initial INSPECTED write and no staged payload may exist. An explicit
 trusted fixture verifier must establish the applicable real-world
 unchanged/restored state before evidence may be discarded. The temp is
-never promoted; current record and ancestors are synced first. Partial
-records (including empty initial writes), multiple/conflicting records,
-unknown schemas and unsafe metadata remain for future reviewed
-reconciliation. No generic cleanup or guessing based on a filename.
-This deliberately conservative first implementation can still require
-expert intervention after a partial write.
+never promoted; current record and ancestors are synced first. The separate
+fixture reconcile_partial_temp operation now supports a strict byte prefix
+(including zero bytes) of a valid canonical next schema-2 transition
+when the durable schema-2 record exists. The trusted verifier must
+independently reconstruct the proposed full record (including any new
+stage or snapshot evidence) and establish the applicable unchanged or
+restored state under the same locks. The partial bytes are not a source
+of truth; prefix equality does not identify a writer, authenticate
+evidence, or authorize a phase. A complete candidate goes through the
+complete-record path. Both methods share the same ownership, exact entry,
+transition, callback, byte/metadata recheck and durability guards.
+Neither method promotes the candidate. A partial orphan with no durable
+record, conflicting or multiple records, unsafe metadata, unknown schema
+or nonmatching prefix is preserved. In particular an empty initial write
+cannot identify its originating schema or operation. Expert intervention
+may still be required for those cases. No guessing based on filenames.
 
 If a discarded temporary record proposed VERIFYING -> COMMITTED, the
 durable VERIFYING phase still controls recovery: roll back even if all
@@ -577,6 +587,19 @@ such directories independently of stage retirement. A future operator
 reconciliation/quarantine policy must distinguish unbound forensic
 snapshots from bound rollback evidence and must not retire a referenced
 rollback source.
+The fixture inspect_unbound_before operation now classifies the exact
+transaction-derived directory only while holding an ABORTED journal
+with no bound snapshot name or receipt digest. It refuses a historical
+source collision, and an existing directory without stage evidence.
+The guarded no-follow walk checks a flat allowlist, ownership, private
+mode, single links, bounded sizes and stable directory identity. It
+reports absence or preserved unbound layout with manifest/receipt
+presence and original-file count only. Empty/truncated files are
+permitted as forensic evidence; no content is parsed, authenticated,
+rebound, renamed or deleted. A complete-looking tree remains unbound.
+This read-only classification is a prerequisite for, not implementation
+of, operator quarantine. It does not authorize abort or journal clearing
+or prove that the managed state is unchanged.
 A read at STAGED uses the freshly produced capture reference; later
 reads use the journal's immutable name and receipt digest, never a
 caller override. The reader checks exact binding, canonical manifests,
@@ -608,8 +631,8 @@ invokes systemd, applies files, changes credentials or permits live
 roots. No production or embedded bundle changes.
 
 Remaining: actual phase-specific execution and recovery verification,
-partial-write and unbound snapshot reconciliation policy, quarantine
-implementation and compatible helper provisioning. Never claim a valid
+partial orphan/ambiguous-write policy, unbound snapshot and corrupted-stage
+quarantine implementation, and compatible helper provisioning. Never claim a valid
 record or stage alone proves authorization or restored state.
 The existing v1 writer, recovery, Go bootstrap and bundle remain unchanged.
 
