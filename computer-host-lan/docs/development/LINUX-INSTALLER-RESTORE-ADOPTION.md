@@ -687,6 +687,12 @@ Healthy stages use normal retirement. Pending, retiring, foreign,
 ambiguous and unsafe stages are refused. Only definite structural or
 content validation failure or missing required files qualifies after
 bounded opaque allowlist validation; unrelated I/O errors refuse.
+The PlanError corruption codes are explicitly allowlisted. An unstable
+read (plan_file_changed or stage_identity_changed), unknown diagnostic,
+or operational failure is not evidence of corruption. The quarantine
+verifier cannot reacquire the same handle's stage lock: nested calls
+fail with stage_quarantine_verifier_reentrant_lock, and the callback
+scope flag is cleared even when it raises.
 The fixed quarantine-v2 directory under the backup base holds
 corrupt-stage-TRANSACTION and a separate receipt binding the exact
 terminal journal, staged-plan digest, source/destination and opaque
@@ -705,6 +711,18 @@ before and after that callback. The receipt is not authorization to
 apply a plan or clear a journal by itself. Partial receipts and
 ambiguous layouts remain preserved for reconciliation. No production
 or embedded integration.
+
+Proposed operator sequence (fixture contract only; no live command yet):
+after a crash or a new recovery process, retain the terminal journal
+and all quarantine artifacts. Re-run the explicit quarantine operation
+with fresh administrator authorization and independent terminal-outcome
+verification. A source with matching receipt may finish the move; a
+destination with matching receipt is rechecked and synced and returns
+already_quarantined. In that same active recovery handle, perform the
+separate terminal cleanup verification and clear the journal only if
+all checks pass. Do not run ordinary retirement as a shortcut.
+Partial receipts, missing or conflicting artifacts, unstable reads and
+unsafe metadata require reconciliation or expert review, not deletion.
 
 Remaining: actual phase-specific execution and recovery verification,
 partial orphan/ambiguous-write policy, incomplete quarantine receipt

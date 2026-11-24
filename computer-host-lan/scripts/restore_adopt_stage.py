@@ -162,6 +162,8 @@ def _locked(handle, *, create):
     if type(handle) is not journal.Handle:
         raise PlanError('fixture_transaction_required')
     handle.record()
+    if handle._stage_quarantine_verifying:
+        raise legacy_stage.StagingConflict('stage_quarantine_verifier_reentrant_lock')
     return legacy_stage._lock_stage(handle.root, handle.uid, create=create)
 
 
