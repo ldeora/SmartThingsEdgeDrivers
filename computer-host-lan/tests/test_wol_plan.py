@@ -162,6 +162,114 @@ class WolPlannerTests(unittest.TestCase):
         mask.write_text(exact_rule())
         self.assertEqual(self.plan()['link_tree'], 'earlier_rule_requires_review')
 
+    def empty_dropin(self):
+        self.put(LOCAL, exact_rule(wol=''))
+        directory = self.root / (LOCAL.lstrip('/') + '.d')
+        directory.mkdir()
+        return directory
+
+    def test_protected_empty_local_dropin_is_review_candidate_only(self):
+        directory = self.empty_dropin()
+        result = self.plan()
+        self.assertEqual(result['link_tree'], 'empty_local_dropin_observed')
+        self.assertEqual(result['recommendation'], 'review_link_dropin')
+        self.assertEqual(result['reason'], 'protected_empty_local_dropin')
+        self.assertEqual(list(directory.iterdir()), [])
+
+    def test_empty_dropin_does_not_extend_rule_scope_or_override_policy(self):
+        self.empty_dropin()
+        for rule in (exact_rule(wol='', key='MACAddress'),
+                     exact_rule(wol='off'), exact_rule(wol='magic'),
+                     '[Match]\nOriginalName=*\n[Link]\n'):
+            with self.subTest(rule=rule):
+                self.put(LOCAL, rule)
+                result = self.plan()
+                self.assertEqual(result['link_tree'], 'dropins_require_review')
+                self.assertEqual(result['recommendation'], 'manual_review')
+
+    def test_empty_dropin_conflicts_with_other_relevant_directories(self):
+        self.empty_dropin()
+        for path in ('/run/systemd/network/10-wol.link.d',
+                     '/usr/lib/systemd/network/10-wol.link.d',
+                     '/etc/systemd/network/05-other.link.d',
+                     '/etc/systemd/network/link.d',
+                     '/etc/systemd/network/10-.link.d'):
+            with self.subTest(path=path):
+                other = self.root / path.lstrip('/')
+                other.mkdir(parents=True)
+                self.assertEqual(self.plan()['link_tree'], 'dropins_require_review')
+                other.rmdir()
+
+    def test_empty_dropin_refuses_every_entry_even_hidden_or_dangling(self):
+        directory = self.empty_dropin()
+        for name in ('.hidden', 'unrelated.txt', '90-computer-host-wol.conf'):
+            with self.subTest(name=name):
+                entry = directory / name
+                entry.symlink_to('/nonexistent')
+                self.assertEqual(self.plan()['link_tree'], 'dropins_require_review')
+                entry.unlink()
+        nested = directory / 'nested'
+        nested.mkdir()
+        self.assertEqual(self.plan()['link_tree'], 'dropins_require_review')
+
+    def test_empty_dropin_rejects_unsafe_directory_and_symlink(self):
+        directory = self.empty_dropin()
+        directory.chmod(0o777)
+        self.assertNotEqual(self.plan()['recommendation'], 'review_link_dropin')
+        directory.rmdir()
+        other = self.root / 'private'
+        other.mkdir()
+        directory.symlink_to(other)
+        self.assertNotEqual(self.plan()['recommendation'], 'review_link_dropin')
+
+    def test_empty_dropin_populated_during_final_udev_query_is_refused(self):
+        directory = self.empty_dropin()
+        calls = 0
+        def udev():
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                (directory / '.hidden').write_text('changed')
+            return 'ID_NET_LINK_FILE=' + LOCAL + '\n'
+        self.replies[UDEV] = udev
+        self.assertEqual(self.plan()['link_tree'], 'selection_changed')
+
+    def test_empty_dropin_replaced_during_final_udev_query_is_refused(self):
+        directory = self.empty_dropin()
+        calls = 0
+        def udev():
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                directory.rename(directory.with_name('old-directory'))
+                directory.mkdir()
+            return 'ID_NET_LINK_FILE=' + LOCAL + '\n'
+        self.replies[UDEV] = udev
+        self.assertEqual(self.plan()['link_tree'], 'selection_changed')
+
+    def test_empty_dropin_rule_changes_during_final_udev_query_are_refused(self):
+        self.empty_dropin()
+        calls = 0
+
+        def udev():
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                self.put(LOCAL, exact_rule(wol='off'))
+            return 'ID_NET_LINK_FILE=' + LOCAL + '\n'
+
+        self.replies[UDEV] = udev
+        self.assertEqual(self.plan()['link_tree'], 'selection_changed')
+
+    def test_empty_dropin_never_overrides_reported_or_earlier_conflict(self):
+        self.empty_dropin()
+        self.replies[UDEV] += 'ID_NET_LINK_FILE_DROPINS=/private/override.conf\n'
+        self.assertEqual(self.plan()['link_tree'], 'dropins_require_review')
+        self.replies[UDEV] = 'ID_NET_LINK_FILE=' + LOCAL + '\n'
+        self.put('/usr/lib/systemd/network/05-generic.link',
+                 '[Match]\nDriver=*\n[Link]\n')
+        self.assertEqual(self.plan()['link_tree'], 'earlier_rule_requires_review')
+
     def test_on_disk_dropin_detected_even_if_udev_did_not_report(self):
         self.put('/run/systemd/network/10-wol.link.d/20-other.conf',
                  '[Link]\nWakeOnLan=off\n')

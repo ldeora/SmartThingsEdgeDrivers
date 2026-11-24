@@ -125,15 +125,15 @@ def policy_directories(root: Path, owner_uid: int) -> list[tuple[str, Path]]:
     return result
 
 
-def inventory(root: Path, owner_uid: int) -> tuple[dict[str, Path], set[str]]:
+def inventory(root: Path, owner_uid: int) -> tuple[dict[str, Path], dict[str, tuple[Path, ...]]]:
     """Select same-name winners; collect potentially relevant drop-in dirs.
 
-    Masks count as winners and are handled separately. Presence of a
-    drop-in directory is enough to defer (even if empty or masked).
+    Masks count as winners and are handled separately. Keep every
+    occurrence of a drop-in name, not just its precedence winner.
     No attempt is made to evaluate drop-in syntax or merge semantics.
     """
     winners = {}
-    dropins = set()
+    dropins = {}
     count = 0
     for _, directory in policy_directories(root, owner_uid):
         with os.scandir(directory) as entries:
@@ -144,8 +144,8 @@ def inventory(root: Path, owner_uid: int) -> tuple[dict[str, Path], set[str]]:
                 if entry.name.endswith('.link'):
                     winners.setdefault(entry.name, Path(entry.path))
                 elif entry.name.endswith('.link.d') or entry.name == 'link.d':
-                    dropins.add(entry.name)
-    return winners, dropins
+                    dropins.setdefault(entry.name, []).append(Path(entry.path))
+    return winners, {name: tuple(paths) for name, paths in dropins.items()}
 
 
 def read_rule(path: Path, owner_uid: int) -> str | None:
@@ -222,9 +222,55 @@ def has_secureon(text: str) -> bool:
     return False
 
 
+def empty_local_dropin(root: Path, observed: Path, owner_uid: int,
+                       dropins: dict[str, tuple[Path, ...]]) -> tuple[int, int, int, int] | None:
+    """Only an exact local selected-rule directory may qualify.
+
+    Every entry, including a hidden file, mask or subdirectory, is a
+    conflict. Walk all fixed components with directory descriptors.
+    Return mount-local identity and timestamps for advisory resampling.
+    No arbitrary directory is traversed and no contents are read.
+    """
+    if observed.parent != Path('/etc/systemd/network'):
+        return None
+    relevant = {name: paths for name, paths in dropins.items()
+                if name == 'link.d' or name.removesuffix('.d') <= observed.name}
+    name = observed.name + '.d'
+    expected = rooted(root, str(observed) + '.d')
+    if relevant != {name: (expected,)}:
+        return None
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
+    fd = os.open(root, flags)
+    try:
+        for component in ('etc', 'systemd', 'network', name):
+            info = os.fstat(fd)
+            if info.st_uid != owner_uid or info.st_mode & 0o022:
+                return None
+            child = os.open(component, flags, dir_fd=fd)
+            os.close(fd)
+            fd = child
+        before = os.fstat(fd)
+        if before.st_uid != owner_uid or before.st_mode & 0o022:
+            return None
+        with os.scandir(fd) as entries:
+            if next(entries, None) is not None:
+                return None
+        after = os.fstat(fd)
+        def identity(st):
+            return st.st_dev, st.st_ino, st.st_mtime_ns, st.st_ctime_ns
+        if identity(before) != identity(after):
+            return None
+        visible = expected.lstat()
+        if not stat.S_ISDIR(visible.st_mode) or identity(visible) != identity(after):
+            return None
+        return identity(after)
+    finally:
+        os.close(fd)
+
+
 def inspect_link_tree(root: Path, observed: Path, mac: str,
                       owner_uid: int, *,
-                      listing: tuple[dict[str, Path], set[str]] | None = None
+                      listing: tuple[dict[str, Path], dict[str, tuple[Path, ...]]] | None = None
                       ) -> tuple[str, str, str]:
     """Return fixed (tree evidence, scope, base policy) classifications.
 
@@ -243,8 +289,9 @@ def inspect_link_tree(root: Path, observed: Path, mac: str,
                 observed_path = '/usr' + observed_path
         if selected is None or selected != rooted(root, observed_path):
             return 'selection_changed', 'not_verified', 'not_verified'
-        if 'link.d' in dropins or any(
-                name.removesuffix('.d') <= observed.name for name in dropins):
+        relevant_dropins = ('link.d' in dropins or any(
+            name.removesuffix('.d') <= observed.name for name in dropins))
+        if relevant_dropins and empty_local_dropin(root, observed, owner_uid, dropins) is None:
             return 'dropins_require_review', 'not_verified', 'not_verified'
         for name, path in sorted(winners.items()):
             if name >= observed.name:
@@ -266,6 +313,10 @@ def inspect_link_tree(root: Path, observed: Path, mac: str,
         policy = probe.base_link_policy(text)
         if has_secureon(text):
             policy = 'secureon_requires_review'
+        if relevant_dropins:
+            if scope != 'permanent_mac' or policy != 'unspecified':
+                return 'dropins_require_review', 'not_verified', 'not_verified'
+            return 'empty_local_dropin_observed', scope, policy
         return 'base_rule_observed', scope, policy
     except (OSError, UnicodeError, ValueError, UncertainPolicy):
         return unknown
@@ -301,7 +352,7 @@ def recommendation(evidence: dict, tree: str, scope: str,
         return 'manual_review', 'nm_policy_not_explicit'
     if backend != 'systemd_udev':
         return 'manual_review', 'network_backend_not_verified'
-    if tree != 'base_rule_observed':
+    if tree not in ('base_rule_observed', 'empty_local_dropin_observed'):
         return 'manual_review', 'link_precedence_not_verified'
     if evidence['observed_link'] not in ('local', 'vendor'):
         return 'manual_review', 'link_not_stable_persistent_location'
@@ -315,6 +366,8 @@ def recommendation(evidence: dict, tree: str, scope: str,
             evidence['observed_link'] == 'local'):
         # Existing exact permanent-MAC local rule only. Never create a
         # competing .link, override a shared rule or replace explicit WOL.
+        if tree == 'empty_local_dropin_observed':
+            return 'review_link_dropin', 'protected_empty_local_dropin'
         return 'review_link_dropin', 'scoped_local_rule_without_wol'
     return 'manual_review', 'link_policy_requires_review'
 
@@ -369,11 +422,20 @@ def plan(interface: str, *, root: Path = Path('/'),
     evidence = probe.inspect(interface, net=net, run=record,
                              link_reader=link_reader or protected_link_reader)
     tree = scope = policy = 'not_verified'
+    empty_identity = None
     if (evidence['backend'] == 'systemd_udev' and observed is not None
             and observed[1] is not None and before is not None):
         if observed[2] == 'present':
             tree = 'dropins_require_review'
         elif evidence['permanent_mac_match'] == 'matches' and not inventory_failed:
+            # Capture the candidate directory before the tree check. The
+            # second sample after udev/inventory must match, including
+            # timestamps, so a replaced or populated directory is refused.
+            if listing is not None:
+                try:
+                    empty_identity = empty_local_dropin(root, observed[1], owner_uid, listing[1])
+                except (OSError, ValueError):
+                    empty_identity = None
             tree, scope, policy = inspect_link_tree(
                 root, observed[1], before[1], owner_uid, listing=listing)
             # The shared inventory is not an atomic snapshot. Recheck its
@@ -388,6 +450,17 @@ def plan(interface: str, *, root: Path = Path('/'),
             ('udevadm', 'info', '--query=property', '--path=/sys/class/net/' + interface)))
         if again != observed:
             tree, scope, policy = 'selection_changed', 'not_verified', 'not_verified'
+        if tree == 'empty_local_dropin_observed':
+            try:
+                final_listing = inventory(root, owner_uid)
+                final_identity = empty_local_dropin(root, observed[1], owner_uid, final_listing[1])
+                if (listing is None or final_listing != listing or
+                        empty_identity is None or final_identity != empty_identity or
+                        inspect_link_tree(root, observed[1], before[1], owner_uid,
+                                          listing=final_listing) != (tree, scope, policy)):
+                    tree, scope, policy = 'selection_changed', 'not_verified', 'not_verified'
+            except (OSError, ValueError, UncertainPolicy):
+                tree = scope = policy = 'not_verified'
     if valid and probe.read_identity(net, interface) != before:
         # Do not retain observations from a different interface.
         evidence = probe.inspect('', net=net)
