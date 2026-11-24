@@ -424,7 +424,7 @@ func main() {
 		os.Exit(2)
 	}
 	if *uninstallMode {
-		if *install || *recoverMode || *live || *preview || *apiPath != "" {
+		if *install || *recoverMode || *live || *preview || *accessible || *apiPath != "" {
 			fmt.Fprintln(os.Stderr, "-uninstall cannot be combined with other wizard modes")
 			os.Exit(2)
 		}
