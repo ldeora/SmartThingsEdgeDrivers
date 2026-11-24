@@ -343,6 +343,7 @@ class InstallerBackendTests(unittest.TestCase):
         self.assertFalse(old.exists())
         recovered = self.backend.recover_interrupted()
         self.assertEqual(recovered.status, 'rolled_back')
+        self.assertEqual(recovered.operation, 'uninstall')
         self.assertEqual(old.read_bytes(), original)
         self.assertEqual(self.services.restore_calls, 1)
         self.assertEqual(self.store.public_status()['privileged_transaction_state'],
@@ -381,9 +382,11 @@ class InstallerBackendTests(unittest.TestCase):
         # because COMMITTED is terminal, but it must remain on disk.
         folder = self.root / 'var/backups/linux-host-agent/wizard-transactions'
         self.assertTrue((folder / 'journal.json').exists())
-        # Terminal journal cleanup is exposed through the existing
-        # finish_terminal_cleanup method, without reinstalling or rollback.
-        self.backend.finish_terminal_cleanup()
+        # The public recovery path must also clean this payload-free
+        # terminal journal, despite read-only status being none.
+        recovered = self.backend.recover_interrupted()
+        self.assertEqual(recovered.status, 'cleaned')
+        self.assertEqual(recovered.operation, 'uninstall')
         self.assertFalse((folder / 'journal.json').exists())
         self.assertFalse(self.installed_paths().location(core.APP_FILES[0]).exists())
         self.assertEqual(self.services.restore_calls, 0)
