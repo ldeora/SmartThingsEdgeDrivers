@@ -58,6 +58,10 @@ class ProtectedJournalTests(unittest.TestCase):
                            snapshot_name=SNAPSHOT if PHASES[i] == 'SNAPSHOTTED' else None)
 
     def test_unknown_wol_operation_is_never_recovered_as_agent_transaction(self):
+        # Create the genuine private lock before replacing the journal
+        # with a future operation: exercise decoding, not missing-lock refusal.
+        with self.store.begin('install'):
+            pass
         record = dict(self.record(phase='APPLYING', snapshot=SNAPSHOT),
                       operation='configure_wol')
         target = self.private_record(record)
