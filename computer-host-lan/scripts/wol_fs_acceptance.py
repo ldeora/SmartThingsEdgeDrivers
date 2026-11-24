@@ -146,6 +146,15 @@ def experiment(action: str, directory: Path) -> dict:
     # This tool is never allowed to run with root credentials.
     if os.getuid() == 0 or os.geteuid() == 0:
         raise ValueError('run as an ordinary user, never root')
+    return _fixture_experiment(action, directory)
+
+
+def _fixture_experiment(action: str, directory: Path) -> dict:
+    # Internal disposable fixture boundary for CI, including root-run
+    # containers. The command-line and public experiment entry point
+    # always refuse root; never call this against real policy directories.
+    if action not in ('prepare', 'compare', 'rollback'):
+        raise ValueError('unknown action')
     with ExitStack() as stack:
         root = _open_directory(stack, directory)
         if action == 'prepare':
