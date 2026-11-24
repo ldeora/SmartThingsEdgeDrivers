@@ -258,11 +258,7 @@ class StageQuarantineTests(unittest.TestCase):
             self.ready(handle)
             def verify(_):
                 with self.assertRaisesRegex(stage.legacy_stage.StagingConflict,
-                                            '^stage_quarantine_verifier_reentrant_lock
-                return True
-            self.assertEqual(self.move(handle, verify), 'quarantined')
-            handle.clear_finished(lambda _: True)
-):
+                                            '^stage_quarantine_verifier_reentrant_lock$'):
                     stage.read_plan(handle)
                 return True
             self.assertEqual(self.move(handle, verify), 'quarantined')
