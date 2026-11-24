@@ -27,6 +27,8 @@ func TestCLIRejectsAmbiguousOrUnauthorizedOptions(t *testing.T) {
 		{"recover", "--confirm", "RECOVER", "--wol-interface", "eth0"},
 		{"status", "--confirm", ""}, {"status", "--elevation", "auto", "extra"},
 		{"rollback", "--confirm", "ROLLBACK"}, {"status", "--request", "{}"},
+		{"restore", "--snapshot", "snapshot-abcdefgh", "--confirm", "RESTORE"},
+		{"adopt", "--confirm", "ADOPT"},
 		{"plan"}, {"plan", "--action", "uninstall"},
 		{"plan", "--action", "install", "--confirm", "INSTALL"},
 		{"plan", "--action", "upgrade", "--elevation", "auto"},

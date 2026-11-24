@@ -75,6 +75,24 @@ class ProtectedJournalTests(unittest.TestCase):
             self.store.begin('install')
         self.assertEqual(target.read_bytes(), before)
 
+    def test_future_restore_adopt_journals_never_get_reaped_or_recovered(self):
+        with self.store.begin('install'):
+            pass
+        for operation in ('restore', 'adopt'):
+            for schema in (1, 2, 3):
+                for phase in ('APPLYING', 'COMMITTED', 'ROLLED_BACK'):
+                    with self.subTest(operation=operation, schema=schema, phase=phase):
+                        record = dict(self.record(phase=phase, snapshot=SNAPSHOT),
+                                      operation=operation, schema=schema)
+                        target = self.private_record(record)
+                        before = target.read_bytes()
+                        for call in (self.store.public_status,
+                                     self.store.resume_recovery,
+                                     lambda: self.store.begin('install')):
+                            with self.assertRaises(journal.UnsafeJournal):
+                                call()
+                            self.assertEqual(target.read_bytes(), before)
+
     def test_status_does_not_create_directories_or_lock(self):
         self.assertEqual(self.store.public_status()['privileged_transaction_state'], 'none')
         self.assertFalse((self.root / 'var').exists())

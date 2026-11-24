@@ -7,8 +7,8 @@ do not establish which protocol created these files.
 """
 from __future__ import annotations
 
-from contextlib import ExitStack
-from dataclasses import dataclass
+from contextlib import ExitStack, contextmanager
+from dataclasses import dataclass, replace
 import grp
 import os
 from pathlib import Path
@@ -18,6 +18,8 @@ import stat
 import uuid
 
 import install_core as core
+import installer_transaction as engine
+import transaction_journal as journal
 
 _DIR = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
 _FILE = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC
@@ -166,3 +168,74 @@ def inspect_retained_state(root: Path = Path('/'), *,
         if isinstance(exc, AdoptionEligibilityError):
             raise
         raise AdoptionEligibilityError('retained_state_unavailable_or_invalid') from None
+
+
+def _require_empty_journal(root: Path, owner_uid: int) -> None:
+    """Stricter than public status: even a terminal record needs cleanup.
+
+    Caller holds the shared installer lock. No journal/stage creation or
+    cleanup; the existing journal lock, if any, is taken read-only.
+    """
+    try:
+        with ExitStack() as stack:
+            directory = journal._open_directory(root, owner_uid, create=False)
+            if directory is not None:
+                stack.callback(os.close, directory)
+                lock = journal._open_lock(directory, owner_uid,
+                                          create=False, read_only=True)
+                if lock is not None:
+                    stack.callback(os.close, lock)
+                    journal._take_lock(lock, shared=True)
+                # No unknown directory contents or terminal leftovers.
+                fresh = os.open('.', _DIR, dir_fd=directory)
+                stack.callback(os.close, fresh)
+                if set(os.listdir(fresh)) - {'lock'}:
+                    raise AdoptionEligibilityError('journal_not_empty')
+            if journal._staged_payload_remains(root, owner_uid):
+                raise AdoptionEligibilityError('journal_not_empty')
+    except (OSError, journal.JournalError):
+        raise AdoptionEligibilityError('journal_unavailable') from None
+
+
+@contextmanager
+def adoption_candidate(*, root: Path = Path('/'), owner_uid: int = 0,
+                       manual_lock_path: Path = engine._MANUAL_LOCK,
+                       services=None):
+    """Yield momentary orphan/environment evidence while holding the flock.
+
+    This is an experimental inspection boundary, not adoption authorization.
+    May initialize the normal shared lock file; no other managed mutation.
+    Real-host service queries cannot be overridden. A fixture may inject a
+    fake service boundary only with a disposable root. No journal writes,
+    account changes, service stops, or credential output. The caller must
+    still independently establish v2 provenance and explicit consent.
+    """
+    root = Path(root)
+    manual_lock_path = Path(manual_lock_path)
+    if (not root.is_absolute() or '..' in root.parts or
+            owner_uid != os.geteuid() or
+            manual_lock_path != root / engine._MANUAL_LOCK.relative_to('/') or
+            (root == Path('/') and (owner_uid != 0 or services is not None)) or
+            (root != Path('/') and services is None)):
+        raise AdoptionEligibilityError('unsupported_context')
+    if services is None:
+        services = engine.SystemdOperations()
+
+    def require_quiescence():
+        if (services.verify_uninstall_services() is not True or
+                not engine._enablement_absent(core.InstallTransaction(root))):
+            raise AdoptionEligibilityError('service_state_unconfirmed')
+
+    with ExitStack() as stack:
+        try:
+            stack.enter_context(engine.manual_install_lock(
+                manual_lock_path, owner_uid=owner_uid))
+            _require_empty_journal(root, owner_uid)
+            require_quiescence()
+            evidence = inspect_retained_state(root, owner_uid=owner_uid)
+            require_quiescence()
+            _require_empty_journal(root, owner_uid)
+        except engine.ControllerError:
+            raise AdoptionEligibilityError(
+                'installer_lock_or_environment_unavailable') from None
+        yield replace(evidence, service_state='verified', journal_state='verified')

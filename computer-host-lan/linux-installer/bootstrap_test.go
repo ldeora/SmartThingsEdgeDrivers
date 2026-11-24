@@ -729,6 +729,67 @@ func TestTrustedHelperRefusesUpgradeWithPendingTransaction(t *testing.T) {
 	}
 }
 
+func TestTrustedHelperPreservesPromotionArtifactsOnUnknownJournal(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("temporary non-root bootstrap fixture")
+	}
+	parent := t.TempDir()
+	root := filepath.Join(parent, "computer-host-lan")
+	lock := filepath.Join(parent, "install.lock")
+	clean := func() (string, error) { return "none", nil }
+	if _, err := prepareTrustedVersion(root, lock, os.Geteuid(), clean); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := prepareTrustedVersion(root, lock, os.Geteuid(), clean); err != nil {
+		t.Fatal(err)
+	}
+	// Existing previous and next sets must survive an unreadable/future
+	// journal. The old helper's error is not evidence of a clean state.
+	if err := os.Mkdir(root+".next", 0o700); err != nil {
+		t.Fatal(err)
+	}
+	paths := []string{root, root + ".previous", root + ".next"}
+	before := make([]os.FileInfo, len(paths))
+	for i, path := range paths {
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		before[i] = info
+	}
+	for _, status := range []func() (string, error){
+		func() (string, error) { return "", errors.New("unsupported journal schema") },
+		func() (string, error) { return "unknown", nil },
+		func() (string, error) { return "recovery_required", nil },
+	} {
+		changed, err := prepareTrustedVersion(root, lock, os.Geteuid(), status)
+		if changed || err == nil {
+			t.Fatal("unknown journal state authorized helper promotion")
+		}
+		for i, path := range paths {
+			info, err := os.Stat(path)
+			if err != nil || !os.SameFile(before[i], info) {
+				t.Fatalf("promotion artifact changed: %s", path)
+			}
+		}
+	}
+}
+
+func TestFuturePrivilegedRequestsAreRejected(t *testing.T) {
+	for _, action := range []string{"restore", "adopt"} {
+		for _, schema := range []int{1, 2, 3} {
+			req := privilegedRequest{SchemaVersion: schema, Action: action}
+			raw, err := json.Marshal(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := decodePrivilegedRequest(bytes.NewReader(raw)); err == nil {
+				t.Fatal("future action was accepted")
+			}
+		}
+	}
+}
+
 func TestEmbeddedReadOnlyAPIContainsNoWritableRootHelper(t *testing.T) {
 	api, cleanup, err := makeEmbeddedReadOnlyAPI()
 	if err != nil {

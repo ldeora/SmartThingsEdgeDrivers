@@ -239,6 +239,82 @@ eligibility, consent, and revalidation under lock at adoption time are
 separate gates. The reader is not in the embedded bundle and has no
 production caller.
 
+## Historical expectations and environment evidence
+
+The development-only historical_expectations renderer requires an independently
+authenticated digest of the exact release payload manifest, an expected
+agent version and explicit renderer compatibility identifier v2_fixed_plan_1.
+It verifies all fixed payload bytes using the existing bounded staging
+reader, copies the frozen bytes into a private disposable directory and
+uses the current reviewed planner. It never executes historical source.
+Specify the exact allowed system Python command, power choice, interface
+pin and Avahi presence. The output is a complete map of expected present
+file hashes and explicitly absent paths. Arbitrary retained/customized
+drop-ins are not accepted by inference. A caller still needs an independently
+trusted manifest digest and reviewed source/renderer compatibility policy;
+this module is not an attestation verifier or release catalog. It neither
+reads a snapshot to derive expectations nor authorizes a restore. The
+candidate reader can use the resulting hashes and version as independent
+expectations only when their input provenance was actually established.
+
+The renderer identifier is covered by a frozen synthetic payload and
+literal expected per-path SHA-256 values in test_historical_expectations.py.
+The contract exercises both an unchanged and a versioned Python command
+(including multiple substitutions in a unit), and all eight combinations
+of power, interface pinning and Avahi presence. It compares the exact
+present-path hashes and absent paths, without computing the expected output
+through generate_plan. Changes in rendering semantics must not silently
+reuse the old identifier: preserve the old contract or introduce a new
+identifier and review historical compatibility explicitly. Do not simply
+refresh the golden hashes. Changes to current release source templates
+are different: their bytes are bound by the independently authenticated
+release manifest; a new release still needs compatibility review, but
+does not require a renderer bump if the transformation of frozen historical
+inputs is unchanged. This test is not a compatibility guarantee for every
+historical template or configuration.
+
+The experimental adoption_candidate context holds the existing shared
+installer lock during inspection and while yielding its evidence. It
+may create the normal lock file but never writes a journal, stops a
+service, repairs permissions or changes credentials. It refuses a journal
+directory with anything except the validated lock, even a terminal
+record that public status might report as clean, and refuses staged
+payload leftovers. Existing journal lock is opened read-only and held
+during the journal inspection. The existing explicit systemd absence
+query checks all three managed units and the existing enablement scan
+checks persistent/runtime dependency directories, including dangling links.
+Both journal and service checks run before and after private-state inspection.
+Evidence is momentary, not durable consent, a process census, or proof
+that arbitrary non-systemd code cannot touch agent-owned files. The
+future modifying operation must revalidate under its own transaction
+boundary and verify retained identity and key after activation. Real-host
+service queries cannot be overridden; fixture roots may inject mocks.
+
+## Future protocol compatibility contract
+
+Keep current Go and Python request schemas 1 and 2 and journal schema 1
+unchanged in this increment. Restore/adopt are not accepted even when a
+caller supplies proposed confirmation words. Current decoder tests
+exercise unknown operation and schema combinations, including terminal
+future journal records: no status success, automatic reaping, or old
+recovery dispatch. Go promotion tests preserve current/previous/next
+helper directories when the installed helper reports unknown or
+unreadable journal state. This is current-version refusal evidence,
+not a completed new-protocol compatibility implementation.
+
+Before introducing restore/adopt, specify new exact versioned request and
+journal formats (including distinct current-before-state and historical
+source references, durable adoption consent, and transaction-bound evidence).
+New helper must continue reading old supported recovery records without
+reinterpreting them. Old helper must fail closed on new records, including
+terminal ones. Recovery always uses the helper capable of interpreting
+the active record. Version promotion must not proceed on unknown/error
+status, including when the current helper is missing and a prior/next
+artifact exists; reconcile and validate before replacing any helper.
+Test actual old/new installed helper combinations, including interruption
+between renames, before enabling the new operations. Do not silently
+fallback to the legacy engine. A separate release gate remains #84.
+
 ## Implementation order and acceptance
 
 1. Specify strict historical snapshot eligibility and provenance/version
