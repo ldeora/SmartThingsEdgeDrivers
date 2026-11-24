@@ -252,11 +252,15 @@ Only the two INI lines (and trailing newline) are written.
 
 This is a narrower primitive than the complete policy design. Before
 integration, resolve the existing planner's refusal of any relevant
-drop-in directory: a protected empty directory may become eligible
-only after a separate policy review tracked in #97. Do not weaken
-drop-in conflict detection simply to exercise this primitive. Creating
-a new directory requires its own durable ownership/recovery mechanism.
-Broader support for generic/default policies remains separate.
+drop-in directory: the #97 planner increment observes a sole, exact,
+protected empty local drop-in directory for a selected permanent-MAC
+rule with unspecified WOL. It refuses duplicate/earlier/global
+directories, nonempty/unsafe directories, reported drop-ins, and
+changed directory or rule observations. No publication permission is
+given. The controller must independently re-walk and revalidate these
+conditions under the shared lock. Creating a new directory requires
+its own durable ownership/recovery mechanism. Broader support for
+generic/default policies remains separate.
 
 Directory descriptors do not prove that the directory is still bound to
 the live policy pathname. The future controller must independently
@@ -303,6 +307,46 @@ Fault injection simulates errors, not a physical power-loss durability
 test. Before production use, exercise the complete journal and cleanup
 protocol across actual supported filesystems and restart/remount
 boundaries. No tests against the live network policy are required here.
+
+## Experimental filesystem identity provider (#98)
+
+`scripts/wol_fs_identity.py` is a separate private read-only probe,
+not yet a replacement for schema 2 publication receipts. It accepts
+an open regular-file/directory descriptor, identifies its mount
+through the descriptor's mnt_id in /proc/self/fdinfo and the matching
+/proc/self/mountinfo record, and only attempts ext4, XFS or Btrfs.
+The first implementation restricts ioctl encodings to the verified
+64-bit asm-generic ABIs x86_64, aarch64 and riscv64. It uses the
+17-byte FS_IOC_GETFSUUID struct from Linux UAPI (introduced with the
+Linux 6.9 VFS UUID work; actual support is probed, not inferred from
+version) and, on Btrfs, the special unprivileged BTRFS_IOC_INO_LOOKUP
+query with treeid=0/objectid=256 to obtain the containing subvolume.
+Sources:
+https://github.com/torvalds/linux/blob/master/include/uapi/linux/fs.h
+and https://btrfs.readthedocs.io/en/stable/btrfs-ioctl.html.
+
+The resulting private comparison tuple contains filesystem type,
+16-byte nonzero UUID, Btrfs subvolume ID where applicable and inode.
+Repeated UUID/subvolume/mount observations and a second fstat must
+agree within the query. Missing /proc evidence, unknown filesystems
+or ABIs, unsupported ioctls, inconsistent observations and malformed
+responses return no identity. There is no fallback to st_dev or
+f_fsid, no device enumeration, no shell command, and no public
+serialization. This is candidate evidence, not a universal unique
+identity: UUID clones, restored images, subvolume recreation and
+inode reuse remain limitations. Retain the anchored hard-link checks
+and protected fixed-path revalidation. The existing publication
+receipt format is unchanged until the provider and actual filesystems
+have passed independent review and physical acceptance. On older
+kernels without the UUID ioctl, persistent WOL mutation must remain
+unavailable unless a separately reviewed stable provider is added.
+No agent installation dependency on this experimental feature.
+
+Fixture tests pin the ioctl layout, mount-ID matching, subvolume
+distinction, failure paths and no fallback. Before integration compare
+the probe's private identity, st_dev, f_fsid, inode and link count
+across a normal reboot on disposable Btrfs files, then validate ext4
+and XFS/LVM. Do not share raw UUIDs or change live network policy.
 
 ## Test and integration sequence
 
