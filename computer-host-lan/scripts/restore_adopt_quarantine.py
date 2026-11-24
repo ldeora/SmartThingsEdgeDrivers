@@ -45,12 +45,14 @@ def _entry(parent, name, uid, limit, *, sync=False):
         os.close(fd)
 
 
-def _inventory(fd, uid, *, sync=False):
+def _inventory(fd, uid, *, sync=False, staged=False):
     before._directory(fd, uid, private=True)
     stamp = before.historical._stamp(os.fstat(fd))
     names = journal._entries(fd)
-    originals = {f'{i}.original' for i in range(len(core.MANAGED_PATHS))}
-    if not names <= originals | {'manifest.json', 'receipt.json'}:
+    suffix = 'data' if staged else 'original'
+    originals = {f'{i}.{suffix}' for i in range(len(core.MANAGED_PATHS))}
+    metadata = {'manifest.json'} if staged else {'manifest.json', 'receipt.json'}
+    if not names <= originals | metadata:
         raise _ERROR('unexpected_quarantine_entries')
     items, stamps, total = [], {}, 0
     for name in sorted(names):
