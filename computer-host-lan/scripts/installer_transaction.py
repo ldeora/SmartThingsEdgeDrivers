@@ -11,11 +11,13 @@ from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass, replace
 import errno
 import fcntl
+import hashlib
 import json
 import os
 import pwd
 from pathlib import Path
 import re
+import secrets
 import stat
 import subprocess
 import time
@@ -614,6 +616,153 @@ def _sync_snapshot(backup: Path) -> None:
         os.close(parent)
 
 
+# Separate record, not a modification of the schema-1 rollback manifest.
+# An old helper can still recover its original snapshot. The dot prefix
+# keeps receipts out of the legacy snapshot-* selection namespace.
+_PROVENANCE_NAME = re.compile(r'snapshot-[A-Za-z0-9_-]{6,64}\Z')
+_PROVENANCE_VERSION = re.compile(
+    rb"""(?m)^VERSION[ \t]*=[ \t]*['"]([A-Za-z0-9.+_-]{1,64})['"][ \t]*\r?$""")
+_PROVENANCE_MAX_ITEM = 2 * 1024 * 1024
+_PROVENANCE_MAX_TOTAL = 8 * 1024 * 1024
+
+
+def _snapshot_provenance(root: Path, backup: Path, journal, previous: dict,
+                         *, owner_uid: int) -> None:
+    """Record protected before-state capture, not release authenticity.
+
+    Called with the shared installer and journal locks held, after the
+    original snapshot was synced and while the journal is STAGED.
+    Existing recovery is deliberately independent of this sidecar.
+    """
+    record = journal._record()
+    if (record['phase'] != 'STAGED' or
+            record['operation'] not in ('install', 'upgrade', 'repair', 'uninstall') or
+            not _PROVENANCE_NAME.fullmatch(backup.name) or
+            backup.parent != root / core.BACKUP_BASE.lstrip('/')):
+        raise ControllerError('recovery_required')
+    flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_DIRECTORY | os.O_CLOEXEC
+    read_flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC
+
+    def check_directory(fd, private=False):
+        info = os.fstat(fd)
+        if (info.st_uid != owner_uid or
+                stat.S_IMODE(info.st_mode) & (0o077 if private else 0o022)):
+            raise ControllerError('recovery_required')
+
+    def stamp(info):
+        return (info.st_dev, info.st_ino, info.st_mode, info.st_uid,
+                info.st_gid, info.st_nlink, info.st_size, info.st_mtime_ns,
+                info.st_ctime_ns)
+
+    def read(directory, name, limit, private=False):
+        fd = os.open(name, read_flags, dir_fd=directory)
+        with os.fdopen(fd, 'rb') as stream:
+            info = os.fstat(stream.fileno())
+            if (not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or
+                    info.st_uid != owner_uid or info.st_size > limit or
+                    stat.S_IMODE(info.st_mode) & (0o077 if private else 0o022)):
+                raise ControllerError('recovery_required')
+            data = stream.read(limit + 1)
+            if (len(data) != info.st_size or len(data) > limit or
+                    stamp(info) != stamp(os.fstat(stream.fileno()))):
+                raise ControllerError('recovery_required')
+            return data
+
+    with ExitStack() as stack:
+        fd = os.open(root, flags)
+        stack.callback(os.close, fd)
+        check_directory(fd)
+        ancestors = [fd]
+        for component in Path(core.BACKUP_BASE.lstrip('/')).parts:
+            fd = os.open(component, flags, dir_fd=fd)
+            stack.callback(os.close, fd)
+            check_directory(fd, component == Path(core.BACKUP_BASE).name)
+            ancestors.append(fd)
+        base = fd
+        directory = os.open(backup.name, flags, dir_fd=base)
+        stack.callback(os.close, directory)
+        check_directory(directory, True)
+        before = stamp(os.fstat(directory))
+        raw = read(directory, 'manifest.json',
+                   core.MAX_BACKUP_MANIFEST_BYTES, True)
+        manifest = json.loads(raw)
+        if (type(manifest) is not dict or
+                set(manifest) != {'schema', 'installer_protocol', 'items', 'previous'} or
+                manifest['schema'] != 1 or manifest['installer_protocol'] != 'v2' or
+                manifest['previous'] != previous or type(manifest['items']) is not list or
+                len(manifest['items']) > len(core.MANAGED_PATHS)):
+            raise ControllerError('recovery_required')
+        seen = set()
+        entries = {'manifest.json'}
+        digests = {}
+        version = None
+        total = 0
+        for index, item in enumerate(manifest['items']):
+            if (type(item) is not dict or type(item.get('path')) is not str or
+                    item['path'] not in core.MANAGED_PATHS or item['path'] in seen or
+                    type(item.get('existed')) is not bool):
+                raise ControllerError('recovery_required')
+            path = item['path']
+            seen.add(path)
+            if not item['existed']:
+                if set(item) != {'path', 'existed'}:
+                    raise ControllerError('recovery_required')
+                continue
+            filename = f'{index}.original'
+            if (set(item) != {'path', 'existed', 'file', 'mode', 'uid', 'gid'} or
+                    item['file'] != filename or
+                    any(type(item[key]) is not int for key in ('mode', 'uid', 'gid'))):
+                raise ControllerError('recovery_required')
+            data = read(directory, filename, _PROVENANCE_MAX_ITEM)
+            total += len(data)
+            if total > _PROVENANCE_MAX_TOTAL:
+                raise ControllerError('recovery_required')
+            digests[path] = hashlib.sha256(data).hexdigest()
+            entries.add(filename)
+            if path == core.APP_FILES[0]:
+                versions = _PROVENANCE_VERSION.findall(data)
+                if (len(versions) == 1 and
+                        core.PROTOCOL_MARKER.findall(data) == [b'computer-host-agent']):
+                    version = versions[0].decode('ascii')
+        if (set(os.listdir(directory)) != entries or
+                before != stamp(os.fstat(directory))):
+            raise ControllerError('recovery_required')
+        receipt = {
+            'schema_version': 1,
+            'origin': 'protected_before_state',
+            'snapshot_name': backup.name,
+            'transaction_id': record['transaction_id'],
+            'operation': record['operation'],
+            'capture_phase': 'STAGED',
+            'manifest_sha256': hashlib.sha256(raw).hexdigest(),
+            'file_sha256': digests,
+            'coverage': 'complete' if seen == core.MANAGED_PATHS else 'partial',
+            'captured_paths': sorted(seen),
+            'agent_version': version,
+            'service_observation': 'protected_capture_previous',
+            'previous': previous,
+            'release_authenticity': 'not_verified',
+        }
+        # Receipt is root-private and published without replacement.
+        # The snapshot directory remains byte-compatible with old recovery.
+        name = '.' + backup.name + '.protected.json'
+        temporary = '.snapshot-provenance-' + secrets.token_hex(16)
+        out_fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL |
+                         os.O_NOFOLLOW | os.O_CLOEXEC, 0o600, dir_fd=base)
+        try:
+            with os.fdopen(out_fd, 'wb') as output:
+                os.fchmod(output.fileno(), 0o600)
+                output.write((json.dumps(receipt, sort_keys=True) + '\n').encode('ascii'))
+                output.flush()
+                os.fsync(output.fileno())
+            os.link(temporary, name, src_dir_fd=base, dst_dir_fd=base,
+                    follow_symlinks=False)
+        finally:
+            os.unlink(temporary, dir_fd=base)
+        for ancestor in reversed(ancestors):
+            os.fsync(ancestor)
+
+
 def _sync_managed_directories(changes: list[core.Change],
                               transaction: core.InstallTransaction) -> None:
     """Sync managed directory entries bottom-up, including mkdir ancestors.
@@ -793,6 +942,8 @@ class InstallerBackend:
                 failure_stage = 'snapshot'
                 backup = transaction.snapshot(changes, previous=previous)
                 _sync_snapshot(backup)
+                _snapshot_provenance(self.root, backup, journal, previous,
+                                     owner_uid=self.owner_uid)
                 journal.advance('STAGED', 'SNAPSHOTTED',
                                 snapshot_name=backup.name)
                 # All changes, including stopping units and creating an
@@ -901,6 +1052,8 @@ class InstallerBackend:
                 failure_stage = 'snapshot'
                 backup = transaction.snapshot(changes, previous=previous)
                 _sync_snapshot(backup)
+                _snapshot_provenance(self.root, backup, journal, previous,
+                                     owner_uid=self.owner_uid)
                 journal.advance('STAGED', 'SNAPSHOTTED',
                                 snapshot_name=backup.name)
                 # NO managed file or service may change before this marker.

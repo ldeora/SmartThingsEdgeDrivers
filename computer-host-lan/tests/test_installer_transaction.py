@@ -810,6 +810,76 @@ class InstallerBackendTests(unittest.TestCase):
         result = self.backend.run(self.request(), ROOT, self.hashes)
         self.assertEqual(result.status, 'installed')
 
+    def test_protected_snapshot_provenance_is_durable_before_apply(self):
+        self.existing_install()
+        real_advance = journal.TransactionHandle.advance
+        checked = []
+
+        def advance(handle, previous, next_phase, **kwargs):
+            if next_phase == 'SNAPSHOTTED':
+                name = kwargs['snapshot_name']
+                base = self.root / core.BACKUP_BASE.lstrip('/')
+                backup = base / name
+                path = base / ('.' + name + '.protected.json')
+                evidence = json.loads(path.read_text())
+                self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+                self.assertEqual(evidence['origin'], 'protected_before_state')
+                self.assertEqual(evidence['capture_phase'], 'STAGED')
+                self.assertEqual(evidence['transaction_id'], handle.transaction_id)
+                self.assertEqual(evidence['snapshot_name'], name)
+                self.assertEqual(evidence['operation'], 'upgrade')
+                self.assertEqual(evidence['coverage'], 'partial')
+                self.assertEqual(evidence['release_authenticity'], 'not_verified')
+                self.assertEqual(evidence['manifest_sha256'], hashlib.sha256(
+                    (backup / 'manifest.json').read_bytes()).hexdigest())
+                manifest = json.loads((backup / 'manifest.json').read_text())
+                self.assertEqual(evidence['previous'], manifest['previous'])
+                self.assertEqual(evidence['file_sha256'], {
+                    item['path']: hashlib.sha256(
+                        (backup / item['file']).read_bytes()).hexdigest()
+                    for item in manifest['items'] if item['existed']})
+                self.assertEqual(evidence['captured_paths'],
+                                 sorted(item['path'] for item in manifest['items']))
+                self.assertIsNotNone(evidence['agent_version'])
+                self.assertFalse(any(p.name.endswith('.protected.json')
+                                     for p in backup.iterdir()))
+                checked.append(name)
+            return real_advance(handle, previous, next_phase, **kwargs)
+
+        with mock.patch.object(journal.TransactionHandle, 'advance', new=advance):
+            result = self.backend.run(self.request('upgrade'), ROOT, self.hashes)
+        self.assertEqual(result.status, 'installed')
+        self.assertEqual(len(checked), 1)
+
+    def test_uninstall_provenance_preserves_complete_coverage_not_eligibility(self):
+        self.existing_install()
+        self.assertEqual(self.backend.uninstall().status, 'uninstalled')
+        base = self.root / core.BACKUP_BASE.lstrip('/')
+        backup, = base.glob('snapshot-*')
+        receipt = json.loads((base / ('.' + backup.name + '.protected.json')).read_text())
+        self.assertEqual(receipt['operation'], 'uninstall')
+        self.assertEqual(receipt['coverage'], 'complete')
+        self.assertEqual(set(receipt['captured_paths']), core.MANAGED_PATHS)
+        # Complete coverage does not imply every required installed file
+        # was present or that old executable bytes are authenticated.
+        self.assertNotIn(core.APP_FILES[1], receipt['file_sha256'])
+        self.assertEqual(receipt['release_authenticity'], 'not_verified')
+        core.validate_v2_backup(backup, root=self.root)
+
+    def test_provenance_publication_failure_aborts_before_managed_mutation(self):
+        old = self.existing_install()
+        original = old.read_bytes()
+        with mock.patch.object(installer, '_snapshot_provenance',
+                               side_effect=OSError('fixture receipt failure')):
+            with self.assertRaises(installer.ControllerError) as caught:
+                self.backend.run(self.request('upgrade'), ROOT, self.hashes)
+        self.assertEqual(caught.exception.code, 'aborted')
+        self.assertEqual(caught.exception.failure_stage, 'snapshot')
+        self.assertEqual(old.read_bytes(), original)
+        self.assertFalse(self.services.activations)
+        self.assertEqual(self.services.user_preflights, 0)
+        self.assertEqual(self.store.public_status()['privileged_transaction_state'], 'none')
+
     def test_snapshot_failure_happens_before_any_applied_mutation(self):
         with mock.patch.object(core.InstallTransaction, 'snapshot',
                                side_effect=OSError('fixture disk full')):
