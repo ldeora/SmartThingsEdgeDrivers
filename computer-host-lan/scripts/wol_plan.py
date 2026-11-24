@@ -13,6 +13,7 @@ import os
 from pathlib import Path
 import stat
 import sys
+import types
 from typing import Callable
 
 
@@ -25,6 +26,9 @@ def _load_inspector():
     """
     directory = Path(__file__).absolute().parent
     uid = os.geteuid()
+    if uid == 0 and not (sys.flags.isolated and sys.flags.no_site
+                         and sys.dont_write_bytecode):
+        raise RuntimeError('root inspection requires Python -I -S -B')
     # A normal developer may use a checkout they own, under root-owned
     # parents. Root requires every component to be root-owned.
     for parent in (*reversed(directory.parents), directory):
@@ -37,12 +41,22 @@ def _load_inspector():
         if (not stat.S_ISREG(info.st_mode) or info.st_uid not in (0, uid)
                 or info.st_mode & 0o022):
             raise RuntimeError('unsafe inspector source')
-    sys.path.insert(0, str(directory))
-    try:
-        import wol_inspect
-        return wol_inspect
-    finally:
-        sys.path.pop(0)
+    # Load source from the checked sibling directly, not a writable
+    # __pycache__ or another module on sys.path. No import search is added.
+    source = directory / 'wol_inspect.py'
+    fd = os.open(source, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW | os.O_NONBLOCK)
+    with os.fdopen(fd, 'rb') as stream:
+        info = os.fstat(stream.fileno())
+        if (not stat.S_ISREG(info.st_mode) or info.st_uid not in (0, uid)
+                or info.st_mode & 0o022 or info.st_size > 262144):
+            raise RuntimeError('unsafe inspector source')
+        data = stream.read(262145)
+    if len(data) > 262144:
+        raise RuntimeError('oversized inspector source')
+    module = types.ModuleType('wol_inspect')
+    module.__file__ = str(source)
+    exec(compile(data, str(source), 'exec'), module.__dict__)
+    return module
 
 
 # Normal module imports are used by fixture tests and the future installed
