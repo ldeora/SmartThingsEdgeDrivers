@@ -39,6 +39,13 @@ class BeforeState:
     services: tuple[tuple[str, bool], ...]
 
 
+def _require_fixture(handle):
+    if (type(handle) is not journal.Handle or handle.root.resolve() == Path('/') or
+            handle.root.resolve() != handle.root or handle.uid != os.geteuid()):
+        raise BeforeStateError('fixture_transaction_required')
+    return handle.record()
+
+
 def _hash(raw):
     return hashlib.sha256(raw).hexdigest()
 
@@ -252,7 +259,7 @@ def capture_before(handle, observer):
     Uncertain/partial snapshots are preserved, not reused. This fixture
     intentionally captures no identity, token, account or owner marker.
     """
-    record = handle.record()
+    record = _require_fixture(handle)
     handle._clean()
     if handle._recovering or record['phase'] != 'STAGED':
         raise BeforeStateError('before_capture_requires_staged')
@@ -302,7 +309,7 @@ def read_before(handle, *, proposed=None):
     At STAGED only the freshly produced capture reference is accepted.
     All later reads use the durable record and refuse caller overrides.
     """
-    record = handle.record()
+    record = _require_fixture(handle)
     if record['phase'] == 'STAGED':
         if type(proposed) is not BeforeState:
             raise BeforeStateError('before_reference_required')
@@ -323,7 +330,7 @@ def matches_current(handle, before, observer):
     Not credential equality, service quiescence proof, owner-marker
     authorization, or successful recovery. No mutations.
     """
-    record = handle.record()
+    record = _require_fixture(handle)
     try:
         return _capture(handle, record, observer) == (before.files, before.services)
     except (OSError, BeforeStateError):
