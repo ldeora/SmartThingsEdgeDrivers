@@ -284,3 +284,24 @@ func TestNetworkObservationNeverInfersConnectivityFromMissingFirewallEvidence(t 
 		t.Fatalf("confirmed observations lost: %+v", got)
 	}
 }
+
+func TestInstallationOutcomeDistinguishesNewInstallAndUnverifiedUpgrade(t *testing.T) {
+	for _, tc := range []struct {
+		action   string
+		identity string
+		want     string
+		absent   string
+	}{
+		{"install", "not_verified", "New agent installation completed;", "Previous agent identity was not verified."},
+		{"upgrade", "not_verified", "Previous agent identity was not verified.", "New agent installation completed;"},
+		{"install", "verified", "Existing agent identity verified.", "New agent installation completed;"},
+	} {
+		var out bytes.Buffer
+		showInstallationOutcome(&out, &liveSelection{},
+			privilegedRequest{Action: tc.action, Power: "preserve"},
+			privilegedResult{Status: "installed", IdentityPreserved: tc.identity})
+		if !strings.Contains(out.String(), tc.want) || strings.Contains(out.String(), tc.absent) {
+			t.Fatalf("unexpected wording: %s", out.String())
+		}
+	}
+}

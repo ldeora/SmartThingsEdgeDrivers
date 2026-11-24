@@ -549,7 +549,11 @@ func showInstallationOutcome(w io.Writer, s *liveSelection, req privilegedReques
 		fmt.Fprintln(w, "Open your existing SmartThings computer device and refresh it first. Rediscovery is normally unnecessary.")
 		fmt.Fprintln(w, "Only if no device is registered, install the Computer Host LAN Edge driver if needed, then Add device → Scan nearby.")
 	} else {
-		fmt.Fprintln(w, "Previous agent identity was not verified.")
+		if req.Action == "install" {
+			fmt.Fprintln(w, "New agent installation completed; no previous identity was verified.")
+		} else {
+			fmt.Fprintln(w, "Previous agent identity was not verified.")
+		}
 		fmt.Fprintln(w, "If you already have a SmartThings computer device, check and refresh it first.")
 		fmt.Fprintln(w, "For first-time onboarding, install the Computer Host LAN Edge driver, then Add device → Scan nearby.")
 	}

@@ -123,6 +123,7 @@ type cliPrepared struct {
 	request privilegedRequest
 	plan    *apiPlan
 	network *networkObservation
+	checks  []apiCheck
 }
 
 type cliResult struct {
@@ -131,14 +132,40 @@ type cliResult struct {
 	Plan          *apiPlan            `json:"plan,omitempty"`
 	Network       *networkObservation `json:"preflight_network,omitempty"`
 	Onboarding    string              `json:"onboarding,omitempty"`
+	Checks        []apiCheck          `json:"checks,omitempty"`
+}
+
+// Copy only the fixed inspector enums. Never expose a raw diagnostic,
+// even if the plan call fails before approvedRootRequest checks prerequisites.
+func preflightChecks(info apiInspect) []apiCheck {
+	if len(info.Checks) == 0 || len(info.Checks) > 20 {
+		return nil
+	}
+	checks := make([]apiCheck, 0, len(info.Checks))
+	for _, check := range info.Checks {
+		if !knownCheck(check.ID) {
+			return nil
+		}
+		switch check.Status {
+		case "passed", "blocked", "warning", "not_verified":
+			checks = append(checks, check)
+		default:
+			return nil
+		}
+	}
+	return checks
 }
 
 func cliInstallPreflight(o cliOptions, api apiClient, info apiInspect, firewallActive bool) (cliPrepared, error) {
+	prepared := cliPrepared{checks: preflightChecks(info)}
+	if len(prepared.checks) == 0 {
+		return prepared, errors.New("invalid preflight checks")
+	}
 	if o.action == "plan" {
 		o.action = o.target
 	}
 	if !o.isInstall() || (o.action == "install") == info.Installation.Detected {
-		return cliPrepared{}, errors.New("requested action does not match observed installation")
+		return prepared, errors.New("requested action does not match observed installation")
 	}
 	s := &liveSelection{
 		api: api, inspection: info, powerChoice: "keep", wolChoice: "keep",
@@ -150,30 +177,31 @@ func cliInstallPreflight(o cliOptions, api apiClient, info apiInspect, firewallA
 		s.powerChoice = "disabled"
 	case "preserve":
 	default:
-		return cliPrepared{}, errors.New("invalid power setting")
+		return prepared, errors.New("invalid power setting")
 	}
 	if o.nic != "" {
 		s.wolChoice, s.wolNIC = "pin", o.nic
 	}
 	req, err := approvedRootRequest(s)
 	if err != nil {
-		return cliPrepared{}, err
+		return prepared, err
 	}
 	if o.action == "repair" && req.Action == "upgrade" {
 		req.Action = "repair"
 	}
 	if req.Action != o.action {
-		return cliPrepared{}, errors.New("requested action mismatch")
+		return prepared, errors.New("requested action mismatch")
 	}
 	if err := req.validate(); err != nil {
-		return cliPrepared{}, err
+		return prepared, err
 	}
 	plan, err := s.currentPlan()
 	if err != nil {
-		return cliPrepared{}, err
+		return prepared, err
 	}
 	network := observeNetwork(info, firewallActive)
-	return cliPrepared{request: req, plan: &plan, network: &network}, nil
+	prepared.request, prepared.plan, prepared.network = req, &plan, &network
+	return prepared, nil
 }
 
 func prepareCLIRequest(o cliOptions) (cliPrepared, error) {
@@ -227,7 +255,12 @@ func executeCLI(args []string, root bool,
 		wantAction = o.target
 	}
 	if err != nil || req.Action != wantAction || req.validate() != nil {
-		return cliFailure(o.action, "preflight_failed"), 1
+		result := cliFailure(o.action, "preflight_failed")
+		result.Checks = prepared.checks
+		if o.action == "plan" {
+			result.PlannedAction = wantAction
+		}
+		return result, 1
 	}
 	if o.action == "plan" {
 		if prepared.plan == nil || prepared.network == nil {
@@ -239,6 +272,7 @@ func executeCLI(args []string, root bool,
 				PrivilegedTransactionState: "unknown", IdentityPreserved: "not_verified",
 			},
 			PlannedAction: wantAction, Plan: prepared.plan, Network: prepared.network,
+			Checks: prepared.checks,
 		}, 0
 	}
 	// A CLI request is noninteractive even if stdout/stdin happen to be
@@ -256,7 +290,7 @@ func executeCLI(args []string, root bool,
 		// A lost response is not evidence that no mutation occurred.
 		return cliFailure(o.action, "outcome_unknown"), 1
 	}
-	result := cliResult{privilegedResult: safe, Network: prepared.network}
+	result := cliResult{privilegedResult: safe, Network: prepared.network, Checks: prepared.checks}
 	if safe.Status == "error" {
 		if safe.ErrorCode == "recovery_required" {
 			return result, 3

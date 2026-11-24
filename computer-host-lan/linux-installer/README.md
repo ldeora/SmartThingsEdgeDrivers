@@ -145,6 +145,17 @@ accounts, locks or network policy. A successful plan returns
 `plan` object; privileged transaction state is unknown, runtime and
 identity are not verified. A plan is not a reservation or authorization.
 
+Once the read-only inspection has succeeded, plan and installation
+preflight failures include the validated `checks` list (each entry has
+a fixed `id` and `status`: passed, blocked, warning or not_verified).
+For example, `systemd_pid1` with status blocked identifies a missing
+systemd prerequisite. The list is also included in successful plans and
+in validated installation replies. If inspection itself fails, checks
+are omitted rather than invented. A plan failure retains the requested
+`planned_action`. A list without blocked checks does not imply that all
+preflight gates passed: action mismatch, interpreter consistency and
+plan generation can independently fail. No raw error output is exposed.
+
 Successful installation/upgrade/repair results and plans include
 `preflight_network`: `avahi_prerequisites` is passed or not_verified;
 `firewalld` is active or not_verified. Active firewalld may block TCP/8765;
@@ -166,9 +177,12 @@ shell instructions remain unchanged, including their read-only dry run.
 
 Except for help, stdout is a single schema-version-1 JSON result containing
 fixed operation/status/error, recovery/identity and optional validated plan,
-preflight-network and onboarding fields;
+preflight-network, checks and onboarding fields;
 `secrets_included` is false. Empty strings mean no applicable or reported
-value, not a verified negative. No raw privileged output is copied.
+value, not a verified negative. `privileged_transaction_state: "unknown"`
+on a read-only plan means protected journal state was not inspected; it
+is distinct from an empty field and from `none`. No raw privileged output
+is copied.
 Exit 0 means a completed operation (for status, transaction state none);
 1 means failure or unknown outcome; 2 invalid invocation or root caller;
 3 indicates an outstanding transaction (including an in-progress one)

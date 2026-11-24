@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -259,6 +260,72 @@ func TestCLIInstallOutcomeCarriesScopedNetworkAndOnboarding(t *testing.T) {
 		if code != 0 || result.Onboarding != want || result.Network == nil ||
 			result.Network.Firewalld != "not_verified" || result.Plan != nil {
 			t.Fatalf("unexpected completion: %+v, %d", result, code)
+		}
+	}
+}
+
+func TestCLIReportsBlockedChecksEvenWhenPlanFails(t *testing.T) {
+	api := fixtureClient(t)
+	info, err := api.inspect()
+	if err != nil {
+		t.Fatal(err)
+	}
+	info.Checks = append(info.Checks,
+		apiCheck{ID: "systemd_pid1", Status: "blocked"},
+		apiCheck{ID: "tool_systemctl", Status: "blocked"})
+	for _, args := range [][]string{
+		{"plan", "--action", "upgrade"},
+		{"upgrade", "--confirm", "UPGRADE"},
+	} {
+		for _, planAPI := range []apiClient{api, scriptClient(t, "#!/bin/sh\nexit 1\n")} {
+			result, code := executeCLI(args, false,
+				func(o cliOptions) (cliPrepared, error) {
+					return cliInstallPreflight(o, planAPI, info, false)
+				}, func(privilegedRequest, bool, string) (privilegedResult, error) {
+					t.Fatal("blocked preflight reached authorization")
+					return privilegedResult{}, nil
+				})
+			if code != 1 || result.ErrorCode != "preflight_failed" ||
+				result.Plan != nil || result.SecretsIncluded {
+				t.Fatalf("unexpected failure: %+v, %d", result, code)
+			}
+			if args[0] == "plan" && result.PlannedAction != "upgrade" {
+				t.Fatal("requested action missing")
+			}
+			raw, err := json.Marshal(result)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var decoded struct {
+				Checks []apiCheck `json:"checks"`
+			}
+			if err := json.Unmarshal(raw, &decoded); err != nil {
+				t.Fatal(err)
+			}
+			if len(decoded.Checks) != len(info.Checks) {
+				t.Fatalf("missing check evidence: %s", raw)
+			}
+			for i, check := range info.Checks {
+				if decoded.Checks[i] != check {
+					t.Fatalf("check evidence changed: %s", raw)
+				}
+			}
+		}
+	}
+}
+
+func TestCLIInspectionDiagnosticsRefuseUnknownValues(t *testing.T) {
+	for _, checks := range [][]apiCheck{
+		nil,
+		{{ID: "private-path", Status: "blocked"}},
+		{{ID: "systemd_pid1", Status: "private-data"}},
+	} {
+		result, code := executeCLI([]string{"plan", "--action", "install"}, false,
+			func(o cliOptions) (cliPrepared, error) {
+				return cliInstallPreflight(o, apiClient{}, apiInspect{Checks: checks}, false)
+			}, nil)
+		if code != 1 || result.ErrorCode != "preflight_failed" || len(result.Checks) != 0 {
+			t.Fatalf("unsafe diagnostics: %+v, %d", result, code)
 		}
 	}
 }
