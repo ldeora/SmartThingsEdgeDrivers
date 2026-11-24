@@ -62,13 +62,20 @@ the current WOL flag, or restart networking.
 The next increment adds a separate development-only read-only command:
 
 ```sh
-python3 scripts/wol_plan.py --interface enp1s0f0
+python3 -I -S -B scripts/wol_plan.py --interface enp1s0f0
 ```
 
 It combines the same redacted inspection with additional systemd policy
-evidence. Run it first as a normal user. Where hardware capability cannot
-be retrieved, use the already reviewed trusted checkout with administrator
-authorization for a read-only comparison. No configuration is applied.
+evidence. Run it first as a normal user. Standalone execution checks the
+ownership and permissions of the script directory, its ancestors and both
+source files before loading the sibling source directly (no import search
+path addition or cached bytecode). A normal user may use a protected
+checkout they own. Root execution requires `-I -S -B` and a root-owned
+protected copy of both reviewed files, not a normal user's checkout.
+Do not elevate from a writable or unreviewed source tree. For a root
+comparison, an administrator may copy the independently reviewed sources
+into a private root-owned directory and invoke the planner there using
+the trusted system Python interpreter. No configuration is applied.
 
 The planner inventories the supported systemd network directories in
 same-basename priority order. A standard merged-/usr alias is recognized;
@@ -84,9 +91,12 @@ if the directory is empty or the file is masked. The planner deliberately
 does not implement general systemd matching, drop-in merging, or
 re-evaluation of device initialization; a consistent observed base
 rule is only limited evidence, not proof of future effective policy.
-It does not execute udev test builtins. Re-read the udev selection
-and interface identity after inspection; concurrent policy changes
-still require a fresh protected check before a future write.
+It does not execute udev test builtins. Reuse one directory inventory for the base declaration and precedence
+evaluation, then rescan the inventory and re-read the udev selection
+and interface identity after inspection. This detects changed names or
+winning paths but is not an atomic filesystem snapshot; file content
+changes, concurrent changes reverted between reads and changes after
+inspection still require a fresh protected check before a future write.
 
 The plan exposes fixed enums only. In particular, it emits no writable
 target, command, raw profile, MAC, filename, password or old/new value.
@@ -100,7 +110,7 @@ The nested `inspection` is evidence, not authorization.
 | verify_hardware | Missing hardware information; a trusted administrator check may help |
 | unavailable | Unsuitable/unverified interface or explicitly unsupported magic packets |
 | review_runtime | Existing magic declaration differs from runtime; investigate, don't rewrite policy |
-| review_nm_add_magic | Explicit NM flags lack magic; candidate for further review, never authorization to replace flags |
+| review_nm_add_magic | Explicit NM flags lack magic; reason distinguishes explicit disabled WOL (`explicit_nm_wol_disabled`) from other flags (`explicit_nm_flags_without_magic`); candidate for review only |
 | review_link_dropin | Local single literal permanent-MAC rule with unspecified WOL and no observed precedence conflict; consider scoped drop-in only after additional checks |
 | manual_review | Ambiguous ownership, identity, SecureOn, explicit conflicting/default/ignore policy, shared/complex rule, drop-ins, or unsafe paths |
 
@@ -186,6 +196,20 @@ References:
 5. **Acceptance:** Fixture tests for both backends and conflict/rollback
    paths; supervised Gentoo and NetworkManager hardware tests, reboot and
    magic-packet wake only after explicit approval.
+
+### Supported-layout limitations
+
+The conservative inventory deliberately refuses directory symlinks other
+than the recognized /lib -> usr/lib alias. For example, Fedora
+Silverblue/ostree may have a symlinked /usr/local, NixOS may expose
+/etc/systemd/network through a symlink, and older split-/usr systems may
+have distinct vendor network directories under both /lib and /usr/lib.
+These layouts can produce not_verified even when WOL works. Check
+`ls -ld /lib /usr/local /etc/systemd/network` when diagnosing an
+unexpected result. A legitimate symlinked .link (other than a recognized
+/dev/null mask), when selected or potentially earlier, likewise requires
+review. No arbitrary symlink resolution is attempted. Do not alter the
+host's layout to satisfy this development probe.
 
 The existing agent uninstall retains external WOL policy. Any later cleanup
 of an installer-owned WOL configuration must be explicit, ownership-aware,
