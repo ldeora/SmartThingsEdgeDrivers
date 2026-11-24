@@ -46,6 +46,25 @@ gh attestation verify ./computer-host-linux-installer \
   --deny-self-hosted-runners
 ```
 
+Normal online verification retrieves the attestation and trust material.
+The trust model includes GitHub's repository/workflow identity and the
+Sigstore trust infrastructure (the public Sigstore instance for public
+repository attestations, with GitHub also a trust dependency). For a
+disconnected host, obtain the matching attestation with
+`gh attestation download` and the trust material with
+`gh attestation trusted-root` on a trusted connected host. Transfer them
+with the expected source record and verify with the same constraints
+above plus `--bundle PATH_TO_ATTESTATION.jsonl --custom-trusted-root
+PATH_TO_TRUSTED_ROOT.jsonl`. Do not accept an arbitrary trust root
+supplied by an untrusted binary distributor. Offline name verification
+alone does not establish that the repository still belongs to the same
+owner; independently pin/check the source repository identifier and
+expected source revision. Establish a trusted-root refresh and
+attestation revocation/check policy before using offline verification
+for deployment. See [GitHub offline verification instructions](https://docs.github.com/en/actions/how-tos/secure-your-work/use-artifact-attestations/verify-attestations-offline)
+and [trusted-root CLI](https://cli.github.com/manual/gh_attestation_trusted-root).
+No offline verification procedure has yet been accepted for this project.
+
 Any nonzero result or unexpected signer/ref/commit means do not execute.
 Use actual final filename and documented minimum verifier version at release.
 A valid attestation is not an independent code review. Establish and test a

@@ -96,10 +96,20 @@ identity/key, account, marker, snapshots, protected helper and operator
 network policy. Recover restores or cleans; plan/status do not install
 (status may initialize bootstrap coordination). No automatic pairing.
 
-Managed paths: /opt/linux-host-agent/, /etc/systemd/system/ and
-/etc/avahi/services/linux-host-agent.service. The owner marker is
-/var/lib/linux-host-agent-installer/protocol; private installation-id and
-control-token live under /var/lib/linux-host-agent/. Snapshots do not contain
+The exact managed-file allowlist (MANAGED_PATHS in install_core.py) is:
+
+- /opt/linux-host-agent/linux_host_agent.py
+- /opt/linux-host-agent/power_helper.py
+- /etc/systemd/system/linux-host-agent.service
+- /etc/systemd/system/linux-host-agent-power.service
+- /etc/systemd/system/linux-host-agent-power.socket
+- /etc/systemd/system/linux-host-agent.service.d/enable-power.conf
+- /etc/systemd/system/linux-host-agent.service.d/90-wol-interface.conf
+- /etc/avahi/services/linux-host-agent.service
+
+This does not authorize management of entire directories or other unit
+files. The owner marker is /var/lib/linux-host-agent-installer/protocol;
+private installation-id and control-token live under /var/lib/linux-host-agent/. Snapshots do not contain
 credentials. Root-side identity verification may read the UUID but never
 reports it. UUID preservation does not establish key equality or pairing.
 No automatic firewall edits, persistent NIC WOL or arbitrary network

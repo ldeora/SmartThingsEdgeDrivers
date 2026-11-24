@@ -61,7 +61,9 @@ current state separately, journal the current before-state, verify
 service/file restoration and preserve recovery if interrupted. Restoring
 an old snapshot is not the same as undoing the active transaction;
 do not expose a new restore operation until old-helper compatibility,
-snapshot provenance and recovery dispatch have been reviewed.
+snapshot provenance and recovery dispatch have been reviewed. See the
+[restore and adoption design](LINUX-INSTALLER-RESTORE-ADOPTION.md) for the
+proposed separate contracts and their acceptance gates.
 
 ## Staged migration
 
