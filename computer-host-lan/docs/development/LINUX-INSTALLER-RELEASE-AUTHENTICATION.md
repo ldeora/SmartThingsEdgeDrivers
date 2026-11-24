@@ -75,7 +75,7 @@ Any nonzero result or unexpected signer/ref/commit means do not execute.
 Use actual final filename and documented minimum verifier version at release.
 A valid attestation is not an independent code review.
 
-### Protected executable handoff — PR #163 (pending review)
+### Protected executable handoff — PR #164 (pending review)
 
 The new handoff snapshots `/proc/self/exe`, not the mutable pathname returned
 by `os.Executable()`, into a private user-owned 0700 directory. The root
