@@ -18,7 +18,7 @@ import (
 
 const (
 	maxHandoffExecutableBytes = 128 << 20
-	protectedHandoffRoot     = "/run/computer-host-lan"
+	protectedHandoffRoot      = "/run/computer-host-lan"
 )
 
 var (
