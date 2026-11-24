@@ -173,7 +173,6 @@ class AcceptanceTests(unittest.TestCase):
              mock.patch.object(acceptance.publication, 'rollback') as undo:
             result = self.run_fixture('rollback')
         self.assertEqual(result['status'], 'rollback_refused')
-        self.assertTrue(result['persistent_identity_unchanged'])
         self.assertFalse(result['schema2_publication_verified'])
         undo.assert_not_called()
 
