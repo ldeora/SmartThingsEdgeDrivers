@@ -197,7 +197,12 @@ def stage_plan(handle, files, services):
             raise PlanError('existing_stage_requires_recovery')
         pending = 'pending-plan-' + record['transaction_id']
         ready = 'ready-plan-' + record['transaction_id']
+        # A failed publication is uncertain even if the final name
+        # became visible. Poison this forward handle until a new recovery
+        # context is opened. Never proceed to STAGED on a failed fsync.
+        handle._failed = True
         os.mkdir(pending, 0o700, dir_fd=base)
+        os.fsync(base)
         directory = os.open(pending, legacy_stage._DIR_FLAGS, dir_fd=base)
         try:
             os.fchmod(directory, 0o700)
@@ -210,6 +215,7 @@ def stage_plan(handle, files, services):
                 raise PlanError('unexpected_stage_entries')
             os.rename(pending, ready, src_dir_fd=base, dst_dir_fd=base)
             _sync_stage_ancestors(handle)
+            handle._failed = False
             return digest
         finally:
             os.close(directory)

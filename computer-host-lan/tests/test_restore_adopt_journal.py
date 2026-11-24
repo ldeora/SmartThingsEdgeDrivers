@@ -61,6 +61,28 @@ class JournalTests(unittest.TestCase):
             recovery.advance('ABORTED', verify=verified)
             recovery.clear_finished(verified)
 
+    def test_verifier_cannot_rebind_nested_intent_or_evidence(self):
+        with self.store.transaction(ADOPT) as handle:
+            evidence = dict(ADOPT_EVIDENCE)
+            before = self.path.read_bytes()
+
+            def change_input(proposal):
+                proposal['intent']['power'] = 'enable'
+                proposal['evidence']['agent_version'] = '0.0.0'
+                evidence['agent_version'] = '0.0.1'
+                return True
+
+            with self.assertRaises(old.JournalConflict):
+                handle.advance('STAGED', evidence=evidence, verify=change_input)
+            self.assertEqual(self.path.read_bytes(), before)
+
+            def change_copy(proposal):
+                proposal['intent']['power'] = 'enable'
+                return True
+
+            handle.advance('STAGED', evidence=ADOPT_EVIDENCE, verify=change_copy)
+            self.assertEqual(handle.record()['intent'], ADOPT)
+
     def test_failed_replace_preserves_old_record_and_uncertainty(self):
         with self.store.transaction(ADOPT) as handle:
             before = self.path.read_bytes()

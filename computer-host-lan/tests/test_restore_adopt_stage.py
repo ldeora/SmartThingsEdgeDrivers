@@ -88,6 +88,21 @@ class StageTests(unittest.TestCase):
             with self.assertRaises(stage.legacy_stage.StagingError):
                 stage.read_plan(handle, initial_digest=digest)
 
+    def test_post_rename_sync_failure_prevents_forward_use(self):
+        with self.store.transaction(ADOPT) as handle:
+            with mock.patch.object(stage, '_sync_stage_ancestors',
+                                   side_effect=OSError('fixture sync')):
+                with self.assertRaises(stage.PlanError):
+                    stage.stage_plan(handle, files(), SERVICES)
+            ready, = self.base.glob('ready-plan-*')
+            self.assertTrue(ready.is_dir())
+            with self.assertRaises(old.JournalConflict):
+                handle.advance('STAGED', evidence=ADOPT_EVIDENCE, verify=lambda _: True)
+        with self.store.transaction() as recovery:
+            self.assertEqual(recovery.record()['phase'], 'INSPECTED')
+            with self.assertRaises(stage.PlanError):
+                stage.stage_plan(recovery, files(), SERVICES)
+
     def test_interrupted_publication_remains_visible_to_legacy(self):
         with self.store.transaction(ADOPT) as handle:
             with mock.patch.object(stage.os, 'rename', side_effect=OSError('fixture')):
@@ -96,7 +111,7 @@ class StageTests(unittest.TestCase):
             pending, = self.base.glob('pending-plan-*')
             self.assertTrue(pending.is_dir())
             self.assertFalse(list(self.base.glob('ready-plan-*')))
-            with self.assertRaises(stage.PlanError):
+            with self.assertRaises(old.JournalConflict):
                 stage.stage_plan(handle, files(), SERVICES)
         with self.store.transaction() as recovery:
             with self.assertRaises(stage.PlanError):

@@ -12,6 +12,7 @@ import json
 import os
 from pathlib import Path
 import secrets
+import stat
 
 import installer_transaction as engine
 import restore_adopt_contract as contract
@@ -83,10 +84,12 @@ def _sync_ancestors(root, uid):
         fd = os.open(root, legacy._DIR_FLAGS)
         stack.callback(os.close, fd)
         ancestors = [fd]
-        for part in legacy._COMPONENTS:
+        for index, part in enumerate(legacy._COMPONENTS):
             fd = os.open(part, legacy._DIR_FLAGS, dir_fd=fd)
             stack.callback(os.close, fd)
-            if os.fstat(fd).st_uid != uid:
+            info = os.fstat(fd)
+            if (info.st_uid != uid or
+                    stat.S_IMODE(info.st_mode) & (0o077 if index >= 2 else 0o022)):
                 raise legacy.UnsafeJournal('unsafe journal ancestor')
             ancestors.append(fd)
         for fd in reversed(ancestors):
@@ -135,8 +138,15 @@ class Handle:
         contract.validate_transition(old, new)
         # Trusted fixture callback checks actual evidence; structural
         # validation is not proof. No live mutation controller exists.
-        if not callable(verify) or verify(new) is not True:
+        # Freeze the proposed record before calling a verifier. Neither
+        # mutation of its argument nor caller-owned nested evidence can
+        # rebind the journal after validation.
+        frozen = canonical(new)
+        if not callable(verify) or verify(json.loads(frozen)) is not True:
             raise legacy.JournalConflict('transition not independently verified')
+        if canonical(new) != frozen:
+            raise legacy.JournalConflict('proposed transition changed')
+        new = contract.decode_journal(frozen)
         if canonical(self.record()) != canonical(old):
             raise legacy.JournalConflict('stale v2 handle')
         self._clean()
@@ -194,6 +204,10 @@ class FixtureJournal:
                 if recovering:
                     if current is None or current['schema'] != 2:
                         raise legacy.JournalConflict('compatible v2 journal required')
+                    # A previous replace may have succeeded before its
+                    # directory fsync failed. Establish durability again
+                    # before returning a recovery capability.
+                    _sync_ancestors(self.root, self.uid)
                 else:
                     if current is not None or legacy._staged_payload_remains(self.root, self.uid):
                         raise legacy.JournalConflict('previous transaction requires cleanup')
