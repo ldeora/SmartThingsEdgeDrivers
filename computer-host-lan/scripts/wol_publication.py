@@ -8,6 +8,7 @@ This module does not grant that authority or implement journal cleanup.
 """
 from __future__ import annotations
 
+from functools import wraps
 import json
 import os
 import re
@@ -25,6 +26,20 @@ class PublicationError(RuntimeError):
     """Fixed errors, no paths, identifiers or policy contents."""
 
 
+class PublicationConflict(PublicationError):
+    """The target is occupied by an entry we cannot claim."""
+
+
+def _sanitize_io(function):
+    @wraps(function)
+    def guarded(*args, **kwargs):
+        try:
+            return function(*args, **kwargs)
+        except OSError:
+            raise PublicationError('publication filesystem operation failed') from None
+    return guarded
+
+
 def _names(txid: str) -> tuple[str, str]:
     if not isinstance(txid, str) or not _TXID.fullmatch(txid):
         raise PublicationError('invalid transaction reference')
@@ -40,7 +55,30 @@ def _directory(fd: int, uid: int, *, private: bool = False) -> os.stat_result:
 
 
 def _identity(info: os.stat_result) -> list[int]:
+    """Current-mount comparison only; never persist st_dev."""
     return [info.st_dev, info.st_ino]
+
+
+def _filesystem_id(fd: int) -> int:
+    # f_fsid is an opaque kernel/filesystem-dependent identifier, not a
+    # universal persistent UUID. In particular newer kernel derivations
+    # can mix in backing-device numbers. Refuse absent/zero identifiers.
+    value = getattr(os.fstatvfs(fd), 'f_fsid', None)
+    if type(value) is not int or not 0 < value <= 2**64 - 1:
+        raise PublicationError('filesystem identity unavailable')
+    return value
+
+
+def _persistent_identity(fd: int, info: os.stat_result) -> list[int]:
+    return [_filesystem_id(fd), info.st_ino]
+
+
+def _anchor_identity(policy_fd: int, info: os.stat_result) -> list[int]:
+    # The directory's fsid applies to its regular anchor only if it is
+    # on the same current device/subvolume. Never persist that device ID.
+    if info.st_dev != os.fstat(policy_fd).st_dev:
+        raise PublicationError('anchor filesystem differs from policy directory')
+    return _persistent_identity(policy_fd, info)
 
 
 def _check_file(info: os.stat_result, uid: int, mode: int,
@@ -107,7 +145,7 @@ def _unique(pairs):
 def _valid_identity(value: object) -> bool:
     return (type(value) is list and len(value) == 2 and
             all(type(n) is int and 0 <= n <= 2**64 - 1 for n in value) and
-            value[1] > 0)
+            value[0] > 0 and value[1] > 0)
 
 
 def _receipt(policy_fd: int, private_fd: int, txid: str, uid: int) -> dict:
@@ -124,7 +162,7 @@ def _receipt(policy_fd: int, private_fd: int, txid: str, uid: int) -> dict:
     if (type(record) is not dict or set(record) != {
             'schema', 'transaction_id', 'policy_directory', 'private_directory',
             'anchor', 'anchor_gid', 'anchor_mtime_ns', 'target_before'} or
-            type(record['schema']) is not int or record['schema'] != 1 or
+            type(record['schema']) is not int or record['schema'] != 2 or
             record['transaction_id'] != txid or
             any(not _valid_identity(record[k]) for k in
                 ('policy_directory', 'private_directory', 'anchor')) or
@@ -134,8 +172,8 @@ def _receipt(policy_fd: int, private_fd: int, txid: str, uid: int) -> dict:
             not 0 <= record['anchor_mtime_ns'] <= 2**63 - 1 or
             record['target_before'] != 'absent'):
         raise PublicationError('invalid publication receipt')
-    if (record['policy_directory'] != _identity(policy) or
-            record['private_directory'] != _identity(private)):
+    if (record['policy_directory'] != _persistent_identity(policy_fd, policy) or
+            record['private_directory'] != _persistent_identity(private_fd, private)):
         raise PublicationError('publication directory identity changed')
     return record
 
@@ -144,7 +182,7 @@ def _state(policy_fd: int, private_fd: int, txid: str, uid: int) -> str:
     anchor, _ = _names(txid)
     record = _receipt(policy_fd, private_fd, txid, uid)
     data, info = _read(policy_fd, anchor, uid, 0o644, (1, 2), len(CONTENT))
-    if (data != CONTENT or record['anchor'] != _identity(info) or
+    if (data != CONTENT or record['anchor'] != _anchor_identity(policy_fd, info) or
             info.st_gid != record['anchor_gid'] or
             info.st_mtime_ns != record['anchor_mtime_ns']):
         raise PublicationError('publication anchor changed')
@@ -153,13 +191,16 @@ def _state(policy_fd: int, private_fd: int, txid: str, uid: int) -> str:
         if info.st_nlink != 1:
             raise PublicationError('unexpected publication links')
         return 'unpublished'
+    if _identity(target) != _identity(info):
+        raise PublicationConflict('publication target not owned')
     _check_file(target, uid, 0o644, (2,))
-    if (_identity(target) != _identity(info) or info.st_nlink != 2 or
+    if (info.st_nlink != 2 or
             target.st_gid != info.st_gid or target.st_ctime_ns != info.st_ctime_ns):
         raise PublicationError('publication target not owned')
     return 'published'
 
 
+@_sanitize_io
 def prepare(policy_fd: int, private_fd: int, txid: str, *, owner_uid: int = 0) -> None:
     """Create a durable hidden anchor and private before-state receipt.
 
@@ -172,15 +213,18 @@ def prepare(policy_fd: int, private_fd: int, txid: str, *, owner_uid: int = 0) -
     private = _directory(private_fd, owner_uid, private=True)
     if _identity(policy) == _identity(private):
         raise PublicationError('publication directories overlap')
-    if (_entry(policy_fd, TARGET) is not None or
-            _entry(policy_fd, anchor) is not None or
+    policy_identity = _persistent_identity(policy_fd, policy)
+    private_identity = _persistent_identity(private_fd, private)
+    if _entry(policy_fd, TARGET) is not None:
+        raise PublicationConflict('publication target already exists')
+    if (_entry(policy_fd, anchor) is not None or
             _entry(private_fd, receipt) is not None):
-        raise PublicationError('publication already exists')
+        raise PublicationError('publication evidence already exists')
     info = _write_new(policy_fd, anchor, CONTENT, 0o644, owner_uid)
-    record = dict(schema=1, transaction_id=txid,
-                  policy_directory=_identity(policy),
-                  private_directory=_identity(private),
-                  anchor=_identity(info), anchor_gid=info.st_gid,
+    record = dict(schema=2, transaction_id=txid,
+                  policy_directory=policy_identity,
+                  private_directory=private_identity,
+                  anchor=_anchor_identity(policy_fd, info), anchor_gid=info.st_gid,
                   anchor_mtime_ns=info.st_mtime_ns, target_before='absent')
     raw = (json.dumps(record, sort_keys=True, separators=(',', ':')) + '\n').encode('utf-8')
     _write_new(private_fd, receipt, raw, 0o600, owner_uid)
@@ -188,6 +232,7 @@ def prepare(policy_fd: int, private_fd: int, txid: str, *, owner_uid: int = 0) -
         raise PublicationError('unexpected publication state')
 
 
+@_sanitize_io
 def inspect(policy_fd: int, private_fd: int, txid: str, *, owner_uid: int = 0) -> str:
     """Return a fixed state or raise. Never infer ownership from bytes alone."""
     return _state(policy_fd, private_fd, txid, owner_uid)
@@ -203,7 +248,7 @@ def _sync_effect(policy_fd: int, private_fd: int, txid: str, uid: int,
     try:
         info = os.fstat(fd)
         _check_file(info, uid, 0o644, (2,) if expected == 'published' else (1,))
-        if _identity(info) != record['anchor']:
+        if _anchor_identity(policy_fd, info) != record['anchor']:
             raise PublicationError('publication anchor changed before sync')
         os.fsync(fd)
     finally:
@@ -213,6 +258,7 @@ def _sync_effect(policy_fd: int, private_fd: int, txid: str, uid: int,
         raise PublicationError('publication effect not verified')
 
 
+@_sanitize_io
 def publish(policy_fd: int, private_fd: int, txid: str, *, owner_uid: int = 0) -> None:
     """Atomically add only the fixed target; never replace another entry.
 
@@ -225,11 +271,15 @@ def publish(policy_fd: int, private_fd: int, txid: str, *, owner_uid: int = 0) -
     anchor, _ = _names(txid)
     if _state(policy_fd, private_fd, txid, owner_uid) != 'unpublished':
         raise PublicationError('publication already applied')
-    os.link(anchor, TARGET, src_dir_fd=policy_fd, dst_dir_fd=policy_fd,
-            follow_symlinks=False)
+    try:
+        os.link(anchor, TARGET, src_dir_fd=policy_fd, dst_dir_fd=policy_fd,
+                follow_symlinks=False)
+    except FileExistsError:
+        raise PublicationConflict('publication target already exists') from None
     _sync_effect(policy_fd, private_fd, txid, owner_uid, 'published')
 
 
+@_sanitize_io
 def rollback(policy_fd: int, private_fd: int, txid: str, *, owner_uid: int = 0) -> None:
     """Undo only the anchored target. Keep all evidence for the controller.
 
