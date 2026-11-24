@@ -655,8 +655,8 @@ Both parents and the retained bytes are checked and synced after it.
 Retry recognizes either source plus matching receipt or destination plus
 matching receipt; it refuses both/neither, unsafe entries, receipt
 mismatch, destination without receipt and incomplete receipt publication.
-An incomplete receipt is retained for separately reviewed reconciliation,
-not overwritten. The handle is poisoned on publication uncertainty.
+An incomplete receipt is retained for explicit reconciliation as described
+below, not overwritten. The handle is poisoned on publication uncertainty.
 This is an optional explicit fixture operation, not a requirement or
 authorization for clearing a terminal journal; existing preservation
 without quarantine remains possible. No production/embedded changes.
@@ -724,9 +724,41 @@ all checks pass. Do not run ordinary retirement as a shortcut.
 Partial receipts, missing or conflicting artifacts, unstable reads and
 unsafe metadata require reconciliation or expert review, not deletion.
 
+Both fixture quarantine APIs now accept a separate explicit
+RECONCILE_RECEIPT confirmation in a fresh recovery handle. Normal
+QUARANTINE continues to refuse partial receipts. Reconciliation requires
+the exact eligible original source still present, destination absent,
+safe metadata and a strict prefix (possibly empty) of the independently
+reconstructed canonical receipt for the terminal journal and current
+opaque inventory. The independent terminal-outcome verifier must run
+again under the same locks. Recheck the prefix bytes and file identity
+after the callback, then pin the private single-link receipt descriptor
+and append only the missing suffix. Never truncate, replace or unlink
+the original evidence. Sync and read back the complete receipt and
+sync the quarantine ancestry; verify that the source remains intact
+and the destination absent. Any uncertain append or sync poisons the
+handle. A later fresh recovery handle can repeat the operation if a
+strict prefix remains; a complete matching receipt uses normal retry.
+A complete receipt does not itself prove the source was ever moved.
+Reconciliation returns receipt_completed without moving evidence or
+setting stage retirement/quarantine completion flags. Explicit
+QUARANTINE and independent verification must follow to move the source;
+for corrupt stages the existing cleanup guard still blocks retirement
+and journal clearing until quarantine is verified. An empty prefix
+authenticates nothing; the safety basis is the independently verified
+terminal outcome, still-present exact source and receipt-before-move
+rule, not the prefix itself. A matching prefix is consistency evidence
+against the receipt reconstructed from the current tree, not proof that
+the interrupted attempt observed the same inventory; a short prefix may
+contain no inventory evidence at all. Missing, conflicting, nonmatching,
+unsafe or destination-only partial evidence is preserved. The existing optional
+unbound preservation policy is unchanged. No live commands or production
+changes; unsupported filesystem/libc and ambiguous states still need
+a supported operator path before release.
+
 Remaining: actual phase-specific execution and recovery verification,
-partial orphan/ambiguous-write policy, incomplete quarantine receipt
-reconciliation, and compatible helper provisioning. Never claim a valid
+partial orphan/ambiguous-write policy, ambiguous quarantine evidence
+operator policy, and compatible helper provisioning. Never claim a valid
 record or stage alone proves authorization or restored state.
 The existing v1 writer, recovery, Go bootstrap and bundle remain unchanged.
 

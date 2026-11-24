@@ -102,18 +102,87 @@ def _rename_noreplace(src_fd, src, dst_fd, dst):
         raise OSError(ctypes.get_errno(), 'quarantine rename failed')
 
 
+def _partial_receipt(namespace, name, uid, expected):
+    """Strict prefix of an independently reconstructed canonical receipt."""
+    if namespace is None:
+        raise _ERROR('partial_quarantine_receipt_missing')
+    try:
+        raw, stamp = _entry(namespace, name, uid, before._LIMIT)
+    except FileNotFoundError:
+        raise _ERROR('partial_quarantine_receipt_missing') from None
+    if raw == expected:
+        raise _ERROR('complete_quarantine_receipt_use_normal_retry')
+    if len(raw) >= len(expected) or not expected.startswith(raw):
+        raise _ERROR('partial_quarantine_receipt_mismatch')
+    return raw, stamp
+
+
+def _complete_partial_receipt(namespace, name, uid, expected, observed):
+    """Append only missing bytes; caller holds locks and verified outcome.
+
+    The original prefix is never removed or rewritten. Any failed write
+    or fsync requires a fresh recovery handle. The exact file is pinned
+    across the append and its full contents are verified before return.
+    """
+    raw, stamp = observed
+    if _partial_receipt(namespace, name, uid, expected) != observed:
+        raise _ERROR('partial_quarantine_receipt_changed')
+    fd = os.open(name, os.O_RDWR | os.O_APPEND | os.O_NOFOLLOW |
+                 os.O_NONBLOCK | os.O_CLOEXEC, dir_fd=namespace)
+    try:
+        if (before.historical._stamp(os.fstat(fd)) != stamp or
+                before.historical._stamp(os.stat(name, dir_fd=namespace,
+                                                follow_symlinks=False)) != stamp):
+            raise _ERROR('partial_quarantine_receipt_changed')
+        # Verify the held descriptor's bytes, not only the pathname.
+        pinned = bytearray()
+        while len(pinned) <= len(raw):
+            chunk = os.read(fd, len(raw) + 1 - len(pinned))
+            if not chunk:
+                break
+            pinned.extend(chunk)
+        if bytes(pinned) != raw or before.historical._stamp(os.fstat(fd)) != stamp:
+            raise _ERROR('partial_quarantine_receipt_changed')
+        offset = len(raw)
+        while offset < len(expected):
+            count = os.write(fd, expected[offset:])
+            if count <= 0:
+                raise OSError('short quarantine receipt write')
+            offset += count
+        os.fsync(fd)
+        final = os.fstat(fd)
+        if (not os.path.samestat(os.stat(name, dir_fd=namespace, follow_symlinks=False),
+                                final) or final.st_size != len(expected)):
+            raise _ERROR('partial_quarantine_receipt_changed')
+        actual, actual_stamp = _entry(namespace, name, uid, before._LIMIT, sync=True)
+        if actual != expected or actual_stamp != before.historical._stamp(final):
+            raise _ERROR('partial_quarantine_receipt_changed')
+    finally:
+        os.close(fd)
+
+
+def _reconcile_confirmation(handle, confirmation, verify):
+    if confirmation not in ('QUARANTINE', 'RECONCILE_RECEIPT') or not callable(verify):
+        raise _ERROR('quarantine_confirmation_required')
+    reconcile = confirmation == 'RECONCILE_RECEIPT'
+    if reconcile and not handle._recovering:
+        raise _ERROR('partial_quarantine_receipt_requires_recovery')
+    return reconcile
+
+
 def quarantine_unbound_before(handle, *, confirmation, verify):
     """Move only the exact unbound ABORTED snapshot, or verify a prior move.
 
     The trusted fixture verifier must independently establish the actual
     unchanged/restored terminal outcome and operator authorization. It is
-    called on every attempt. The receipt binds journal and opaque bytes,
+    called on every attempt. RECONCILE_RECEIPT completes a strict prefix
+    in a recovery handle without moving the source; QUARANTINE remains a
+    separate explicit operation. The receipt binds journal and opaque bytes,
     not authenticity. No receipt or result authorizes journal clearing.
     """
     record = before._require_fixture(handle)
     handle._clean()
-    if confirmation != 'QUARANTINE' or not callable(verify):
-        raise _ERROR('quarantine_confirmation_required')
+    reconcile = _reconcile_confirmation(handle, confirmation, verify)
     if (record['phase'] != 'ABORTED' or record['snapshot_name'] is not None or
             record['before_receipt_sha256'] is not None or record['evidence'] is None):
         raise _ERROR('unbound_abort_required')
@@ -154,7 +223,13 @@ def quarantine_unbound_before(handle, *, confirmation, verify):
                     raise _ERROR('quarantine_receipt_mismatch')
                 return True
 
-            had_receipt = check_receipt()
+            if reconcile:
+                if src is None or dst is not None:
+                    raise _ERROR('partial_quarantine_receipt_requires_source')
+                observed = _partial_receipt(q, receipt_name, handle.uid, receipt)
+                had_receipt = True
+            else:
+                had_receipt = check_receipt()
             if dst is not None and not had_receipt:
                 raise _ERROR('quarantine_receipt_missing')
             # Do not permit the callback to mutate our expected journal.
@@ -165,7 +240,12 @@ def quarantine_unbound_before(handle, *, confirmation, verify):
             handle._clean()
             if q is not None:
                 _same_entry(base, _NAMESPACE, q)
-                if check_receipt() != had_receipt:
+                if reconcile:
+                    if _partial_receipt(q, receipt_name, handle.uid, receipt) != observed:
+                        raise _ERROR('partial_quarantine_receipt_changed')
+                    if name in journal._entries(q):
+                        raise _ERROR('quarantine_source_destination_conflict')
+                elif check_receipt() != had_receipt:
                     raise _ERROR('quarantine_receipt_changed')
             _same_entry(base if src is not None else q,
                         source if src is not None else name, fd)
@@ -186,7 +266,12 @@ def quarantine_unbound_before(handle, *, confirmation, verify):
                 raise _ERROR('quarantine_cross_filesystem')
             if _inventory(fd, handle.uid, sync=True) != items:
                 raise _ERROR('quarantine_tree_changed')
-            if not had_receipt:
+            if reconcile:
+                _same_entry(base, source, src)
+                if name in journal._entries(q):
+                    raise _ERROR('quarantine_source_destination_conflict')
+                _complete_partial_receipt(q, receipt_name, handle.uid, receipt, observed)
+            elif not had_receipt:
                 before.storage._write_file(q, receipt_name, receipt,
                                            before._hash(receipt), handle.uid)
             if not check_receipt(sync=True):
@@ -195,6 +280,20 @@ def quarantine_unbound_before(handle, *, confirmation, verify):
             os.fsync(q)
             for ancestor in reversed(ancestors):
                 os.fsync(ancestor)
+            if reconcile:
+                _same_entry(base, source, src)
+                _same_entry(base, _NAMESPACE, q)
+                if (name in journal._entries(q) or _inventory(src, handle.uid) != items or
+                        not check_receipt()):
+                    raise _ERROR('quarantine_publication_changed')
+                handle._failed = False
+                try:
+                    handle.record()
+                    handle._clean()
+                except BaseException:
+                    handle._failed = True
+                    raise
+                return 'receipt_completed'
             if src is not None:
                 _same_entry(base, source, src)
                 _same_entry(base, _NAMESPACE, q)
