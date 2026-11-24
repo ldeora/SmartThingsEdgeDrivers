@@ -23,12 +23,17 @@ import installer_root as bridge
 class FakeBackend:
     def __init__(self):
         self.calls = []
-        self.recovered = mock.Mock(status='rolled_back')
+        self.recovered = mock.Mock(status='rolled_back', operation=None)
+        self.removed = mock.Mock(status='uninstalled', identity_preserved='verified')
 
     def run(self, request, source, files):
         self.calls.append((request, source, files))
         return mock.Mock(status='installed', operation=request.operation,
                          identity_preserved='not_verified', source_verified=True)
+
+    def uninstall(self):
+        self.calls.append('uninstall')
+        return self.removed
 
     def recover_interrupted(self):
         self.calls.append('recover')
@@ -108,7 +113,7 @@ class RootProtocolTests(unittest.TestCase):
         self.assertIsNone(bridge.selected_python_from_argv(
             ['--request-stdin']))  # read-only legacy status is still allowed
         bridge.validate_python_handoff({'action': 'status'}, None)
-        for action in ('install', 'upgrade', 'repair', 'recover'):
+        for action in ('install', 'upgrade', 'repair', 'recover', 'uninstall'):
             with self.subTest(action=action), self.assertRaises(bridge.RequestError):
                 bridge.validate_python_handoff({'action': action}, None)
         bridge.validate_python_handoff({'action': 'upgrade'}, '/usr/sbin/python3')
@@ -154,6 +159,41 @@ class RootProtocolTests(unittest.TestCase):
             self.assertNotIn('control-token', text)
         self.assertEqual(self.backend.calls[-1], 'recover')
         self.assertEqual(response['recovery_status'], 'rolled_back')
+
+    def test_schema_v2_uninstall_is_exact_and_requires_trusted_python(self):
+        request = bridge.parse_request(b'{"schema_version":2,"action":"uninstall"}')
+        self.assertEqual(request, {'action': 'uninstall'})
+        with self.assertRaises(bridge.RequestError):
+            bridge.dispatch(request, self.manifest, backend=self.backend,
+                            journal=self.journal)
+        self.assertEqual(self.backend.calls, [])
+        for status in ('uninstalled', 'uninstalled_cleanup_required'):
+            self.backend.removed.status = status
+            response = bridge.dispatch(
+                request, self.manifest, backend=self.backend,
+                journal=self.journal, selected_python='/usr/sbin/python3')
+            self.assertEqual(response, dict(status=status, operation='uninstall',
+                identity_preserved='verified', secrets_included=False))
+            self.assertEqual(self.backend.calls[-1], 'uninstall')
+        for payload in (
+                b'{"schema_version":1,"action":"uninstall"}',
+                b'{"schema_version":2,"action":"install"}',
+                b'{"schema_version":2,"action":"uninstall","power":""}',
+                b'{"schema_version":2,"action":"uninstall","wol_interface":null}',
+                b'{"schema_version":2,"action":"uninstall","source":"/tmp"}',
+                b'{"schema_version":2,"action":"uninstall","action":"uninstall"}',
+                b'{"schema_version":2,"Action":"uninstall"}',
+                b'{"schema_version":2.0,"action":"uninstall"}'):
+            with self.subTest(payload=payload), self.assertRaises(bridge.RequestError):
+                bridge.parse_request(payload)
+
+    def test_recovery_exposes_only_fixed_operation(self):
+        for operation in ('uninstall', 'upgrade', 'private-value', None):
+            self.backend.recovered.operation = operation
+            result = bridge.dispatch({'action': 'recover'}, self.manifest,
+                                     backend=self.backend, journal=self.journal)
+            self.assertEqual(result.get('recovery_operation'),
+                             operation if operation in ('uninstall', 'upgrade') else None)
 
     def test_untrusted_request_rejects_extra_options_and_unsafe_values(self):
         bad = [
