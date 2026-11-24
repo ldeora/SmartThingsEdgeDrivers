@@ -498,22 +498,38 @@ def _enablement_absent(transaction: core.InstallTransaction) -> bool:
     administrator-created directory or link; retain recovery if uncertain.
     """
     names = {Path(path).name for path in core.SYSTEMD_PATHS}
-    try:
-        for absolute in ('/etc/systemd/system', '/run/systemd/system'):
-            directory = transaction.location(absolute)
-            transaction.refuse_links(directory)
-            if not directory.exists():
-                continue
-            for child in directory.iterdir():
-                if not child.name.endswith(('.wants', '.requires', '.upholds')):
+    # location()/refuse_links() are deliberately file-only. Do not expand
+    # the managed-write allowlist merely to inspect a directory. Walk
+    # fixed directory components with no-follow directory descriptors.
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
+
+    def check_tree(components: tuple[str, ...]) -> bool:
+        fd = os.open(transaction.root, flags)
+        try:
+            for component in components:
+                try:
+                    child_fd = os.open(component, flags, dir_fd=fd)
+                except FileNotFoundError:
+                    return True
+                os.close(fd)
+                fd = child_fd
+            for name in os.listdir(fd):
+                if not name.endswith(('.wants', '.requires', '.upholds')):
                     continue
-                transaction.refuse_links(child)
-                if not child.is_dir():
-                    return False
-                if any(entry.name in names for entry in child.iterdir()):
-                    return False
-        return True
-    except (OSError, core.InstallError):
+                child_fd = os.open(name, flags, dir_fd=fd)
+                try:
+                    if names.intersection(os.listdir(child_fd)):
+                        return False
+                finally:
+                    os.close(child_fd)
+            return True
+        finally:
+            os.close(fd)
+
+    try:
+        return all(check_tree(parts) for parts in (
+            ('etc', 'systemd', 'system'), ('run', 'systemd', 'system')))
+    except OSError:
         return False
 
 
