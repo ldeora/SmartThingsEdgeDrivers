@@ -1,6 +1,7 @@
 name: Computer Host LAN Linux installer integration
 
 on:
+  workflow_dispatch:
   pull_request:
     paths:
       - 'computer-host-lan/linux-installer/**'
@@ -37,6 +38,10 @@ jobs:
         run: go mod tidy -diff
       - name: Verify cached module checksums
         run: go mod verify
+      - name: Test authenticated release gate (no signing or publication)
+        run: |
+          cd ../scripts/ci
+          python3 -B -m unittest -v test_attested_release_gate
       - name: Test embedded bundle generator
         run: python3 -B -m unittest -v test_sync_bundle
       - name: Check generated embedded bundle is current
