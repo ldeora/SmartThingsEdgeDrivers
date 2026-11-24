@@ -348,6 +348,132 @@ the probe's private identity, st_dev, f_fsid, inode and link count
 across a normal reboot on disposable Btrfs files, then validate ext4
 and XFS/LVM. Do not share raw UUIDs or change live network policy.
 
+## Private preflight and consent-binding design
+
+The development-only `wol_preflight.py` is stricter than the public
+planner. It first requires matching installed udevadm/systemctl major
+versions >=248 (systemd v248 documents .link.d support). Malformed,
+missing, mixed or older versions refuse this optional feature. This
+checks installed tools, not the running udev daemon's actual version
+or a distribution's backported behavior. Verify running-daemon
+compatibility and real matching/drop-in semantics before enabling
+writes; never start/restart udev or execute a mutating test builtin
+to establish eligibility. Older hosts remain supported for agent
+installation and monitoring.
+
+A prospective candidate must meet the planner's protected empty local
+drop-in exception. The private preflight additionally re-walks the
+fixed directory components with O_NOFOLLOW and protected ownership
+and permissions, checks complete emptiness, binds the exact selected
+base and earlier effective rule metadata plus content hashes (including
+mask evidence), and accepts a deliberately limited ASCII syntax:
+single literal PermanentMACAddress match, no escape/continuation,
+unknown section or selected Link key, and no nonempty WOL declaration.
+Earlier rules must be excluded by a literal permanent MAC mismatch.
+Unknown/unrepresentable policy stays manual review. It samples twice,
+including inventory, installed version evidence, NIC identity,
+selected rule, candidate directory identity/timestamps, and hardware
+classifications, and requires agreement. No public snapshot or hash,
+arbitrary path, command, file write or installed caller is exposed.
+
+`unchanged()` compares a newly captured private snapshot to the
+trusted caller's in-memory snapshot. It does not validate user consent
+or constitute a write grant. Mount-local metadata is deliberately used
+for this *same-session* comparison, not durable recovery evidence.
+The production controller must never accept a serialized snapshot or
+digest supplied by the wizard as authority.
+
+Proposed integration contract (not implemented):
+
+- Trusted root helper retains the full private capture for one reviewed
+  operation, with a single-use, expiring approval session bound to the
+  requested interface and exact fixed effect. Preview the actual
+  interface and rule to the local user through a narrowly scoped
+  authorized channel, not public diagnostic logs. Consent must be
+  separate from agent install, power-helper enablement and NIC pinning.
+- Release any long-lived exclusion lock while waiting for user input;
+  reacquire the shared protected lock for application, reject any
+  pending recovery, recapture and compare. On drift, invalidate the
+  approval and require a new preview. Never reconstruct an approved
+  snapshot from client-provided paths, JSON, hashes or booleans.
+- Independently prove live destination binding and persistent filesystem
+  identities, retain the checked directory descriptor through mutation,
+  validate the fixed absent target and current before-state, and
+  record a durable journal before publication. Recheck the relevant
+  base/earlier policies, NIC and manager before commit. No atomic
+  snapshot or resistance to arbitrary privileged changes is claimed.
+- A recovery dispatcher uses only trusted journal/receipt evidence,
+  not the original approval or a forward re-application. Handle
+  pre-publication orphan anchors, terminal retirement, old helpers and
+  cloned/restored filesystem ambiguity before exposing a root request.
+
+Btrfs temp_fsid is kernel-dependent: some kernels expose a temporary
+superblock UUID on cloned mounts; upstream
+df84f6c773771fa7b78fe06931709df1aca5907f exposes the on-disk UUID instead.
+A clone may therefore have equal UUID/subvolume/inode and even copied
+anchor/receipt evidence. Do not assume the probe can disambiguate clones.
+Mountinfo drift during the short identity query means unavailable
+consistent evidence, not necessarily a changed persistent identity.
+
+## Disposable filesystem acceptance tool (#98)
+
+`scripts/wol_fs_acceptance.py` is an explicitly unprivileged developer
+tool. The public entry point refuses root. It requires a newly created,
+user-owned mode-0700 empty directory on the filesystem under test.
+It never opens the live systemd policy directory, invokes privileged
+commands, or changes NIC settings. Within that private directory it
+creates two fixed fixture subdirectories and uses the actual schema-2
+publication primitive. A mode-0600 baseline retains raw UUIDs, boot ID,
+mount-local device numbers, f_fsid, inode and link counts privately.
+Output is redacted comparison flags only.
+
+From a reviewed checkout, as an ordinary user:
+
+```sh
+# Select a persistent location on the filesystem under test.
+# Do not use /tmp if it is tmpfs or cleared on boot.
+findmnt -n -o FSTYPE -T "$HOME"
+fixture=$(mktemp -d "$HOME/computer-host-wol-acceptance.XXXXXXXX")
+printf 'Retain this local fixture path: %s\n' "$fixture"
+python3 -B scripts/wol_fs_acceptance.py prepare "$fixture"
+python3 -B scripts/wol_fs_acceptance.py compare "$fixture"
+```
+
+Keep the exact fixture path and checkout revision. After a normal
+reboot (no reboot just for this test), set fixture to the retained
+path and repeat compare. different_boot must be true for reboot
+acceptance. Inspect persistent_identity_available/unchanged,
+device_numbers_unchanged, filesystem_ids_unchanged,
+inode_numbers_unchanged, link_counts_unchanged,
+published_hardlinks_intact and schema2_publication_verified. Only
+share JSON output, never the private baseline or receipt. The fixture
+tests the filesystem/subvolume at the chosen location, not necessarily
+the same mount/subvolume as /etc or /var. Compare FSTYPE and mount
+layout separately; test additional ordinary-user-owned persistent
+locations if needed. No write to /etc or /var is required.
+
+After recording the comparison, optionally run the explicit fixture
+rollback:
+
+```sh
+python3 -B scripts/wol_fs_acceptance.py rollback "$fixture"
+```
+
+This removes only the verified published fixture target. It refuses if
+the experimental identity differs/unavailable or schema 2 cannot
+verify ownership; never bypass the old receipt's checks. Anchor and
+receipt remain for inspection. Once acceptance is complete, the tester
+can remove the entire known disposable directory manually. If a step
+fails, retain the fixture and report the fixed status; do not repair
+or delete real network policy. The script is not a production recovery
+tool, and the fixture's publication is not applied to systemd.
+
+The fixture regressions simulate a boot change, mismatch, publication
+refusal and malformed/unsafe fixture entry. Physical acceptance still
+requires real reboot/remount evidence on Btrfs and ext4/XFS/LVM.
+Issue #98 remains open; the receipt schema and production caller are
+unchanged in this increment.
+
 ## Test and integration sequence
 
 - Review the service-state hardening and tests first.
