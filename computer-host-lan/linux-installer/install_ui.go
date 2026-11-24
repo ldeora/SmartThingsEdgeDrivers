@@ -77,7 +77,7 @@ func firewalldRunning() bool {
 // is not proof that it is inactive or that the firewall allows access.
 type networkObservation struct {
 	AvahiPrerequisites string `json:"avahi_prerequisites"`
-	Firewalld           string `json:"firewalld"`
+	Firewalld          string `json:"firewalld"`
 }
 
 func observeNetwork(info apiInspect, firewallActive bool) networkObservation {

@@ -96,6 +96,10 @@ jobs:
               ("repair", "--confirm", "REPAIR", "--elevation", "su"),
               ("uninstall", "--confirm", "UNINSTALL", "--power", "enable"),
               ("status", "--request", "{}"),
+              ("plan",),
+              ("plan", "--action", "uninstall"),
+              ("plan", "--action", "install", "--confirm", "INSTALL"),
+              ("plan", "--action", "upgrade", "--elevation", "auto"),
               ("recover", "--confirm", "RECOVER", "--confirm", "RECOVER"),
               ("install", "--confirm", "INSTALL", "--source", "/tmp/fixture"),
           ):
