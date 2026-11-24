@@ -262,3 +262,117 @@ def read_plan(handle, *, initial_digest=None):
     finally:
         os.close(lock)
         os.close(base)
+
+
+def _retirement_entries(directory, uid, *, partial):
+    """Validate the entire flat tree before deleting any entry.
+
+    Incomplete publications/deletions can have truncated files. Their
+    names, types, ownership, permissions, link count and sizes must still
+    be safe. Complete ready stages with journal evidence are checked by
+    _inspect before the irreversible rename.
+    """
+    legacy_stage._check_directory(directory, uid, private=True)
+    names = journal._entries(directory)
+    allowed = {'manifest.json'} | {f'{i}.data' for i in range(len(core.MANAGED_PATHS))}
+    if not names <= allowed:
+        raise PlanError('unexpected_retirement_entries')
+    total = 0
+    stamps = {}
+    for name in sorted(names):
+        fd = os.open(name, legacy_stage._READ_FLAGS, dir_fd=directory)
+        try:
+            legacy_stage._check_private_file(fd, uid)
+            info = os.fstat(fd)
+            limit = _MAX_MANIFEST if name == 'manifest.json' else _MAX_ITEM
+            if info.st_size > limit or (not partial and info.st_size == 0):
+                raise PlanError('invalid_retirement_file_size')
+            if name != 'manifest.json':
+                total += info.st_size
+            stamps[name] = info
+        finally:
+            os.close(fd)
+    if total > _MAX_TOTAL or journal._entries(directory) != names:
+        raise PlanError('retirement_entries_changed')
+    return stamps
+
+
+def retire_terminal_plan(handle):
+    """Retire only this terminal transaction's private stage.
+
+    No forward work, recursive traversal, or deletion of foreign entries.
+    A ready stage with a journal digest must pass complete validation
+    before rename. A pending stage or an unbound ready stage can only
+    belong to an ABORTED transaction with no stage evidence. Retiring
+    directories are retryable, including partially deleted contents.
+    """
+    record = handle.record()
+    handle._clean()
+    if record['phase'] not in contract._TERMINAL:
+        raise PlanError('terminal_stage_required')
+    try:
+        base, lock = _locked(handle, create=False)
+    except legacy_stage.StagingConflict as exc:
+        if str(exc) == 'trusted staging root missing':
+            handle._stage_retirement_verified = True
+            return
+        raise
+    try:
+        entries = journal._entries(base) - {legacy_stage._LOCK}
+        if not entries:
+            _sync_stage_ancestors(handle)
+            handle._stage_retirement_verified = True
+            return
+        txid = record['transaction_id']
+        pending, ready, retiring = (prefix + txid for prefix in
+                                    ('pending-plan-', 'ready-plan-', 'retiring-plan-'))
+        if len(entries) != 1 or not entries <= {pending, ready, retiring}:
+            raise PlanError('foreign_or_ambiguous_stage')
+        name, = entries
+        evidence = record['evidence']
+        if name == pending and (record['phase'] != 'ABORTED' or evidence is not None):
+            raise PlanError('pending_stage_conflicts_with_journal')
+        if evidence is None and record['phase'] != 'ABORTED':
+            raise PlanError('unbound_terminal_stage')
+        directory = os.open(name, legacy_stage._DIR_FLAGS, dir_fd=base)
+        try:
+            if name == ready and evidence is not None:
+                _inspect(directory, record, handle.uid, evidence['staged_plan_sha256'])
+            stamps = _retirement_entries(directory, handle.uid,
+                                         partial=name != ready or evidence is None)
+            if (not os.path.samestat(os.fstat(directory),
+                                    os.stat(name, dir_fd=base, follow_symlinks=False)) or
+                    journal._entries(base) != {legacy_stage._LOCK, name}):
+                raise PlanError('stage_identity_changed')
+            # Retiring is a durable authorization boundary: no content
+            # is removed until the new name is synced. Retry also syncs
+            # an already-visible retiring name after an uncertain rename.
+            handle._failed = True
+            if name != retiring:
+                os.rename(name, retiring, src_dir_fd=base, dst_dir_fd=base)
+            _sync_stage_ancestors(handle)
+            for filename, before in sorted(stamps.items()):
+                now = os.stat(filename, dir_fd=directory, follow_symlinks=False)
+                if (not os.path.samestat(before, now) or
+                        (before.st_mode, before.st_uid, before.st_nlink, before.st_size,
+                         before.st_mtime_ns, before.st_ctime_ns) !=
+                        (now.st_mode, now.st_uid, now.st_nlink, now.st_size,
+                         now.st_mtime_ns, now.st_ctime_ns)):
+                    raise PlanError('retirement_file_changed')
+                os.unlink(filename, dir_fd=directory)
+            os.fsync(directory)
+            if (journal._entries(directory) or
+                    not os.path.samestat(os.fstat(directory),
+                        os.stat(retiring, dir_fd=base, follow_symlinks=False))):
+                raise PlanError('retirement_directory_changed')
+            os.rmdir(retiring, dir_fd=base)
+            _sync_stage_ancestors(handle)
+            handle._stage_retirement_verified = True
+            handle._failed = False
+        finally:
+            os.close(directory)
+    except OSError:
+        raise PlanError('stage_retirement_failed') from None
+    finally:
+        os.close(lock)
+        os.close(base)

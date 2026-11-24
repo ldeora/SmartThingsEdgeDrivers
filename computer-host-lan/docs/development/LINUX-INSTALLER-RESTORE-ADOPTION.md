@@ -464,13 +464,36 @@ evidence. Publication writes and syncs before rename, syncs all fixed
 ancestors afterwards and poisons the forward handle on uncertainty.
 
 These are persistence primitives, not a usable recovery implementation.
-No stage deletion is implemented yet: even terminal fixture cleanup
-refuses an existing stage. The next increments must add transaction-bound
-pending/ready/retiring cleanup, strict before-state receipt writer/reader
-for v2 operations, the actual evidence verification controller and
-compatible helper provisioning. Never claim a valid record or stage
-alone proves authorization or restored state. The existing v1 writer,
-recovery, Go bootstrap and bundle remain unchanged.
+Terminal stage retirement now checks the exact transaction-bound pending,
+ready or retiring name and a single flat allowlisted tree. A bound ready
+stage must pass manifest and content validation before rename; pending
+and unbound ready stages are eligible only for ABORTED with no stage
+evidence. A durable retiring name precedes deletion. Retries sync the
+namespace before continuing, and validate every surviving entry before
+unlinking. Foreign names, unexpected objects and unsafe metadata are
+refused. Partial deletion is allowed only under the terminal retirement
+contract. Failed retirement poisons the handle after rename/deletion
+begins. Even an empty existing staging base requires explicit retirement
+and sync in the current context before journal clearing.
+
+The separate fixture reconcile_complete_temp operation accepts exactly
+one complete canonical v2 temporary record. With a durable v2 record
+it must be a valid next transition; without a record it must be an
+initial INSPECTED write and no staged payload may exist. An explicit
+trusted fixture verifier must establish the applicable real-world
+unchanged/restored state before evidence may be discarded. The temp is
+never promoted; current record and ancestors are synced first. Partial
+records (including empty initial writes), multiple/conflicting records,
+unknown schemas and unsafe metadata remain for future reviewed
+reconciliation. No generic cleanup or guessing based on a filename.
+This deliberately conservative first implementation can still require
+expert intervention after a partial write.
+
+Remaining: strict before-state receipt writer/reader for v2 operations,
+actual phase-specific evidence verification controller, partial-write
+reconciliation policy and compatible helper provisioning. Never claim a
+valid record or stage alone proves authorization or restored state.
+The existing v1 writer, recovery, Go bootstrap and bundle remain unchanged.
 
 ## Implementation order and acceptance
 
