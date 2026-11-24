@@ -217,3 +217,48 @@ class StageQuarantineTests(unittest.TestCase):
                 self.move(handle)
             with self.assertRaises(old.JournalConflict):
                 handle.clear_finished(lambda _: True)
+
+    def test_verifier_cannot_replace_active_namespace(self):
+        with self.store.transaction(ADOPT) as handle:
+            source = self.ready(handle)
+            displaced = self.base.with_name('displaced')
+            def change(_):
+                self.base.rename(displaced)
+                self.base.mkdir(mode=0o700)
+                return True
+            with self.assertRaises(before.BeforeStateError):
+                self.move(handle, change)
+            self.assertTrue((displaced / source.name).exists())
+            self.assertFalse(quarantine.has_artifacts(handle))
+
+    def test_receipt_mismatch_and_missing_destination_block_cleanup(self):
+        with self.store.transaction(ADOPT) as handle:
+            self.ready(handle)
+            dest, receipt = self.locations(handle)
+            self.move(handle)
+            original = receipt.read_bytes()
+            receipt.write_bytes(original + b' ')
+            with self.assertRaises(old.JournalConflict):
+                handle.clear_finished(lambda _: True)
+            receipt.write_bytes(original)
+            displaced = dest.with_name('displaced-stage')
+            dest.rename(displaced)
+            with self.assertRaises(old.JournalConflict):
+                handle.clear_finished(lambda _: True)
+            self.assertTrue(displaced.exists())
+            self.assertEqual(receipt.read_bytes(), original)
+        with self.store.transaction() as handle:
+            with self.assertRaises(before.BeforeStateError):
+                self.move(handle)
+            with self.assertRaises(old.JournalConflict):
+                handle.clear_finished(lambda _: True)
+
+    def test_stage_lock_held_during_verifier(self):
+        with self.store.transaction(ADOPT) as handle:
+            self.ready(handle)
+            def verify(_):
+                with self.assertRaises(stage.legacy_stage.StagingConflict):
+                    stage.read_plan(handle)
+                return True
+            self.assertEqual(self.move(handle, verify), 'quarantined')
+            handle.clear_finished(lambda _: True)
