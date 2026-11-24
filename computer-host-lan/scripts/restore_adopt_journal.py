@@ -182,13 +182,15 @@ class Handle:
         self._clean()
         if (current['phase'] not in contract._TERMINAL or
                 legacy._staged_payload_remains(self.root, self.uid) or
-                not self._stage_retirement_verified and _stage_base_exists(self.root, self.uid) or
+                (not self._stage_retirement_verified and
+                 _stage_base_exists(self.root, self.uid)) or
                 not callable(verify) or verify(current) is not True):
             raise legacy.JournalConflict('terminal cleanup not verified')
         self.record()
         self._clean()
         if (legacy._staged_payload_remains(self.root, self.uid) or
-                not self._stage_retirement_verified and _stage_base_exists(self.root, self.uid)):
+                (not self._stage_retirement_verified and
+                 _stage_base_exists(self.root, self.uid))):
             raise legacy.JournalConflict('stage cleanup incomplete')
         self._failed = True
         os.unlink(legacy._JOURNAL, dir_fd=self._directory)

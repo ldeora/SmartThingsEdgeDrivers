@@ -264,7 +264,7 @@ def read_plan(handle, *, initial_digest=None):
         os.close(base)
 
 
-def _retirement_entries(directory, record, uid, *, partial):
+def _retirement_entries(directory, uid, *, partial):
     """Validate the entire flat tree before deleting any entry.
 
     Incomplete publications/deletions can have truncated files. Their
@@ -338,7 +338,7 @@ def retire_terminal_plan(handle):
         try:
             if name == ready and evidence is not None:
                 _inspect(directory, record, handle.uid, evidence['staged_plan_sha256'])
-            stamps = _retirement_entries(directory, record, handle.uid,
+            stamps = _retirement_entries(directory, handle.uid,
                                          partial=name != ready or evidence is None)
             if (not os.path.samestat(os.fstat(directory),
                                     os.stat(name, dir_fd=base, follow_symlinks=False)) or

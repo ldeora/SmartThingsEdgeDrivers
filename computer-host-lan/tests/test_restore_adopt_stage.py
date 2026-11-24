@@ -13,7 +13,7 @@ import install_core as core
 import restore_adopt_journal as journal
 import restore_adopt_stage as stage
 import transaction_journal as old
-from test_restore_adopt_contract import ADOPT, ADOPT_EVIDENCE, RESTORE, RESTORE_EVIDENCE
+from test_restore_adopt_contract import ADOPT, ADOPT_EVIDENCE, RESTORE, RESTORE_EVIDENCE, BEFORE, H
 
 SERVICES = dict(agent_active=True, agent_enabled=True, socket_active=False, socket_enabled=False)
 
@@ -202,6 +202,51 @@ class StageTests(unittest.TestCase):
             with self.assertRaises(stage.PlanError):
                 stage.retire_terminal_plan(handle)
             self.assertEqual({p.name: p.read_bytes() for p in ready.iterdir()}, before)
+
+    def test_committed_and_rolled_back_stages_can_finish(self):
+        for terminal in ('COMMITTED', 'ROLLED_BACK'):
+            with self.subTest(terminal=terminal):
+                with self.store.transaction(ADOPT) as handle:
+                    digest = stage.stage_plan(handle, files(), SERVICES)
+                    handle.advance('STAGED', evidence=dict(ADOPT_EVIDENCE, staged_plan_sha256=digest),
+                                   verify=lambda _: True)
+                    handle.advance('SNAPSHOTTED', snapshot_name=BEFORE,
+                                   before_receipt_sha256=H, verify=lambda _: True)
+                    handle.advance('APPLYING', verify=lambda _: True)
+                    if terminal == 'COMMITTED':
+                        handle.advance('ACTIVATING', verify=lambda _: True)
+                        handle.advance('VERIFYING', verify=lambda _: True)
+                        handle.advance('COMMITTED', verify=lambda _: True)
+                with self.store.transaction() as recovery:
+                    if terminal == 'ROLLED_BACK':
+                        recovery.advance('ROLLED_BACK', verify=lambda _: True)
+                    stage.retire_terminal_plan(recovery)
+                    recovery.clear_finished(lambda _: True)
+                self.assertFalse(old._staged_payload_remains(self.root, os.geteuid()))
+
+    def test_final_removal_sync_failure_requires_explicit_retirement_retry(self):
+        with self.store.transaction(ADOPT) as handle:
+            stage.stage_plan(handle, files(), SERVICES)
+            handle.advance('ABORTED', verify=lambda _: True)
+            real_sync = stage._sync_stage_ancestors
+
+            def sync(current):
+                if not list(self.base.glob('retiring-plan-*')):
+                    raise OSError('fixture final removal sync')
+                real_sync(current)
+
+            with mock.patch.object(stage, '_sync_stage_ancestors', side_effect=sync):
+                with self.assertRaises(stage.PlanError):
+                    stage.retire_terminal_plan(handle)
+            self.assertFalse(list(self.base.glob('*-plan-*')))
+            with self.assertRaises(old.JournalConflict):
+                handle.clear_finished(lambda _: True)
+        with self.store.transaction() as recovery:
+            with self.assertRaises(old.JournalConflict):
+                recovery.clear_finished(lambda _: True)
+            stage.retire_terminal_plan(recovery)
+            recovery.clear_finished(lambda _: True)
+        self.assertFalse(old._staged_payload_remains(self.root, os.geteuid()))
 
     def test_retirement_rename_sync_failure_removes_no_data(self):
         with self.store.transaction(ADOPT) as handle:
