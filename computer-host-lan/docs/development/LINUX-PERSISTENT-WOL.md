@@ -86,8 +86,14 @@ the current same-name winner. Earlier effective rules are considered
 potentially matching unless they contain a single literal permanent MAC
 match for a different NIC. A current-MAC mismatch alone is not enough
 to exclude an earlier rule at the next boot. Any potentially relevant
-drop-in directory or reported drop-ins defers policy evaluation, even
-if the directory is empty or the file is masked. The planner deliberately
+drop-in directory or reported drop-ins defers policy evaluation, except
+for the narrow #97 read-only observation: the sole relevant directory
+must be the exact selected local rule's .link.d in /etc, completely
+empty, with protected no-follow directory traversal and unchanged
+identity/timestamps on resampling. No earlier, global or duplicate
+directory across precedence locations is allowed. No entry is ignored,
+including hidden files and masks. The selected rule must have a single
+literal permanent-MAC match and unspecified WOL. The planner deliberately
 does not implement general systemd matching, drop-in merging, or
 re-evaluation of device initialization; a consistent observed base
 rule is only limited evidence, not proof of future effective policy.
@@ -111,10 +117,11 @@ The nested `inspection` is evidence, not authorization.
 | unavailable | Unsuitable/unverified interface or explicitly unsupported magic packets |
 | review_runtime | Existing magic declaration differs from runtime; investigate, don't rewrite policy |
 | review_nm_add_magic | Explicit NM flags lack magic; reason distinguishes explicit disabled WOL (`explicit_nm_wol_disabled`) from other flags (`explicit_nm_flags_without_magic`); candidate for review only |
-| review_link_dropin | Local single literal permanent-MAC rule with unspecified WOL and no observed precedence conflict; consider scoped drop-in only after additional checks |
+| review_link_dropin | Local single literal permanent-MAC rule with unspecified WOL and no observed precedence conflict. Reason protected_empty_local_dropin means the existing directory passed the narrow observation; scoped_local_rule_without_wol does not establish a publication directory. Neither is authorization. |
 | manual_review | Ambiguous ownership, identity, SecureOn, explicit conflicting/default/ignore policy, shared/complex rule, drop-ins, or unsafe paths |
 
 The link evidence fields distinguish `base_rule_observed`,
+`empty_local_dropin_observed`,
 `selection_changed`, `earlier_rule_requires_review`,
 `dropins_require_review`, and `not_verified`. Scope can be
 `permanent_mac`, `current_mac`, `shared_or_complex` or
