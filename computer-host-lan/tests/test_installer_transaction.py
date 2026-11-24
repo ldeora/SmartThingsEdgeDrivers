@@ -866,6 +866,62 @@ class InstallerBackendTests(unittest.TestCase):
         self.assertEqual(receipt['release_authenticity'], 'not_verified')
         core.validate_v2_backup(backup, root=self.root)
 
+    def test_protected_writer_and_reader_agree_on_complete_snapshot(self):
+        import historical_snapshot as historical
+        self.existing_install()
+        # Independent expected bytes come from the fixture's reviewed
+        # source and rendered plan, not from the historical receipt.
+        changes = core.generate_plan(
+            ROOT, '/usr/bin/python3', enable_power=True, disable_power=False,
+            wol_interface='eth0', is_existing_power=False, avahi_dir=True)
+        self.assertEqual({change.path for change in changes}, core.MANAGED_PATHS)
+        self.installed_paths().apply(changes)
+        expected = {change.path: hashlib.sha256(change.content).hexdigest()
+                    for change in changes}
+        version, = installer._PROVENANCE_VERSION.findall(
+            next(change.content for change in changes
+                 if change.path == core.APP_FILES[0]))
+        self.assertEqual(self.backend.uninstall().status, 'uninstalled')
+        base = self.root / core.BACKUP_BASE.lstrip('/')
+        backup, = base.glob('snapshot-*')
+        candidate = historical.inspect_protected_candidate(
+            self.root, backup.name, expected_file_hashes=expected,
+            expected_agent_version=version.decode('ascii'),
+            owner_uid=self.uid, owner_gid=os.getegid())
+        self.assertEqual({item.path: item.content for item in candidate.files},
+                         {change.path: change.content for change in changes})
+        # Old rollback remains independent of the receipt.
+        (base / ('.' + backup.name + '.protected.json')).unlink()
+        core.validate_v2_backup(backup, root=self.root)
+        with self.assertRaises(historical.SnapshotEligibilityError):
+            historical.inspect_protected_candidate(
+                self.root, backup.name, expected_file_hashes=expected,
+                expected_agent_version=version.decode('ascii'),
+                owner_uid=self.uid, owner_gid=os.getegid())
+
+    def test_receipt_link_failure_leaves_only_original_snapshot(self):
+        old = self.existing_install()
+        original = old.read_bytes()
+        real_link = os.link
+
+        def refuse_receipt(src, dst, *args, **kwargs):
+            if str(dst).endswith('.protected.json'):
+                raise OSError('fixture receipt link failure')
+            return real_link(src, dst, *args, **kwargs)
+
+        with mock.patch.object(installer.os, 'link', side_effect=refuse_receipt):
+            with self.assertRaises(installer.ControllerError) as caught:
+                self.backend.run(self.request('upgrade'), ROOT, self.hashes)
+        self.assertEqual(caught.exception.code, 'aborted')
+        self.assertEqual(caught.exception.failure_stage, 'snapshot')
+        base = self.root / core.BACKUP_BASE.lstrip('/')
+        self.assertFalse(list(base.glob('.*.protected.json')))
+        self.assertFalse(list(base.glob('.snapshot-provenance-*')))
+        backup, = base.glob('snapshot-*')
+        core.validate_v2_backup(backup, root=self.root)
+        self.assertEqual(old.read_bytes(), original)
+        self.assertFalse(self.services.activations)
+
     def test_provenance_publication_failure_aborts_before_managed_mutation(self):
         old = self.existing_install()
         original = old.read_bytes()

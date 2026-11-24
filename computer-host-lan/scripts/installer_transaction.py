@@ -685,10 +685,20 @@ def _snapshot_provenance(root: Path, backup: Path, journal, previous: dict,
         before = stamp(os.fstat(directory))
         raw = read(directory, 'manifest.json',
                    core.MAX_BACKUP_MANIFEST_BYTES, True)
-        manifest = json.loads(raw)
+
+        def unique(pairs):
+            result = {}
+            for key, value in pairs:
+                if key in result:
+                    raise ControllerError('recovery_required')
+                result[key] = value
+            return result
+
+        manifest = json.loads(raw, object_pairs_hook=unique)
         if (type(manifest) is not dict or
                 set(manifest) != {'schema', 'installer_protocol', 'items', 'previous'} or
-                manifest['schema'] != 1 or manifest['installer_protocol'] != 'v2' or
+                type(manifest['schema']) is not int or manifest['schema'] != 1 or
+                manifest['installer_protocol'] != 'v2' or
                 manifest['previous'] != previous or type(manifest['items']) is not list or
                 len(manifest['items']) > len(core.MANAGED_PATHS)):
             raise ControllerError('recovery_required')
@@ -759,6 +769,15 @@ def _snapshot_provenance(root: Path, backup: Path, journal, previous: dict,
                     follow_symlinks=False)
         finally:
             os.unlink(temporary, dir_fd=base)
+        published = os.open(name, read_flags, dir_fd=base)
+        try:
+            info = os.fstat(published)
+            if (not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or
+                    info.st_uid != owner_uid or stat.S_IMODE(info.st_mode) != 0o600):
+                raise ControllerError('recovery_required')
+            os.fsync(published)
+        finally:
+            os.close(published)
         for ancestor in reversed(ancestors):
             os.fsync(ancestor)
 
