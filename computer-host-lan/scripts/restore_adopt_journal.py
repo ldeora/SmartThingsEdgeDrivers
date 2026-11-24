@@ -116,6 +116,63 @@ def _stage_base_exists(root, uid):
         return True
 
 
+def _stamp(info):
+    return (info.st_dev, info.st_ino, info.st_mode, info.st_uid,
+            info.st_gid, info.st_nlink, info.st_size,
+            info.st_mtime_ns, info.st_ctime_ns)
+
+
+def _observed_file(fd, directory, name, uid):
+    """Read exact bytes and stable private-file identity through a held fd."""
+    legacy._checked_regular(fd, uid)
+    initial = _stamp(os.fstat(fd))
+    os.lseek(fd, 0, os.SEEK_SET)
+    raw = os.read(fd, legacy._MAX_BYTES + 1)
+    if (len(raw) != initial[6] or len(raw) > legacy._MAX_BYTES or
+            _stamp(os.fstat(fd)) != initial or
+            _stamp(os.stat(name, dir_fd=directory, follow_symlinks=False)) != initial):
+        raise legacy.JournalConflict('journal evidence changed')
+    return raw, initial
+
+
+def _observe_current(directory, uid):
+    try:
+        fd = os.open(legacy._JOURNAL, legacy._FILE_FLAGS, dir_fd=directory)
+    except FileNotFoundError:
+        return None
+    try:
+        raw, stamp = _observed_file(fd, directory, legacy._JOURNAL, uid)
+        if not raw:
+            raise legacy.UnsafeJournal('invalid journal length')
+        return raw, stamp
+    finally:
+        os.close(fd)
+
+
+def _check_reconciliation(root, uid, directory, lock, lock_stamp, entries,
+                          current, name, fd, observed):
+    """Use the same pre/post-sync guard for every uncertainty discard."""
+    live = legacy._open_directory(root, uid, create=False)
+    try:
+        if live is None or not os.path.samestat(os.fstat(directory), os.fstat(live)):
+            raise legacy.JournalConflict('journal directory changed')
+    finally:
+        if live is not None:
+            os.close(live)
+    if (_stamp(os.fstat(lock)) != lock_stamp or
+            _stamp(os.stat(legacy._LOCK, dir_fd=directory, follow_symlinks=False)) != lock_stamp):
+        raise legacy.JournalConflict('journal lock changed')
+    legacy._checked_regular(lock, uid)
+    if _stamp(os.fstat(fd)) != observed[1]:
+        raise legacy.JournalConflict('uncertain record changed')
+    if (_observe_current(directory, uid) != current or
+            _observed_file(fd, directory, name, uid) != observed or
+            _entries(directory) != entries):
+        raise legacy.JournalConflict('journal uncertainty changed')
+    if current is None and legacy._staged_payload_remains(root, uid):
+        raise legacy.JournalConflict('orphan stage requires recovery')
+
+
 class Handle:
     """Single-use fixture capability; recovery handles cannot advance forward."""
     def __init__(self, root, uid, directory, record, *, recovering):
@@ -300,7 +357,9 @@ class FixtureJournal:
         with engine.manual_install_lock(self.lock, owner_uid=self.uid):
             directory, lock = self._store._acquire(create=False)
             try:
-                current = read_record(directory, self.uid)
+                durable = _observe_current(directory, self.uid)
+                current = None if durable is None else contract.decode_journal(durable[0])
+                lock_stamp = _stamp(os.fstat(lock))
                 if orphan_missing_newline and current is not None:
                     raise legacy.JournalConflict('durable journal exists')
                 entries = _entries(directory)
@@ -313,11 +372,8 @@ class FixtureJournal:
                     raise legacy.JournalConflict('unknown journal uncertainty')
                 fd = os.open(name, legacy._FILE_FLAGS, dir_fd=directory)
                 try:
-                    legacy._checked_regular(fd, self.uid)
-                    info = os.fstat(fd)
-                    raw = os.read(fd, legacy._MAX_BYTES + 1)
-                    if not len(raw) == info.st_size <= legacy._MAX_BYTES:
-                        raise legacy.JournalConflict('invalid journal uncertainty length')
+                    observed = _observed_file(fd, directory, name, self.uid)
+                    raw, _ = observed
                     if expected is None:
                         if not raw:
                             raise legacy.JournalConflict('incomplete journal uncertainty')
@@ -351,48 +407,13 @@ class FixtureJournal:
                     before = canonical(current)
                     if not callable(verify) or verify(json.loads(before), json.loads(proposed)) is not True:
                         raise legacy.JournalConflict('uncertainty not independently reconciled')
-                    if canonical(read_record(directory, self.uid)) != before or _entries(directory) != entries:
-                        raise legacy.JournalConflict('journal changed during reconciliation')
-                    # Check the held descriptor as well as the visible
-                    # name, including bytes, after the verifier returns.
-                    os.lseek(fd, 0, os.SEEK_SET)
-                    if os.read(fd, legacy._MAX_BYTES + 1) != raw:
-                        raise legacy.JournalConflict('uncertain record content changed')
-                    now = os.stat(name, dir_fd=directory, follow_symlinks=False)
-                    if (not os.path.samestat(info, now) or
-                            (info.st_mode, info.st_uid, info.st_nlink, info.st_size,
-                             info.st_mtime_ns, info.st_ctime_ns) !=
-                            (now.st_mode, now.st_uid, now.st_nlink, now.st_size,
-                             now.st_mtime_ns, now.st_ctime_ns)):
-                        raise legacy.JournalConflict('uncertain record changed')
-                    if current is None and legacy._staged_payload_remains(self.root, self.uid):
-                        raise legacy.JournalConflict('orphan stage requires recovery')
+                    _check_reconciliation(self.root, self.uid, directory, lock,
+                                          lock_stamp, entries, durable, name, fd, observed)
                     # Re-establish durable current record/ancestry BEFORE
-                    # retiring the uncertainty evidence.
+                    # retiring uncertainty evidence, then check again.
                     _sync_ancestors(self.root, self.uid)
-                    if orphan_missing_newline:
-                        # Recheck the fixed journal namespace and held bytes
-                        # after the last sync, before retiring the evidence.
-                        live = legacy._open_directory(self.root, self.uid, create=False)
-                        try:
-                            if live is None or not os.path.samestat(os.fstat(directory), os.fstat(live)):
-                                raise legacy.JournalConflict('orphan journal directory changed')
-                        finally:
-                            if live is not None:
-                                os.close(live)
-                        os.lseek(fd, 0, os.SEEK_SET)
-                        after = os.fstat(fd)
-                        visible = os.stat(name, dir_fd=directory, follow_symlinks=False)
-                        def stamp(st):
-                            return (st.st_dev, st.st_ino, st.st_mode, st.st_uid,
-                                    st.st_gid, st.st_nlink, st.st_size,
-                                    st.st_mtime_ns, st.st_ctime_ns)
-                        if (os.read(fd, legacy._MAX_BYTES + 1) != raw or
-                                stamp(info) != stamp(after) or stamp(info) != stamp(visible) or
-                                stamp(info) != stamp(os.fstat(fd)) or
-                                _entries(directory) != entries or
-                                legacy._staged_payload_remains(self.root, self.uid)):
-                            raise legacy.JournalConflict('orphan uncertainty changed')
+                    _check_reconciliation(self.root, self.uid, directory, lock,
+                                          lock_stamp, entries, durable, name, fd, observed)
                     os.unlink(name, dir_fd=directory)
                     os.fsync(directory)
                 finally:
