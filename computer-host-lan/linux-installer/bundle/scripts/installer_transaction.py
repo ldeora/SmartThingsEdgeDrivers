@@ -132,6 +132,7 @@ class RecoveryOutcome:
     """Public, redacted summary; never include journal IDs or secret state."""
     status: str       # aborted, rolled_back, cleaned
     previous_phase: str | None = None
+    operation: str | None = None  # fixed journal operation, never an identifier
 
 
 _UNSAFE_LOCK_ERRNOS = frozenset((
@@ -806,7 +807,9 @@ class InstallerBackend:
         Recovery restores the PREVIOUS installation rather than trying to
         reconstruct interrupted feature choices. Both locks remain held.
         """
-        phase = journal._record()['phase']
+        record = journal._record()
+        phase = record['phase']
+        operation = record['operation']
         if phase in _PREAPPLY:
             # No managed mutation occurs before the APPLYING record was
             # durably written. Even an interrupted APPLYING journal temp
@@ -815,7 +818,7 @@ class InstallerBackend:
             staging.finish_terminal_stage(journal, root=self.root,
                                           owner_uid=self.owner_uid)
             journal.clear_finished()
-            return RecoveryOutcome('aborted', phase)
+            return RecoveryOutcome('aborted', phase, operation)
 
         if phase not in _APPLIED:
             raise ControllerError('recovery_required')
@@ -851,7 +854,7 @@ class InstallerBackend:
         staging.finish_terminal_stage(journal, root=self.root,
                                       owner_uid=self.owner_uid)
         journal.clear_finished()
-        return RecoveryOutcome('rolled_back', phase)
+        return RecoveryOutcome('rolled_back', phase, operation)
 
     def recover_interrupted(self) -> RecoveryOutcome:
         """Explicitly recover after power loss, SIGKILL or helper crash.
@@ -863,7 +866,24 @@ class InstallerBackend:
         with manual_install_lock(self.manual_lock_path, owner_uid=self.owner_uid):
             store = ProtectedJournal(root=self.root, owner_uid=self.owner_uid)
             if store.public_status()['privileged_transaction_state'] == 'none':
-                return RecoveryOutcome('nothing_to_recover')
+                # A payload-free COMMITTED uninstall may retain a terminal
+                # journal even when public status is none. Explicit recovery
+                # must finish that cleanup, not restore or resume deletion.
+                try:
+                    handle = store.resume_finished_cleanup()
+                except JournalConflict:
+                    if store.public_status()['privileged_transaction_state'] == 'none':
+                        return RecoveryOutcome('nothing_to_recover')
+                    raise ControllerError('recovery_required') from None
+                with handle as journal:
+                    try:
+                        operation = journal._record()['operation']
+                        staging.finish_terminal_stage(
+                            journal, root=self.root, owner_uid=self.owner_uid)
+                        journal.clear_finished()
+                        return RecoveryOutcome('cleaned', operation=operation)
+                    except Exception:
+                        raise ControllerError('recovery_required') from None
             try:
                 handle = store.resume_recovery()
             except JournalConflict:
@@ -889,10 +909,11 @@ class InstallerBackend:
                     raise ControllerError('recovery_required') from None
                 with handle as journal:
                     try:
+                        operation = journal._record()['operation']
                         staging.finish_terminal_stage(
                             journal, root=self.root, owner_uid=self.owner_uid)
                         journal.clear_finished()
-                        return RecoveryOutcome('cleaned')
+                        return RecoveryOutcome('cleaned', operation=operation)
                     except Exception:
                         raise ControllerError('recovery_required') from None
             with handle as journal:
