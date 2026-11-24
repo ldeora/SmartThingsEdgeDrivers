@@ -661,6 +661,21 @@ This is an optional explicit fixture operation, not a requirement or
 authorization for clearing a terminal journal; existing preservation
 without quarantine remains possible. No production/embedded changes.
 
+Portability limitation: the fixture resolves the libc renameat2 symbol
+through ctypes.CDLL(None); glibc 2.28 and later provide this wrapper.
+On libc builds without that symbol (including musl/Alpine builds lacking
+the wrapper), quarantine fails closed with quarantine_noreplace_unavailable.
+Kernel and filesystem support for RENAME_NOREPLACE is independently
+required; an unsupported flag (for example EINVAL) or other rename error
+fails closed with quarantine_publication_failed. The original snapshot
+and any published receipt remain evidence for retry or expert review.
+There is no plain rename fallback or architecture-specific syscall
+fallback. These are known capability limitations, not permission to
+weaken the no-replacement guarantee. Before live integration, provide
+a supported operator reconciliation path for unavailable quarantine
+and partial receipts; never recommend deleting evidence to unblock it.
+See Linux rename(2): https://man7.org/linux/man-pages/man2/rename.2.html.
+
 Remaining: actual phase-specific execution and recovery verification,
 partial orphan/ambiguous-write policy, incomplete quarantine receipt
 reconciliation, corrupted-stage quarantine implementation, and compatible
