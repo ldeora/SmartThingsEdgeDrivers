@@ -186,7 +186,27 @@ class BeforeStateTests(unittest.TestCase):
         with self.store.transaction(RESTORE) as handle:
             self.prepare(handle, intent=RESTORE)
             with self.assertRaisesRegex(before.BeforeStateError,
-                                        '^current_state_permissions_damaged
+                                        r'^current_state_permissions_damaged$'):
+                before.capture_before(handle, lambda: SERVICES)
+            self.assertEqual(avahi.stat().st_mode & 0o777, 0o664)
+            self.assertEqual(handle.record()['phase'], 'STAGED')
+            self.assertFalse(list(self.base.glob('snapshot-v2-*')))
+            other = self.root / 'linked-avahi'
+            os.link(avahi, other)
+            with self.assertRaisesRegex(before.BeforeStateError, r'^unsafe_before_file$'):
+                before.capture_before(handle, lambda: SERVICES)
+            other.unlink()
+            handle.advance('ABORTED', verify=lambda _: True)
+            stage.retire_terminal_plan(handle)
+            handle.clear_finished(lambda _: True)
+        # Simulate a separately authorized repair after transaction cleanup.
+        avahi.chmod(0o644)
+        with self.store.transaction(RESTORE) as handle:
+            self.prepare(handle, intent=RESTORE)
+            captured = before.capture_before(handle, lambda: SERVICES)
+            verify.bind_before(handle, captured, lambda: SERVICES)
+
+    def test_partial_restore_refused(self):
         self.existing()
         self.trans.location(core.APP_FILES[1]).unlink()
         with self.store.transaction(RESTORE) as handle:
