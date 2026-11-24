@@ -23,9 +23,10 @@ describes the retired path, not a supported operation. This is not persistent WO
   undoing a journal-bound transaction. Recovery calls it with a special
   first-install ownership exception. The exception must never authorize
   a user-selected historical snapshot.
-- `require_v2_or_clean(..., adopt_retained_state=True)` accepts only the
-  orphan-state-only layout with no managed files and no owner record.
-  This is a shape test, not proof that the private ID/key belongs to v2.
+- `require_v2_or_clean(..., classify_orphan_state=True)` returns
+  `orphan_state` only for the orphan-state-only layout with no managed files
+  and no owner record. This is a shape classification, not proof that the
+  private ID/key belongs to v2 and never authorizes adoption.
 - `write_owner_record` retains v2 intent across uninstall and failed
   activation/rollback. It creates the folder and marker separately.
   A crash after mkdir or partial marker write is not equivalent to a

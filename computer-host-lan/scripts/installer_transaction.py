@@ -56,9 +56,10 @@ class ControllerError(RuntimeError):
         # The Go wizard may display it without needing privileged
         # access to the retained agent state.
         message = (
-            'Retained agent state cannot be automatically identified. '
-            'If you have verified it belongs to a previous v2 installation, '
-            'use the manual installer with --adopt-retained-state.'
+            'Retained agent state cannot be verified as a supported v2 installation. '
+            'Adoption is not supported in v1.0. Preserve the retained state, identity, '
+            'key and backups; do not delete or regenerate them. '
+            'Seek recovery guidance before retrying.'
             if code == 'adoption_required' else code
         )
         super().__init__(message)
@@ -920,17 +921,16 @@ class InstallerBackend:
             try:
                 core.require_v2_or_clean(self.root)
             except core.InstallError:
-                # The wizard cannot automatically adopt legacy private
-                # state. Distinguish *orphan-only* retained state from v1
-                # or partially installed files, so the UI can give
-                # the operator the existing manual recovery instruction.
+                # The wizard never adopts retained private state. Distinguish
+                # an orphan-only layout from v1/partial managed files so the
+                # UI can give precise, non-destructive v1.0 refusal guidance.
                 try:
-                    adoptable = (core.require_v2_or_clean(
-                        self.root, adopt_retained_state=True) == 'adopted')
+                    orphan_only = (core.require_v2_or_clean(
+                        self.root, classify_orphan_state=True) == 'orphan_state')
                 except (core.InstallError, OSError):
-                    adoptable = False
+                    orphan_only = False
                 raise ControllerError(
-                    'adoption_required' if adoptable else 'unsupported_environment'
+                    'adoption_required' if orphan_only else 'unsupported_environment'
                 ) from None
             return self._run_locked(request, source, trusted_hashes)
 

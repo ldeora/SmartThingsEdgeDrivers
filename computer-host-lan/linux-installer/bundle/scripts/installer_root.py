@@ -311,8 +311,10 @@ def main(argv=None) -> int:
                 status='error', error_code=exc.code,
                 secrets_included=False,
                 adoption_hint=(
-                    'Verify retained v2 state, then run the manual '
-                    'installer with --adopt-retained-state.'
+                    'Retained agent state cannot be verified as a supported v2 installation. '
+                    'Adoption is not supported in v1.0. Preserve the retained state, identity, '
+                    'key and backups; do not delete or regenerate them. '
+                    'Seek recovery guidance before retrying.'
                     if exc.code == 'adoption_required' else None))
             if exc.code == 'aborted' and exc.failure_stage is not None:
                 envelope['failure_stage'] = exc.failure_stage

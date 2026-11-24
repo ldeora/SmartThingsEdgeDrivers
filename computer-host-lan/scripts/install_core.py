@@ -14,8 +14,6 @@ from __future__ import annotations
 import argparse
 from contextlib import ExitStack
 from dataclasses import dataclass
-import errno
-import fcntl
 import json
 import os
 from pathlib import Path
@@ -399,24 +397,24 @@ def _retained_state_only(root: Path) -> bool:
     return True
 
 
-def require_v2_or_clean(root: Path = Path('/'), *, adopt_retained_state: bool = False) -> str:
-    """Refuse v1 and ambiguity; explicit expert adoption only for orphan state."""
+def require_v2_or_clean(root: Path = Path('/'), *, classify_orphan_state: bool = False) -> str:
+    """Classify existing state without adopting or mutating retained credentials."""
     state = detect_installed_protocol(root)
     if state == 'v1':
         raise InstallError(
             'Legacy v1 Linux Host LAN installation detected; refusing to replace it. '
             'An explicit, reviewed migration is required.')
     if state == 'unknown':
-        if adopt_retained_state and _retained_state_only(root):
-            return 'adopted'
+        if classify_orphan_state and _retained_state_only(root):
+            return 'orphan_state'
         raise InstallError(
-            'Existing Linux Host Agent files or state could not be identified as v2. '
-            'Refusing automatic changes; investigate before migration or repair. '
-            'If no managed files remain and you independently confirmed retained '
-            'state belongs to v2, the manual installer supports --adopt-retained-state.')
-    if adopt_retained_state:
-        raise InstallError('--adopt-retained-state is only for a retained state directory '
-                           'with no installed managed files and no v2 ownership record')
+            'Retained agent state cannot be verified as a supported v2 installation. '
+            'Adoption is not supported in v1.0. Preserve the retained state, identity, '
+            'key and backups; do not delete or regenerate them. '
+            'Seek recovery guidance before retrying.')
+    if classify_orphan_state:
+        raise InstallError('Orphan-state classification applies only when retained state '
+                           'exists without managed files or a v2 ownership record')
     return state
 
 
@@ -548,48 +546,6 @@ def generate_plan(source: Path, python_bin: str, *, enable_power: bool,
 _SYSTEMCTL_TIMEOUT_SECONDS = 120  # Bounded per operation, not per transaction.
 
 
-_MANUAL_LOCK_UNSAFE_MESSAGE = (
-    'Unsafe manual installer lock. Confirm no installer is running, '
-    'then ask an administrator to inspect '
-    '/run/lock/linux-host-agent-install.lock; do not delete it '
-    'while an installation or recovery is active.'
-)
-_UNSAFE_LOCK_ERRNOS = frozenset((
-    errno.ELOOP, errno.EACCES, errno.EPERM, errno.EISDIR,
-    errno.ENOTDIR, errno.ENXIO,
-))
-
-
-def open_manual_install_lock(path: Path, *, owner_uid: int = 0):
-    """Open the shared manual/wizard flock without following user-supplied links.
-
-    /run/lock may be sticky and world-writable. Existing root-owned 0644
-    legacy locks remain compatible, but symlinks, FIFOs, hardlinks and
-    group/world-writable regular files must never be treated as locks.
-    Other filesystem errors (ENOSPC, EROFS, ENOENT, etc.) are not
-    misrepresented as unsafe-lock failures.
-    """
-    fd = None
-    try:
-        fd = os.open(path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW |
-                     os.O_NONBLOCK | os.O_CLOEXEC, 0o600)
-        opened = os.fstat(fd)
-        visible = os.stat(path, follow_symlinks=False)
-        if (not stat.S_ISREG(opened.st_mode) or opened.st_uid != owner_uid or
-                opened.st_nlink != 1 or stat.S_IMODE(opened.st_mode) & 0o022 or
-                (opened.st_dev, opened.st_ino) !=
-                (visible.st_dev, visible.st_ino)):
-            raise InstallError(_MANUAL_LOCK_UNSAFE_MESSAGE)
-        lock = os.fdopen(fd, 'a+')
-        fd = None
-        return lock
-    except OSError as exc:
-        if exc.errno in _UNSAFE_LOCK_ERRNOS:
-            raise InstallError(_MANUAL_LOCK_UNSAFE_MESSAGE) from None
-        raise
-    finally:
-        if fd is not None:
-            os.close(fd)
 
 
 def systemctl(*args: str, check: bool = True) -> subprocess.CompletedProcess:
@@ -692,7 +648,7 @@ def run_cli(argv=None) -> int:
     if args.install or args.uninstall or args.rollback is not None:
         raise InstallError('Legacy mutation disabled; use the independently verified release installer wizard/CLI. Historical restore is not supported; preserve backups and seek recovery guidance.')
     if args.adopt_retained_state:
-        raise InstallError('Retained-state adoption is not supported; preserve identity and seek recovery guidance.')
+        raise InstallError('Retained agent state cannot be verified as a supported v2 installation. Adoption is not supported in v1.0. Preserve the retained state, identity, key and backups; do not delete or regenerate them. Seek recovery guidance before retrying.')
     if os.geteuid() != 0 and not (args.plan or args.check_existing):
         parser.error('must run as root')
     if args.plan and (not args.source or not args.python_bin):
@@ -708,7 +664,7 @@ def run_cli(argv=None) -> int:
         return 0
     if args.check_existing:
         try:
-            require_v2_or_clean(adopt_retained_state=args.adopt_retained_state)
+            require_v2_or_clean()
         except InstallError as exc:
             print(f'Existing agent check failed: {exc}', file=sys.stderr)
             return 2

@@ -1,6 +1,9 @@
 > **Historical Linux-only v0.3.1 source document.** It describes the
 > pre-refactor release and must not be used as evidence of hardware
-> validation for v0.4.0-dev.1. For the current architecture read
+> validation for v0.4.0-dev.1. The `configure-wol.sh --apply` example below
+> describes only the historical v0.2.10 utility. Current development source
+> keeps the preview read-only and explicitly refuses `--apply`; do not elevate
+> this command from a current checkout. For the current architecture read
 > `README.md`, `PROTOCOL.md`, `INSTALLATION.md` and
 > `docs/development/LINUX-PARITY-ACCEPTANCE.md`.
 

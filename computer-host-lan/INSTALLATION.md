@@ -69,7 +69,7 @@ curl -fsS http://127.0.0.1:8765/v2/info
 avahi-browse -rt _computerhost._tcp
 ```
 
-Power control is separate and opt-in: `sudo ./scripts/install-agent.sh --enable-power --wol-interface YOUR_ETHERNET_INTERFACE`. Do not change persistent WOL configuration unless deliberately choosing the existing `--configure-wol` path. Keep the key in `/var/lib/linux-host-agent/control-token` private. Read [Linux parity acceptance](docs/development/LINUX-PARITY-ACCEPTANCE.md) before physical tests.
+Power control is separate and opt-in in the published rc.2 package: `sudo ./scripts/install-agent.sh --enable-power --wol-interface YOUR_ETHERNET_INTERFACE`. The legacy `--configure-wol` option also applies only to published rc.2; current development source refuses it and does not change persistent WOL configuration. Keep the key in `/var/lib/linux-host-agent/control-token` private. Read [Linux parity acceptance](docs/development/LINUX-PARITY-ACCEPTANCE.md) before physical tests.
 
 The earlier Linux Host LAN uses protocol v1 and a different discovery
 namespace; do not install it alongside the new agent on the same listener.

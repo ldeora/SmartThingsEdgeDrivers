@@ -124,11 +124,10 @@ class InstalledProtocolTests(unittest.TestCase):
                         mock.patch.object(core, 'require_v2_or_clean') as guard, \
                         mock.patch.object(core, 'InstallTransaction') as trans, \
                         mock.patch.object(core.Path, 'mkdir') as mkdir, \
-                        mock.patch.object(core, 'open_manual_install_lock') as lock, \
                         mock.patch.object(core, 'systemctl') as systemctl:
                     with self.assertRaisesRegex(core.InstallError, 'disabled|not supported'):
                         core.run_cli(args)
-                    for operation in (guard, trans, mkdir, lock, systemctl):
+                    for operation in (guard, trans, mkdir, systemctl):
                         operation.assert_not_called()
 
     def test_protected_v2_record_allows_uninstall_reinstall_with_retained_identity(self):
@@ -160,32 +159,34 @@ class InstalledProtocolTests(unittest.TestCase):
         self.assertEqual(self.classify(), 'v2')
         self.assertEqual(core.require_v2_or_clean(self.root), 'v2')
 
-    def test_orphan_retained_state_needs_explicit_manual_adoption(self):
+    def test_orphan_retained_state_is_classified_without_adoption(self):
         secret = self.put('/var/lib/linux-host-agent/control-token', b'UNCHANGED')
         self.assertEqual(self.classify(), 'unknown')
-        with self.assertRaises(core.InstallError):
+        with self.assertRaisesRegex(
+                core.InstallError, 'not supported in v1.0') as error:
             core.require_v2_or_clean(self.root)
+        self.assertIn('Preserve the retained state', str(error.exception))
         self.assertEqual(core.require_v2_or_clean(
-            self.root, adopt_retained_state=True), 'adopted')
+            self.root, classify_orphan_state=True), 'orphan_state')
         self.assertEqual(secret.read_bytes(), b'UNCHANGED')
         core.write_owner_record(self.root)
         self.assertEqual(self.classify(), 'v2')
-        # Explicit adoption is invalid when a record already exists.
+        # Orphan-state classification is invalid when a v2 owner record exists.
         with self.assertRaises(core.InstallError):
-            core.require_v2_or_clean(self.root, adopt_retained_state=True)
+            core.require_v2_or_clean(self.root, classify_orphan_state=True)
 
-    def test_adoption_never_overrides_v1_or_partial_managed_files(self):
+    def test_orphan_state_classification_never_overrides_v1_or_partial_files(self):
         self.put('/var/lib/linux-host-agent/control-token', b'SECRET')
         agent = self.put(core.APP_FILES[0], b'PROTOCOL = "linux-host-agent"\n')
         with self.assertRaises(core.InstallError):
-            core.require_v2_or_clean(self.root, adopt_retained_state=True)
+            core.require_v2_or_clean(self.root, classify_orphan_state=True)
         agent.unlink()
         bad_unit = self.put(core.SYSTEMD_PATHS[0], b'ambiguous')
         with self.assertRaises(core.InstallError):
-            core.require_v2_or_clean(self.root, adopt_retained_state=True)
+            core.require_v2_or_clean(self.root, classify_orphan_state=True)
         bad_unit.unlink()
         self.assertEqual(core.require_v2_or_clean(
-            self.root, adopt_retained_state=True), 'adopted')
+            self.root, classify_orphan_state=True), 'orphan_state')
 
     def test_v2_marker_is_not_allowed_to_override_detectable_v1(self):
         core.write_owner_record(self.root)

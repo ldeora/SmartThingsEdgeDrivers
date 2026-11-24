@@ -1226,7 +1226,7 @@ class InstallerBackendTests(unittest.TestCase):
         self.assertEqual(raised.exception.code, 'unsafe_lock')
         self.assertEqual(str(raised.exception), 'unsafe_lock')
 
-    def test_manual_and_wizard_lock_open_errors_are_classified_correctly(self):
+    def test_wizard_lock_open_errors_are_classified_correctly(self):
         # Unsafe lock objects are actionable. Disk-full/read-only/missing
         # directories are not evidence of an attacker-planted lock.
         unsafe = (errno.ELOOP, errno.EACCES, errno.EPERM, errno.EISDIR,
@@ -1235,19 +1235,6 @@ class InstallerBackendTests(unittest.TestCase):
         for number in unsafe + operational:
             with self.subTest(errno=number):
                 failure = OSError(number, 'simulated lock open failure')
-                with mock.patch.object(core.os, 'open', side_effect=failure):
-                    if number in unsafe:
-                        with self.assertRaises(core.InstallError) as err:
-                            core.open_manual_install_lock(self.manual_lock,
-                                                          owner_uid=self.uid)
-                        self.assertIn('Unsafe manual installer lock',
-                                      str(err.exception))
-                    else:
-                        with self.assertRaises(OSError) as err:
-                            core.open_manual_install_lock(self.manual_lock,
-                                                          owner_uid=self.uid)
-                        self.assertEqual(err.exception.errno, number)
-
                 with mock.patch.object(installer.os, 'open', side_effect=failure):
                     with self.assertRaises(installer.ControllerError) as err:
                         with installer.manual_install_lock(self.manual_lock,
@@ -1266,46 +1253,28 @@ class InstallerBackendTests(unittest.TestCase):
                 raise OSError(errno.ENOSPC, 'simulated disk full in payload')
         self.assertEqual(err.exception.errno, errno.ENOSPC)
 
-    def test_manual_cli_lock_rejects_symlink_hardlink_and_fifo(self):
-        # Manual and Go installs use the same lock in /run/lock. The manual
-        # CLI must not follow a planted symlink even if its target is safe.
-        target = self.root / 'manual-lock-target'
+    def test_wizard_shared_lock_rejects_hardlink_and_fifo(self):
+        target = self.root / 'wizard-lock-target'
         target.write_text('KEEP')
         target.chmod(0o600)
-        planted = self.root / 'planted-install.lock'
-        planted.symlink_to(target)
-        with self.assertRaises(core.InstallError) as raised:
-            core.open_manual_install_lock(planted, owner_uid=self.uid)
-        self.assertIn('/run/lock/linux-host-agent-install.lock',
-                      str(raised.exception))
-        self.assertIn('no installer is running', str(raised.exception))
+        planted = self.root / 'planted-wizard.lock'
+
+        os.link(target, planted)
+        with self.assertRaises(installer.ControllerError) as raised:
+            with installer.manual_install_lock(planted, owner_uid=self.uid):
+                self.fail('Hardlinked shared lock must never be acquired')
+        self.assertEqual(raised.exception.code, 'unsafe_lock')
         self.assertEqual(target.read_text(), 'KEEP')
         planted.unlink()
 
-        os.link(target, planted)
-        with self.assertRaises(core.InstallError):
-            core.open_manual_install_lock(planted, owner_uid=self.uid)
-        planted.unlink()
-
         os.mkfifo(planted, 0o600)
-        with self.assertRaises(core.InstallError):
-            core.open_manual_install_lock(planted, owner_uid=self.uid)
+        with self.assertRaises(installer.ControllerError) as raised:
+            with installer.manual_install_lock(planted, owner_uid=self.uid):
+                self.fail('FIFO shared lock must never be acquired')
+        self.assertEqual(raised.exception.code, 'unsafe_lock')
         planted.unlink()
 
-        target.chmod(0o666)
-        with self.assertRaises(core.InstallError):
-            core.open_manual_install_lock(target, owner_uid=self.uid)
-
-    def test_manual_cli_lock_accepts_existing_0644_without_chmod(self):
-        lockfile = self.root / 'legacy-manual.lock'
-        lockfile.touch(mode=0o600)
-        lockfile.chmod(0o644)
-        with core.open_manual_install_lock(lockfile, owner_uid=self.uid) as fd:
-            self.assertTrue(stat.S_ISREG(os.fstat(fd.fileno()).st_mode))
-            self.assertEqual(stat.S_IMODE(lockfile.stat().st_mode), 0o644)
-        self.assertEqual(stat.S_IMODE(lockfile.stat().st_mode), 0o644)
-
-    def test_manual_cli_lock_blocks_wizard_without_creating_journal(self):
+    def test_shared_lock_blocks_new_transaction_without_creating_journal(self):
         fd = os.open(self.manual_lock, os.O_RDWR | os.O_CREAT, 0o600)
         try:
             fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -1729,14 +1698,13 @@ class InstallerBackendTests(unittest.TestCase):
         # Historical restore is now deliberately unavailable from the CLI.
         # The protected recovery controller keeps its own lock/restore tests.
         with (mock.patch.object(core.os, 'geteuid', return_value=0),
-              mock.patch.object(core, 'open_manual_install_lock') as lock,
               mock.patch.object(core, 'require_no_wizard_transaction') as guard,
               mock.patch.object(core, 'write_owner_record') as owner,
               mock.patch.object(core, 'InstallTransaction') as trans,
               mock.patch.object(core, 'restore_services') as services):
             with self.assertRaisesRegex(core.InstallError, 'Historical restore is not supported'):
                 core.run_cli(['--rollback', '/missing/snapshot'])
-            for operation in (lock, guard, owner, trans, services):
+            for operation in (guard, owner, trans, services):
                 operation.assert_not_called()
 
     def test_systemd_user_creation_matches_existing_shell_preflight(self):
@@ -1776,7 +1744,8 @@ class InstallerBackendTests(unittest.TestCase):
         with self.assertRaises(installer.ControllerError) as caught:
             self.backend.run(self.request(), ROOT, self.hashes)
         self.assertEqual(caught.exception.code, 'adoption_required')
-        self.assertIn('--adopt-retained-state', str(caught.exception))
+        self.assertIn('not supported in v1.0', str(caught.exception))
+        self.assertIn('Preserve the retained state', str(caught.exception))
         core.write_owner_record(self.root)  # Provenance from an earlier v2 install.
         self.assertEqual(self.backend.run(self.request(), ROOT, self.hashes).status,
                          'installed')
@@ -2171,7 +2140,7 @@ class InstallerBackendTests(unittest.TestCase):
         self.assertEqual(self.services.verify_calls, before)
         self.assertFalse(self.stage_entries())
 
-    def test_legacy_manual_lock_mode_0644_is_accepted(self):
+    def test_shared_lock_mode_0644_is_accepted(self):
         self.manual_lock.touch(mode=0o600)
         self.manual_lock.chmod(0o644)
         result = self.backend.run(self.request(), ROOT, self.hashes)
