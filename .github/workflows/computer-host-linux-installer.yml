@@ -73,6 +73,44 @@ jobs:
             echo 'Accessible output contains ANSI escape bytes' >&2
             exit 1
           fi
+      - name: Noninteractive CLI grammar and JSON smoke test (no elevation)
+        run: |
+          python3 - "$RUNNER_TEMP/computer-host-linux-tui-demo" <<'PY'
+          import json
+          import subprocess
+          import sys
+
+          binary = sys.argv[1]
+
+          def run(*args):
+              return subprocess.run([binary, *args], stdin=subprocess.DEVNULL,
+                                    capture_output=True, text=True, timeout=10)
+
+          help_result = run("cli", "--help")
+          assert help_result.returncode == 0, help_result
+          assert "--confirm INSTALL" in help_result.stdout, help_result
+          for args in (
+              (),
+              ("install",),
+              ("upgrade", "--confirm", "INSTALL"),
+              ("repair", "--confirm", "REPAIR", "--elevation", "su"),
+              ("uninstall", "--confirm", "UNINSTALL", "--power", "enable"),
+              ("status", "--request", "{}"),
+              ("recover", "--confirm", "RECOVER", "--confirm", "RECOVER"),
+              ("install", "--confirm", "INSTALL", "--source", "/tmp/fixture"),
+          ):
+              result = run("cli", *args)
+              assert result.returncode == 2, result
+              data = json.loads(result.stdout)
+              assert data["schema_version"] == 1, data
+              assert data["status"] == "error", data
+              assert data["error_code"] == "invalid_cli_arguments", data
+              assert data["secrets_included"] is False, data
+              assert not result.stderr, result
+          # A CLI token cannot be appended to wizard or bootstrap flags.
+          result = run("-preview", "cli", "status")
+          assert result.returncode == 2, result
+          PY
       - name: Real unprivileged read-only backend smoke test
         run: |
           set -eu
