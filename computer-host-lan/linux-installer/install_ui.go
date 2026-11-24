@@ -369,7 +369,7 @@ func knownPrivilegedError(code string) bool {
 		"recovery_required", "unsupported_environment", "adoption_required",
 		"unsupported_python", "untrusted_root_launcher",
 		"invalid_trusted_manifest", "duplicate_key", "bootstrap_failed",
-		"unsafe_lock", "not_installed":
+		"unsafe_lock", "not_installed", "recovery_helper_missing":
 		return true
 	}
 	return false
@@ -392,6 +392,8 @@ func userFacingPrivilegeFailure(reply privilegedResult) error {
 			return errors.New("uninstall was undone; previous files and service state were restored. Check prerequisites and run -uninstall again if desired")
 		}
 		return errors.New("installation could not complete; previous files and service state were restored. Check prerequisites and retry")
+	case "recovery_helper_missing":
+		return errors.New("the recovery helper is missing and protected transaction evidence may remain. Preserve the journal and staging directories; seek help obtaining a verified compatible recovery helper before retrying")
 	case "recovery_required":
 		return errors.New("installer transaction requires recovery. Run this wizard with -recover before retrying; preserve the protected journal and backup")
 	case "adoption_required":
