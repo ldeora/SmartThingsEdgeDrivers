@@ -378,7 +378,7 @@ func knownPrivilegedError(code string) bool {
 func userFacingPrivilegeFailure(reply privilegedResult) error {
 	if reply.ContinuityReason == "credential_continuity_unverified" {
 		if reply.ErrorCode == "aborted" {
-			return errors.New("credential continuity could not be verified before applying changes; inspect retained private state before retrying")
+			return errors.New("credential continuity could not be verified before applying changes; ask an administrator to inspect the retained credential layout, ownership, permissions and hard links before retrying. Do not delete or reset credentials")
 		}
 		return errors.New("credential continuity could not be verified; preserve retained private state and recovery evidence. Run -recover for managed-state recovery; it cannot verify continuity with the interrupted transaction")
 	}

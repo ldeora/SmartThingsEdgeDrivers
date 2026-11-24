@@ -283,6 +283,21 @@ class InstallerBackendTests(unittest.TestCase):
         removed = self.backend.uninstall()
         self.assertEqual(removed.credential_result, installer.continuity.Result('verified', 'verified'))
 
+    def test_continuity_private_executable_modes_survive_lifecycle(self):
+        _, token = self.continuity_fixture(active=False)
+        identity = token.with_name('installation-id')
+        identity.chmod(0o500)
+        token.chmod(0o700)
+        for operation in ('upgrade', 'repair'):
+            result = self.backend.run(self.request(operation), ROOT, self.hashes)
+            self.assertEqual(result.credential_result,
+                             installer.continuity.Result('verified', 'verified'))
+        result = self.backend.uninstall()
+        self.assertEqual(result.credential_result,
+                         installer.continuity.Result('verified', 'verified'))
+        self.assertEqual(stat.S_IMODE(identity.stat().st_mode), 0o500)
+        self.assertEqual(stat.S_IMODE(token.stat().st_mode), 0o700)
+
     def test_continuity_first_start_reports_new_not_preserved(self):
         identity = self.root / 'var/lib/linux-host-agent/installation-id'
         token = identity.with_name('control-token')

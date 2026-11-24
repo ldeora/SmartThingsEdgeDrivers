@@ -66,3 +66,12 @@ func TestCredentialContinuityDisplay(t *testing.T) {
 		t.Fatal(out.String())
 	}
 }
+
+func TestCredentialContinuityAbortGuidance(t *testing.T) {
+	message := userFacingPrivilegeFailure(privilegedResult{ErrorCode: "aborted", ContinuityReason: "credential_continuity_unverified"}).Error()
+	for _, expected := range []string{"before applying changes", "ownership, permissions and hard links", "Do not delete or reset credentials"} {
+		if !strings.Contains(message, expected) {
+			t.Fatal(message)
+		}
+	}
+}

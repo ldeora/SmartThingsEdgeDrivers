@@ -61,7 +61,9 @@ def _file(stack, directory, name, account):
     info = os.fstat(fd)
     if (not stat.S_ISREG(info.st_mode) or
             (info.st_uid, info.st_gid) != account or
-            stat.S_IMODE(info.st_mode) not in (0o400, 0o600) or
+            # Match the agent's private-mode policy; the owner must be
+            # able to read. The complete mode remains in the comparison.
+            info.st_mode & 0o077 or not info.st_mode & stat.S_IRUSR or
             info.st_size == 0 or info.st_nlink not in (1, 2)):
         raise ContinuityError()
     return fd, _stamp(info)

@@ -70,6 +70,28 @@ class CredentialContinuityTests(unittest.TestCase):
                 c.observe_live()
             walk.assert_called_once_with(Path('/'), 0, (123, 456))
 
+    def test_owner_readable_private_modes_and_strict_comparison(self):
+        for name in c._NAMES:
+            path = self.create(name)
+            for mode in (0o400, 0o500, 0o600, 0o700):
+                with self.subTest(name=name, mode=oct(mode)):
+                    path.chmod(mode)
+                    old = self.observe()
+                    self.assertEqual(c.compare(old, self.observe())[name], 'verified')
+            old = self.observe()
+            path.chmod(0o500)
+            with self.assertRaises(c.ContinuityError):
+                c.compare(old, self.observe())
+
+    def test_nonprivate_or_owner_unreadable_modes_refused(self):
+        path = self.create('control-token')
+        for mode in (0o000, 0o100, 0o200, 0o300, 0o401, 0o410, 0o420,
+                     0o440, 0o601, 0o604, 0o610, 0o620, 0o640, 0o777):
+            with self.subTest(mode=oct(mode)):
+                path.chmod(mode)
+                with self.assertRaises(c.ContinuityError):
+                    self.observe()
+
     def test_retained_metadata_no_content_reads(self):
         for name in c._NAMES:
             self.create(name)
