@@ -138,3 +138,55 @@ class UnboundQuarantineTests(unittest.TestCase):
             with self.assertRaises(before.BeforeStateError):
                 self.move(handle)
             self.assertEqual(before.read_before(handle), captured)
+
+    def test_quarantine_late_destination_collision_never_replaces(self):
+        with self.store.transaction(ADOPT) as handle:
+            source = self.prepare_unbound(handle)
+            dest, receipt = self.locations(handle)
+            original = quarantine._rename_noreplace
+
+            def collide(*args):
+                dest.mkdir(mode=0o700)
+                return original(*args)
+
+            with mock.patch.object(quarantine, '_rename_noreplace', side_effect=collide):
+                with self.assertRaises(before.BeforeStateError):
+                    self.move(handle)
+            self.assertTrue(source.is_dir())
+            self.assertTrue(dest.is_dir())
+            self.assertEqual(list(dest.iterdir()), [])
+            self.assertTrue(receipt.is_file())
+            with self.assertRaises(old.JournalConflict):
+                handle.record()
+        with self.store.transaction() as handle:
+            with self.assertRaises(before.BeforeStateError):
+                self.move(handle)
+
+    def test_quarantine_retry_refuses_modified_receipt_or_destination(self):
+        with self.store.transaction(ADOPT) as handle:
+            self.prepare_unbound(handle)
+            dest, receipt = self.locations(handle)
+            self.move(handle)
+        with self.store.transaction() as handle:
+            original = receipt.read_bytes()
+            receipt.write_bytes(original + b' ')
+            with self.assertRaises(before.BeforeStateError):
+                self.move(handle)
+            receipt.write_bytes(original)
+            (dest / 'manifest.json').write_bytes(b'modified')
+            with self.assertRaises(before.BeforeStateError):
+                self.move(handle)
+            self.assertEqual((dest / 'manifest.json').read_bytes(), b'modified')
+            self.assertEqual(receipt.read_bytes(), original)
+
+    def test_quarantine_retry_requires_terminal_verification_again(self):
+        with self.store.transaction(ADOPT) as handle:
+            self.prepare_unbound(handle)
+            dest, receipt = self.locations(handle)
+            self.move(handle)
+        with self.store.transaction() as handle:
+            with self.assertRaises(before.BeforeStateError):
+                self.move(handle, lambda _: False)
+            self.assertTrue(dest.exists())
+            self.assertTrue(receipt.exists())
+            self.assertEqual(handle.record()['phase'], 'ABORTED')
