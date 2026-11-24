@@ -131,6 +131,9 @@ class InstallerBackendTests(unittest.TestCase):
             root=self.root, owner_uid=self.uid,
             manual_lock_path=self.manual_lock,
             services=self.services)
+        # Fixture account, never an override of live account resolution.
+        self.backend._observe_credentials = lambda: installer.continuity.observe(
+            self.root, owner_uid=self.uid, account=(self.uid, os.getegid()))
         self.hashes = {
             name: hashlib.sha256((ROOT / name).read_bytes()).hexdigest()
             for name in staging.PAYLOAD_FILES
@@ -161,7 +164,7 @@ class InstallerBackendTests(unittest.TestCase):
         agent.write_bytes((ROOT / 'agent/linux_host_agent.py').read_bytes())
         agent.chmod(0o755)
         private = self.root / 'var/lib/linux-host-agent/installation-id'
-        private.parent.mkdir(parents=True, exist_ok=True)
+        private.parent.mkdir(parents=True, mode=0o700, exist_ok=True)
         private.write_text(UUID + '\n')
         private.chmod(0o600)
         return target
@@ -170,6 +173,159 @@ class InstallerBackendTests(unittest.TestCase):
         if not self.staging_dir.is_dir():
             return []
         return sorted(x.name for x in self.staging_dir.iterdir() if x.name != 'stage.lock')
+
+    def continuity_fixture(self, *, active=True):
+        target = self.existing_install(active=active, enabled=active)
+        token = self.root / 'var/lib/linux-host-agent/control-token'
+        token.write_bytes(b'x' * 64)
+        token.chmod(0o600)
+        return target, token
+
+    def test_continuity_rejects_token_rewrite_during_active_upgrade(self):
+        target, token = self.continuity_fixture()
+        activate = self.services.activate
+
+        def rewrite(*args, **kwargs):
+            activate(*args, **kwargs)
+            token.write_bytes(b'y' * 64)
+
+        with mock.patch.object(self.services, 'activate', side_effect=rewrite):
+            with self.assertRaises(installer.ControllerError) as caught:
+                self.backend.run(self.request('upgrade'), ROOT, self.hashes)
+        self.assertEqual(caught.exception.code, 'recovery_required')
+        self.assertEqual(caught.exception.credential_result.reason,
+                         'credential_continuity_unverified')
+        self.assertEqual(self.services.restore_calls, 1)
+        self.assertEqual(target.read_text(), 'ORIGINAL-UNIT-CONTENTS')
+        self.assertEqual(token.read_bytes(), b'y' * 64)
+        self.assertEqual(self.store.public_status()['privileged_transaction_state'],
+                         'recovery_required')
+        recovered = self.backend.recover_interrupted()
+        self.assertEqual(recovered.status, 'rolled_back')
+        self.assertEqual(recovered.credential_result.public(), dict(
+            installation_id_continuity='not_verified',
+            control_token_continuity='not_verified', credential_continuity='not_verified',
+            continuity_reason='continuity_unverified_after_interruption'))
+        self.assertEqual(token.read_bytes(), b'y' * 64)
+
+    def test_continuity_rejects_uuid_rewrite_during_stopped_upgrade(self):
+        self.continuity_fixture(active=False)
+        identity = self.root / 'var/lib/linux-host-agent/installation-id'
+        replacement = b'22345678-1234-4234-8234-123456789abc\n'
+        with mock.patch.object(self.services, 'verify_install', side_effect=lambda *a, **kw:
+                               bool(identity.write_bytes(replacement))):
+            with self.assertRaises(installer.ControllerError) as caught:
+                self.backend.run(self.request('upgrade'), ROOT, self.hashes)
+        self.assertEqual(caught.exception.code, 'recovery_required')
+        self.assertEqual(caught.exception.credential_result.reason,
+                         'credential_continuity_unverified')
+        self.assertEqual(identity.read_bytes(), replacement)
+        self.assertEqual(self.store.public_status()['privileged_transaction_state'],
+                         'recovery_required')
+
+    def test_continuity_rejects_token_rewrite_during_uninstall(self):
+        target, token = self.continuity_fixture()
+        with mock.patch.object(self.services, 'reload_after_uninstall',
+                               side_effect=lambda: token.write_bytes(b'z' * 64)):
+            with self.assertRaises(installer.ControllerError) as caught:
+                self.backend.uninstall()
+        self.assertEqual(caught.exception.code, 'recovery_required')
+        self.assertEqual(caught.exception.credential_result.reason,
+                         'credential_continuity_unverified')
+        self.assertEqual(target.read_text(), 'ORIGINAL-UNIT-CONTENTS')
+        self.assertEqual(token.read_bytes(), b'z' * 64)
+        self.assertEqual(self.store.public_status()['privileged_transaction_state'],
+                         'recovery_required')
+
+    def test_continuity_rejects_token_rewrite_during_rollback(self):
+        target, token = self.continuity_fixture()
+        self.services.fail_verify = True
+        restore = self.services.restore_services
+
+        def rewrite(previous):
+            restore(previous)
+            token.write_bytes(b'z' * 64)
+
+        with mock.patch.object(self.services, 'restore_services', side_effect=rewrite):
+            with self.assertRaises(installer.ControllerError) as caught:
+                self.backend.run(self.request('upgrade'), ROOT, self.hashes)
+        self.assertEqual(caught.exception.code, 'recovery_required')
+        self.assertEqual(caught.exception.credential_result.reason,
+                         'credential_continuity_unverified')
+        self.assertEqual(target.read_text(), 'ORIGINAL-UNIT-CONTENTS')
+        self.assertEqual(token.read_bytes(), b'z' * 64)
+        self.assertEqual(self.store.public_status()['privileged_transaction_state'],
+                         'recovery_required')
+
+    def test_continuity_preapply_mismatch_aborts_without_managed_mutation(self):
+        target, token = self.continuity_fixture()
+        sync = installer._sync_snapshot
+
+        def rewrite(backup):
+            sync(backup)
+            token.chmod(0o400)
+
+        with mock.patch.object(installer, '_sync_snapshot', side_effect=rewrite):
+            with self.assertRaises(installer.ControllerError) as caught:
+                self.backend.run(self.request('upgrade'), ROOT, self.hashes)
+        self.assertEqual(caught.exception.code, 'aborted')
+        self.assertEqual(caught.exception.credential_result.reason,
+                         'credential_continuity_unverified')
+        self.assertEqual(self.services.user_preflights, 0)
+        self.assertEqual(target.read_text(), 'ORIGINAL-UNIT-CONTENTS')
+        self.assertEqual(self.store.public_status()['privileged_transaction_state'], 'none')
+
+    def test_continuity_stopped_upgrade_and_uninstall_verify_both(self):
+        self.continuity_fixture(active=False)
+        result = self.backend.run(self.request('upgrade'), ROOT, self.hashes)
+        self.assertEqual(result.identity_preserved, 'not_verified')
+        self.assertEqual(result.credential_result, installer.continuity.Result('verified', 'verified'))
+        removed = self.backend.uninstall()
+        self.assertEqual(removed.credential_result, installer.continuity.Result('verified', 'verified'))
+
+    def test_continuity_private_executable_modes_survive_lifecycle(self):
+        _, token = self.continuity_fixture(active=False)
+        identity = token.with_name('installation-id')
+        identity.chmod(0o500)
+        token.chmod(0o700)
+        for operation in ('upgrade', 'repair'):
+            result = self.backend.run(self.request(operation), ROOT, self.hashes)
+            self.assertEqual(result.credential_result,
+                             installer.continuity.Result('verified', 'verified'))
+        result = self.backend.uninstall()
+        self.assertEqual(result.credential_result,
+                         installer.continuity.Result('verified', 'verified'))
+        self.assertEqual(stat.S_IMODE(identity.stat().st_mode), 0o500)
+        self.assertEqual(stat.S_IMODE(token.stat().st_mode), 0o700)
+
+    def test_continuity_first_start_reports_new_not_preserved(self):
+        identity = self.root / 'var/lib/linux-host-agent/installation-id'
+        token = identity.with_name('control-token')
+        activate = self.services.activate
+
+        def create(*args, **kwargs):
+            activate(*args, **kwargs)
+            identity.parent.mkdir(mode=0o700, parents=True)
+            identity.write_text(UUID + '\n')
+            identity.chmod(0o600)
+            token.write_bytes(b'x' * 64)
+            token.chmod(0o600)
+
+        with mock.patch.object(self.services, 'activate', side_effect=create):
+            result = self.backend.run(self.request(), ROOT, self.hashes)
+        self.assertEqual(result.credential_result,
+                         installer.continuity.Result('newly_present', 'newly_present'))
+        self.assertEqual(result.credential_result.public()['credential_continuity'], 'not_verified')
+
+    def test_continuity_clean_same_process_rollback_reports_metadata(self):
+        self.continuity_fixture()
+        self.services.fail_verify = True
+        with self.assertRaises(installer.ControllerError) as caught:
+            self.backend.run(self.request('upgrade'), ROOT, self.hashes)
+        self.assertEqual(caught.exception.code, 'rolled_back')
+        self.assertEqual(caught.exception.credential_result,
+                         installer.continuity.Result('verified', 'verified'))
+        self.assertEqual(self.store.public_status()['privileged_transaction_state'], 'none')
 
     def test_privileged_request_accepts_exact_fixed_system_python_directories(self):
         # The shell root launcher trusts these same four system directories.
@@ -1560,7 +1716,7 @@ class InstallerBackendTests(unittest.TestCase):
     def test_saved_identity_allows_agent_crash_leftover_hardlink(self):
         self.existing_install()
         saved = self.root / 'var/lib/linux-host-agent/installation-id'
-        leftover = saved.with_name('.installation-id.crashed.tmp')
+        leftover = saved.with_name('.installation-id.0123456789abcdef.tmp')
         os.link(saved, leftover)
         self.assertEqual(saved.stat().st_nlink, 2)
         self.assertEqual(installer.read_saved_identity(self.root), UUID)
@@ -1655,7 +1811,7 @@ class InstallerBackendTests(unittest.TestCase):
 
     def test_orphaned_state_is_blocked_but_v2_owner_record_allows_reinstall(self):
         private = self.root / 'var/lib/linux-host-agent/installation-id'
-        private.parent.mkdir(parents=True, exist_ok=True)
+        private.parent.mkdir(parents=True, mode=0o700, exist_ok=True)
         private.write_text(UUID + '\n')
         private.chmod(0o600)
         with self.assertRaises(installer.ControllerError) as caught:

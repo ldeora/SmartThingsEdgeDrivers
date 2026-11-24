@@ -1,11 +1,13 @@
-"""Private, metadata-only credential observations. Disposable fixtures only.
+"""Private, metadata-only credential observations under installer locks.
 
-No live controller, persistence, credential reads or recovery authority.
-The caller supplies the fixture account observation under its own locks.
+No persistence, credential content reads or recovery authority. Live account
+resolution is internal; explicit account injection is disposable-root only.
 """
 from dataclasses import dataclass
 from contextlib import ExitStack
 import os
+import pwd
+import grp
 from pathlib import Path
 import re
 import stat
@@ -59,7 +61,9 @@ def _file(stack, directory, name, account):
     info = os.fstat(fd)
     if (not stat.S_ISREG(info.st_mode) or
             (info.st_uid, info.st_gid) != account or
-            stat.S_IMODE(info.st_mode) not in (0o400, 0o600) or
+            # Match the agent's private-mode policy; the owner must be
+            # able to read. The complete mode remains in the comparison.
+            info.st_mode & 0o077 or not info.st_mode & stat.S_IRUSR or
             info.st_size == 0 or info.st_nlink not in (1, 2)):
         raise ContinuityError()
     return fd, _stamp(info)
@@ -162,6 +166,99 @@ def observe(root, *, owner_uid, account):
         if isinstance(exc, ContinuityError):
             raise
         raise ContinuityError() from None
+
+
+def _live_account():
+    try:
+        user = pwd.getpwnam('linuxhost')
+    except KeyError:
+        user = None
+    try:
+        group = grp.getgrnam('linuxhost')
+    except KeyError:
+        group = None
+    if user is None and group is None:
+        return None
+    if (user is None or group is None or user.pw_name != 'linuxhost' or
+            group.gr_name != 'linuxhost' or user.pw_uid <= 0 or
+            user.pw_gid <= 0 or user.pw_gid != group.gr_gid or
+            user.pw_dir != '/var/lib/linux-host-agent' or
+            user.pw_shell not in ('/usr/sbin/nologin', '/sbin/nologin',
+                                  '/usr/bin/nologin', '/bin/false', '/usr/bin/false')):
+        raise ContinuityError()
+    return user.pw_uid, user.pw_gid
+
+
+def observe_live():
+    """Resolve account twice under the caller's live installer locks."""
+    if os.geteuid() != 0:
+        raise ContinuityError()
+    try:
+        account = _live_account()
+        first = _walk(Path('/'), 0, account)
+        if (_live_account() != account or
+                _walk(Path('/'), 0, account) != first or
+                _live_account() != account):
+            raise ContinuityError()
+        return first
+    except (OSError, ValueError, RuntimeError):
+        raise ContinuityError() from None
+
+
+@dataclass(frozen=True)
+class Result:
+    """Only bounded, public outcome enums; never a metadata observation."""
+    installation_id: str = 'not_verified'
+    control_token: str = 'not_verified'
+    reason: str = ''
+
+    def public(self):
+        allowed = ('verified', 'absent', 'newly_present', 'not_verified')
+        if (self.installation_id not in allowed or self.control_token not in allowed or
+                self.reason not in ('', 'credential_continuity_unverified',
+                                    'continuity_unverified_after_interruption') or
+                (self.reason and (self.installation_id, self.control_token) !=
+                 ('not_verified', 'not_verified'))):
+            raise ContinuityError()
+        return dict(installation_id_continuity=self.installation_id,
+                    control_token_continuity=self.control_token,
+                    credential_continuity=('verified' if self.installation_id ==
+                                           self.control_token == 'verified' else 'not_verified'),
+                    continuity_reason=self.reason)
+
+
+class Check:
+    """One invocation/handle only. Any comparison failure is sticky."""
+    def __init__(self, journal, observe):
+        self._journal = journal
+        self._observe = observe
+        self._before = None
+        self.failed = False
+        self.result = Result()
+
+    def capture(self):
+        try:
+            if self._before is not None or self.failed:
+                raise ContinuityError()
+            self._before = self._observe()
+        except ContinuityError:
+            self.fail()
+            raise
+
+    def fail(self):
+        self.failed = True
+        self.result = Result(reason='credential_continuity_unverified')
+
+    def verify(self, journal, *, allow_new=False):
+        try:
+            if self.failed or journal is not self._journal or self._before is None:
+                raise ContinuityError()
+            states = compare(self._before, self._observe(), allow_new=allow_new)
+            self.result = Result(states['installation-id'], states['control-token'])
+            return self.result
+        except ContinuityError:
+            self.fail()
+            raise
 
 
 def compare(before, after, *, allow_new=False):

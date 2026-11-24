@@ -341,6 +341,9 @@ func validatedPrivilegedReply(data []byte, action string) (privilegedResult, err
 		reply.RecoveryStatus == "" || reply.RecoveryStatus == "nothing_to_recover") {
 		return privilegedResult{}, errors.New("unexpected recovery operation")
 	}
+	if !validateContinuityReply(&reply, action) {
+		return privilegedResult{}, errors.New("invalid credential continuity outcome")
+	}
 	return reply, nil
 }
 
@@ -373,6 +376,12 @@ func knownPrivilegedError(code string) bool {
 }
 
 func userFacingPrivilegeFailure(reply privilegedResult) error {
+	if reply.ContinuityReason == "credential_continuity_unverified" {
+		if reply.ErrorCode == "aborted" {
+			return errors.New("credential continuity could not be verified before applying changes; ask an administrator to inspect the retained credential layout, ownership, permissions and hard links before retrying. Do not delete or reset credentials")
+		}
+		return errors.New("credential continuity could not be verified; preserve retained private state and recovery evidence. Run -recover for managed-state recovery; it cannot verify continuity with the interrupted transaction")
+	}
 	switch reply.ErrorCode {
 	case "installation_busy":
 		return errors.New("another installation or recovery is in progress. Finish that operation before retrying")
@@ -527,6 +536,9 @@ func installSelection(s *liveSelection, w io.Writer, interactive bool, method st
 	}
 	result, err := executeAuthorizedBootstrap(req, interactive, method)
 	if err != nil {
+		if result.ErrorCode == "rolled_back" {
+			showCredentialContinuity(w, result)
+		}
 		return err
 	}
 	showInstallationOutcome(w, s, req, result)
@@ -544,6 +556,7 @@ func onboardingMode(result privilegedResult) string {
 
 func showInstallationOutcome(w io.Writer, s *liveSelection, req privilegedRequest, result privilegedResult) {
 	fmt.Fprintln(w, "\nComputer Host LAN:", result.Status)
+	showCredentialContinuity(w, result)
 	if onboardingMode(result) == "check_existing_device" {
 		fmt.Fprintln(w, "Existing agent identity verified.")
 		fmt.Fprintln(w, "Open your existing SmartThings computer device and refresh it first. Rediscovery is normally unnecessary.")
@@ -685,6 +698,9 @@ func confirmUninstall(reader io.Reader, writer io.Writer,
 	fmt.Fprintln(writer, "Authorizing uninstall. This can take several minutes.")
 	reply, err := authorize(privilegedRequest{SchemaVersion: 2, Action: "uninstall"})
 	if err != nil {
+		if reply.ErrorCode == "rolled_back" {
+			showCredentialContinuity(writer, reply)
+		}
 		return err
 	}
 	switch reply.Status {
@@ -701,6 +717,7 @@ func confirmUninstall(reader io.Reader, writer io.Writer,
 	} else {
 		fmt.Fprintln(writer, "No saved installation identity could be verified.")
 	}
+	showCredentialContinuity(writer, reply)
 	fmt.Fprintln(writer, "Private state, recovery snapshots and the recovery helper are retained.")
 	fmt.Fprintln(writer, "The SmartThings device is not automatically removed.")
 	return nil
@@ -721,6 +738,7 @@ func runUninstallWizard(reader io.Reader, writer io.Writer, method string) error
 
 func showRecoveryOutcome(writer io.Writer, response privilegedResult) {
 	fmt.Fprintln(writer, "Recovery outcome:", response.RecoveryStatus)
+	showCredentialContinuity(writer, response)
 	switch response.RecoveryStatus {
 	case "rolled_back":
 		if response.RecoveryOperation == "uninstall" {
