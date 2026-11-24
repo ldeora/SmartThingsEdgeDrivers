@@ -2,9 +2,12 @@
 import json
 import os
 from pathlib import Path
+import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'scripts'))
@@ -247,6 +250,10 @@ class WolPlannerTests(unittest.TestCase):
                 self.replies[NM_POLICY] = flags
                 result = self.plan()
                 self.assertEqual(result['recommendation'], expected)
+                if flags == '0':
+                    self.assertEqual(result['reason'], 'explicit_nm_wol_disabled')
+                elif flags == 'phy, multicast':
+                    self.assertEqual(result['reason'], 'explicit_nm_flags_without_magic')
                 self.assertEqual(result['link_tree'], 'not_verified')
         self.assertNotIn(UDEV, self.calls)
 
@@ -267,6 +274,58 @@ class WolPlannerTests(unittest.TestCase):
     def test_permanent_mac_mismatch_blocks_changes(self):
         self.replies[PERM] = 'Permanent address: ' + OTHER + '\n'
         self.assertEqual(self.plan()['reason'], 'interface_identity_not_verified')
+
+    def test_inventory_change_after_shared_read_invalidates_plan(self):
+        original = planner.inventory
+        calls = 0
+
+        def changed(root, owner_uid):
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                self.put('/etc/systemd/network/05-new.link', exact_rule())
+            return original(root, owner_uid)
+
+        with mock.patch.object(planner, 'inventory', side_effect=changed):
+            result = self.plan()
+        self.assertEqual(calls, 2)
+        self.assertEqual(result['link_tree'], 'selection_changed')
+        self.assertEqual(result['recommendation'], 'manual_review')
+
+    def test_inventory_failure_does_not_retry_as_verified(self):
+        with mock.patch.object(planner, 'inventory',
+                               side_effect=planner.UncertainPolicy()) as scan:
+            result = self.plan()
+        scan.assert_called_once()
+        self.assertEqual(result['link_tree'], 'not_verified')
+        self.assertEqual(result['recommendation'], 'manual_review')
+
+    def test_standalone_isolated_mode_and_unsafe_sibling(self):
+        # Do not use /tmp: the standalone import intentionally refuses
+        # writable ancestors even when they have the sticky bit.
+        with tempfile.TemporaryDirectory(dir=Path.home()) as directory:
+            dest = Path(directory)
+            for name in ('wol_plan.py', 'wol_inspect.py'):
+                shutil.copyfile(ROOT / 'scripts' / name, dest / name)
+                (dest / name).chmod(0o600)
+            command = [sys.executable, '-I', '-S', '-B',
+                       str(dest / 'wol_plan.py'), '--interface', '../invalid']
+            done = subprocess.run(command, cwd='/', capture_output=True,
+                                  text=True, timeout=15, check=True)
+            self.assertEqual(json.loads(done.stdout)['recommendation'], 'unavailable')
+            sibling = dest / 'wol_inspect.py'
+            sibling.chmod(0o666)
+            done = subprocess.run(command, cwd='/', capture_output=True,
+                                  text=True, timeout=15)
+            self.assertNotEqual(done.returncode, 0)
+            self.assertIn('unsafe inspector source', done.stderr)
+            self.assertEqual(done.stdout, '')
+            sibling.unlink()
+            sibling.symlink_to(ROOT / 'scripts' / 'wol_inspect.py')
+            done = subprocess.run(command, cwd='/', capture_output=True,
+                                  text=True, timeout=15)
+            self.assertNotEqual(done.returncode, 0)
+            self.assertEqual(done.stdout, '')
 
     def test_invalid_interface_does_not_execute_commands(self):
         result = planner.plan('../private', root=self.root, net=self.net,
