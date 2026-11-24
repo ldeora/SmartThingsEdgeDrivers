@@ -894,7 +894,9 @@ class InstallerBackendTests(unittest.TestCase):
         ops = installer.SystemdOperations()
         inactive = dict(LoadState='loaded', ActiveState='inactive',
                         SubState='dead', UnitFileState='disabled')
-        for state, substate in (('failed', 'failed'), ('activating', 'auto-restart')):
+        for state, substate in (('failed', 'failed'),
+                                ('activating', 'auto-restart'),
+                                ('activating', 'auto-restart-queued')):
             for enabled in ('enabled', 'disabled'):
                 broken = dict(inactive, ActiveState=state, SubState=substate,
                               UnitFileState=enabled)
