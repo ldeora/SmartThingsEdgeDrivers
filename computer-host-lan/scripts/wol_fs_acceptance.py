@@ -299,7 +299,13 @@ def _fixture_experiment(action: str, directory: Path) -> dict:
                         published_hardlinks_intact=result['published_hardlinks_intact'],
                         schema2_publication_verified=True, secrets_included=False)
         baseline = _load(root)
-        state = publication.inspect(policy, receipt, _TXID, owner_uid=uid)
+        try:
+            state = publication.inspect(policy, receipt, _TXID, owner_uid=uid)
+        except publication.PublicationError:
+            return dict(status=('rollback_refused' if action == 'rollback'
+                                else 'fixture_error'),
+                        action=action, schema2_publication_verified=False,
+                        secrets_included=False)
         if state == 'unpublished':
             return dict(status='fixture_rolled_back', action=action,
                         rollback_verified=True, secrets_included=False)
