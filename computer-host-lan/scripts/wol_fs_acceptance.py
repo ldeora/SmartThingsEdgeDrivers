@@ -127,7 +127,7 @@ def _snapshot(root: int, policy: int, receipt: int,
             files[key] = _sample(fd)
         files['link_directory'] = (
             _sample(link_directory) if link_directory is not None else None)
-        return dict(schema=2, boot=_boot(), files=files)
+        return dict(schema=3, boot=_boot(), files=files)
 
 
 def _save(root: int, baseline: dict) -> None:
@@ -197,7 +197,7 @@ def _load(root: int) -> dict:
             raise ValueError('baseline replaced during read')
         data = json.loads(raw.decode('ascii'), object_pairs_hook=_unique_object)
         if (type(data) is not dict or set(data) != {'schema', 'boot', 'files'} or
-                type(data['schema']) is not int or data['schema'] != 2 or
+                type(data['schema']) is not int or data['schema'] != 3 or
                 not isinstance(data['files'], dict) or
                 set(data['files']) != set(_SNAPSHOT_KEYS)):
             raise ValueError('invalid baseline structure')

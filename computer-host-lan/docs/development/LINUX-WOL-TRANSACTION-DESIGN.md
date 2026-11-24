@@ -317,10 +317,24 @@ through the descriptor's mnt_id in /proc/self/fdinfo and the matching
 /proc/self/mountinfo record, and only attempts ext4, XFS or Btrfs.
 The first implementation restricts ioctl encodings to the verified
 64-bit asm-generic ABIs x86_64, aarch64 and riscv64. It uses the
-17-byte FS_IOC_GETFSUUID struct from Linux UAPI (introduced with the
-Linux 6.9 VFS UUID work; actual support is probed, not inferred from
-version) and, on Btrfs, the special unprivileged BTRFS_IOC_INO_LOOKUP
-query with treeid=0/objectid=256 to obtain the containing subvolume.
+17-byte FS_IOC_GETFSUUID struct for ext4/XFS (actual support is probed,
+not inferred from version). On Btrfs it explicitly selects the native
+BTRFS_IOC_FS_INFO (0x8400941f, 1024-byte buffer, FSID offset 16,
+metadata UUID request flag 4 at offset 48, metadata UUID offset 64)
+and the unprivileged BTRFS_IOC_INO_LOOKUP query with treeid=0/objectid=256.
+Require the returned metadata UUID flag, nonzero equal FSID and metadata
+UUID, and repeat the complete identity query. No generic ioctl fallback
+on Btrfs, and no native fallback on ext4/XFS. This deliberately excludes
+legitimate differing UUID layouts as well as observed temporary FSIDs;
+equality does not prove absence of clones or restores.
+
+Physical diagnostic on hydra (Linux 7.3.4, systemd 261.2): generic UUID
+ioctl returned ENOTTY on all Btrfs descriptors while working on tmpfs.
+Native FS_INFO returned nonzero equal UUIDs, repeated observations
+agreed, and INO_LOOKUP distinguished root from /home and /var.
+This qualifies the read-only queries, not reboot stability or ownership.
+Native ABI: https://github.com/torvalds/linux/blob/master/include/uapi/linux/btrfs.h
+Kernel implementation: https://code.googlesource.com/linux/torvalds/linux/+/0cb552aa97843f24549ce808883494138471c16b/fs/btrfs/ioctl.c.
 Sources:
 https://github.com/torvalds/linux/blob/master/include/uapi/linux/fs.h
 and https://btrfs.readthedocs.io/en/stable/btrfs-ioctl.html.
@@ -337,9 +351,9 @@ identity: UUID clones, restored images, subvolume recreation and
 inode reuse remain limitations. Retain the anchored hard-link checks
 and protected fixed-path revalidation. The existing publication
 receipt format is unchanged until the provider and actual filesystems
-have passed independent review and physical acceptance. On older
-kernels without the UUID ioctl, persistent WOL mutation must remain
-unavailable unless a separately reviewed stable provider is added.
+have passed independent review and physical acceptance. On kernels without the selected provider's required ioctl evidence,
+persistent WOL mutation must remain unavailable unless a separately
+reviewed stable provider is added.
 No agent installation dependency on this experimental feature.
 
 Fixture tests pin the ioctl layout, mount-ID matching, subvolume
@@ -430,8 +444,9 @@ retains raw UUIDs (including the link-directory identity), boot ID,
 mount-local device numbers, f_fsid, inode and link counts privately.
 Output is redacted comparison flags only.
 
-Use a newly prepared fixture with the current baseline schema 2.
-Fixtures created by earlier schema-1 versions are not migrated and
+Use a newly prepared fixture with the current baseline schema 3.
+This is the disposable baseline schema, not publication receipt schema 2.
+Earlier schema-1/2 baselines are not migrated after the provider change and
 report `baseline_invalid`; retain them separately if needed and create
 a new empty fixture rather than replacing their baseline.
 

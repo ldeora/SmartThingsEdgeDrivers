@@ -31,9 +31,21 @@ class FilesystemIdentityTests(unittest.TestCase):
             self.assertEqual(fd, self.fd)
             self.assertTrue(mutate)
             if command == identity._FS_IOC_GETFSUUID:
+                self.assertNotEqual(filesystem, 'btrfs')
                 self.assertEqual(len(buf), 17)
                 self.assertEqual(command, 0x80111500)
                 buf[:] = bytes([len(uuid)]) + uuid.ljust(16, b'\0')
+            elif command == identity._BTRFS_IOC_FS_INFO:
+                self.assertEqual(filesystem, 'btrfs')
+                self.assertEqual(command, 0x8400941f)
+                self.assertEqual(len(buf), 1024)
+                self.assertEqual(struct.unpack_from('=Q', buf, 48)[0], 4)
+                self.assertEqual(buf[:48], bytes(48))
+                self.assertEqual(buf[56:], bytes(968))
+                if len(uuid) == 16:
+                    buf[16:32] = uuid
+                    buf[64:80] = uuid
+                struct.pack_into('=Q', buf, 48, 4)
             else:
                 self.assertEqual(command, 0xd0009412)
                 self.assertEqual(len(buf), 4096)
@@ -71,6 +83,37 @@ class FilesystemIdentityTests(unittest.TestCase):
         self.assertNotEqual(a, b)
         self.assertNotEqual(a, c)
         self.assertEqual(a, self.sample()[0])
+
+    def test_btrfs_uses_native_provider_not_generic_ioctl(self):
+        # hydra: generic UUID ioctl returns ENOTTY on Btrfs.
+        with mock.patch.object(identity, '_uuid',
+                               side_effect=OSError(errno.ENOTTY, 'fixture')) as generic:
+            value, calls = self.sample()
+            self.assertEqual(value.uuid, UUID)
+            self.assertEqual(calls, 4)
+            generic.assert_not_called()
+
+    def test_btrfs_rejects_missing_metadata_and_different_uuids(self):
+        for fsid, metadata, flags, ret in (
+                (UUID, UUID, 0, 0),
+                (UUID, bytes(16), 4, 0),
+                (bytes(16), bytes(16), 4, 0),
+                (UUID, OTHER, 4, 0),
+                (UUID, UUID, 5, 0),
+                (UUID, UUID, 4, 1)):
+            with self.subTest(flags=flags, ret=ret, equal=fsid == metadata):
+                def response(fd, command, buf, mutate):
+                    self.assertEqual(command, 0x8400941f)
+                    buf[16:32] = fsid
+                    buf[64:80] = metadata
+                    struct.pack_into('=Q', buf, 48, flags)
+                    return ret
+                with mock.patch.object(identity, '_mount',
+                                       return_value=(b'42', b'fixture', 'btrfs')), \
+                     mock.patch.object(identity.fcntl, 'ioctl', side_effect=response), \
+                     mock.patch.object(identity, '_uuid') as generic:
+                    self.assertIsNone(identity.identify(self.fd))
+                    generic.assert_not_called()
 
     def test_top_level_subvolume_is_valid(self):
         self.assertEqual(self.sample(subvolume=5)[0].subvolume, 5)
@@ -112,16 +155,16 @@ class FilesystemIdentityTests(unittest.TestCase):
     def test_changed_uuid_or_subvolume_or_mount_refused(self):
         mount = (b'42', b'fixture', 'btrfs')
         with mock.patch.object(identity, '_mount', return_value=mount), \
-             mock.patch.object(identity, '_uuid', side_effect=[UUID, OTHER]), \
+             mock.patch.object(identity, '_btrfs_uuid', side_effect=[UUID, OTHER]), \
              mock.patch.object(identity, '_subvolume', return_value=256):
             self.assertIsNone(identity.identify(self.fd))
         with mock.patch.object(identity, '_mount', return_value=mount), \
-             mock.patch.object(identity, '_uuid', return_value=UUID), \
+             mock.patch.object(identity, '_btrfs_uuid', return_value=UUID), \
              mock.patch.object(identity, '_subvolume', side_effect=[256, 257]):
             self.assertIsNone(identity.identify(self.fd))
         with mock.patch.object(identity, '_mount',
                                side_effect=[mount, (b'43', b'changed', 'btrfs')]), \
-             mock.patch.object(identity, '_uuid', return_value=UUID), \
+             mock.patch.object(identity, '_btrfs_uuid', return_value=UUID), \
              mock.patch.object(identity, '_subvolume', return_value=256):
             self.assertIsNone(identity.identify(self.fd))
 

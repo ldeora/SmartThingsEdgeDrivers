@@ -229,11 +229,25 @@ class AcceptanceTests(unittest.TestCase):
         with self.assertRaises(acceptance.BaselineInvalid):
             self.run_fixture('compare')
 
+    def test_older_baseline_schemas_are_not_reinterpreted(self):
+        self.run_fixture('prepare')
+        baseline = self.directory / acceptance._BASELINE
+        data = json.loads(baseline.read_text())
+        for version in (1, 2):
+            data['schema'] = version
+            baseline.write_text(json.dumps(data))
+            with self.assertRaises(acceptance.BaselineInvalid):
+                self.run_fixture('compare')
+            with self.assertRaises(acceptance.BaselineInvalid):
+                self.run_fixture('rollback')
+            self.assertTrue((self.directory / 'policy-fixture' /
+                             publication.TARGET).exists())
+
     def test_duplicate_baseline_keys_refused(self):
         self.run_fixture('prepare')
         baseline = self.directory / acceptance._BASELINE
         raw = baseline.read_text()
-        baseline.write_text(raw.replace('"schema": 2', '"schema": 2, "schema": 2', 1))
+        baseline.write_text(raw.replace('"schema": 3', '"schema": 3, "schema": 3', 1))
         with self.assertRaises(acceptance.BaselineInvalid):
             self.run_fixture('compare')
 
