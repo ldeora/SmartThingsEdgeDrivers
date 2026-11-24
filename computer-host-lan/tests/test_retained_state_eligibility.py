@@ -116,6 +116,85 @@ class RetainedStateTests(unittest.TestCase):
 
 
 
+    def candidate(self, services):
+        lock = self.root / 'run/lock/linux-host-agent-install.lock'
+        lock.parent.mkdir(parents=True, exist_ok=True)
+        return adoption.adoption_candidate(
+            root=self.root, owner_uid=self.uid, manual_lock_path=lock,
+            services=services)
+
+    def test_environment_candidate_holds_lock_and_keeps_provenance_unverified(self):
+        services = mock.Mock()
+        services.verify_uninstall_services.return_value = True
+        lock = self.root / 'run/lock/linux-host-agent-install.lock'
+        with self.candidate(services) as evidence:
+            self.assertEqual(evidence.service_state, 'verified')
+            self.assertEqual(evidence.journal_state, 'verified')
+            self.assertEqual(evidence.protocol_provenance, 'not_verified')
+            self.assertFalse(evidence.secrets_included)
+            with self.assertRaises(adoption.engine.ControllerError):
+                with adoption.engine.manual_install_lock(lock, owner_uid=self.uid):
+                    self.fail('shared lock was not held')
+        self.assertEqual(services.verify_uninstall_services.call_count, 2)
+        self.assertFalse((self.root / 'var/backups').exists())
+        self.assertFalse((self.root / core.OWNER_DIR.lstrip('/')).exists())
+
+    def test_environment_refuses_pending_and_terminal_journal(self):
+        services = mock.Mock()
+        services.verify_uninstall_services.return_value = True
+        store = adoption.journal.ProtectedJournal(root=self.root, owner_uid=self.uid)
+        with store.begin('install') as handle:
+            handle.abort(lambda _: True)
+        record = self.root / 'var/backups/linux-host-agent/wizard-transactions/journal.json'
+        before = record.read_bytes()
+        with self.assertRaisesRegex(adoption.AdoptionEligibilityError, 'journal_not_empty'):
+            with self.candidate(services):
+                self.fail('terminal journal was accepted')
+        self.assertEqual(record.read_bytes(), before)
+        services.verify_uninstall_services.assert_not_called()
+        with store.begin('install'):
+            pass
+        before = record.read_bytes()
+        with self.assertRaises(adoption.AdoptionEligibilityError):
+            with self.candidate(services):
+                self.fail('pending journal was accepted')
+        self.assertEqual(record.read_bytes(), before)
+
+    def test_environment_refuses_unconfirmed_service_or_dangling_enablement(self):
+        services = mock.Mock()
+        for outcome in (False, None):
+            services.verify_uninstall_services.return_value = outcome
+            with self.assertRaisesRegex(adoption.AdoptionEligibilityError, 'service_state'):
+                with self.candidate(services):
+                    self.fail('unconfirmed services accepted')
+        services.verify_uninstall_services.return_value = True
+        link = self.root / 'etc/systemd/system/multi-user.target.wants/linux-host-agent.service'
+        link.parent.mkdir(parents=True)
+        link.symlink_to('../linux-host-agent.service')
+        with self.assertRaisesRegex(adoption.AdoptionEligibilityError, 'service_state'):
+            with self.candidate(services):
+                self.fail('dangling enablement accepted')
+        self.assertTrue(link.is_symlink())
+
+    def test_environment_refuses_orphan_stage_and_state_change(self):
+        services = mock.Mock()
+        services.verify_uninstall_services.return_value = True
+        stage = self.root / 'var/lib/computer-host-installer/staging'
+        stage.mkdir(parents=True)
+        stage.parent.chmod(0o700)
+        stage.chmod(0o700)
+        orphan = stage / 'pending-fixture'
+        orphan.mkdir()
+        with self.assertRaisesRegex(adoption.AdoptionEligibilityError, 'journal_not_empty'):
+            with self.candidate(services):
+                self.fail('orphan stage accepted')
+        orphan.rmdir()
+        services.verify_uninstall_services.side_effect = [True, False]
+        with self.assertRaisesRegex(adoption.AdoptionEligibilityError, 'service_state'):
+            with self.candidate(services):
+                self.fail('changed service observation accepted')
+
+
 class AccountPolicyTests(unittest.TestCase):
     def test_account_policy(self):
         valid = dict(pw_name='linuxhost', pw_uid=123, pw_gid=124,
