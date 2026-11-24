@@ -200,3 +200,79 @@ def inspect_candidate(root: Path, name: str, *,
         if isinstance(exc, SnapshotEligibilityError):
             raise
         raise SnapshotEligibilityError('snapshot_unavailable_or_invalid') from None
+
+
+def inspect_protected_candidate(root: Path, name: str, *,
+                                expected_file_hashes: dict[str, str],
+                                expected_agent_version: str,
+                                owner_uid: int = 0, owner_gid: int = 0) -> SnapshotCandidate:
+    """Require protected capture evidence AND independent installed-byte expectations.
+
+    The local receipt identifies the protected writer under the trusted-root
+    threat model, not the publisher of the historical executable. The
+    caller must independently establish version compatibility and expected
+    hashes of rendered managed files, not just upstream source hashes.
+    No production caller; no authorization to restore.
+    """
+    root = Path(root)
+    if (root == Path('/') and (owner_uid != 0 or owner_gid != 0 or os.geteuid() != 0) or
+            type(name) is not str or not _NAME.fullmatch(name)):
+        raise SnapshotEligibilityError('invalid_candidate_expectation')
+    try:
+        with ExitStack() as stack:
+            fd = os.open(root, _DIR_FLAGS)
+            stack.callback(os.close, fd)
+            _directory(fd, owner_uid)
+            parts = Path(core.BACKUP_BASE.lstrip('/')).parts
+            for index, component in enumerate(parts):
+                fd = os.open(component, _DIR_FLAGS, dir_fd=fd)
+                stack.callback(os.close, fd)
+                _directory(fd, owner_uid, private=index == len(parts) - 1)
+            receipt_name = '.' + name + '.protected.json'
+            raw, info = _read(fd, receipt_name, owner_uid,
+                              core.MAX_BACKUP_MANIFEST_BYTES, private=True)
+            receipt = json.loads(raw.decode('utf-8'), object_pairs_hook=_unique)
+            keys = {'schema_version', 'origin', 'snapshot_name', 'transaction_id',
+                    'operation', 'capture_phase', 'manifest_sha256', 'file_sha256',
+                    'copy_modes', 'coverage', 'captured_paths', 'agent_version',
+                    'service_observation', 'previous', 'release_authenticity'}
+            if (type(receipt) is not dict or set(receipt) != keys or
+                    type(receipt['schema_version']) is not int or receipt['schema_version'] != 1 or
+                    receipt['origin'] != 'protected_before_state' or
+                    receipt['snapshot_name'] != name or
+                    type(receipt['transaction_id']) is not str or
+                    not re.fullmatch(r'[0-9a-f]{32}', receipt['transaction_id']) or
+                    receipt['operation'] not in ('upgrade', 'repair', 'uninstall') or
+                    receipt['capture_phase'] != 'STAGED' or
+                    receipt['coverage'] != 'complete' or
+                    receipt['captured_paths'] != sorted(core.MANAGED_PATHS) or
+                    receipt['agent_version'] != expected_agent_version or
+                    receipt['service_observation'] != 'protected_capture_previous' or
+                    receipt['release_authenticity'] != 'not_verified' or
+                    receipt['file_sha256'] != expected_file_hashes or
+                    type(receipt['copy_modes']) is not dict or
+                    any(type(mode) is not int or not 0 <= mode <= 0o7777
+                        for mode in receipt['copy_modes'].values()) or
+                    type(receipt['previous']) is not dict or
+                    any(type(value) is not bool for value in receipt['previous'].values())):
+                raise SnapshotEligibilityError('protected_receipt_ineligible')
+            candidate = inspect_candidate(
+                root, name, expected_manifest_sha256=receipt['manifest_sha256'],
+                expected_file_hashes=expected_file_hashes,
+                expected_agent_version=expected_agent_version,
+                owner_uid=owner_uid, owner_gid=owner_gid)
+            # inspect_candidate independently checks the actual copy
+            # mode against the required installed mode. The capture
+            # evidence must agree, even if the copy was later chmod'ed.
+            if (receipt['copy_modes'] != {item.path: item.mode
+                                          for item in candidate.files
+                                          if item.content is not None} or
+                    dict(candidate.service_state) != receipt['previous'] or
+                    _stamp(info) != _stamp(os.stat(
+                        receipt_name, dir_fd=fd, follow_symlinks=False))):
+                raise SnapshotEligibilityError('protected_receipt_mismatch')
+            return candidate
+    except (OSError, UnicodeError, ValueError, RecursionError) as exc:
+        if isinstance(exc, SnapshotEligibilityError):
+            raise
+        raise SnapshotEligibilityError('protected_receipt_unavailable_or_invalid') from None
