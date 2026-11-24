@@ -30,7 +30,11 @@ Linux, Windows, Inno, release-packaging and Go installer workflows to be
 successful with all expected jobs successful. PR checks alone are not
 sufficient. The Go installer CI now supports manual dispatch, so dispatch
 any missing workflows on main after final release preparation and review.
-No existing release (including draft) for the tag is allowed.
+All phases reject an existing published release for the tag. Read-only
+tokens in eligibility and attestation cannot list drafts; the draft job
+repeats the check with contents write and also refuses existing drafts.
+An attestation-only dispatch may therefore run while a draft exists; it
+never changes that draft.
 
 Two clean GitHub-hosted ubuntu-24.04 jobs build linux/amd64 with Go 1.25.14
 (the exact patch observed in the successful #164 CI, newer than the minimum
@@ -62,9 +66,11 @@ configure required reviewers, prevent self-review, disable administrator
 bypass, and allow only the exact approved release tag using selected
 deployment tags (no branch or wildcard). An independent authorized
 reviewer is required; if the repository cannot provide one, stop rather
-than weakening the policy. The gate checks reviewer rules, tag policy
-and the recorded independent approval after the environment gate. The
-repository owner must confirm admin bypass and tag protection separately.
+than weakening the policy. The gate checks reviewer rules, explicit
+disabled administrator bypass (missing or non-false values are refused),
+tag policy and the recorded independent approval after the environment
+gate. The repository owner must confirm repository rulesets and tag
+protection separately.
 API errors, missing settings, incomplete CI and absent approvals fail
 closed. No settings are automatically created or altered by this PR.
 
@@ -73,10 +79,10 @@ CI and create the approved lightweight tag under the configured rules.
 Example commands (placeholders, not authorization):
 
 ```sh
-gh workflow run computer-host-linux-attested-release.yml \\
-  --ref EXPECTED_APPROVED_TAG \\
-  -f expected_tag=EXPECTED_APPROVED_TAG \\
-  -f expected_sha=EXPECTED_APPROVED_SOURCE_COMMIT \\
+gh workflow run computer-host-linux-attested-release.yml \
+  --ref EXPECTED_APPROVED_TAG \
+  -f expected_tag=EXPECTED_APPROVED_TAG \
+  -f expected_sha=EXPECTED_APPROVED_SOURCE_COMMIT \
   -f create_draft=false
 ```
 
@@ -87,7 +93,8 @@ separate environment approval after successful verification. Reruns
 are refused; use a fresh explicit dispatch and approvals. The draft job
 rechecks eligibility and provenance, creates only a new draft, uploads
 only the Linux executable and its checksum/build-info files, downloads
-the executable back by asset ID and verifies exact bytes and provenance.
+all three files back by asset ID, compares exact bytes and verifies the
+executable provenance.
 If staging fails, leave any partial draft untouched for maintainer review.
 No overwrite, deletion, automatic publication, Edge-channel changes,
 or unsigned elevated release fallback. The draft is intentionally

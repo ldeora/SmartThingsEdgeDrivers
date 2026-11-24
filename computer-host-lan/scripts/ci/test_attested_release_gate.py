@@ -1,9 +1,10 @@
 import copy
 import unittest
+from unittest.mock import patch
 
 from attested_release_gate import (
     REPO, REPO_ID, check_approval, check_environment, check_jobs, check_ref,
-    release_identity, select_run,
+    gate, release_identity, select_run,
 )
 
 SHA = "a" * 40
@@ -17,7 +18,7 @@ MANIFEST = {"integration": "1.0.0-rc.3", "release_candidate_tag": TAG,
 RUN = {"head_sha": SHA, "head_branch": "main", "event": "workflow_dispatch",
        "head_repository": {"id": REPO_ID}, "run_number": 10, "run_attempt": 1,
        "status": "completed", "conclusion": "success"}
-ENVIRONMENT = {"id": 99, "protection_rules": [{"type": "required_reviewers",
+ENVIRONMENT = {"id": 99, "can_admins_bypass": False, "protection_rules": [{"type": "required_reviewers",
                "reviewers": [{"type": "User", "reviewer": {"id": 2}}],
                "prevent_self_review": True}], "deployment_branch_policy": {
                    "protected_branches": False, "custom_branch_policies": True}}
@@ -82,6 +83,28 @@ class GateTests(unittest.TestCase):
         for policy in ({"type": "branch", "name": TAG}, {"type": "tag", "name": "*"}):
             with self.assertRaises(ValueError):
                 check_environment(ENVIRONMENT, dict(POLICIES, branch_policies=[policy]), TAG)
+
+    def test_admin_bypass_must_be_explicitly_disabled(self):
+        for value in (True, None, 0, "false"):
+            with self.subTest(value=value), self.assertRaisesRegex(ValueError, "administrator bypass"):
+                check_environment(dict(ENVIRONMENT, can_admins_bypass=value), POLICIES, TAG)
+        missing = dict(ENVIRONMENT)
+        del missing["can_admins_bypass"]
+        with self.assertRaisesRegex(ValueError, "administrator bypass"):
+            check_environment(missing, POLICIES, TAG)
+
+    def test_invalid_phase_rejected_before_io(self):
+        for phase, draft in (("unknown", "false"), ("draft", "false"), ("attest", "invalid")):
+            with self.subTest(phase=phase, draft=draft), \
+                    patch.dict("os.environ", {"CREATE_DRAFT": draft}, clear=True), \
+                    patch("attested_release_gate.api") as api, \
+                    patch("attested_release_gate.Path") as path, \
+                    patch("attested_release_gate.subprocess.check_output") as command:
+                with self.assertRaises(ValueError):
+                    gate(phase)
+                api.assert_not_called()
+                path.assert_not_called()
+                command.assert_not_called()
 
     def test_approval(self):
         review = {"state": "approved", "user": {"id": 2}, "environments": [{"id": 99}]}

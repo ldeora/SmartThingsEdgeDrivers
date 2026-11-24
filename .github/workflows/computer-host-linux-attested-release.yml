@@ -255,11 +255,13 @@ jobs:
             --jq '.id')"
           [[ "$release_id" =~ ^[0-9]+$ ]]
           mkdir "$RUNNER_TEMP/draft-check"
+          # Keep the bearer token out of curl's process arguments.
           for asset in "$INSTALLER" "$INSTALLER.sha256" "$INSTALLER.build-info.txt"; do
             test "$(gh api "repos/$GITHUB_REPOSITORY/releases/$release_id" --jq '.draft')" = true
             # Upload to the newly created release ID; never clobber an asset.
-            asset_id="$(curl --fail --silent --show-error --max-time 120 --request POST \
-              -H "Authorization: Bearer $GH_TOKEN" \
+            asset_id="$(printf 'Authorization: Bearer %s\n' "$GH_TOKEN" |
+              curl --fail --silent --show-error --max-time 120 --request POST \
+              -H @- \
               -H 'Accept: application/vnd.github+json' \
               -H 'Content-Type: application/octet-stream' --data-binary "@$asset" \
               "https://uploads.github.com/repos/$GITHUB_REPOSITORY/releases/$release_id/assets?name=$asset" |

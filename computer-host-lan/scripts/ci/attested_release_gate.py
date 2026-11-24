@@ -70,6 +70,7 @@ def select_run(response, sha):
 
 
 def check_environment(environment, policies, tag):
+    require(environment.get("can_admins_bypass") is False, "environment must disable administrator bypass")
     rules = [r for r in environment["protection_rules"] if r["type"] == "required_reviewers"]
     require(len(rules) == 1 and rules[0]["reviewers"] and rules[0]["prevent_self_review"] is True,
             "environment must require independent approval")
@@ -94,6 +95,12 @@ def api(path, paginate=False):
 
 def gate(phase):
     env = os.environ
+    require(phase in ("eligibility", "attest", "draft"), "invalid phase")
+    require(env["CREATE_DRAFT"] in ("true", "false"), "invalid draft selection")
+    environments = [ATTEST]
+    if env["CREATE_DRAFT"] == "true":
+        environments.append(DRAFT)
+    require(phase != "draft" or DRAFT in environments, "invalid phase")
     manifest = json.loads(Path("computer-host-lan/release.json").read_text())
     sha, tag = release_identity(env, manifest)
     check_ref(api("git/ref/heads/main"), sha)
@@ -104,11 +111,9 @@ def gate(phase):
         check_jobs(api(f"actions/runs/{run['id']}/attempts/{run['run_attempt']}/jobs?per_page=100"), expected)
         print(f"Verified {workflow}: run {run['id']} attempt {run['run_attempt']}")
     releases = api("releases?per_page=100", paginate=True)
+    # Read-only tokens cannot list drafts. The contents-write draft job
+    # repeats this check before creating a release and can see drafts too.
     require(not any(release["tag_name"] == tag for page in releases for release in page), "release already exists; never replace assets")
-    environments = [ATTEST]
-    if env["CREATE_DRAFT"] == "true":
-        environments.append(DRAFT)
-    require(phase in ("eligibility", "attest", "draft") and (phase != "draft" or DRAFT in environments), "invalid phase")
     for name in environments:
         environment = api("environments/" + name)
         check_environment(environment, api("environments/" + name + "/deployment-branch-policies?per_page=100"), tag)
