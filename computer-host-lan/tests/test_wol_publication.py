@@ -147,6 +147,15 @@ class WolPublicationTests(unittest.TestCase):
         self.assertEqual(self.target.read_bytes(), b'operator modified')
         self.assertTrue(self.receipt.exists())
 
+    def test_touched_anchor_with_original_content_is_not_removed(self):
+        self.prepare()
+        self.publish()
+        info = self.target.stat()
+        os.utime(self.target, ns=(info.st_atime_ns, info.st_mtime_ns - 1000000000))
+        with self.assertRaises(pub.PublicationError):
+            self.rollback()
+        self.assertEqual(self.target.read_bytes(), pub.CONTENT)
+
     def test_replaced_target_even_identical_is_not_removed(self):
         self.prepare()
         self.publish()
@@ -236,6 +245,8 @@ class WolPublicationTests(unittest.TestCase):
                         dict(original, transaction_id=OTHER),
                         dict(original, anchor=[True, 1]),
                         dict(original, anchor_gid=-1),
+                        dict(original, anchor_mtime_ns=True),
+                        dict(original, target_before='present'),
                         dict(original, target='/unexpected'),
                         dict(original, policy_directory=[1, 1])):
             with self.subTest(changed=changed):
@@ -299,6 +310,35 @@ class WolPublicationTests(unittest.TestCase):
         self.prepare()
         self.publish()
         with mock.patch.object(pub.os, 'fsync', side_effect=OSError(errno.EIO, 'fixture')):
+            with self.assertRaises(OSError):
+                self.rollback()
+        self.assertEqual(self.state(), 'unpublished')
+        self.rollback()
+        self.assert_absent(self.target)
+
+    def test_directory_sync_failure_after_publish_retains_recovery_evidence(self):
+        self.prepare()
+        real_sync = os.fsync
+        def fail_dir(fd):
+            if fd == self.policy_fd:
+                raise OSError(errno.EIO, 'fixture directory sync')
+            return real_sync(fd)
+        with mock.patch.object(pub.os, 'fsync', side_effect=fail_dir):
+            with self.assertRaises(OSError):
+                self.publish()
+        self.assertEqual(self.state(), 'published')
+        self.rollback()
+        self.assertEqual(self.state(), 'unpublished')
+
+    def test_directory_sync_failure_after_rollback_can_retry(self):
+        self.prepare()
+        self.publish()
+        real_sync = os.fsync
+        def fail_dir(fd):
+            if fd == self.policy_fd:
+                raise OSError(errno.EIO, 'fixture directory sync')
+            return real_sync(fd)
+        with mock.patch.object(pub.os, 'fsync', side_effect=fail_dir):
             with self.assertRaises(OSError):
                 self.rollback()
         self.assertEqual(self.state(), 'unpublished')
