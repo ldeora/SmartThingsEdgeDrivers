@@ -111,6 +111,8 @@ release authenticity (#84) and installer convergence (#101) are complete.
 
 ```sh
 ./computer-host-linux-installer-test cli --help
+# Unprivileged, configurable plan (no authorization):
+./computer-host-linux-installer-test cli plan --action upgrade --power preserve
 # Examples for a supervised test with already-authorized sudo:
 ./computer-host-linux-installer-test cli install --confirm INSTALL --elevation sudo
 ./computer-host-linux-installer-test cli upgrade --confirm UPGRADE --power preserve --elevation sudo
@@ -132,6 +134,29 @@ WOL change is performed. Recovery uses the already installed protected
 helper, not a replacement payload. Status is privileged inspection and can
 initialize the bootstrap coordination lock; it does not install an agent.
 
+The `plan` action requires `--action install|upgrade|repair`, accepts the
+same power/interface options as installation, and rejects confirmation and
+elevation options. It uses the same embedded inspector and prospective
+file plan, including action matching and prerequisite checks, and never
+calls the privileged bootstrap. It may create and remove a private
+temporary inspector directory, but does not modify managed files, services,
+accounts, locks or network policy. A successful plan returns
+`status: planned`, `planned_action`, and a nested validated read-only
+`plan` object; privileged transaction state is unknown, runtime and
+identity are not verified. A plan is not a reservation or authorization.
+
+Successful installation/upgrade/repair results and plans include
+`preflight_network`: `avahi_prerequisites` is passed or not_verified;
+`firewalld` is active or not_verified. Active firewalld may block TCP/8765;
+not_verified does not mean inactive or safe. These observations are
+pre-install prerequisites only, not verified discovery, firewall rules,
+hub reachability or runtime state. Status, recovery and uninstall do not
+probe these conditions. Successful installation results also include
+`onboarding`: check_existing_device (identity verified, refresh first;
+discover only if no device is registered) or check_or_discover (identity
+not verified). Neither value verifies the retained control key or the
+SmartThings registration.
+
 Each option is a separate name/value pair, may occur only once, and is
 valid only for the documented action. Missing or wrong confirmation is
 an invocation error. There is no arbitrary source, Python override,
@@ -140,7 +165,8 @@ configuration or legacy shell fallback in this increment. Current published
 shell instructions remain unchanged, including their read-only dry run.
 
 Except for help, stdout is a single schema-version-1 JSON result containing
-only fixed operation/status/error and optional recovery/identity fields;
+fixed operation/status/error, recovery/identity and optional validated plan,
+preflight-network and onboarding fields;
 `secrets_included` is false. Empty strings mean no applicable or reported
 value, not a verified negative. No raw privileged output is copied.
 Exit 0 means a completed operation (for status, transaction state none);

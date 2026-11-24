@@ -72,20 +72,38 @@ func firewalldRunning() bool {
 	return cmd.Run() == nil
 }
 
-func (s *liveSelection) networkWarnings() []string {
-	var warnings []string
-	avahiStatus := ""
-	for _, check := range s.inspection.Checks {
+// Preflight evidence only: a passed Avahi check is not proof of an
+// advertised service or hub reachability. A negative firewalld probe
+// is not proof that it is inactive or that the firewall allows access.
+type networkObservation struct {
+	AvahiPrerequisites string `json:"avahi_prerequisites"`
+	Firewalld           string `json:"firewalld"`
+}
+
+func observeNetwork(info apiInspect, firewallActive bool) networkObservation {
+	result := networkObservation{AvahiPrerequisites: "not_verified", Firewalld: "not_verified"}
+	for _, check := range info.Checks {
 		if check.ID == "avahi_discovery" {
-			avahiStatus = check.Status
+			if check.Status == "passed" {
+				result.AvahiPrerequisites = "passed"
+			}
 			break
 		}
 	}
-	if avahiStatus != "passed" {
+	if firewallActive {
+		result.Firewalld = "active"
+	}
+	return result
+}
+
+func (s *liveSelection) networkWarnings() []string {
+	var warnings []string
+	observed := observeNetwork(s.inspection, s.firewalldActive)
+	if observed.AvahiPrerequisites != "passed" {
 		warnings = append(warnings,
 			"Avahi discovery is not confirmed. SmartThings Scan nearby may not find this computer until avahi-daemon is running and the agent's _computerhost._tcp service is advertised.")
 	}
-	if s.firewalldActive {
+	if observed.Firewalld == "active" {
 		warnings = append(warnings,
 			"firewalld is active. Incoming TCP 8765 may be blocked for the SmartThings hub. Check or explicitly configure a hub-scoped rule before relying on connectivity; this wizard has not changed firewall rules.")
 	}
@@ -511,23 +529,46 @@ func installSelection(s *liveSelection, w io.Writer, interactive bool, method st
 	if err != nil {
 		return err
 	}
-	fmt.Fprintln(w, "\nComputer Host LAN:", result.Status)
+	showInstallationOutcome(w, s, req, result)
+	return nil
+}
+
+// The same fixed onboarding choice is exposed by the CLI without
+// asserting that the SmartThings device or control key was inspected.
+func onboardingMode(result privilegedResult) string {
 	if result.IdentityPreserved == "verified" {
+		return "check_existing_device"
+	}
+	return "check_or_discover"
+}
+
+func showInstallationOutcome(w io.Writer, s *liveSelection, req privilegedRequest, result privilegedResult) {
+	fmt.Fprintln(w, "\nComputer Host LAN:", result.Status)
+	if onboardingMode(result) == "check_existing_device" {
 		fmt.Fprintln(w, "Existing agent identity verified.")
-	} else if req.Action != "install" {
-		fmt.Fprintln(w, "Existing identity was not verified because the agent was intentionally stopped.")
+		fmt.Fprintln(w, "Open your existing SmartThings computer device and refresh it first. Rediscovery is normally unnecessary.")
+		fmt.Fprintln(w, "Only if no device is registered, install the Computer Host LAN Edge driver if needed, then Add device → Scan nearby.")
 	} else {
-		fmt.Fprintln(w, "A new agent was installed; there is no previous identity to compare.")
+		fmt.Fprintln(w, "Previous agent identity was not verified.")
+		fmt.Fprintln(w, "If you already have a SmartThings computer device, check and refresh it first.")
+		fmt.Fprintln(w, "For first-time onboarding, install the Computer Host LAN Edge driver, then Add device → Scan nearby.")
 	}
 	s.showNetworkWarnings(w)
-	fmt.Fprintln(w, "For onboarding, open SmartThings, install the Computer Host LAN Edge driver, then Add device → Scan nearby.")
 	fmt.Fprintln(w, "If discovery or connectivity warnings appear above, resolve those conditions before relying on Scan nearby.")
 	fmt.Fprintln(w, "Automatic hub pairing, firewall changes and persistent WOL configuration were not performed.")
-	if req.Power == "enable" {
-		fmt.Fprintln(w, "For remote power, configure the SmartThings device's controlKey and allowPower preferences.")
-		fmt.Fprintln(w, "The guarded key display is planned for the schema v2 wizard; it is not shown here.")
+	switch req.Power {
+	case "enable":
+		fmt.Fprintln(w, "For remote power, enable allowPower and configure controlKey in the SmartThings device if needed.")
+		fmt.Fprintln(w, "If the retained control key is unchanged and already configured, no key update is normally needed. Identity verification alone does not verify key equality.")
+		fmt.Fprintln(w, "The control key is not shown here.")
+	case "preserve":
+		fmt.Fprintln(w, "Current/default power choice was retained. If remote power is enabled, an unchanged and already configured control key normally needs no update.")
+	case "disable":
+		fmt.Fprintln(w, "Remote power was disabled on the computer; no control key setup is needed for monitoring.")
 	}
-	return nil
+	if result.Status == "installed_cleanup_required" {
+		fmt.Fprintln(w, "Installation committed, but helper cleanup is pending. Run -recover before another installation.")
+	}
 }
 
 func runInstallingWizard(accessible bool, apiPath string, reader io.Reader, writer io.Writer, method string) error {
