@@ -5,6 +5,7 @@ A receipt is durable before the no-replace move; it is never rollback evidence.
 """
 from contextlib import ExitStack
 import ctypes
+import json
 import os
 import stat
 
@@ -155,7 +156,6 @@ def quarantine_unbound_before(handle, *, confirmation, verify):
             if dst is not None and not had_receipt:
                 raise _ERROR('quarantine_receipt_missing')
             # Do not permit the callback to mutate our expected journal.
-            import json
             if verify(json.loads(frozen)) is not True:
                 raise _ERROR('quarantine_outcome_not_verified')
             if journal.canonical(handle.record()) != frozen:
@@ -169,6 +169,8 @@ def quarantine_unbound_before(handle, *, confirmation, verify):
                         source if src is not None else name, fd)
             if _inventory(fd, handle.uid) != items:
                 raise _ERROR('quarantine_tree_changed')
+            if src is None and source in journal._entries(base):
+                raise _ERROR('quarantine_source_destination_conflict')
             # From the first possible publication/sync failure, require a
             # fresh recovery handle. Never remove a partial receipt.
             handle._failed = True
@@ -196,6 +198,8 @@ def quarantine_unbound_before(handle, *, confirmation, verify):
                 _same_entry(base, _NAMESPACE, q)
                 if _inventory(src, handle.uid) != items:
                     raise _ERROR('quarantine_tree_changed')
+                if not check_receipt():
+                    raise _ERROR('quarantine_receipt_missing')
                 _rename_noreplace(base, source, q, name)
             _same_entry(q, name, fd)
             _same_entry(base, _NAMESPACE, q)
@@ -207,8 +211,12 @@ def quarantine_unbound_before(handle, *, confirmation, verify):
             for ancestor in reversed(ancestors):
                 os.fsync(ancestor)
             handle._failed = False
-            handle.record()
-            handle._clean()
+            try:
+                handle.record()
+                handle._clean()
+            except BaseException:
+                handle._failed = True
+                raise
             return 'quarantined' if src is not None else 'already_quarantined'
     except (OSError, before.storage.StagingError):
         raise _ERROR('quarantine_publication_failed') from None
