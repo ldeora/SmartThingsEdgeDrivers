@@ -606,8 +606,7 @@ reports absence or preserved unbound layout with manifest/receipt
 presence and original-file count only. Empty/truncated files are
 permitted as forensic evidence; no content is parsed, authenticated,
 rebound, renamed or deleted. A complete-looking tree remains unbound.
-This read-only classification is a prerequisite for, not implementation
-of, operator quarantine. It does not authorize abort or journal clearing
+This read-only classification is independent of operator quarantine. It does not authorize abort or journal clearing
 or prove that the managed state is unchanged.
 A read at STAGED uses the freshly produced capture reference; later
 reads use the journal's immutable name and receipt digest, never a
@@ -639,9 +638,48 @@ a fixture observer or structural record as proof. Neither module
 invokes systemd, applies files, changes credentials or permits live
 roots. No production or embedded bundle changes.
 
+The separate fixture restore_adopt_quarantine.py implements explicit
+unbound-before quarantine only. It requires the exact ABORTED unbound
+journal with stage evidence, literal QUARANTINE confirmation and a
+trusted independent terminal-outcome verifier on every attempt. It never
+reads credentials or applies a plan. A fixed private quarantine-v2 child
+of the backup base holds unbound-TRANSACTION and its separate JSON receipt,
+outside historical snapshot naming. The receipt binds the exact canonical
+terminal journal digest, operation, transaction, source/destination names,
+and opaque file names, lengths and digests (including empty partial
+files). It is not provenance, rollback authority or proof of outcome.
+No-follow private bounded reads and exact flat allowlist, content recheck
+after verification, same-filesystem Linux renameat2(RENAME_NOREPLACE)
+with no fallback, and receipt/file/ancestor sync precede the move.
+Both parents and the retained bytes are checked and synced after it.
+Retry recognizes either source plus matching receipt or destination plus
+matching receipt; it refuses both/neither, unsafe entries, receipt
+mismatch, destination without receipt and incomplete receipt publication.
+An incomplete receipt is retained for separately reviewed reconciliation,
+not overwritten. The handle is poisoned on publication uncertainty.
+This is an optional explicit fixture operation, not a requirement or
+authorization for clearing a terminal journal; existing preservation
+without quarantine remains possible. No production/embedded changes.
+
+Portability limitation: the fixture resolves the libc renameat2 symbol
+through ctypes.CDLL(None); glibc 2.28 and later provide this wrapper.
+On libc builds without that symbol (including musl/Alpine builds lacking
+the wrapper), quarantine fails closed with quarantine_noreplace_unavailable.
+Kernel and filesystem support for RENAME_NOREPLACE is independently
+required; an unsupported flag (for example EINVAL) or other rename error
+fails closed with quarantine_publication_failed. The original snapshot
+and any published receipt remain evidence for retry or expert review.
+There is no plain rename fallback or architecture-specific syscall
+fallback. These are known capability limitations, not permission to
+weaken the no-replacement guarantee. Before live integration, provide
+a supported operator reconciliation path for unavailable quarantine
+and partial receipts; never recommend deleting evidence to unblock it.
+See Linux rename(2): https://man7.org/linux/man-pages/man2/rename.2.html.
+
 Remaining: actual phase-specific execution and recovery verification,
-partial orphan/ambiguous-write policy, unbound snapshot and corrupted-stage
-quarantine implementation, and compatible helper provisioning. Never claim a valid
+partial orphan/ambiguous-write policy, incomplete quarantine receipt
+reconciliation, corrupted-stage quarantine implementation, and compatible
+helper provisioning. Never claim a valid
 record or stage alone proves authorization or restored state.
 The existing v1 writer, recovery, Go bootstrap and bundle remain unchanged.
 
