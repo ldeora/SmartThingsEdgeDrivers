@@ -1,4 +1,6 @@
 """Receipt and phase-specific evidence fixtures. No real service calls."""
+from dataclasses import replace
+import hashlib
 from pathlib import Path
 import os
 import sys
@@ -113,6 +115,38 @@ class BeforeStateTests(unittest.TestCase):
                 verify.bind_before(handle, captured, lambda: EMPTY)
             self.assertEqual(handle.record()['phase'], 'STAGED')
 
+    def test_receipt_cannot_be_rebound_even_with_new_digest(self):
+        with self.store.transaction(ADOPT) as handle:
+            self.prepare(handle)
+            captured = before.capture_before(handle, lambda: EMPTY)
+            directory = self.base / captured.snapshot_name
+            receipt = directory / 'receipt.json'
+            original = receipt.read_bytes()
+            # Model a receipt taken from a different transaction. A
+            # caller who can calculate the modified digest still cannot
+            # make it agree with the held transaction and manifest.
+            altered = original.replace(handle.record()['transaction_id'].encode(),
+                                       b'f' * 32)
+            self.assertNotEqual(original, altered)
+            receipt.write_bytes(altered)
+            forged = replace(captured, receipt_sha256=hashlib.sha256(altered).hexdigest())
+            with self.assertRaises(before.BeforeStateError):
+                verify.bind_before(handle, forged, lambda: EMPTY)
+            self.assertEqual(handle.record()['phase'], 'STAGED')
+
+    def test_preapply_rechecks_bound_stage_bytes(self):
+        with self.store.transaction(ADOPT) as handle:
+            planned = self.prepare(handle)
+            captured = before.capture_before(handle, lambda: EMPTY)
+            verify.bind_before(handle, captured, lambda: EMPTY)
+            staging = self.root / 'var/lib/computer-host-installer/staging'
+            ready, = staging.glob('ready-plan-*')
+            next(ready.glob('*.data')).write_bytes(b'tampered')
+            with self.assertRaises(stage.PlanError):
+                verify.check_apply_evidence(handle, expected_files=planned,
+                                            expected_services=SERVICES, observer=lambda: EMPTY)
+            self.assertEqual(handle.record()['phase'], 'SNAPSHOTTED')
+
     def test_snapshot_payload_tampering_and_extra_entry_refused(self):
         self.existing()
         with self.store.transaction(RESTORE) as handle:
@@ -150,6 +184,22 @@ class BeforeStateTests(unittest.TestCase):
             self.prepare(handle, intent=RESTORE)
             with self.assertRaises(before.BeforeStateError):
                 before.capture_before(handle, lambda: SERVICES)
+            self.assertEqual(handle.record()['phase'], 'STAGED')
+
+    def test_clean_restore_before_state_is_empty(self):
+        with self.store.transaction(RESTORE) as handle:
+            self.prepare(handle, intent=RESTORE)
+            captured = before.capture_before(handle, lambda: EMPTY)
+            self.assertTrue(all(f.content is None for f in captured.files))
+            verify.bind_before(handle, captured, lambda: EMPTY)
+
+    def test_service_observation_change_refuses_capture(self):
+        with self.store.transaction(ADOPT) as handle:
+            self.prepare(handle)
+            observer = mock.Mock(side_effect=[EMPTY, SERVICES])
+            with self.assertRaises(before.BeforeStateError):
+                before.capture_before(handle, observer)
+            self.assertFalse(list(self.base.glob('snapshot-v2-*')))
             self.assertEqual(handle.record()['phase'], 'STAGED')
 
     def test_failed_capture_leaves_staged_journal_and_preserves_evidence(self):

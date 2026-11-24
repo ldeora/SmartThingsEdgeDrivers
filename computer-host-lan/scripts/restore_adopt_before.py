@@ -299,7 +299,7 @@ def capture_before(handle, observer):
                 raise BeforeStateError('before_state_changed_during_capture')
             handle._failed = False
             return result
-    except (OSError, contract.ContractError, storage.StagingError) as exc:
+    except (OSError, contract.ContractError, storage.StagingError):
         raise BeforeStateError('before_capture_failed') from None
 
 
