@@ -103,6 +103,24 @@ before a release.
 The existing `scripts/install-agent.sh` remains the supported
 production installer. The Go wizard is **not** part of v1.0.0-rc.2.
 
+## Regenerating the embedded bundle
+
+The checked-in `bundle/` is generated from a fixed allowlist of authoritative
+agent and script sources. After changing any of those sources, run from
+`computer-host-lan/linux-installer`:
+
+```sh
+python3 sync_bundle.py
+python3 sync_bundle.py --check
+go test -run TestEmbedded ./...
+```
+
+Commit the generated changes together with the source changes. The generator
+refuses unexpected bundle entries instead of deleting them, and `--check`
+reports drift without writing. CI checks the generator and independently
+runs the existing Go embedded parity tests. This is development tooling,
+not a privileged installer step; never run it to repair an installed helper.
+
 ## Development and preview
 
 In a **source checkout containing merged PR #68** and the current PR #67
