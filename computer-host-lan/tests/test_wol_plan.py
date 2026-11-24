@@ -1,6 +1,7 @@
 """Read-only policy fixtures; no actual systemd/nmcli/ethtool calls."""
 import json
 import os
+import pwd
 from pathlib import Path
 import shutil
 import subprocess
@@ -301,9 +302,12 @@ class WolPlannerTests(unittest.TestCase):
         self.assertEqual(result['recommendation'], 'manual_review')
 
     def test_standalone_isolated_mode_and_unsafe_sibling(self):
-        # Do not use /tmp: the standalone import intentionally refuses
-        # writable ancestors even when they have the sticky bit.
-        with tempfile.TemporaryDirectory(dir=Path.home()) as directory:
+        # Do not use /tmp or environment HOME: GitHub container jobs
+        # run as root with HOME=/github/home, a mounted runner directory
+        # that need not satisfy the root source ownership contract.
+        # Use the actual account's home from passwd instead.
+        account_home = Path(pwd.getpwuid(os.geteuid()).pw_dir)
+        with tempfile.TemporaryDirectory(dir=account_home) as directory:
             dest = Path(directory)
             for name in ('wol_plan.py', 'wol_inspect.py'):
                 shutil.copyfile(ROOT / 'scripts' / name, dest / name)
@@ -311,8 +315,19 @@ class WolPlannerTests(unittest.TestCase):
             command = [sys.executable, '-I', '-S', '-B',
                        str(dest / 'wol_plan.py'), '--interface', '../invalid']
             done = subprocess.run(command, cwd='/', capture_output=True,
-                                  text=True, timeout=15, check=True)
+                                  text=True, timeout=15)
+            self.assertEqual(done.returncode, 0, done.stderr)
             self.assertEqual(json.loads(done.stdout)['recommendation'], 'unavailable')
+            # A private file is insufficient if its directory is writable.
+            dest.chmod(0o777)
+            try:
+                done = subprocess.run(command, cwd='/', capture_output=True,
+                                      text=True, timeout=15)
+                self.assertNotEqual(done.returncode, 0)
+                self.assertIn('unsafe inspector import directory', done.stderr)
+                self.assertEqual(done.stdout, '')
+            finally:
+                dest.chmod(0o700)
             sibling = dest / 'wol_inspect.py'
             sibling.chmod(0o666)
             done = subprocess.run(command, cwd='/', capture_output=True,
