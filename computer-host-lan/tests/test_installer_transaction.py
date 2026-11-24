@@ -844,13 +844,87 @@ class InstallerBackendTests(unittest.TestCase):
         self.assertEqual(unit.read_bytes(), before)
         self.assertEqual(self.services.verify_calls, 0)
 
+    def test_capture_clean_host_requires_explicit_absence(self):
+        ops = installer.SystemdOperations()
+        absent = dict(LoadState='not-found', ActiveState='inactive', UnitFileState='')
+        with mock.patch.object(ops, '_uninstall_unit_state', return_value=absent):
+            result = ops.capture_previous(self.installed_paths())
+        self.assertEqual(result, dict(first_install=True, agent_active=False,
+                                     agent_enabled=False, socket_active=False,
+                                     socket_enabled=False))
+        for state in (None, dict(LoadState='loaded', ActiveState='inactive',
+                                 UnitFileState='disabled')):
+            with self.subTest(state=state):
+                with mock.patch.object(ops, '_uninstall_unit_state', return_value=state):
+                    with self.assertRaises(installer.ControllerError):
+                        ops.capture_previous(self.installed_paths())
+
+    def test_capture_existing_requires_stable_persistent_states(self):
+        self.existing_install()
+        ops = installer.SystemdOperations()
+        active = dict(LoadState='loaded', ActiveState='active', UnitFileState='enabled')
+        inactive = dict(LoadState='loaded', ActiveState='inactive', UnitFileState='disabled')
+        with mock.patch.object(ops, '_uninstall_unit_state',
+                               side_effect=[active, inactive]):
+            self.assertEqual(ops.capture_previous(self.installed_paths()),
+                             dict(first_install=False, agent_active=True,
+                                  agent_enabled=True, socket_active=False,
+                                  socket_enabled=False))
+        for state in (None, dict(inactive, LoadState='not-found'),
+                      dict(inactive, ActiveState='failed'),
+                      dict(inactive, ActiveState='activating'),
+                      dict(inactive, ActiveState='deactivating'),
+                      dict(inactive, UnitFileState='masked'),
+                      dict(inactive, UnitFileState='enabled-runtime'),
+                      dict(inactive, UnitFileState='static'),
+                      dict(inactive, UnitFileState='')):
+            with self.subTest(state=state):
+                with mock.patch.object(ops, '_uninstall_unit_state',
+                                       side_effect=[active, state]):
+                    with self.assertRaises(installer.ControllerError):
+                        ops.capture_previous(self.installed_paths())
+
+    def test_stopped_install_verification_never_accepts_failed_query(self):
+        old = self.existing_install(active=False, enabled=False)
+        ops = installer.SystemdOperations(health_probe=mock.Mock())
+        before = dict(first_install=False, agent_active=False, agent_enabled=False,
+                      socket_active=False, socket_enabled=False)
+        inactive = dict(LoadState='loaded', ActiveState='inactive', UnitFileState='disabled')
+        with mock.patch.object(ops, '_uninstall_unit_state',
+                               side_effect=[inactive, None]):
+            self.assertFalse(ops.verify_install(
+                self.request('upgrade'), before,
+                [core.Change(core.SYSTEMD_PATHS[0], old.read_bytes())],
+                power_enabled=False, transaction=self.installed_paths()))
+        ops.health_probe.assert_not_called()
+
+    def test_rollback_requires_definite_matching_state(self):
+        ops = installer.SystemdOperations()
+        inactive = dict(LoadState='loaded', ActiveState='inactive', UnitFileState='disabled')
+        absent = dict(LoadState='not-found', ActiveState='inactive', UnitFileState='')
+        before = dict(first_install=False, agent_active=False, agent_enabled=False,
+                      socket_active=False, socket_enabled=False)
+        for first, state, expected in (
+                (False, inactive, True), (False, absent, False),
+                (False, None, False), (True, absent, True),
+                (True, inactive, False), (True, None, False)):
+            with self.subTest(first=first, state=state):
+                with mock.patch.object(ops, '_uninstall_unit_state',
+                                       return_value=state) as query:
+                    self.assertEqual(ops.verify_restored_services(
+                        dict(before, first_install=first)), expected)
+                    self.assertEqual(query.call_count, 2)
+
     def test_stopped_agent_skips_http_but_checks_files_and_service_state(self):
         old = self.existing_install(active=False, enabled=False)
         ops = installer.SystemdOperations(
             health_probe=mock.Mock(side_effect=AssertionError('no HTTP for stopped unit')))
         trans = self.installed_paths()
         change = core.Change(core.SYSTEMD_PATHS[0], old.read_bytes())
-        with mock.patch.object(core, 'state', return_value=False):
+        with mock.patch.object(ops, '_uninstall_unit_state',
+                               return_value=dict(LoadState='loaded',
+                                                 ActiveState='inactive',
+                                                 UnitFileState='disabled')):
             self.assertTrue(ops.verify_install(
                 self.request('upgrade', expected_identity=UUID),
                 dict(first_install=False, agent_active=False, agent_enabled=False,
@@ -867,11 +941,12 @@ class InstallerBackendTests(unittest.TestCase):
         ops = installer.SystemdOperations(health_probe=probe)
         trans = self.installed_paths()
         change = core.Change(core.SYSTEMD_PATHS[0], old.read_bytes())
-        def active_state(unit, command):
-            if unit == 'linux-host-agent.service':
-                return True
-            return False
-        with mock.patch.object(core, 'state', side_effect=active_state):
+        def active_state(unit):
+            active = unit == 'linux-host-agent.service'
+            return dict(LoadState='loaded',
+                        ActiveState='active' if active else 'inactive',
+                        UnitFileState='enabled' if active else 'disabled')
+        with mock.patch.object(ops, '_uninstall_unit_state', side_effect=active_state):
             self.assertTrue(ops.verify_install(
                 self.request('upgrade', expected_identity=UUID),
                 dict(first_install=False, agent_active=True, agent_enabled=True,
@@ -1112,11 +1187,12 @@ class InstallerBackendTests(unittest.TestCase):
         ops = installer.SystemdOperations(
             health_probe=mock.Mock(side_effect=AssertionError('stopped agent must not be probed')))
         change = core.Change(core.SYSTEMD_PATHS[0], old.read_bytes())
-        def state(unit, command):
-            if unit == 'linux-host-agent-power.socket':
-                return True
-            return False
-        with mock.patch.object(core, 'state', side_effect=state):
+        def state(unit):
+            active = unit == 'linux-host-agent-power.socket'
+            return dict(LoadState='loaded',
+                        ActiveState='active' if active else 'inactive',
+                        UnitFileState='enabled' if active else 'disabled')
+        with mock.patch.object(ops, '_uninstall_unit_state', side_effect=state):
             self.assertTrue(ops.verify_install(
                 self.request('upgrade'), before, [change],
                 power_enabled=True, transaction=self.installed_paths()))
