@@ -62,6 +62,10 @@ class WolInspectionTests(unittest.TestCase):
         result = self.inspect()
         self.assertEqual(result['backend'], 'systemd_udev')
         self.assertEqual(result['observed_link'], 'local')
+        self.assertEqual(result['observed_link_dropins'], 'not_reported')
+        self.assertEqual(result['networkmanager_state'], 'inactive')
+        self.assertEqual(result['default_query_status'], 'verified')
+        self.assertEqual(result['ioctl_query_status'], 'not_attempted')
         self.assertEqual(result['base_link_policy'], 'magic_declared')
         self.assertEqual(result['magic_packet_support'], 'supported')
         self.assertEqual(result['runtime_magic_packet'], 'enabled')
@@ -79,6 +83,8 @@ class WolInspectionTests(unittest.TestCase):
         self.replies[IOCTL] = 'Supports Wake-on: pumbg\nWake-on: d\n'
         result = self.inspect()
         self.assertEqual(result['hardware_query'], 'ioctl')
+        self.assertEqual(result['default_query_status'], 'incomplete_or_invalid')
+        self.assertEqual(result['ioctl_query_status'], 'verified')
         self.assertEqual(result['runtime_magic_packet'], 'disabled')
 
     def test_unreadable_is_not_unsupported(self):
@@ -87,6 +93,8 @@ class WolInspectionTests(unittest.TestCase):
         self.assertEqual(result['magic_packet_support'], 'not_verified')
         self.assertEqual(result['runtime_magic_packet'], 'not_verified')
         self.assertIn(IOCTL, self.calls)
+        self.assertEqual(result['default_query_status'], 'query_failed')
+        self.assertEqual(result['ioctl_query_status'], 'query_failed')
 
     def test_actual_unsupported_magic_is_distinguished(self):
         self.replies[WOL] = 'Supports Wake-on: p\nWake-on: d\n'
@@ -97,6 +105,7 @@ class WolInspectionTests(unittest.TestCase):
                              NM_POLICY: '66 (phy, magic)\n'})
         result = self.inspect()
         self.assertEqual(result['backend'], 'networkmanager')
+        self.assertEqual(result['networkmanager_state'], 'active')
         self.assertEqual(result['nm_profile_policy'], 'magic_with_other_flags')
         self.assertEqual(result['observed_link'], 'not_verified')
         self.assertNotIn(UDEV, self.calls)
@@ -108,13 +117,20 @@ class WolInspectionTests(unittest.TestCase):
         self.assertEqual(result['backend'], 'not_verified')
         self.assertNotIn(UDEV, self.calls)
         self.assertNotIn(NM_POLICY, self.calls)
+        self.assertEqual(result['networkmanager_state'], 'active')
 
     def test_manager_query_failure_never_falls_back(self):
-        for output in (None, 'LoadState=loaded\n', 'LoadState=loaded\nActiveState=activating\n'):
+        for output, expected in (
+                (None, 'not_verified'),
+                ('LoadState=loaded\n', 'not_verified'),
+                ('LoadState=loaded\nActiveState=activating\n', 'unexpected_state'),
+                ('LoadState=loaded\nActiveState=failed\n', 'unexpected_state')):
             with self.subTest(output=output):
                 self.calls.clear()
                 self.replies[NM_STATE] = output
-                self.assertEqual(self.inspect()['backend'], 'not_verified')
+                result = self.inspect()
+                self.assertEqual(result['backend'], 'not_verified')
+                self.assertEqual(result['networkmanager_state'], expected)
                 self.assertNotIn(UDEV, self.calls)
 
     def test_nm_profile_changed_during_read(self):
@@ -175,7 +191,20 @@ class WolInspectionTests(unittest.TestCase):
                 ('0 (none)', 'none'), ('magic', 'magic'),
                 ('64 (magic)', 'magic'), ('66', 'magic_with_other_flags'),
                 ('2 (phy)', 'other_flags'), ('65', 'not_verified'),
-                ('32769', 'not_verified'), ('--', 'not_verified')):
+                ('32769', 'not_verified'), ('--', 'not_verified'),
+                ('phy, magic', 'magic_with_other_flags'),
+                ('magic,arp, unicast', 'magic_with_other_flags'),
+                ('phy, multicast', 'other_flags'),
+                ('0x40 (magic)', 'magic'),
+                ('66 (magic, phy)', 'magic_with_other_flags'),
+                ('64 (phy)', 'not_verified'),
+                ('66 (magic)', 'not_verified'),
+                ('magic, magic', 'not_verified'),
+                ('default, magic', 'not_verified'),
+                ('ignore, magic', 'not_verified'),
+                ('none, magic', 'not_verified'),
+                ('phy, unknown', 'not_verified'),
+                ('magic,', 'not_verified')):
             with self.subTest(value=value):
                 self.assertEqual(wol.parse_nm_policy(value), expected)
 
@@ -184,12 +213,47 @@ class WolInspectionTests(unittest.TestCase):
                 ('[Link]\nWakeOnLan=magic\n', 'magic_declared'),
                 ('[Link]\nWakeOnLan=off\n', 'other_declared'),
                 ('[Link]\nNamePolicy=keep\n', 'unspecified'),
+                ('[Link]\nWakeOnLan=\n', 'unspecified'),
                 ('[Match]\nWakeOnLan=magic\n[Link]\nNamePolicy=keep\n', 'unspecified'),
                 ('[Link]\nWakeOnLan=magic\nWakeOnLan=off\n', 'not_verified'),
                 ('[Link]\nWakeOnLan=magic\n[Link]\n', 'not_verified'),
                 ('[Link]\nWakeOnLan=magic\\\n off\n', 'not_verified')):
             with self.subTest(value=value):
                 self.assertEqual(wol.base_link_policy(value), expected)
+
+    def test_observed_dropins_suppress_base_policy_evidence(self):
+        self.replies[UDEV] += (
+            'ID_NET_LINK_FILE_DROPINS=/etc/systemd/network/10-wol.link.d/private.conf\n')
+        with mock.patch.object(wol, 'base_link_policy') as parse:
+            result = self.inspect()
+            parse.assert_not_called()
+        self.assertEqual(result['backend'], 'systemd_udev')
+        self.assertEqual(result['observed_link'], 'local')
+        self.assertEqual(result['observed_link_dropins'], 'present')
+        self.assertEqual(result['base_link_policy'], 'not_verified')
+        self.assertNotIn('private.conf', json.dumps(result))
+        self.assertFalse(result['persistence_verified'])
+
+    def test_empty_dropin_property_is_not_reported(self):
+        self.replies[UDEV] += 'ID_NET_LINK_FILE_DROPINS=\n'
+        result = self.inspect()
+        self.assertEqual(result['observed_link_dropins'], 'not_reported')
+        self.assertEqual(result['base_link_policy'], 'magic_declared')
+
+    def test_duplicate_dropin_property_invalidates_link_selection(self):
+        self.replies[UDEV] += (
+            'ID_NET_LINK_FILE_DROPINS=\nID_NET_LINK_FILE_DROPINS=unexpected\n')
+        result = self.inspect()
+        self.assertEqual(result['observed_link'], 'not_verified')
+        self.assertEqual(result['observed_link_dropins'], 'not_verified')
+        self.assertEqual(result['base_link_policy'], 'not_verified')
+
+    def test_loopback_with_zero_address_is_unsupported(self):
+        (self.nic / 'type').write_text('772\n')
+        (self.nic / 'address').write_text('00:00:00:00:00:00\n')
+        result = self.inspect()
+        self.assertEqual(result['interface_state'], 'unsupported_interface')
+        self.assertEqual(self.calls, [])
 
     def test_query_errors_do_not_return_partial_output(self):
         with mock.patch.object(wol.shutil, 'which', return_value='/usr/sbin/ethtool'):
