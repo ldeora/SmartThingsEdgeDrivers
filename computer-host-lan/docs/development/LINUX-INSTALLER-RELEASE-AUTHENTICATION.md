@@ -1,7 +1,7 @@
 # Linux installer release authentication — design for #84
 
 **No attested release exists yet.** The protected executable handoff is
-implemented in PR #163, pending independent review and merge. The dedicated
+implemented in PR #164, pending independent review and merge. The dedicated
 tag-only build/attestation/publication workflow below remains the next
 implementation increment. Nothing in this document authorizes a release tag,
 publication, or changes to existing RC assets.
