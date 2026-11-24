@@ -430,6 +430,11 @@ retains raw UUIDs (including the link-directory identity), boot ID,
 mount-local device numbers, f_fsid, inode and link counts privately.
 Output is redacted comparison flags only.
 
+Use a newly prepared fixture with the current baseline schema 2.
+Fixtures created by earlier schema-1 versions are not migrated and
+report `baseline_invalid`; retain them separately if needed and create
+a new empty fixture rather than replacing their baseline.
+
 From a reviewed checkout, as an ordinary user:
 
 ```sh
@@ -464,8 +469,16 @@ using the retained fixture path and the same checkout revision.
 `published_hardlinks_intact` and `schema2_publication_verified`.
 Only share JSON output, never the private baseline or receipt. The
 fixture and link-directory identities are compared independently;
-the latter is not used to bypass the existing schema-2 receipt checks.
-No write to /etc or /var is required.
+neither is used to bypass the existing schema-2 receipt checks.
+If the receipt cannot verify ownership (for example, f_fsid changes
+across boot), compare still reports all measured flags, with
+`schema2_publication_verified: false` and status
+`compared_ownership_unverified`, provided the fixture can be sampled.
+Exit status zero means the comparison completed, not that ownership
+was verified or that reboot acceptance passed. A subsequent rollback
+refuses immediately on failed receipt verification, without sampling
+an ambiguous target or attempting mutation. No write to /etc or /var
+is required.
 
 Fixed failure statuses distinguish `root_refused`,
 `fixture_not_private`, `fixture_not_empty`, `baseline_invalid`,
@@ -493,7 +506,8 @@ tool, and the fixture's publication is not applied to systemd.
 
 The fixture regressions simulate a boot change, fixture-versus-
 link-directory filesystem/subvolume match and mismatch, unavailable
-link-directory identity, publication refusal, duplicate JSON keys and
+link-directory identity, a changed f_fsid with intact persistent
+identity and hard links, publication refusal, duplicate JSON keys and
 fixed failure statuses. The udevadm version parser accepts either a
 bare major or a packaged parenthesized suffix, but actual
 `udevadm --version` and `systemctl --version` output from hydra and

@@ -302,18 +302,23 @@ def _fixture_experiment(action: str, directory: Path) -> dict:
         try:
             state = publication.inspect(policy, receipt, _TXID, owner_uid=uid)
         except publication.PublicationError:
-            return dict(status=('rollback_refused' if action == 'rollback'
-                                else 'fixture_error'),
-                        action=action, schema2_publication_verified=False,
-                        secrets_included=False)
+            if action == 'rollback':
+                return dict(status='rollback_refused', action=action,
+                            schema2_publication_verified=False,
+                            secrets_included=False)
+            # A changed f_fsid can invalidate the schema-2 receipt while
+            # leaving the experimental UUID/subvolume/inode intact.
+            # Measure the discrepancy without authorizing any mutation.
+            state = None
         if state == 'unpublished':
             return dict(status='fixture_rolled_back', action=action,
                         rollback_verified=True, secrets_included=False)
         current = _snapshot(root, policy, receipt, link_directory)
         result = _comparison(baseline, current)
-        result.update(action=action, schema2_publication_verified=True,
+        result.update(action=action, schema2_publication_verified=(state == 'published'),
                       secrets_included=False)
-        result['status'] = 'compared'
+        result['status'] = ('compared' if state == 'published'
+                            else 'compared_ownership_unverified')
         if action == 'rollback':
             # Deliberately do not bypass schema 2 if f_fsid changed even
             # when the experimental persistent identity agrees.
@@ -355,7 +360,8 @@ def main() -> int:
                       secrets_included=False)
     print(json.dumps(result, sort_keys=True))
     return 0 if result['status'] in (
-        'prepared', 'compared', 'rolled_back', 'fixture_rolled_back') else 1
+        'prepared', 'compared', 'compared_ownership_unverified',
+        'rolled_back', 'fixture_rolled_back') else 1
 
 
 if __name__ == '__main__':

@@ -166,6 +166,50 @@ class AcceptanceTests(unittest.TestCase):
         self.assertFalse(result['persistent_identity_unchanged'])
         self.assertTrue((self.directory / 'policy-fixture' / publication.TARGET).exists())
 
+    def test_changed_fsid_retains_comparison_but_refuses_rollback(self):
+        # Change the actual filesystem ID used by publication and sampling,
+        # not the result of publication.inspect(). The receipt and hard
+        # links are real fixture files; only filesystem evidence is mocked.
+        with mock.patch.object(os, 'fstatvfs', return_value=mock.Mock(f_fsid=101)) as fs:
+            self.run_fixture('prepare')
+            baseline = self.directory / acceptance._BASELINE
+            policy = self.directory / 'policy-fixture'
+            target = policy / publication.TARGET
+            anchor = policy / acceptance._ANCHOR
+            receipt = self.directory / 'receipt-fixture' / ('wol-' + acceptance._TXID + '.json')
+            evidence = {path: path.read_bytes() for path in (baseline, target, anchor, receipt)}
+            self.boot = BOOT2
+            fs.return_value = mock.Mock(f_fsid=202)
+            with mock.patch.object(publication, 'rollback') as undo, \
+                 mock.patch.object(publication, 'publish') as publish:
+                compared = self.run_fixture('compare')
+                self.assertEqual(compared['status'], 'compared_ownership_unverified')
+                self.assertFalse(compared['filesystem_ids_unchanged'])
+                self.assertFalse(compared['schema2_publication_verified'])
+                for field in ('different_boot', 'persistent_identity_available',
+                              'persistent_identity_unchanged', 'inode_numbers_unchanged',
+                              'device_numbers_unchanged', 'link_counts_unchanged',
+                              'link_directory_identity_unchanged',
+                              'same_filesystem_and_subvolume_as_link_dir',
+                              'published_hardlinks_intact'):
+                    self.assertTrue(compared[field], field)
+                with mock.patch.object(acceptance, 'experiment',
+                                       side_effect=acceptance._fixture_experiment):
+                    code, output = self.run_cli('compare')
+                self.assertEqual(code, 0)
+                self.assertEqual(output, compared)
+                with mock.patch.object(acceptance, '_snapshot') as snapshot:
+                    refused = self.run_fixture('rollback')
+                    self.assertEqual(refused['status'], 'rollback_refused')
+                    self.assertFalse(refused['schema2_publication_verified'])
+                    snapshot.assert_not_called()
+                undo.assert_not_called()
+                publish.assert_not_called()
+            for path, before in evidence.items():
+                self.assertEqual(path.read_bytes(), before)
+            self.assertEqual(target.stat().st_ino, anchor.stat().st_ino)
+            self.assertEqual(target.stat().st_nlink, 2)
+
     def test_schema2_refusal_is_not_bypassed(self):
         self.run_fixture('prepare')
         with mock.patch.object(acceptance.publication, 'inspect',
