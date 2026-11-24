@@ -51,7 +51,7 @@ def tool_versions(run: probe.Runner = probe.query) -> ToolVersions | None:
     systemd = run(_SYSTEMD_VERSION)
     if not isinstance(udev, str) or not isinstance(systemd, str):
         return None
-    u = re.fullmatch(r'([0-9]{1,6})\n?', udev)
+    u = re.fullmatch(r'([0-9]{1,6})(?: \\([ -~]{1,512}\\))?\n?', udev)
     first = systemd.partition('\n')[0]
     s = re.fullmatch(r'systemd ([0-9]{1,6})(?: \([ -~]{1,512}\))?', first)
     if u is None or s is None:
