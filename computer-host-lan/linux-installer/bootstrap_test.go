@@ -745,3 +745,67 @@ func TestEmbeddedReadOnlyAPIContainsNoWritableRootHelper(t *testing.T) {
 		t.Fatal("Privileged root helper must not be extracted for read-only preview")
 	}
 }
+
+func TestSchemaV2UninstallRequestHasExactlyTwoFields(t *testing.T) {
+	input := `{"schema_version":2,"action":"uninstall"}`
+	req, err := decodePrivilegedRequest(strings.NewReader(input))
+	if err != nil {
+		t.Fatal(err)
+	}
+	wire, err := pythonRequest(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fields map[string]any
+	if json.Unmarshal(wire, &fields) != nil || len(fields) != 2 ||
+		fields["action"] != "uninstall" || fields["schema_version"] != float64(2) {
+		t.Fatalf("Unexpected root uninstall request: %s", wire)
+	}
+	for _, bad := range []string{
+		`{"schema_version":1,"action":"uninstall"}`,
+		`{"schema_version":2,"action":"install","power":"preserve"}`,
+		`{"schema_version":2,"action":"uninstall","power":""}`,
+		`{"schema_version":2,"action":"uninstall","wol_interface":null}`,
+		`{"schema_version":2,"action":"uninstall","source":"/tmp"}`,
+		`{"schema_version":2,"action":"uninstall","action":"uninstall"}`,
+		`{"schema_version":1,"schema_version":2,"action":"uninstall"}`,
+		`{"schema_version":2,"Action":"uninstall"}`,
+		`{"schema_version":2.0,"action":"uninstall"}`,
+		input + " {}",
+	} {
+		if _, err := decodePrivilegedRequest(strings.NewReader(bad)); err == nil {
+			t.Fatalf("Accepted invalid request %s", bad)
+		}
+	}
+}
+
+func TestUninstallRepliesValidatedAtBothBoundaries(t *testing.T) {
+	for _, status := range []string{"uninstalled", "uninstalled_cleanup_required", "installed", "passed", "arbitrary"} {
+		for _, action := range []string{"uninstall", "upgrade", "recover"} {
+			reply := privilegedResult{SchemaVersion: 1, Operation: action,
+				Status: status, IdentityPreserved: "verified"}
+			want := (action == "uninstall" && (status == "uninstalled" || status == "uninstalled_cleanup_required")) ||
+				(action == "upgrade" && status == "installed") || (action == "recover" && status == "passed")
+			wire, err := json.Marshal(reply)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, uiErr := validatedPrivilegedReply(wire, action)
+			var out bytes.Buffer
+			rootErr := relayHelperResponse(&out, action, reply, nil)
+			if (uiErr == nil) != want || (rootErr == nil) != want || (out.Len() != 0) != want {
+				t.Fatalf("status=%s action=%s want=%t ui=%v root=%v", status, action, want, uiErr, rootErr)
+			}
+		}
+	}
+	for _, reply := range []privilegedResult{
+		{SchemaVersion: 1, Operation: "uninstall", Status: "uninstalled", IdentityPreserved: "private-value"},
+		{SchemaVersion: 1, Operation: "uninstall", Status: "uninstalled", IdentityPreserved: "verified", RecoveryOperation: "uninstall"},
+		{SchemaVersion: 1, Operation: "uninstall", Status: "uninstalled", IdentityPreserved: "verified", ErrorCode: "private-value"},
+	} {
+		var out bytes.Buffer
+		if err := relayHelperResponse(&out, "uninstall", reply, nil); err == nil || out.Len() != 0 {
+			t.Fatal("Unsafe response relayed")
+		}
+	}
+}
