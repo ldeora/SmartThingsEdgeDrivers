@@ -641,23 +641,56 @@ class InstallerBackendTests(unittest.TestCase):
                 [core.Change(core.POWER_DROPIN, None)], trans)
         self.assertTrue(target.parent.is_symlink())
 
+    def test_forward_ancestor_sync_precedes_committed(self):
+        ancestor = self.root / 'etc'
+        synced = []
+        real_fsync = os.fsync
+        real_advance = journal.TransactionHandle.advance
+
+        def observe_sync(fd):
+            info = os.fstat(fd)
+            if ancestor.exists():
+                target = ancestor.stat()
+                if (info.st_dev, info.st_ino) == (target.st_dev, target.st_ino):
+                    synced.append(True)
+            real_fsync(fd)
+
+        def observe_advance(handle, previous, next_phase, **kwargs):
+            if next_phase == 'COMMITTED':
+                self.assertTrue(synced)
+            return real_advance(handle, previous, next_phase, **kwargs)
+
+        with (
+            mock.patch.object(installer.os, 'fsync', side_effect=observe_sync),
+            mock.patch.object(journal.TransactionHandle, 'advance',
+                              new=observe_advance),
+        ):
+            result = self.backend.run(self.request(enable_power=True),
+                                      ROOT, self.hashes)
+        self.assertEqual(result.status, 'installed')
+        self.assertTrue(synced)
+        self.assertEqual(self.store.public_status()['privileged_transaction_state'],
+                         'none')
+
     def test_forward_ancestor_sync_failure_and_recovery_retry(self):
         # The service drop-in and app directories are new on this fixture.
-        # Fail fsync specifically on the root directory, not a file or the
-        # journal directory. The same failure during rollback must retain
-        # the applied journal; a subsequent explicit recovery retries it.
-        root_info = self.root.stat()
+        # Fail fsync specifically on the managed /etc ancestor, not a
+        # file or a journal directory. The same failure during rollback
+        # must retain the applied journal; explicit recovery retries it.
+        ancestor = self.root / 'etc'
         real_fsync = os.fsync
         failures = []
 
-        def fail_root(fd):
+        def fail_ancestor(fd):
             info = os.fstat(fd)
-            if (info.st_dev, info.st_ino) == (root_info.st_dev, root_info.st_ino):
-                failures.append(True)
-                raise OSError('fixture ancestor directory fsync failure')
+            if ancestor.exists():
+                target = ancestor.stat()
+                if (info.st_dev, info.st_ino) == (target.st_dev, target.st_ino):
+                    failures.append(True)
+                    raise OSError('fixture ancestor directory fsync failure')
             real_fsync(fd)
 
-        with mock.patch.object(installer.os, 'fsync', side_effect=fail_root):
+        with mock.patch.object(installer.os, 'fsync', side_effect=fail_ancestor):
             with self.assertRaises(installer.ControllerError) as error:
                 self.backend.run(self.request(enable_power=True), ROOT, self.hashes)
             self.assertEqual(error.exception.code, 'recovery_required')
