@@ -28,21 +28,33 @@ path, SecureOn password, or raw command output.
 | magic_packet_support | Supported, unsupported, or not_verified from both ethtool WOL lines |
 | runtime_magic_packet | Current magic-packet flag, independent of persistence |
 | hardware_query | Default ethtool or legacy ioctl fallback, otherwise not_verified |
+| default_query_status / ioctl_query_status | verified, query_failed, incomplete_or_invalid, or not_attempted; a failed command is not proof of missing capability |
 | permanent_mac_match | Whether ethtool's reported permanent address equals the current address |
 | backend | Observed active NetworkManager profile, observed systemd-udev link selection, or not_verified |
+| networkmanager_state | active, inactive, unexpected_state, or not_verified; active alone does not establish interface ownership |
 | nm_profile_policy | Explicit profile flags: magic, magic_with_other_flags, other_flags, none, default, ignore, not_verified |
 | observed_link | Origin of the last udev-selected base link (local, runtime, local_vendor, vendor, not_verified) |
-| base_link_policy | Declaration in that selected base file only: magic_declared, other_declared, unspecified, not_verified |
+| observed_link_dropins | present if udev reports nonempty ID_NET_LINK_FILE_DROPINS; not_reported if absent/empty, not_verified if the observation is invalid or unavailable |
+| base_link_policy | Declaration in the selected base file only: magic_declared, other_declared, unspecified (including an empty WakeOnLan=), not_verified; suppressed if drop-ins are reported |
 
 The probe always reports `changes_applied: false`,
 `persistence_verified: false` and `secrets_included: false`.
 A magic declaration is **not** proof of merged or future effective policy.
+A nonempty observed drop-in property suppresses base-file WOL evidence;
+not_reported does not establish that drop-ins are absent on disk or that
+an older udev exposes them. No drop-in contents or paths are emitted.
+NetworkManager flags may be numeric, named, or comma-separated names;
+numeric annotations must agree with the flags, and contradictory special
+flags, duplicates and unknown names remain not_verified.
 It does not resolve drop-ins, masks, ordering, matching, global NM settings,
 SecureOn, driver/firmware behavior, or changes made since the last device
 initialization. An active NM daemon with no verifiable active connection
 for the selected NIC is ambiguous; it must not silently select the udev
 backend. All unavailable probes remain unknown rather than assuming disabled
-or unsupported. The probe does not execute `udevadm test-builtin`, change
+or unsupported. The per-command WOL diagnostics distinguish an unsuccessful
+query from successful but incomplete/invalid output; they intentionally do
+not infer whether an error was caused by permissions, driver support, tool
+availability, an old ethtool version or timeout. The probe does not execute `udevadm test-builtin`, change
 the current WOL flag, or restart networking.
 
 ## Why this is separate from the manual script
