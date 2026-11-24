@@ -13,6 +13,7 @@ from contextlib import ExitStack
 import json
 import os
 from pathlib import Path
+import re
 import stat
 import uuid
 
@@ -26,13 +27,31 @@ _ANCHOR = '.computer-host-wol-' + _TXID + '.stage'
 _BASELINE = 'private-baseline.json'
 _LIMIT = 16384
 _FILES = ('anchor', 'target', 'policy', 'receipt', 'fixture')
+_SNAPSHOT_KEYS = _FILES + ('link_directory',)
+_SYSTEM_LINK_DIRECTORY = ('etc', 'systemd', 'network')
+
+
+class RootRefused(ValueError):
+    pass
+
+
+class FixtureNotPrivate(ValueError):
+    pass
+
+
+class FixtureNotEmpty(ValueError):
+    pass
+
+
+class BaselineInvalid(ValueError):
+    pass
 
 
 def _private(fd: int) -> None:
     st = os.fstat(fd)
     if (not stat.S_ISDIR(st.st_mode) or st.st_uid != os.geteuid() or
             stat.S_IMODE(st.st_mode) != 0o700):
-        raise ValueError('fixture must be a private directory')
+        raise FixtureNotPrivate()
 
 
 def _open_directory(stack: ExitStack, name, *, parent=None) -> int:
@@ -40,6 +59,39 @@ def _open_directory(stack: ExitStack, name, *, parent=None) -> int:
     stack.callback(os.close, fd)
     _private(fd)
     return fd
+
+
+def _open_link_directory(stack: ExitStack) -> int | None:
+    """Open fixed /etc/systemd/network read-only, without following links.
+
+    This is evidence only. Do not enumerate or read its policy files here.
+    Missing, symlinked, writable or non-root-owned components make the
+    comparison unavailable; they never make fixture operations fail.
+    """
+    fd = os.open('/', _FLAGS)
+    try:
+        for component in _SYSTEM_LINK_DIRECTORY:
+            parent = os.fstat(fd)
+            if (not stat.S_ISDIR(parent.st_mode) or parent.st_uid != 0 or
+                    parent.st_mode & 0o022):
+                os.close(fd)
+                return None
+            child = os.open(component, _FLAGS, dir_fd=fd)
+            os.close(fd)
+            fd = child
+        final = os.fstat(fd)
+        if (not stat.S_ISDIR(final.st_mode) or final.st_uid != 0 or
+                final.st_mode & 0o022):
+            os.close(fd)
+            return None
+        stack.callback(os.close, fd)
+        return fd
+    except OSError:
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+        return None
 
 
 def _boot() -> str:
@@ -51,8 +103,8 @@ def _sample(fd: int) -> dict:
     before = os.fstat(fd)
     evidence = identity.identify(fd)
     after = os.fstat(fd)
-    if (before.st_dev, before.st_ino, before.st_nlink) != (
-            after.st_dev, after.st_ino, after.st_nlink):
+    if (before.st_dev, before.st_ino, before.st_nlink, before.st_mode) != (
+            after.st_dev, after.st_ino, after.st_nlink, after.st_mode):
         raise ValueError('fixture changed during sampling')
     return dict(
         device=after.st_dev, fsid=os.fstatvfs(fd).f_fsid,
@@ -62,7 +114,8 @@ def _sample(fd: int) -> dict:
                      evidence.subvolume, evidence.inode]))
 
 
-def _snapshot(root: int, policy: int, receipt: int) -> dict:
+def _snapshot(root: int, policy: int, receipt: int,
+              link_directory: int | None) -> dict:
     with ExitStack() as stack:
         files = {}
         for key, name in (('anchor', _ANCHOR), ('target', publication.TARGET)):
@@ -72,7 +125,9 @@ def _snapshot(root: int, policy: int, receipt: int) -> dict:
             files[key] = _sample(fd)
         for key, fd in (('fixture', root), ('policy', policy), ('receipt', receipt)):
             files[key] = _sample(fd)
-        return dict(schema=1, boot=_boot(), files=files)
+        files['link_directory'] = (
+            _sample(link_directory) if link_directory is not None else None)
+        return dict(schema=2, boot=_boot(), files=files)
 
 
 def _save(root: int, baseline: dict) -> None:
@@ -89,42 +144,94 @@ def _save(root: int, baseline: dict) -> None:
     os.fsync(root)
 
 
+def _unique_object(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError('duplicate baseline field')
+        result[key] = value
+    return result
+
+
+def _valid_sample(sample: object) -> bool:
+    if (type(sample) is not dict or
+            set(sample) != {'device', 'fsid', 'inode', 'links', 'persistent'}):
+        return False
+    if (any(type(sample[k]) is not int for k in ('device', 'fsid', 'inode', 'links'))
+            or sample['device'] < 0 or sample['inode'] <= 0 or sample['links'] <= 0):
+        return False
+    value = sample['persistent']
+    if value is None:
+        return True
+    if (type(value) is not list or len(value) != 4 or
+            value[0] not in ('ext4', 'xfs', 'btrfs') or
+            not isinstance(value[1], str) or
+            re.fullmatch(r'[0-9a-f]{32}', value[1]) is None or
+            (value[2] is not None and type(value[2]) is not int) or
+            type(value[3]) is not int or value[3] <= 0):
+        return False
+    return True
+
+
 def _load(root: int) -> dict:
-    fd = os.open(_BASELINE, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK |
-                 os.O_CLOEXEC, dir_fd=root)
-    with os.fdopen(fd, 'rb') as stream:
-        st = os.fstat(stream.fileno())
-        if (not stat.S_ISREG(st.st_mode) or st.st_uid != os.geteuid() or
-                st.st_nlink != 1 or stat.S_IMODE(st.st_mode) != 0o600 or
-                st.st_size > _LIMIT):
-            raise ValueError('unsafe baseline')
-        raw = stream.read(_LIMIT + 1)
-    if len(raw) > _LIMIT:
-        raise ValueError('oversized baseline')
-    data = json.loads(raw)
-    if (not isinstance(data, dict) or data.get('schema') != 1 or
-            not isinstance(data.get('files'), dict) or
-            set(data['files']) != set(_FILES)):
-        raise ValueError('invalid baseline')
-    # Private fixture evidence is advisory; never used to authorize host
-    # configuration. Validate the expected shape before comparison.
-    uuid.UUID(data['boot'])
-    for sample in data['files'].values():
-        if (not isinstance(sample, dict) or
-                set(sample) != {'device', 'fsid', 'inode', 'links', 'persistent'} or
-                any(type(sample[k]) is not int for k in ('device', 'fsid', 'inode', 'links'))):
-            raise ValueError('invalid baseline')
-    return data
+    try:
+        fd = os.open(_BASELINE, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK |
+                     os.O_CLOEXEC, dir_fd=root)
+        with os.fdopen(fd, 'rb') as stream:
+            before = os.fstat(stream.fileno())
+            if (not stat.S_ISREG(before.st_mode) or before.st_uid != os.geteuid() or
+                    before.st_nlink != 1 or stat.S_IMODE(before.st_mode) != 0o600 or
+                    before.st_size > _LIMIT):
+                raise ValueError('unsafe baseline')
+            raw = stream.read(_LIMIT + 1)
+            after = os.fstat(stream.fileno())
+            if (len(raw) > _LIMIT or
+                    (before.st_dev, before.st_ino, before.st_size,
+                     before.st_mtime_ns, before.st_ctime_ns, before.st_nlink) !=
+                    (after.st_dev, after.st_ino, after.st_size,
+                     after.st_mtime_ns, after.st_ctime_ns, after.st_nlink)):
+                raise ValueError('baseline changed during read')
+        visible = os.stat(_BASELINE, dir_fd=root, follow_symlinks=False)
+        if (visible.st_dev, visible.st_ino, visible.st_ctime_ns) != (
+                after.st_dev, after.st_ino, after.st_ctime_ns):
+            raise ValueError('baseline replaced during read')
+        data = json.loads(raw.decode('ascii'), object_pairs_hook=_unique_object)
+        if (type(data) is not dict or set(data) != {'schema', 'boot', 'files'} or
+                type(data['schema']) is not int or data['schema'] != 2 or
+                not isinstance(data['files'], dict) or
+                set(data['files']) != set(_SNAPSHOT_KEYS)):
+            raise ValueError('invalid baseline structure')
+        if not isinstance(data['boot'], str) or str(uuid.UUID(data['boot'])) != data['boot']:
+            raise ValueError('invalid boot identifier')
+        for key in _FILES:
+            if not _valid_sample(data['files'][key]):
+                raise ValueError('invalid fixture sample')
+        link_sample = data['files']['link_directory']
+        if link_sample is not None and not _valid_sample(link_sample):
+            raise ValueError('invalid link directory sample')
+        return data
+    except (OSError, UnicodeError, ValueError, TypeError, KeyError,
+            RecursionError, OverflowError):
+        raise BaselineInvalid() from None
 
 
 def _available(data: dict) -> bool:
-    return all(value['persistent'] is not None for value in data['files'].values())
+    return all(data['files'][name]['persistent'] is not None for name in _FILES)
 
 
 def _comparison(before: dict, after: dict) -> dict:
     old, new = before['files'], after['files']
+
     def equal(key):
         return all(old[name][key] == new[name][key] for name in _FILES)
+
+    old_link, new_link = old['link_directory'], new['link_directory']
+    old_link_id = None if old_link is None else old_link['persistent']
+    new_link_id = None if new_link is None else new_link['persistent']
+    link_available = old_link_id is not None and new_link_id is not None
+    same_link_fs = bool(new_link_id is not None and all(
+        new[name]['persistent'] is not None and
+        new[name]['persistent'][:3] == new_link_id[:3] for name in _FILES))
     return dict(
         different_boot=before['boot'] != after['boot'],
         persistent_identity_available=_available(before) and _available(after),
@@ -134,6 +241,10 @@ def _comparison(before: dict, after: dict) -> dict:
         filesystem_ids_unchanged=equal('fsid'),
         inode_numbers_unchanged=equal('inode'),
         link_counts_unchanged=equal('links'),
+        link_directory_identity_available=link_available,
+        link_directory_identity_unchanged=(
+            link_available and old_link_id == new_link_id),
+        same_filesystem_and_subvolume_as_link_dir=same_link_fs,
         published_hardlinks_intact=(new['anchor']['links'] == new['target']['links'] == 2
                                     and new['anchor']['device'] == new['target']['device']
                                     and new['anchor']['inode'] == new['target']['inode']))
@@ -143,23 +254,22 @@ def experiment(action: str, directory: Path) -> dict:
     """Run only against an explicitly selected private disposable fixture."""
     if action not in ('prepare', 'compare', 'rollback'):
         raise ValueError('unknown action')
-    # This tool is never allowed to run with root credentials.
     if os.getuid() == 0 or os.geteuid() == 0:
-        raise ValueError('run as an ordinary user, never root')
+        raise RootRefused()
     return _fixture_experiment(action, directory)
 
 
 def _fixture_experiment(action: str, directory: Path) -> dict:
     # Internal disposable fixture boundary for CI, including root-run
-    # containers. The command-line and public experiment entry point
-    # always refuse root; never call this against real policy directories.
+    # containers. The public CLI and experiment entry point always refuse
+    # root; never call this against real policy directories.
     if action not in ('prepare', 'compare', 'rollback'):
         raise ValueError('unknown action')
     with ExitStack() as stack:
         root = _open_directory(stack, directory)
         if action == 'prepare':
             if os.listdir(root):
-                raise ValueError('prepare requires an empty private fixture')
+                raise FixtureNotEmpty()
             if identity.identify(root) is None:
                 return dict(status='identity_unavailable', action=action,
                             secrets_included=False)
@@ -168,32 +278,36 @@ def _fixture_experiment(action: str, directory: Path) -> dict:
             os.fsync(root)
         policy = _open_directory(stack, 'policy-fixture', parent=root)
         receipt = _open_directory(stack, 'receipt-fixture', parent=root)
+        link_directory = _open_link_directory(stack)
         uid = os.geteuid()
         if action == 'prepare':
             publication.prepare(policy, receipt, _TXID, owner_uid=uid)
             publication.publish(policy, receipt, _TXID, owner_uid=uid)
-            baseline = _snapshot(root, policy, receipt)
+            baseline = _snapshot(root, policy, receipt, link_directory)
             _save(root, baseline)
+            result = _comparison(baseline, baseline)
             return dict(status='prepared', action=action,
                         persistent_identity_available=_available(baseline),
-                        published_hardlinks_intact=_comparison(
-                            baseline, baseline)['published_hardlinks_intact'],
+                        link_directory_identity_available=result[
+                            'link_directory_identity_available'],
+                        same_filesystem_and_subvolume_as_link_dir=result[
+                            'same_filesystem_and_subvolume_as_link_dir'],
+                        published_hardlinks_intact=result['published_hardlinks_intact'],
                         schema2_publication_verified=True, secrets_included=False)
         baseline = _load(root)
-        current = _snapshot(root, policy, receipt)
+        state = publication.inspect(policy, receipt, _TXID, owner_uid=uid)
+        if state == 'unpublished':
+            return dict(status='fixture_rolled_back', action=action,
+                        rollback_verified=True, secrets_included=False)
+        current = _snapshot(root, policy, receipt, link_directory)
         result = _comparison(baseline, current)
-        try:
-            verified = publication.inspect(policy, receipt, _TXID,
-                                           owner_uid=uid) == 'published'
-        except publication.PublicationError:
-            verified = False
-        result.update(action=action, schema2_publication_verified=verified,
+        result.update(action=action, schema2_publication_verified=True,
                       secrets_included=False)
         result['status'] = 'compared'
         if action == 'rollback':
             # Deliberately do not bypass schema 2 if f_fsid changed even
             # when the experimental persistent identity agrees.
-            if not (verified and result['persistent_identity_unchanged'] and
+            if not (result['persistent_identity_unchanged'] and
                     result['published_hardlinks_intact']):
                 result['status'] = 'rollback_refused'
                 return result
@@ -212,13 +326,26 @@ def main() -> int:
     args = parser.parse_args()
     try:
         result = experiment(args.action, args.directory)
+    except RootRefused:
+        result = dict(status='root_refused', action=args.action,
+                      secrets_included=False)
+    except FixtureNotPrivate:
+        result = dict(status='fixture_not_private', action=args.action,
+                      secrets_included=False)
+    except FixtureNotEmpty:
+        result = dict(status='fixture_not_empty', action=args.action,
+                      secrets_included=False)
+    except BaselineInvalid:
+        result = dict(status='baseline_invalid', action=args.action,
+                      secrets_included=False)
     except (OSError, ValueError, TypeError, KeyError, RecursionError,
             publication.PublicationError):
         # Do not print paths, UUIDs, transaction identifiers or raw errors.
         result = dict(status='fixture_error', action=args.action,
                       secrets_included=False)
     print(json.dumps(result, sort_keys=True))
-    return 0 if result['status'] in ('prepared', 'compared', 'rolled_back') else 1
+    return 0 if result['status'] in (
+        'prepared', 'compared', 'rolled_back', 'fixture_rolled_back') else 1
 
 
 if __name__ == '__main__':
