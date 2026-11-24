@@ -490,7 +490,16 @@ independently reconstruct the proposed full record (including any new
 stage or snapshot evidence) and establish the applicable unchanged or
 restored state under the same locks. The partial bytes are not a source
 of truth; prefix equality does not identify a writer, authenticate
-evidence, or authorize a phase. A complete candidate goes through the
+evidence, or authorize a phase. The safety basis is the write-ahead rule:
+no work belonging to a phase starts until that phase's journal record is
+durable. Therefore, beside an already durable schema-2 record, discarding
+a leftover temporary write cannot discard authority for work that began:
+an unfinished forward transition describes work that did not start, while
+an unfinished ROLLED_BACK publication leaves the prior applied phase
+durable and recovery can safely repeat the rollback. Prefix matching is
+defence in depth and useful diagnostic evidence, not what makes discard
+safe. In particular, an empty temporary file is a prefix of every
+candidate and binds nothing. A complete candidate goes through the
 complete-record path. Both methods share the same ownership, exact entry,
 transition, callback, byte/metadata recheck and durability guards.
 Neither method promotes the candidate. A partial orphan with no durable
