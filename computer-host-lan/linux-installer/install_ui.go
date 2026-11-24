@@ -348,7 +348,7 @@ func knownPrivilegedError(code string) bool {
 		"recovery_required", "unsupported_environment", "adoption_required",
 		"unsupported_python", "untrusted_root_launcher",
 		"invalid_trusted_manifest", "duplicate_key", "bootstrap_failed",
-		"unsafe_lock":
+		"unsafe_lock", "not_installed":
 		return true
 	}
 	return false
@@ -371,6 +371,8 @@ func userFacingPrivilegeFailure(reply privilegedResult) error {
 		return errors.New("retained agent state needs v2 verification. Use the manual Linux installer with --adopt-retained-state after confirming its provenance")
 	case "unsupported_python":
 		return errors.New("a system Python 3.10 or newer is required; install a compatible interpreter without changing the system default")
+	case "not_installed":
+		return errors.New("no installed Linux agent was found; nothing to uninstall. Retained state and recovery files have not been removed")
 	case "unsupported_environment":
 		return errors.New("the existing installation or operating environment needs attention. Check the read-only inspection before retrying")
 	case "aborted":
@@ -570,6 +572,24 @@ func runInstallingWizard(accessible bool, apiPath string, reader io.Reader, writ
 	return installSelection(s, writer, true, method)
 }
 
+// Read only the submitted line, not subsequent input that may belong
+// to PAM (su). Bound the confirmation length and reject EOF without a
+// newline; unlike bufio.Reader this cannot prefetch the next line.
+func readConfirmationLine(reader io.Reader) (string, error) {
+	var line strings.Builder
+	var next [1]byte
+	for line.Len() < 128 {
+		if _, err := io.ReadFull(reader, next[:]); err != nil {
+			return "", err
+		}
+		if next[0] == '\n' {
+			return line.String(), nil
+		}
+		line.WriteByte(next[0])
+	}
+	return "", errors.New("confirmation line too long")
+}
+
 // Plain text is intentional: uninstall uses the same accessible review
 // and literal confirmation on every terminal, without a default Yes action.
 func confirmUninstall(reader io.Reader, writer io.Writer,
@@ -583,7 +603,7 @@ func confirmUninstall(reader io.Reader, writer io.Writer,
 	fmt.Fprintln(writer, "The SmartThings device will go offline; remove it manually if no longer needed.")
 	fmt.Fprintln(writer, "A later reinstall can reuse the retained identity. This is not a full purge.")
 	fmt.Fprint(writer, "Type UNINSTALL to authorize removal (anything else cancels): ")
-	raw, err := bufio.NewReader(reader).ReadString('\n')
+	raw, err := readConfirmationLine(reader)
 	if err != nil && err != io.EOF {
 		return err
 	}
@@ -656,11 +676,11 @@ func runRecoveryWizard(reader io.Reader, writer io.Writer, method string) error 
 	fmt.Fprintln(writer, "Computer Host LAN — recover a previously interrupted installer operation.")
 	fmt.Fprintln(writer, "This rolls back an interrupted operation or finishes terminal cleanup; it never resumes deletion.")
 	fmt.Fprint(writer, "Type RECOVER to authorize the existing trusted helper: ")
-	raw, err := bufio.NewReader(reader).ReadString('\n')
+	raw, err := readConfirmationLine(reader)
 	if err != nil && err != io.EOF {
 		return err
 	}
-	if strings.TrimSpace(raw) != "RECOVER" {
+	if err == io.EOF || strings.TrimSpace(raw) != "RECOVER" {
 		fmt.Fprintln(writer, "Recovery cancelled. No changes made.")
 		return nil
 	}
