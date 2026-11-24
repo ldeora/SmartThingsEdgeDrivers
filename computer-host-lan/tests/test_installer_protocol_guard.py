@@ -4,6 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 import os
 import pwd
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -385,13 +386,86 @@ class InstalledProtocolTests(unittest.TestCase):
             mkdir.assert_not_called()
 
     def test_shell_checks_prior_to_account_creation(self):
+        # Run the entire legacy shell installer with harmless PATH stubs.
+        # Only its systemd directory probe is redirected to the fixture.
+        scripts = self.root / 'fixture' / 'scripts'
+        scripts.mkdir(parents=True)
+        bin_dir = self.root / 'bin'
+        bin_dir.mkdir()
+        active = self.root / 'systemd'
+        active.mkdir()
         source = (ROOT / 'scripts/install-agent.sh').read_text()
-        self.assertLess(source.index('--check-existing'), source.index('getent passwd linuxhost'))
-        self.assertLess(source.index('--check-wizard-journal'), source.index('getent passwd linuxhost'))
+        self.assertEqual(source.count('/run/systemd/system'), 1)
+        entry = scripts / 'install-agent.sh'
+        entry.write_text(source.replace('/run/systemd/system', str(active)))
+        (scripts / 'python-selector.sh').write_bytes(
+            (ROOT / 'scripts/python-selector.sh').read_bytes())
+        log = self.root / 'calls'
+
+        def stub(name, body):
+            target = bin_dir / name
+            target.write_text('#!/bin/sh\n' + body + '\n')
+            target.chmod(0o755)
+            return target
+
+        stub('id', 'printf "0\\n"')
+        stub('dirname', 'for arg do :; done; printf "%s\\n" "${arg%/*}"')
+        stub('getent', 'printf "getent\\n" >> "$CALL_LOG"; exit 2')
+        stub('useradd', 'printf "useradd\\n" >> "$CALL_LOG"')
+        for name in ('systemctl', 'install', 'nologin'):
+            stub(name, 'exit 99')
+        interpreter = stub('python3', '''case "$1" in
+  -c) exit 0 ;;
+esac
+shift
+printf '%s\\n' "$*" >> "$CALL_LOG"
+case "$1" in
+  --check-existing|--check-wizard-journal)
+    [ "$1" != "$BLOCK_AT" ] || exit 2 ;;
+  --install|--plan) ;;
+  *) exit 99 ;;
+esac
+exit 0''')
+
+        for blocked, dry, adopt in (
+                ('--check-existing', False, False),
+                ('--check-wizard-journal', False, True),
+                ('', False, True), ('', True, True)):
+            with self.subTest(blocked=blocked, dry=dry, adopt=adopt):
+                log.write_text('')
+                args = ['/bin/sh', str(entry), '--python', str(interpreter)]
+                if dry:
+                    args.append('--dry-run')
+                if adopt:
+                    args.append('--adopt-retained-state')
+                result = subprocess.run(args, env={
+                    'PATH': str(bin_dir), 'CALL_LOG': str(log),
+                    'BLOCK_AT': blocked, 'LANG': 'C',
+                }, capture_output=True, text=True, timeout=10)
+                calls = log.read_text().splitlines()
+                check = '--check-existing' + (' --adopt-retained-state' if adopt else '')
+                self.assertTrue(calls, result.stderr)
+                self.assertEqual(calls[0], check)
+                if blocked:
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertEqual(calls, [check] if blocked == '--check-existing'
+                                     else [check, '--check-wizard-journal'])
+                else:
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    if dry:
+                        self.assertEqual(len(calls), 2)
+                        self.assertTrue(calls[-1].startswith('--plan '))
+                    else:
+                        self.assertEqual(calls[1:4], [
+                            '--check-wizard-journal', 'getent', 'useradd'])
+                        self.assertEqual(len(calls), 5)
+                        self.assertTrue(calls[-1].startswith('--install '))
+                    self.assertTrue(calls[-1].endswith(' --adopt-retained-state'))
+
+    def test_preflight_source_guard_mentions_existing_protocol_check(self):
+        # Static guard for the separate read-only script. Actual modifying
+        # installer ordering is exercised by the behavioral fixture above.
         self.assertIn('--check-existing', (ROOT / 'scripts/preflight.sh').read_text())
-        self.assertIn('--adopt-retained-state) ADOPT_RETAINED_STATE=1', source)
-        self.assertIn('--check-existing --adopt-retained-state', source)
-        self.assertIn('set -- "$@" --adopt-retained-state', source)
 
 
 if __name__ == '__main__':
