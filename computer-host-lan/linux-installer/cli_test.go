@@ -207,6 +207,16 @@ func TestCLIStatusExitCodes(t *testing.T) {
 	}
 }
 
+func TestCLINothingToRecover(t *testing.T) {
+	result, code := executeCLI([]string{"recover", "--confirm", "RECOVER"}, false, prepareCLIRequest,
+		func(req privilegedRequest, interactive bool, method string) (privilegedResult, error) {
+			return privilegedResult{SchemaVersion: 1, Operation: req.Action, Status: "passed", RecoveryStatus: "nothing_to_recover"}, nil
+		})
+	if code != 0 || result.RecoveryStatus != "nothing_to_recover" || result.CredentialContinuity != "not_verified" || result.ContinuityReason != "" {
+		t.Fatalf("unexpected clean recovery outcome: %+v, %d", result, code)
+	}
+}
+
 func TestCLIPlanUsesSharedPreflightWithoutAuthorization(t *testing.T) {
 	api := fixtureClient(t)
 	info, err := api.inspect()

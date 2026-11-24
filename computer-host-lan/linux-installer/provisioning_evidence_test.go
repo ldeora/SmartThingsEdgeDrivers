@@ -106,9 +106,21 @@ func TestMissingHelperProvisioningEvidence(t *testing.T) {
 			}
 			// Existing-helper actions must see the same evidence without
 			// provisioning anything, including in clean cases.
-			err := checkMissingHelperForExistingAction(root, manual, os.Geteuid())
-			if (tc.clean && err != nil) || (!tc.clean && !errors.Is(err, errRecoveryHelperMissing)) {
-				t.Fatalf("status/recover preflight: %v", err)
+			for _, action := range []string{"status", "recover"} {
+				reply, err := prepareExistingHelperAction(root, manual, os.Geteuid(), action)
+				if (tc.clean && err != nil) || (!tc.clean && !errors.Is(err, errRecoveryHelperMissing)) {
+					t.Fatalf("%s preflight: %v", action, err)
+				}
+				if tc.clean {
+					var out bytes.Buffer
+					if err := relayHelperResponse(&out, action, reply, nil); err != nil {
+						t.Fatal(err)
+					}
+					got, err := validatedPrivilegedReply(out.Bytes(), action)
+					if err != nil || got.Status != "passed" || (action == "status" && got.PrivilegedTransactionState != "none") || (action == "recover" && got.RecoveryStatus != "nothing_to_recover") {
+						t.Fatalf("unexpected clean %s: %+v %v", action, got, err)
+					}
+				}
 			}
 			if _, err := os.Lstat(root); !os.IsNotExist(err) {
 				t.Fatal("preflight provisioned a helper", err)
@@ -168,15 +180,16 @@ func TestExistingActionHelperPreflightLockBehavior(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer guard.Close()
-	if err := checkMissingHelperForExistingAction(root, manual, os.Geteuid()); !errors.Is(err, errInstallerBusy) {
+	if _, err := prepareExistingHelperAction(root, manual, os.Geteuid(), "status"); !errors.Is(err, errInstallerBusy) {
 		t.Fatal("missing-helper check must respect installer lock", err)
 	}
 	for _, path := range []string{root, root + ".previous"} {
 		if err := os.Mkdir(path, 0o700); err != nil {
 			t.Fatal(err)
 		}
-		if err := checkMissingHelperForExistingAction(root, manual, os.Geteuid()); err != nil {
-			t.Fatal("existing helper preflight must not acquire manual lock", err)
+		_, err := prepareExistingHelperAction(root, manual, os.Geteuid(), "status")
+		if (path == root && err != nil) || (path != root && !errors.Is(err, errInstallerBusy)) {
+			t.Fatal("unexpected existing helper preflight lock behavior", err)
 		}
 		if err := os.Remove(path); err != nil {
 			t.Fatal(err)

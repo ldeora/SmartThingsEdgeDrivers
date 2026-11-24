@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -646,11 +645,11 @@ func runInstallingWizard(accessible bool, apiPath string, reader io.Reader, writ
 	}
 	// At this point Huh has exited; the terminal is no longer in raw mode.
 	fmt.Fprint(writer, "\nType INSTALL to authorize system changes (anything else cancels): ")
-	line, err := bufio.NewReader(reader).ReadString('\n')
+	line, err := readConfirmationLine(reader)
 	if err != nil && err != io.EOF {
 		return err
 	}
-	if strings.TrimSpace(line) != "INSTALL" {
+	if err == io.EOF || strings.TrimSpace(line) != "INSTALL" {
 		fmt.Fprintln(writer, "Cancelled. No changes made.")
 		return nil
 	}
@@ -742,6 +741,8 @@ func showRecoveryOutcome(writer io.Writer, response privilegedResult) {
 	fmt.Fprintln(writer, "Recovery outcome:", response.RecoveryStatus)
 	showCredentialContinuity(writer, response)
 	switch response.RecoveryStatus {
+	case "nothing_to_recover":
+		fmt.Fprintln(writer, "No protected transaction needs recovery.")
 	case "rolled_back":
 		if response.RecoveryOperation == "uninstall" {
 			fmt.Fprintln(writer, "Interrupted uninstall was undone. Previous files and services were restored; run -uninstall again if desired.")

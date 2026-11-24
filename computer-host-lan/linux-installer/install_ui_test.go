@@ -47,15 +47,21 @@ func TestAccessibleInstallationRequiresLiteralInstallConfirmation(t *testing.T) 
 		run   bool
 	}{
 		{"approved", "s\nk\nk\nINSTALL\n", true},
+		{"unterminated", "s\nk\nk\nINSTALL", false},
+		{"typed ahead", "s\nk\nk\nINSTALL\nnext-line\n", true},
 		{"declined", "s\nk\nk\ny\nquit\n", false},
 		{"cancelled", "quit\n", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var output bytes.Buffer
 			called := false
+			reader := strings.NewReader(tc.input)
 			err := runLiveAccessibleWithHubsMode(
-				strings.NewReader(tc.input), &output, client, info, nil, true,
+				reader, &output, client, info, nil, true,
 				func(s *liveSelection) error {
+					if tc.name == "typed ahead" && reader.Len() != len("next-line\n") {
+						t.Fatal("Installation consumed input before elevation")
+					}
 					called = true
 					request, err := approvedRootRequest(s)
 					if err != nil || request.Action != "upgrade" {
@@ -198,7 +204,7 @@ func TestUninstallCleanupAndRollbackMessages(t *testing.T) {
 }
 
 func TestConfirmationDoesNotConsumeTypedAheadInput(t *testing.T) {
-	for _, word := range []string{"UNINSTALL", "RECOVER"} {
+	for _, word := range []string{"INSTALL", "UNINSTALL", "RECOVER"} {
 		reader := strings.NewReader(word + "\nnext-line\n")
 		line, err := readConfirmationLine(reader)
 		if err != nil || line != word {
