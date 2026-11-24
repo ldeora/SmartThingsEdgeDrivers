@@ -260,6 +260,25 @@ class FixtureJournal:
         actual unchanged/restored state required by the durable record,
         including the absence of stage for an orphan initial write.
         """
+        self._reconcile_temp(verify, expected=None)
+
+    def reconcile_partial_temp(self, expected, verify):
+        """Reconcile a strict prefix of an independently reconstructed v2 record.
+
+        Only a durable v2 transaction is supported here. Empty/short orphan
+        writes do not establish schema or intent, and are preserved. Expected
+        is a trusted fixture input, not a candidate parsed from partial bytes.
+        The verifier must independently establish that proposal under the
+        locks, including any new evidence, as well as actual host state.
+        No candidate is ever promoted; the durable phase controls recovery.
+        """
+        frozen = canonical(contract.validate_record(expected))
+        candidate = contract.decode_journal(frozen)
+        if candidate['schema'] != 2:
+            raise legacy.JournalConflict('compatible v2 candidate required')
+        self._reconcile_temp(verify, expected=frozen)
+
+    def _reconcile_temp(self, verify, *, expected):
         with engine.manual_install_lock(self.lock, owner_uid=self.uid):
             directory, lock = self._store._acquire(create=False)
             try:
@@ -277,11 +296,27 @@ class FixtureJournal:
                     legacy._checked_regular(fd, self.uid)
                     info = os.fstat(fd)
                     raw = os.read(fd, legacy._MAX_BYTES + 1)
-                    if not 0 < len(raw) == info.st_size <= legacy._MAX_BYTES:
-                        raise legacy.JournalConflict('incomplete journal uncertainty')
-                    candidate = contract.decode_journal(raw)
-                    if candidate['schema'] != 2 or canonical(candidate) != raw:
-                        raise legacy.JournalConflict('unsupported journal uncertainty')
+                    if not len(raw) == info.st_size <= legacy._MAX_BYTES:
+                        raise legacy.JournalConflict('invalid journal uncertainty length')
+                    if expected is None:
+                        if not raw:
+                            raise legacy.JournalConflict('incomplete journal uncertainty')
+                        candidate = contract.decode_journal(raw)
+                        if candidate['schema'] != 2 or canonical(candidate) != raw:
+                            raise legacy.JournalConflict('unsupported journal uncertainty')
+                        proposed = raw
+                    else:
+                        # No inference from an empty or ambiguous orphan.
+                        # With a durable v2 record, even a zero-byte failed
+                        # write can be reconciled, but only against a valid
+                        # independently reconstructed next transition and
+                        # an actual unchanged/restored-state verifier.
+                        if current is None or current['schema'] != 2:
+                            raise legacy.JournalConflict('partial orphan or legacy uncertainty')
+                        if len(raw) >= len(expected) or not expected.startswith(raw):
+                            raise legacy.JournalConflict('not a canonical transition prefix')
+                        candidate = contract.decode_journal(expected)
+                        proposed = expected
                     if current is None:
                         if (candidate['phase'] != 'INSPECTED' or
                                 legacy._staged_payload_remains(self.root, self.uid)):
@@ -292,10 +327,15 @@ class FixtureJournal:
                         contract.validate_transition(current, candidate)
                     # Freeze both arguments; never use callback-modified data.
                     before = canonical(current)
-                    if not callable(verify) or verify(json.loads(before), json.loads(raw)) is not True:
+                    if not callable(verify) or verify(json.loads(before), json.loads(proposed)) is not True:
                         raise legacy.JournalConflict('uncertainty not independently reconciled')
                     if canonical(read_record(directory, self.uid)) != before or _entries(directory) != entries:
                         raise legacy.JournalConflict('journal changed during reconciliation')
+                    # Check the held descriptor as well as the visible
+                    # name, including bytes, after the verifier returns.
+                    os.lseek(fd, 0, os.SEEK_SET)
+                    if os.read(fd, legacy._MAX_BYTES + 1) != raw:
+                        raise legacy.JournalConflict('uncertain record content changed')
                     now = os.stat(name, dir_fd=directory, follow_symlinks=False)
                     if (not os.path.samestat(info, now) or
                             (info.st_mode, info.st_uid, info.st_nlink, info.st_size,

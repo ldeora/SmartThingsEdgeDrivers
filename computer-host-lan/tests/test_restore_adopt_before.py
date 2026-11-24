@@ -263,6 +263,63 @@ class BeforeStateTests(unittest.TestCase):
             recovery.clear_finished(lambda _: True)
         self.assertTrue(directory.is_dir())
 
+    def test_unbound_inspection_distinguishes_absent_partial_and_complete_shape(self):
+        with self.store.transaction(ADOPT) as handle:
+            self.prepare(handle)
+            captured = before.capture_before(handle, lambda: EMPTY)
+            directory = self.base / captured.snapshot_name
+            with self.assertRaises(before.BeforeStateError):
+                before.inspect_unbound_before(handle)
+            handle.advance('ABORTED', verify=lambda _: True)
+            observation = before.inspect_unbound_before(handle)
+            self.assertEqual(observation.status, 'preserved_unbound')
+            self.assertTrue(observation.manifest_present)
+            self.assertTrue(observation.receipt_present)
+            self.assertEqual(observation.original_count, 0)
+            # Even a complete unbound capture is not a recovery source.
+            with self.assertRaises(before.BeforeStateError):
+                before.read_before(handle)
+            receipt = directory / 'receipt.json'
+            receipt.unlink()
+            (directory / 'manifest.json').write_bytes(b'')
+            observed = before.inspect_unbound_before(handle)
+            self.assertTrue(observed.manifest_present)
+            self.assertFalse(observed.receipt_present)
+            self.assertEqual((directory / 'manifest.json').read_bytes(), b'')
+            extra = directory / 'foreign'
+            extra.write_bytes(b'preserve')
+            with self.assertRaises(before.BeforeStateError):
+                before.inspect_unbound_before(handle)
+            self.assertEqual(extra.read_bytes(), b'preserve')
+            extra.unlink()
+            (directory / 'manifest.json').unlink()
+            directory.rmdir()
+            self.assertEqual(before.inspect_unbound_before(handle).status, 'absent')
+
+    def test_unbound_inspection_refuses_bound_abort_and_unsafe_entries(self):
+        with self.store.transaction(ADOPT) as handle:
+            self.prepare(handle)
+            captured = before.capture_before(handle, lambda: EMPTY)
+            directory = self.base / captured.snapshot_name
+            manifest = directory / 'manifest.json'
+            other = self.root / 'manifest-hardlink'
+            os.link(manifest, other)
+            handle.advance('ABORTED', verify=lambda _: True)
+            with self.assertRaises(before.BeforeStateError):
+                before.inspect_unbound_before(handle)
+            self.assertTrue(other.exists())
+            other.unlink()
+            stage.retire_terminal_plan(handle)
+            handle.clear_finished(lambda _: True)
+        with self.store.transaction(ADOPT) as handle:
+            self.prepare(handle)
+            captured = before.capture_before(handle, lambda: EMPTY)
+            verify.bind_before(handle, captured, lambda: EMPTY)
+            handle.advance('ABORTED', verify=lambda _: True)
+            with self.assertRaises(before.BeforeStateError):
+                before.inspect_unbound_before(handle)
+            self.assertEqual(before.read_before(handle), captured)
+
     def test_current_state_change_after_binding_refuses_preapply(self):
         with self.store.transaction(ADOPT) as handle:
             planned = self.prepare(handle)

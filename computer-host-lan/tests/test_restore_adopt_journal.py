@@ -148,6 +148,127 @@ class JournalTests(unittest.TestCase):
             self.store.reconcile_complete_temp(lambda *_: True)
         self.assertEqual(temp.read_bytes(), raw)
 
+    def test_partial_transition_prefixes_reconcile_without_promotion(self):
+        # Exercise empty, intermediate, and all-but-newline writes.
+        for length in (0, 1, 20, -1):
+            with self.subTest(length=length):
+                with self.store.transaction(ADOPT) as handle:
+                    current = handle.record()
+                    candidate = dict(current, phase='STAGED', evidence=ADOPT_EVIDENCE)
+                    before = self.path.read_bytes()
+                temp = self.path.parent / ('.wizard-journal-' + 'a' * 32)
+                raw = v2.canonical(candidate)[:length]
+                temp.write_bytes(raw)
+                temp.chmod(0o600)
+                with self.assertRaises(old.JournalConflict):
+                    self.store.reconcile_partial_temp(candidate, lambda *_: False)
+                self.assertEqual(temp.read_bytes(), raw)
+                self.store.reconcile_partial_temp(candidate, lambda durable, proposed:
+                                                  durable == current and proposed == candidate)
+                self.assertEqual(self.path.read_bytes(), before)
+                self.assertFalse(temp.exists())
+                with self.store.transaction() as recovery:
+                    recovery.advance('ABORTED', verify=verified)
+                    recovery.clear_finished(verified)
+
+    def test_real_short_write_reconciles_only_after_verification(self):
+        with self.store.transaction(ADOPT) as handle:
+            current = handle.record()
+            candidate = dict(current, phase='STAGED', evidence=ADOPT_EVIDENCE)
+            real_write = os.write
+            calls = []
+
+            def write(fd, content):
+                calls.append(len(content))
+                if len(calls) == 1:
+                    return real_write(fd, content[:19])
+                raise OSError('fixture interrupted write')
+
+            with mock.patch.object(v2.os, 'write', side_effect=write):
+                with self.assertRaises(old.UnsafeJournal):
+                    handle.advance('STAGED', evidence=ADOPT_EVIDENCE, verify=verified)
+            with self.assertRaises(old.JournalConflict):
+                handle.record()
+        temp, = self.path.parent.glob('.wizard-journal-*')
+        raw = temp.read_bytes()
+        self.assertEqual(raw, v2.canonical(candidate)[:19])
+        with self.assertRaises(old.JournalConflict):
+            with self.store.transaction():
+                self.fail('uncertain write accepted without reconciliation')
+
+        def mutate(durable, proposed):
+            self.assertEqual(durable, current)
+            self.assertEqual(proposed, candidate)
+            temp.write_bytes(b'changed')
+            return True
+
+        with self.assertRaises(old.JournalConflict):
+            self.store.reconcile_partial_temp(candidate, mutate)
+        self.assertEqual(temp.read_bytes(), b'changed')
+        self.assertEqual(self.path.read_bytes(), v2.canonical(current))
+        # Restore only the synthetic fixture evidence for the positive path.
+        temp.write_bytes(raw)
+        self.store.reconcile_partial_temp(candidate, lambda durable, proposed:
+                                          durable == current and proposed == candidate)
+        with self.store.transaction() as recovery:
+            recovery.advance('ABORTED', verify=verified)
+            recovery.clear_finished(verified)
+
+    def test_partial_wrong_prefix_or_transition_preserved(self):
+        with self.store.transaction(ADOPT) as handle:
+            current = handle.record()
+        candidate = dict(current, phase='STAGED', evidence=ADOPT_EVIDENCE)
+        temp = self.path.parent / ('.wizard-journal-' + 'b' * 32)
+        temp.write_bytes(b'{"unexpected":')
+        temp.chmod(0o600)
+        with self.assertRaises(old.JournalConflict):
+            self.store.reconcile_partial_temp(candidate, lambda *_: True)
+        self.assertEqual(temp.read_bytes(), b'{"unexpected":')
+        raw = v2.canonical(candidate)[:20]
+        temp.write_bytes(raw)
+        conflicting = dict(candidate, transaction_id='b' * 32)
+        with self.assertRaises(old.UnsafeJournal):
+            self.store.reconcile_partial_temp(conflicting, lambda *_: True)
+        self.assertEqual(temp.read_bytes(), raw)
+        temp.write_bytes(v2.canonical(candidate))
+        with self.assertRaises(old.JournalConflict):
+            self.store.reconcile_partial_temp(candidate, lambda *_: True)
+        self.assertEqual(temp.read_bytes(), v2.canonical(candidate))
+
+    def test_partial_orphan_is_not_identifiable(self):
+        with mock.patch.object(v2.os, 'replace', side_effect=OSError('fixture')):
+            with self.assertRaises(old.UnsafeJournal):
+                with self.store.transaction(ADOPT):
+                    self.fail('unexpected handle')
+        temp, = self.path.parent.glob('.wizard-journal-*')
+        candidate = v2.contract.decode_journal(temp.read_bytes())
+        for raw in (b'', v2.canonical(candidate)[:-1]):
+            temp.write_bytes(raw)
+            with self.assertRaises(old.JournalConflict):
+                self.store.reconcile_partial_temp(candidate, lambda *_: True)
+            self.assertEqual(temp.read_bytes(), raw)
+            self.assertFalse(self.path.exists())
+
+    def test_partial_commit_reconciliation_still_requires_rollback(self):
+        with self.store.transaction(ADOPT) as handle:
+            handle.advance('STAGED', evidence=ADOPT_EVIDENCE, verify=verified)
+            handle.advance('SNAPSHOTTED', snapshot_name=BEFORE,
+                           before_receipt_sha256=H, verify=verified)
+            for phase in ('APPLYING', 'ACTIVATING', 'VERIFYING'):
+                handle.advance(phase, verify=verified)
+            durable = handle.record()
+        candidate = dict(durable, phase='COMMITTED')
+        temp = self.path.parent / ('.wizard-journal-' + 'c' * 32)
+        temp.write_bytes(v2.canonical(candidate)[:-1])
+        temp.chmod(0o600)
+        self.store.reconcile_partial_temp(candidate, lambda *_: True)
+        with self.store.transaction() as recovery:
+            self.assertEqual(recovery.record(), durable)
+            with self.assertRaises(old.JournalConflict):
+                recovery.advance('COMMITTED', verify=verified)
+            recovery.advance('ROLLED_BACK', verify=verified)
+            recovery.clear_finished(verified)
+
     def test_failed_directory_sync_poisoned_handle_new_record_preserved(self):
         with self.store.transaction(ADOPT) as handle:
             real_sync = os.fsync
