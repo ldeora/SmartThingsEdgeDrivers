@@ -187,6 +187,7 @@ class ServiceOperations(Protocol):
     def verify_install(self, request: InstallRequest, previous: dict,
                        changes: list[core.Change], *,
                        power_enabled: bool, transaction: core.InstallTransaction) -> bool: ...
+    def prepare_restore(self, previous: dict) -> None: ...
     def restore_services(self, previous: dict) -> None: ...
     def verify_restored_services(self, previous: dict) -> bool: ...
     def stop_for_uninstall(self) -> None: ...
@@ -207,13 +208,61 @@ class SystemdOperations:
         self.health_probe = health_probe
 
     def capture_previous(self, transaction: core.InstallTransaction) -> dict:
-        return dict(
-            first_install=not transaction.location(core.SYSTEMD_PATHS[0]).exists(),
-            agent_active=core.state('linux-host-agent.service', 'is-active'),
-            agent_enabled=core.state('linux-host-agent.service', 'is-enabled'),
-            socket_active=core.state('linux-host-agent-power.socket', 'is-active'),
-            socket_enabled=core.state('linux-host-agent-power.socket', 'is-enabled'),
-        )
+        first_install = not transaction.location(core.SYSTEMD_PATHS[0]).exists()
+        result = dict(first_install=first_install)
+        for unit, prefix in (('linux-host-agent.service', 'agent'),
+                             ('linux-host-agent-power.socket', 'socket')):
+            state = self._uninstall_unit_state(unit)
+            # Failed/auto-restarting units are explicitly observed broken
+            # units, not failed queries. Normalize their rollback state to
+            # inactive; remember that an upgrade/repair should retry them.
+            broken = (not first_install and state is not None and
+                      state['LoadState'] == 'loaded' and
+                      state['UnitFileState'] in ('enabled', 'disabled') and
+                      (state['ActiveState'] == 'failed' or
+                       (state['ActiveState'] == 'activating' and
+                        state['SubState'] in ('auto-restart', 'auto-restart-queued'))))
+            observed = ((False, state['UnitFileState'] == 'enabled') if broken
+                        else self._stable_unit_state(state, absent=first_install))
+            if observed is None:
+                raise ControllerError('unsupported_environment')
+            result[prefix + '_active'], result[prefix + '_enabled'] = observed
+            if broken:
+                result[prefix + '_retry'] = True
+        if first_install and (
+                self._stable_unit_state(self._uninstall_unit_state(
+                    'linux-host-agent-power.service'), absent=True) is None or
+                not _enablement_absent(transaction)):
+            raise ControllerError('unsupported_environment')
+        return result
+
+    @staticmethod
+    def _stable_unit_state(state: dict[str, str] | None, *,
+                           absent: bool = False) -> tuple[bool, bool] | None:
+        if state is None:
+            return None
+        if absent:
+            if (state['LoadState'] == 'not-found' and
+                    state['ActiveState'] == 'inactive' and
+                    state['UnitFileState'] in ('', 'not-found')):
+                return False, False
+            return None
+        if (state['LoadState'] != 'loaded' or
+                state['ActiveState'] not in ('active', 'inactive') or
+                state['UnitFileState'] not in ('enabled', 'disabled')):
+            return None
+        return (state['ActiveState'] == 'active',
+                state['UnitFileState'] == 'enabled')
+
+    def _services_match(self, agent: tuple[bool, bool],
+                        socket: tuple[bool, bool], *, absent: bool = False) -> bool:
+        # Query both units even if the first fails. None is never equal
+        # to a valid expected pair, including (False, False).
+        actual_agent = self._stable_unit_state(self._uninstall_unit_state(
+            'linux-host-agent.service'), absent=absent)
+        actual_socket = self._stable_unit_state(self._uninstall_unit_state(
+            'linux-host-agent-power.socket'), absent=absent)
+        return actual_agent == agent and actual_socket == socket
 
     def ensure_agent_user(self) -> None:
         """Match install-agent.sh's idempotent linuxhost user preflight.
@@ -243,8 +292,29 @@ class SystemdOperations:
 
     def activate(self, previous: dict, *, power_enabled: bool,
                  disable_power: bool) -> None:
-        core.activate(previous, power_enabled=power_enabled,
+        effective = self._activation_previous(previous, power_enabled)
+        # Stop an auto-restart loop and clear failure/start-limit counters
+        # before attempting the reviewed repair. No changes before APPLYING.
+        for unit, retry in (('linux-host-agent.service', previous.get('agent_retry')),
+                            ('linux-host-agent-power.socket', previous.get('socket_retry'))):
+            if retry:
+                core.systemctl('stop', unit)
+                core.systemctl('reset-failed', unit, check=False)
+        core.activate(effective, power_enabled=power_enabled,
                       disable_power=disable_power)
+        if not power_enabled:
+            core.systemctl('reset-failed', 'linux-host-agent-power.socket', check=False)
+
+    @staticmethod
+    def _activation_previous(previous: dict, power_enabled: bool) -> dict:
+        # Retry broken services, but do not start intentionally stopped
+        # healthy agents. Rollback uses the original normalized booleans.
+        effective = dict(previous)
+        if previous.get('agent_retry') is True:
+            effective['agent_active'] = True
+        if power_enabled and previous.get('socket_retry') is True:
+            effective['socket_active'] = True
+        return effective
 
     def verify_install(self, request: InstallRequest, previous: dict,
                        changes: list[core.Change], *,
@@ -261,17 +331,14 @@ class SystemdOperations:
             elif (not target.is_file() or target.read_bytes() != change.content or
                   stat.S_IMODE(target.stat().st_mode) != change.mode):
                 return False
+        previous = self._activation_previous(previous, power_enabled)
         should_run = previous['first_install'] or previous['agent_active']
         should_enable = previous['first_install'] or previous['agent_enabled']
         socket_active, socket_enabled = core.expected_socket_state(
             previous, power_enabled=power_enabled)
         def services_match() -> bool:
-            return (
-                core.state('linux-host-agent.service', 'is-active') == should_run and
-                core.state('linux-host-agent.service', 'is-enabled') == should_enable and
-                core.state('linux-host-agent-power.socket', 'is-active') == socket_active and
-                core.state('linux-host-agent-power.socket', 'is-enabled') == socket_enabled
-            )
+            return self._services_match((should_run, should_enable),
+                                        (socket_active, socket_enabled))
         if not should_run:
             # Preserve intentionally stopped/disabled units, without HTTP.
             return services_match()
@@ -305,6 +372,9 @@ class SystemdOperations:
         core.systemctl('disable', '--now', 'linux-host-agent-power.socket')
         core.systemctl('stop', 'linux-host-agent-power.service')
         core.systemctl('disable', '--now', 'linux-host-agent.service')
+        for unit in ('linux-host-agent-power.socket', 'linux-host-agent-power.service',
+                     'linux-host-agent.service'):
+            core.systemctl('reset-failed', unit, check=False)
 
     @staticmethod
     def _uninstall_unit_state(unit: str) -> dict[str, str] | None:
@@ -315,7 +385,7 @@ class SystemdOperations:
         try:
             result = subprocess.run(
                 ['systemctl', 'show', '--all', '--no-pager',
-                 '--property=LoadState,ActiveState,UnitFileState', '--', unit],
+                 '--property=LoadState,ActiveState,SubState,UnitFileState', '--', unit],
                 check=False, stdin=subprocess.DEVNULL,
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                 text=True, timeout=10)
@@ -329,7 +399,7 @@ class SystemdOperations:
             if not separator or key in properties:
                 return None
             properties[key] = value
-        if set(properties) != {'LoadState', 'ActiveState', 'UnitFileState'}:
+        if set(properties) != {'LoadState', 'ActiveState', 'SubState', 'UnitFileState'}:
             return None
         return properties
 
@@ -364,17 +434,103 @@ class SystemdOperations:
                 return False
         return True
 
+    def prepare_restore(self, previous: dict) -> None:
+        if not previous['first_install']:
+            return
+        # Load any partially installed files before disabling. Recovery
+        # may resume after their removal, so also attempt stop independently.
+        # Verify quiescence before removing files; postconditions also check
+        # dangling links. Do not require disable/reset success on absent units.
+        core.systemctl('daemon-reload')
+        core.systemctl('disable', '--now', 'linux-host-agent-power.socket', check=False)
+        core.systemctl('stop', 'linux-host-agent-power.socket', check=False)
+        core.systemctl('stop', 'linux-host-agent-power.service', check=False)
+        core.systemctl('disable', '--now', 'linux-host-agent.service', check=False)
+        core.systemctl('stop', 'linux-host-agent.service', check=False)
+        for unit in ('linux-host-agent-power.socket', 'linux-host-agent-power.service',
+                     'linux-host-agent.service'):
+            core.systemctl('reset-failed', unit, check=False)
+        for unit, allowed in (
+                ('linux-host-agent-power.socket', ('disabled',)),
+                ('linux-host-agent.service', ('disabled',)),
+                ('linux-host-agent-power.service', ('static', 'disabled'))):
+            state = self._uninstall_unit_state(unit)
+            if self._stable_unit_state(state, absent=True) is not None:
+                continue
+            if (state is None or state['LoadState'] != 'loaded' or
+                    state['ActiveState'] != 'inactive' or
+                    state['UnitFileState'] not in allowed):
+                raise ControllerError('recovery_required')
+
     def restore_services(self, previous: dict) -> None:
-        core.restore_services(previous)
+        # Clear failed/start-limit state before restarting restored units;
+        # clear it again after stopping inactive units. Keep attempting
+        # the remaining units after a best-effort operation fails.
+        core.systemctl('daemon-reload')
+        for unit, prefix in (('linux-host-agent-power.socket', 'socket'),
+                             ('linux-host-agent.service', 'agent')):
+            if previous[prefix + '_enabled']:
+                core.systemctl('enable', unit)
+            else:
+                core.systemctl('disable', unit, check=False)
+            core.systemctl('reset-failed', unit, check=False)
+            if previous[prefix + '_active']:
+                core.systemctl('restart', unit)
+            else:
+                core.systemctl('stop', unit, check=False)
+                core.systemctl('reset-failed', unit, check=False)
+        if previous['first_install']:
+            core.systemctl('stop', 'linux-host-agent-power.service', check=False)
+            core.systemctl('reset-failed', 'linux-host-agent-power.service', check=False)
 
     def verify_restored_services(self, previous: dict) -> bool:
-        for unit, prefix in (('linux-host-agent.service', 'agent'),
-                             ('linux-host-agent-power.socket', 'socket')):
-            for method, suffix in (('is-active', '_active'),
-                                   ('is-enabled', '_enabled')):
-                if core.state(unit, method) != previous[prefix + suffix]:
-                    return False
-        return True
+        if previous['first_install']:
+            return self.verify_uninstall_services()
+        return self._services_match(
+            (previous['agent_active'], previous['agent_enabled']),
+            (previous['socket_active'], previous['socket_enabled']))
+
+
+def _enablement_absent(transaction: core.InstallTransaction) -> bool:
+    """No managed unit name in persistent/runtime dependency directories.
+
+    Check even dangling entries. Never follow or remove an ambiguous
+    administrator-created directory or link; retain recovery if uncertain.
+    """
+    names = {Path(path).name for path in core.SYSTEMD_PATHS}
+    # location()/refuse_links() are deliberately file-only. Do not expand
+    # the managed-write allowlist merely to inspect a directory. Walk
+    # fixed directory components with no-follow directory descriptors.
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
+
+    def check_tree(components: tuple[str, ...]) -> bool:
+        fd = os.open(transaction.root, flags)
+        try:
+            for component in components:
+                try:
+                    child_fd = os.open(component, flags, dir_fd=fd)
+                except FileNotFoundError:
+                    return True
+                os.close(fd)
+                fd = child_fd
+            for name in os.listdir(fd):
+                if not name.endswith(('.wants', '.requires', '.upholds')):
+                    continue
+                child_fd = os.open(name, flags, dir_fd=fd)
+                try:
+                    if names.intersection(os.listdir(child_fd)):
+                        return False
+                finally:
+                    os.close(child_fd)
+            return True
+        finally:
+            os.close(fd)
+
+    try:
+        return all(check_tree(parts) for parts in (
+            ('etc', 'systemd', 'system'), ('run', 'systemd', 'system')))
+    except OSError:
+        return False
 
 
 def read_saved_identity(root: Path = Path('/')) -> str | None:
@@ -631,6 +787,7 @@ class InstallerBackend:
                 if (self.services.verify_uninstall_services() is not True or
                         any(transaction.location(c.path).exists()
                             for c in changes) or
+                        not _enablement_absent(transaction) or
                         not core.owner_record_exists(self.root) or
                         read_saved_identity(self.root) != saved_identity):
                     raise ControllerError('recovery_required')
@@ -646,11 +803,16 @@ class InstallerBackend:
                         outcome = 'aborted'
                     elif phase in _APPLIED and backup is not None and previous is not None:
                         core.validate_v2_backup(backup, root=self.root)
+                        self.services.prepare_restore(previous)
+                        if previous['first_install'] and not _enablement_absent(transaction):
+                            raise ControllerError('recovery_required')
                         restored = transaction.restore(backup)
                         self.services.restore_services(restored)
                         _sync_managed_directories(changes, transaction)
                         verified = (_files_match_snapshot(backup, transaction) and
-                                    self.services.verify_restored_services(restored) is True)
+                                    self.services.verify_restored_services(restored) is True and
+                                    (not restored['first_install'] or
+                                     _enablement_absent(transaction)))
                         journal.mark_rolled_back(lambda _: verified)
                         outcome = 'rolled_back'
                     else:
@@ -767,10 +929,15 @@ class InstallerBackend:
                         outcome = 'aborted'
                     elif phase in _APPLIED and backup is not None and previous is not None:
                         core.validate_v2_backup(backup, root=self.root)
+                        self.services.prepare_restore(previous)
+                        if previous['first_install'] and not _enablement_absent(transaction):
+                            raise ControllerError('recovery_required')
                         restored = transaction.restore(backup)
                         self.services.restore_services(restored)
                         verified = (_files_match_snapshot(backup, transaction) and
-                                    self.services.verify_restored_services(restored) is True)
+                                    self.services.verify_restored_services(restored) is True and
+                                    (not restored['first_install'] or
+                                     _enablement_absent(transaction)))
                         journal.mark_rolled_back(lambda _: verified)
                         outcome = 'rolled_back'
                     else:
@@ -846,13 +1013,18 @@ class InstallerBackend:
             # even if systemd created private state before the crash.
             core.write_owner_record(self.root)
 
+        self.services.prepare_restore(previous)
+        if previous['first_install'] and not _enablement_absent(transaction):
+            raise ControllerError('recovery_required')
         restored = transaction.restore(backup)
         _check_previous(restored)
         self.services.restore_services(restored)
         changes = [core.Change(item['path'], None) for item in manifest['items']]
         _sync_managed_directories(changes, transaction)
         verified = (_files_match_snapshot(backup, transaction) and
-                    self.services.verify_restored_services(restored) is True)
+                    self.services.verify_restored_services(restored) is True and
+                    (not restored['first_install'] or
+                     _enablement_absent(transaction)))
         journal.mark_rolled_back(lambda _snapshot_name: verified)
         staging.finish_terminal_stage(journal, root=self.root,
                                       owner_uid=self.owner_uid)

@@ -57,6 +57,24 @@ class ProtectedJournalTests(unittest.TestCase):
             handle.advance(PHASES[i - 1], PHASES[i],
                            snapshot_name=SNAPSHOT if PHASES[i] == 'SNAPSHOTTED' else None)
 
+    def test_unknown_wol_operation_is_never_recovered_as_agent_transaction(self):
+        # Create the genuine private lock before replacing the journal
+        # with a future operation: exercise decoding, not missing-lock refusal.
+        with self.store.begin('install'):
+            pass
+        record = dict(self.record(phase='APPLYING', snapshot=SNAPSHOT),
+                      operation='configure_wol')
+        target = self.private_record(record)
+        before = target.read_bytes()
+        with self.assertRaises(journal.UnsafeJournal):
+            self.store.public_status()
+        with self.assertRaises(journal.UnsafeJournal):
+            self.store.resume_recovery()
+        self.assertEqual(target.read_bytes(), before)
+        with self.assertRaises(journal.UnsafeJournal):
+            self.store.begin('install')
+        self.assertEqual(target.read_bytes(), before)
+
     def test_status_does_not_create_directories_or_lock(self):
         self.assertEqual(self.store.public_status()['privileged_transaction_state'], 'none')
         self.assertFalse((self.root / 'var').exists())
