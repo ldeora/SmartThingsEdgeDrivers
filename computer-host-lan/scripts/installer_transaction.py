@@ -207,13 +207,47 @@ class SystemdOperations:
         self.health_probe = health_probe
 
     def capture_previous(self, transaction: core.InstallTransaction) -> dict:
-        return dict(
-            first_install=not transaction.location(core.SYSTEMD_PATHS[0]).exists(),
-            agent_active=core.state('linux-host-agent.service', 'is-active'),
-            agent_enabled=core.state('linux-host-agent.service', 'is-enabled'),
-            socket_active=core.state('linux-host-agent-power.socket', 'is-active'),
-            socket_enabled=core.state('linux-host-agent-power.socket', 'is-enabled'),
-        )
+        first_install = not transaction.location(core.SYSTEMD_PATHS[0]).exists()
+        result = dict(first_install=first_install)
+        for unit, prefix in (('linux-host-agent.service', 'agent'),
+                             ('linux-host-agent-power.socket', 'socket')):
+            state = self._uninstall_unit_state(unit)
+            # Existing snapshots store only stable persistent booleans.
+            # Reject ambiguous, transient, masked, runtime-only or failed
+            # states rather than recording them as inactive/disabled.
+            observed = self._stable_unit_state(state, absent=first_install)
+            if observed is None:
+                raise ControllerError('unsupported_environment')
+            result[prefix + '_active'], result[prefix + '_enabled'] = observed
+        return result
+
+    @staticmethod
+    def _stable_unit_state(state: dict[str, str] | None, *,
+                           absent: bool = False) -> tuple[bool, bool] | None:
+        if state is None:
+            return None
+        if absent:
+            if (state['LoadState'] == 'not-found' and
+                    state['ActiveState'] == 'inactive' and
+                    state['UnitFileState'] in ('', 'not-found')):
+                return False, False
+            return None
+        if (state['LoadState'] != 'loaded' or
+                state['ActiveState'] not in ('active', 'inactive') or
+                state['UnitFileState'] not in ('enabled', 'disabled')):
+            return None
+        return (state['ActiveState'] == 'active',
+                state['UnitFileState'] == 'enabled')
+
+    def _services_match(self, agent: tuple[bool, bool],
+                        socket: tuple[bool, bool], *, absent: bool = False) -> bool:
+        # Query both units even if the first fails. None is never equal
+        # to a valid expected pair, including (False, False).
+        actual_agent = self._stable_unit_state(self._uninstall_unit_state(
+            'linux-host-agent.service'), absent=absent)
+        actual_socket = self._stable_unit_state(self._uninstall_unit_state(
+            'linux-host-agent-power.socket'), absent=absent)
+        return actual_agent == agent and actual_socket == socket
 
     def ensure_agent_user(self) -> None:
         """Match install-agent.sh's idempotent linuxhost user preflight.
@@ -266,12 +300,8 @@ class SystemdOperations:
         socket_active, socket_enabled = core.expected_socket_state(
             previous, power_enabled=power_enabled)
         def services_match() -> bool:
-            return (
-                core.state('linux-host-agent.service', 'is-active') == should_run and
-                core.state('linux-host-agent.service', 'is-enabled') == should_enable and
-                core.state('linux-host-agent-power.socket', 'is-active') == socket_active and
-                core.state('linux-host-agent-power.socket', 'is-enabled') == socket_enabled
-            )
+            return self._services_match((should_run, should_enable),
+                                        (socket_active, socket_enabled))
         if not should_run:
             # Preserve intentionally stopped/disabled units, without HTTP.
             return services_match()
@@ -368,13 +398,10 @@ class SystemdOperations:
         core.restore_services(previous)
 
     def verify_restored_services(self, previous: dict) -> bool:
-        for unit, prefix in (('linux-host-agent.service', 'agent'),
-                             ('linux-host-agent-power.socket', 'socket')):
-            for method, suffix in (('is-active', '_active'),
-                                   ('is-enabled', '_enabled')):
-                if core.state(unit, method) != previous[prefix + suffix]:
-                    return False
-        return True
+        return self._services_match(
+            (previous['agent_active'], previous['agent_enabled']),
+            (previous['socket_active'], previous['socket_enabled']),
+            absent=previous['first_install'])
 
 
 def read_saved_identity(root: Path = Path('/')) -> str | None:
