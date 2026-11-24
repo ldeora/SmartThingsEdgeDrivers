@@ -30,6 +30,7 @@ jobs:
           if [ -n "$unformatted" ]; then
             echo "Unformatted Go sources:"
             printf '%s\n' "$unformatted"
+            gofmt -d ./*.go
             exit 1
           fi
       - name: Ensure module files are tidy and unchanged

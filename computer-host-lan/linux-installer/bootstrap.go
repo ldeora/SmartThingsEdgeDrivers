@@ -653,6 +653,8 @@ func relayBootstrapFailure(writer io.Writer, action string, failure error) error
 		code = "not_installed"
 	} else if errors.Is(failure, errRecoveryHelperMissing) {
 		code = "recovery_helper_missing"
+	} else if errors.Is(failure, errUntrustedRootHandoff) {
+		code = "untrusted_root_launcher"
 	} else if errors.Is(failure, errInstallerRecoveryPending) {
 		code = "recovery_required"
 	} else if errors.Is(failure, errUnavailablePython) {
@@ -684,6 +686,12 @@ func rootBootstrap(reader io.Reader, writer io.Writer) error {
 	request, err := decodePrivilegedRequest(reader)
 	if err != nil {
 		return err
+	}
+	// Never execute the root bootstrap from the downloaded/user-owned path.
+	// The elevation wrapper must first copy the running image into the
+	// private root-owned /run handoff directory and verify its digest.
+	if err := requireProtectedHandoffExecutable(); err != nil {
+		return relayBootstrapFailure(writer, request.Action, errUntrustedRootHandoff)
 	}
 	if err := validateEmbeddedBundle(); err != nil {
 		return relayBootstrapFailure(writer, request.Action, err)

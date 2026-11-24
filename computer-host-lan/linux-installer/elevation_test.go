@@ -2,18 +2,26 @@ package main
 
 import (
 	"bytes"
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 )
 
 func TestElevationFallbackOrderAndNoninteractiveRules(t *testing.T) {
-	payload := []byte(`{"schema_version":1,"action":"status"}`)
+	python := "/usr/bin/python3"
+	sourceDir := "/tmp/private-handoff"
+	digest := strings.Repeat("a", 64)
 	cases := []struct {
 		name        string
 		available   []string
@@ -37,7 +45,7 @@ func TestElevationFallbackOrderAndNoninteractiveRules(t *testing.T) {
 			for _, entry := range test.available {
 				found[entry] = true
 			}
-			got, err := findElevationCommand("/home/user/installer", test.interactive, payload,
+			got, err := findElevationCommand(python, sourceDir, digest, 1000, test.interactive, []byte(`{"schema_version":1,"action":"status"}`),
 				func(path string) bool { return found[path] })
 			if test.wantMethod == "" {
 				if err == nil {
@@ -51,35 +59,49 @@ func TestElevationFallbackOrderAndNoninteractiveRules(t *testing.T) {
 			if got.method != test.wantMethod {
 				t.Fatalf("Selected %s, expected %s", got.method, test.wantMethod)
 			}
-			if !strings.Contains(strings.Join(got.args, " "), test.wantArg) {
+			joined := strings.Join(got.args, " ")
+			if !strings.Contains(joined, test.wantArg) {
 				t.Fatalf("Missing required option %s in %q", test.wantArg, got.args)
 			}
-			if !strings.Contains(strings.Join(got.args, " "), "-root-bootstrap") {
-				t.Fatalf("Did not invoke only the root bootstrap: %+v", got)
+			handoffArgument := protectedHandoffScript
+			if got.method == "su" {
+				handoffArgument = quotePOSIXShell(protectedHandoffScript)
+			}
+			if !strings.Contains(joined, "-root-bootstrap") ||
+				!strings.Contains(joined, handoffArgument) {
+				t.Fatalf("Provider did not invoke the fixed protected handoff: %+v", got)
+			}
+			if strings.Contains(joined, sourceDir) == false {
+				t.Fatalf("Provider omitted the private snapshot directory: %+v", got)
 			}
 		})
 	}
 }
 
 func TestExplicitElevationChoiceSelectsOnlyRequestedProvider(t *testing.T) {
+	python, sourceDir, digest := "/usr/bin/python3", "/tmp/handoff", strings.Repeat("b", 64)
 	payload := []byte(`{"schema_version":1,"action":"status"}`)
-	binary := "/home/test/installer"
 	available := func(path string) bool {
 		return path == "/usr/bin/run0" || path == "/usr/bin/su"
 	}
-	automatic, err := chooseElevationCommand(binary, true, payload, "auto", available)
+	automatic, err := chooseElevationCommand(python, sourceDir, digest, 1000, true, payload, "auto", available)
 	if err != nil || automatic.method != "run0" {
 		t.Fatalf("Automatic selection changed: %+v, %v", automatic, err)
 	}
-	chosen, err := chooseElevationCommand(binary, true, payload, "su", available)
+	chosen, err := chooseElevationCommand(python, sourceDir, digest, 1000, true, payload, "su", available)
 	if err != nil || chosen.method != "su" {
 		t.Fatalf("Explicit su override was ignored: %+v, %v", chosen, err)
 	}
-	if !strings.Contains(chosen.args[2], " -root-bootstrap -request ") ||
-		!strings.Contains(chosen.args[2], string(payload)) {
-		t.Fatalf("Explicit su did not retain the non-secret bounded request: %+v", chosen)
+	encodedChildArgs, err := json.Marshal([]string{"-root-bootstrap", "-request", string(payload)})
+	if err != nil {
+		t.Fatal(err)
 	}
-	chosen, err = chooseElevationCommand(binary, true, payload, "run0", available)
+	if !strings.Contains(chosen.args[2], "-root-bootstrap") ||
+		!strings.Contains(chosen.args[2], quotePOSIXShell(string(encodedChildArgs))) ||
+		!strings.Contains(chosen.args[2], quotePOSIXShell(protectedHandoffScript)) {
+		t.Fatalf("Explicit su did not retain the protected handoff and bounded request: %+v", chosen)
+	}
+	chosen, err = chooseElevationCommand(python, sourceDir, digest, 1000, true, payload, "run0", available)
 	if err != nil || chosen.method != "run0" {
 		t.Fatalf("Explicit run0 did not select the requested provider: %+v, %v", chosen, err)
 	}
@@ -95,18 +117,19 @@ func TestExplicitElevationChoiceSelectsOnlyRequestedProvider(t *testing.T) {
 		{"reject shell-command method", "su;id", true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if got, err := chooseElevationCommand(binary, tc.interactive, payload,
-				tc.method, available); err == nil {
+			if got, err := chooseElevationCommand(python, sourceDir, digest, 1000, tc.interactive, payload, tc.method, available); err == nil {
 				t.Fatalf("Unexpectedly selected provider %+v", got)
 			}
 		})
 	}
 }
 
-func TestSuFallbackQuotesTheFixedGoExecutablePath(t *testing.T) {
-	available := func(path string) bool { return path == "/bin/su" }
-	got, err := findElevationCommand("/home/test/user's/wizard", true,
-		[]byte(`{"schema_version":1,"action":"status"}`), available)
+func TestSuFallbackQuotesEveryProtectedHandoffArgument(t *testing.T) {
+	python := "/home/test/user's python3"
+	sourceDir := "/home/test/user's private handoff"
+	got, err := findElevationCommand(python, sourceDir, strings.Repeat("c", 64), 1000, true,
+		[]byte(`{"schema_version":1,"action":"status"}`),
+		func(path string) bool { return path == "/bin/su" })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,22 +137,24 @@ func TestSuFallbackQuotesTheFixedGoExecutablePath(t *testing.T) {
 		t.Fatalf("Bad su invocation: %+v", got)
 	}
 	if !strings.Contains(got.args[2], `'\''`) ||
-		!strings.Contains(got.args[2], " -root-bootstrap -request ") {
-		t.Fatalf("Executable shell path was not safely quoted: %q", got.args[2])
+		!strings.Contains(got.args[2], "'-I'") ||
+		!strings.Contains(got.args[2], "'-B'") ||
+		!strings.Contains(got.args[2], "-root-bootstrap") {
+		t.Fatalf("Executable, snapshot path or request was not safely shell-quoted: %q", got.args[2])
 	}
 }
 
 func TestSuPassesRequestAsQuotedArgumentAndKeepsStdinForPassword(t *testing.T) {
-	// Execute the constructed su -c command WITHOUT su or elevation,
-	// using a test script as the fixed Go executable. This verifies that
-	// shell quoting delivers one exact JSON argument even with an
-	// apostrophe and spaces in the executable path.
+	// Execute the constructed su -c command WITHOUT su or elevation. The
+	// stub interpreter prints NUL-separated argv so even the multiline
+	// fixed Python source remains one argument through the shell.
 	dir := t.TempDir()
-	binary := filepath.Join(dir, "my user's installer")
-	script := "#!/bin/sh\nprintf '%s\\n' \"$@\"\n"
-	if err := os.WriteFile(binary, []byte(script), 0o700); err != nil {
+	python := filepath.Join(dir, "my user's python")
+	script := "#!/bin/sh\nprintf '%s\\0' \"$@\"\n"
+	if err := os.WriteFile(python, []byte(script), 0o700); err != nil {
 		t.Fatal(err)
 	}
+	sourceDir := filepath.Join(dir, "snapshot's directory")
 	nic := "enp1s0f0"
 	request := privilegedRequest{
 		SchemaVersion: 1, Action: "upgrade", Power: "enable",
@@ -139,7 +164,7 @@ func TestSuPassesRequestAsQuotedArgumentAndKeepsStdinForPassword(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := findElevationCommand(binary, true, payload,
+	got, err := findElevationCommand(python, sourceDir, strings.Repeat("d", 64), 1000, true, payload,
 		func(path string) bool { return path == "/bin/su" })
 	if err != nil {
 		t.Fatal(err)
@@ -148,19 +173,23 @@ func TestSuPassesRequestAsQuotedArgumentAndKeepsStdinForPassword(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	lines := strings.Split(strings.TrimSuffix(string(output), "\n"), "\n")
-	if len(lines) != 3 || lines[0] != "-root-bootstrap" || lines[1] != "-request" ||
-		lines[2] != string(payload) {
-		t.Fatalf("su command did not preserve the JSON argument: %q", lines)
+	fields := strings.Split(strings.TrimSuffix(string(output), "\x00"), "\x00")
+	if len(fields) != 12 || fields[0] != "-I" || fields[1] != "-S" ||
+		fields[2] != "-B" || fields[3] != "-c" ||
+		fields[4] != protectedHandoffScript || fields[5] != sourceDir ||
+		fields[6] != strings.Repeat("d", 64) || fields[7] != "1000" ||
+		fields[8] != "/run" || fields[9] != "computer-host-lan" || fields[10] != "0" {
+		t.Fatalf("su did not preserve the exact protected launcher arguments: %q", fields)
 	}
-	parsed, err := decodePrivilegedRequest(strings.NewReader(lines[2]))
-	if err != nil || parsed.Action != "upgrade" || parsed.Power != "enable" ||
-		parsed.WOLInterface == nil || *parsed.WOLInterface != nic {
-		t.Fatalf("root input decoder rejected quoted su request: %+v, %v", parsed, err)
+	var childArgs []string
+	if err := json.Unmarshal([]byte(fields[11]), &childArgs); err != nil {
+		t.Fatal(err)
+	}
+	if len(childArgs) != 3 || childArgs[0] != "-root-bootstrap" ||
+		childArgs[1] != "-request" || childArgs[2] != string(payload) {
+		t.Fatalf("su did not preserve the bounded request: %#v", childArgs)
 	}
 
-	// In the su case, stdin MUST remain the terminal for PAM's password
-	// conversation. All other providers continue to pipe only JSON.
 	terminal := strings.NewReader("simulated-password\n")
 	if elevationInput("su", payload, terminal) != terminal {
 		t.Fatal("su would consume the piped JSON as its root password")
@@ -186,6 +215,231 @@ func TestSuStillUsesStrictBoundedDecoder(t *testing.T) {
 	}
 }
 
+func TestTrustedSystemPythonIsRootOwnedAndIsolated(t *testing.T) {
+	path, err := trustedSystemPython()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !filepath.IsAbs(path) {
+		t.Fatalf("trusted Python path is not absolute: %q", path)
+	}
+	if err := verifyParents(filepath.Dir(path), 0); err != nil {
+		t.Fatalf("trusted Python parent chain is unsafe: %v", err)
+	}
+	if err := protectedPath(path, 0, false); err != nil || !isExecutableFile(path) {
+		t.Fatalf("trusted Python executable is unsafe: %v", err)
+	}
+}
+
+func TestRunningExecutableSnapshotIsPrivateAndDigestBound(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("the wizard must run as an ordinary user")
+	}
+	snapshot, err := snapshotRunningExecutable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer snapshot.cleanup()
+	if !filepath.IsAbs(snapshot.directory) || !sha256Pattern.MatchString(snapshot.digest) {
+		t.Fatalf("invalid snapshot result: %+v", snapshot)
+	}
+	dirInfo, err := os.Lstat(snapshot.directory)
+	if err != nil || !dirInfo.IsDir() || dirInfo.Mode().Perm() != 0o700 {
+		t.Fatalf("snapshot directory is not private: %v %v", dirInfo, err)
+	}
+	path := filepath.Join(snapshot.directory, "installer")
+	info, err := os.Lstat(path)
+	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm() != 0o600 {
+		t.Fatalf("snapshot file is not private: %v %v", info, err)
+	}
+	st, ok := info.Sys().(*syscall.Stat_t)
+	if !ok || int(st.Uid) != os.Getuid() || st.Nlink != 1 {
+		t.Fatalf("snapshot file identity is unsafe: %+v", st)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(data)
+	if hex.EncodeToString(sum[:]) != snapshot.digest {
+		t.Fatal("snapshot digest does not match copied executable")
+	}
+}
+
+func testPythonInterpreter(t *testing.T) string {
+	t.Helper()
+	path, err := exec.LookPath("python3")
+	if err != nil {
+		t.Skip("Python 3 is required for the protected handoff fixture")
+	}
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return abs
+}
+
+func runProtectedHandoffFixture(t *testing.T, snapshot executableSnapshot, tamper, fifo bool) ([]byte, error, string) {
+	t.Helper()
+	python := testPythonInterpreter(t)
+	if tamper && fifo {
+		t.Fatal("fixture cannot tamper and replace the snapshot with a FIFO simultaneously")
+	}
+	snapshotPath := filepath.Join(snapshot.directory, "installer")
+	if tamper {
+		if err := os.WriteFile(snapshotPath, []byte("tampered"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if fifo {
+		if err := os.Remove(snapshotPath); err != nil {
+			t.Fatal(err)
+		}
+		if err := syscall.Mkfifo(snapshotPath, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	parent := t.TempDir()
+	if err := os.Chmod(parent, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	childArgs, err := json.Marshal([]string{"-test.run=^TestProtectedHandoffChild$", "-test.v"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	uid := strconv.Itoa(os.Getuid())
+	args := []string{
+		"-I", "-S", "-B", "-c", protectedHandoffScript,
+		snapshot.directory, snapshot.digest, uid, parent,
+		"computer-host-lan", uid, string(childArgs),
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, python, args...)
+	cmd.Dir = "/"
+	cmd.Env = []string{"PATH=/usr/bin:/bin", "HOME=" + os.Getenv("HOME"), "LANG=C", "LC_ALL=C"}
+	output, runErr := cmd.CombinedOutput()
+	if ctx.Err() != nil {
+		runErr = ctx.Err()
+	}
+	return output, runErr, filepath.Join(parent, "computer-host-lan")
+}
+
+func TestProtectedHandoffScriptExecutesTheDigestMatchedCopy(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("fixture uses an unprivileged caller")
+	}
+	snapshot, err := snapshotRunningExecutable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer snapshot.cleanup()
+	output, runErr, root := runProtectedHandoffFixture(t, snapshot, false, false)
+	if runErr != nil || !bytes.Contains(output, []byte("TestProtectedHandoffChild")) {
+		t.Fatalf("protected copy did not execute: err=%v output=%q", runErr, output)
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil || len(entries) != 0 {
+		t.Fatalf("root handoff directory was not cleaned: entries=%v err=%v", entries, err)
+	}
+}
+
+func TestProtectedHandoffScriptRefusesTamperedSnapshot(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("fixture uses an unprivileged caller")
+	}
+	snapshot, err := snapshotRunningExecutable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer snapshot.cleanup()
+	output, runErr, root := runProtectedHandoffFixture(t, snapshot, true, false)
+	if runErr == nil || bytes.Contains(output, []byte("TestProtectedHandoffChild")) {
+		t.Fatalf("tampered executable was run: err=%v output=%q", runErr, output)
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil || len(entries) != 0 {
+		t.Fatalf("failed handoff left a protected executable: entries=%v err=%v", entries, err)
+	}
+}
+
+func TestProtectedHandoffScriptRejectsFIFOWithoutBlocking(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("fixture uses an unprivileged caller")
+	}
+	snapshot, err := snapshotRunningExecutable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer snapshot.cleanup()
+	output, runErr, _ := runProtectedHandoffFixture(t, snapshot, false, true)
+	exitErr, ok := runErr.(*exec.ExitError)
+	if !ok || exitErr.ExitCode() != 126 {
+		t.Fatalf("FIFO was not rejected promptly with the fixed failure code: err=%v output=%q", runErr, output)
+	}
+	if bytes.Contains(output, []byte("TestProtectedHandoffChild")) {
+		t.Fatalf("FIFO snapshot unexpectedly executed: %q", output)
+	}
+}
+
+func TestProtectedHandoffExecutablePathRequiresPrivateShape(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("non-root fixture")
+	}
+	base := t.TempDir()
+	root := filepath.Join(base, "computer-host-lan")
+	if err := os.Mkdir(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(root, "handoff-"+strings.Repeat("a", 32))
+	if err := os.Mkdir(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	executable := filepath.Join(dir, "installer")
+	if err := os.WriteFile(executable, []byte("fixture"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateProtectedHandoffExecutablePath(executable, root, os.Getuid()); err != nil {
+		t.Fatal(err)
+	}
+	for _, bad := range []string{
+		filepath.Join(root, "installer"),
+		filepath.Join(root, "handoff-nothex", "installer"),
+		filepath.Join(dir, "other"),
+	} {
+		if err := validateProtectedHandoffExecutablePath(bad, root, os.Getuid()); err == nil {
+			t.Fatalf("unsafe handoff path accepted: %s", bad)
+		}
+	}
+	if err := os.Chmod(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateProtectedHandoffExecutablePath(executable, root, os.Getuid()); err == nil {
+		t.Fatal("non-private handoff directory accepted")
+	}
+}
+
+func TestProtectedHandoffArgumentsAreStrict(t *testing.T) {
+	if _, err := protectedHandoffArguments("/usr/bin/python3", "/tmp/snapshot",
+		strings.Repeat("e", 64), 1000, []string{"-root-bootstrap"}); err != nil {
+		t.Fatalf("valid handoff arguments rejected: %v", err)
+	}
+	for _, tc := range []struct {
+		python, source, digest string
+		uid                    int
+		child                  []string
+	}{
+		{"python3", "/tmp/snapshot", strings.Repeat("e", 64), 1000, []string{"-root-bootstrap"}},
+		{"/usr/bin/python3", "/tmp/snapshot", "bad", 1000, []string{"-root-bootstrap"}},
+		{"/usr/bin/python3", "/tmp/snapshot", strings.Repeat("e", 64), 0, []string{"-root-bootstrap"}},
+		{"/usr/bin/python3", "/tmp/snapshot", strings.Repeat("e", 64), 1000, []string{"-root-bootstrap", "-live"}},
+	} {
+		if _, err := protectedHandoffArguments(tc.python, tc.source, tc.digest, tc.uid, tc.child); err == nil {
+			t.Fatalf("invalid handoff arguments accepted: %+v", tc)
+		}
+	}
+}
+
 func TestPrivilegedHelperErrorsSurviveNonzeroElevationExit(t *testing.T) {
 	cases := []struct {
 		code string
@@ -200,8 +454,6 @@ func TestPrivilegedHelperErrorsSurviveNonzeroElevationExit(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.code, func(t *testing.T) {
-			// The Python root helper intentionally omits the operation
-			// field on failure. The Go bootstrap supplies the known action.
 			pyReply := []byte(`{"schema_version":1,"status":"error","error_code":"` +
 				tc.code + `","secrets_included":false}`)
 			parsed, err := interpretPrivilegedExecution(pyReply, errors.New("exit status 3"), "upgrade")
@@ -241,7 +493,7 @@ func TestRootBootstrapRelaysHelperFailureAsJSONWithNonzeroExit(t *testing.T) {
 	result := privilegedResult{SchemaVersion: 1, Status: "error", ErrorCode: "recovery_required"}
 	err := relayHelperResponse(&out, "upgrade", result, errors.New("python exited 3"))
 	if err == nil {
-		t.Fatal("Root helper failure incorrectly reported as success")
+		t.Fatal("Root helper failure must exit nonzero")
 	}
 	var parsed privilegedResult
 	if err := json.Unmarshal(out.Bytes(), &parsed); err != nil {
@@ -257,6 +509,7 @@ func TestRootBootstrapRelaysHelperFailureAsJSONWithNonzeroExit(t *testing.T) {
 	}{
 		{errInstallerBusy, "installation_busy"},
 		{errInstallerRecoveryPending, "recovery_required"},
+		{errUntrustedRootHandoff, "untrusted_root_launcher"},
 		{errors.New("root helper write failed"), "bootstrap_failed"},
 	} {
 		out.Reset()
@@ -273,9 +526,24 @@ func TestRootBootstrapRelaysHelperFailureAsJSONWithNonzeroExit(t *testing.T) {
 	}
 }
 
+func TestRootBootstrapRequiresProtectedHandoffExecutable(t *testing.T) {
+	if err := requireProtectedHandoffExecutable(); !errors.Is(err, errUntrustedRootHandoff) {
+		t.Fatalf("ordinary test executable unexpectedly passed root handoff validation: %v", err)
+	}
+}
+
+func TestUntrustedRootHandoffDiagnosticIsActionable(t *testing.T) {
+	err := userFacingPrivilegeFailure(privilegedResult{
+		SchemaVersion: 1, Status: "error", ErrorCode: "untrusted_root_launcher",
+	})
+	if err == nil || !strings.Contains(err.Error(), "protected handoff") ||
+		!strings.Contains(err.Error(), "ordinary user") ||
+		!strings.Contains(err.Error(), "-root-bootstrap") {
+		t.Fatalf("untrusted handoff diagnostic is incomplete: %v", err)
+	}
+}
+
 func TestElevationProcessDistinguishesStartFailureFromExitFailure(t *testing.T) {
-	// No real elevation: ordinary local subprocesses exercise the actual
-	// Start/Wait boundary. Only Start failure is a certain no-op.
 	missing := filepath.Join(t.TempDir(), "missing-provider")
 	err := runElevationProcess(exec.Command(missing))
 	var unavailable *authorizationUnavailableError
@@ -292,3 +560,7 @@ func TestElevationProcessDistinguishesStartFailureFromExitFailure(t *testing.T) 
 		t.Fatal(err)
 	}
 }
+
+// This test is executed only by the protected handoff script, from the
+// root-private copy of the current Go test executable.
+func TestProtectedHandoffChild(t *testing.T) {}

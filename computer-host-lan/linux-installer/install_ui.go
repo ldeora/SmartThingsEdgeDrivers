@@ -181,53 +181,6 @@ type elevationCommand struct {
 	args   []string
 }
 
-func findElevationCommand(binary string, interactive bool, payload []byte, available func(string) bool) (elevationCommand, error) {
-	if !filepath.IsAbs(binary) {
-		return elevationCommand{}, errors.New("installer executable must have an absolute path")
-	}
-	find := func(names ...string) string {
-		for _, name := range names {
-			if available(name) {
-				return name
-			}
-		}
-		return ""
-	}
-	if sudo := find("/usr/bin/sudo", "/bin/sudo"); sudo != "" {
-		args := []string{"--", binary, "-root-bootstrap"}
-		if !interactive {
-			args = append([]string{"-n"}, args...)
-		}
-		return elevationCommand{"sudo", sudo, args}, nil
-	}
-	if doas := find("/usr/bin/doas", "/bin/doas"); doas != "" {
-		args := []string{"--", binary, "-root-bootstrap"}
-		if !interactive {
-			args = append([]string{"-n"}, args...)
-		}
-		return elevationCommand{"doas", doas, args}, nil
-	}
-	if run0 := find("/usr/bin/run0", "/bin/run0"); run0 != "" {
-		args := []string{"--pipe", "--", binary, "-root-bootstrap"}
-		if !interactive {
-			args = append([]string{"--no-ask-password"}, args...)
-		}
-		return elevationCommand{"run0", run0, args}, nil
-	}
-	// util-linux su/PAM may read the root password from standard input,
-	// unlike sudo/doas. Never pipe the JSON request into su: attach the
-	// user's terminal and supply only the non-secret schema-v1 options
-	// via a shell-quoted -request argument to the same Go root decoder.
-	if interactive {
-		if su := find("/usr/bin/su", "/bin/su"); su != "" {
-			command := "exec " + quotePOSIXShell(binary) +
-				" -root-bootstrap -request " + quotePOSIXShell(string(payload))
-			return elevationCommand{"su", su, []string{"root", "-c", command}}, nil
-		}
-	}
-	return elevationCommand{}, errors.New("no supported administrator authorization method is available (sudo, doas, run0 or interactive su)")
-}
-
 // An explicit provider is important for remote SSH sessions where run0's
 // polkit authorization can be unavailable even when su root works.
 // Never retry another provider after failure or quietly weaken selection.
@@ -237,30 +190,6 @@ func validElevationChoice(method string) bool {
 		return true
 	}
 	return false
-}
-
-func chooseElevationCommand(binary string, interactive bool, payload []byte,
-	method string, available func(string) bool) (elevationCommand, error) {
-	if !validElevationChoice(method) {
-		return elevationCommand{}, errors.New("invalid administrator authorization method")
-	}
-	if method == "auto" {
-		return findElevationCommand(binary, interactive, payload, available)
-	}
-	if method == "su" && !interactive {
-		return elevationCommand{}, errors.New("su requires an interactive terminal for root password authentication")
-	}
-	selected, err := findElevationCommand(binary, interactive, payload,
-		func(candidate string) bool {
-			return filepath.Base(candidate) == method && available(candidate)
-		})
-	if err != nil {
-		return elevationCommand{}, fmt.Errorf("requested administrator authorization method %s is not available", method)
-	}
-	if selected.method != method {
-		return elevationCommand{}, errors.New("requested administrator authorization method mismatch")
-	}
-	return selected, nil
 }
 
 func quotePOSIXShell(s string) string {
@@ -420,7 +349,7 @@ func userFacingPrivilegeFailure(reply privilegedResult) error {
 			return errors.New("installation was aborted safely before applying changes; inspect prerequisites before retrying")
 		}
 	case "untrusted_root_launcher", "invalid_trusted_manifest":
-		return errors.New("the installed privileged helper or its trusted manifest is invalid; reinstall the verified wizard before retrying")
+		return errors.New("the privileged launcher did not pass the protected handoff or embedded manifest check; obtain a verified installer and run it as an ordinary user. Do not invoke the internal -root-bootstrap mode directly")
 	case "bootstrap_failed":
 		return errors.New("the elevated helper could not complete preparation or cleanup. Check the installer status and preserved recovery files before retrying")
 	default:
@@ -485,15 +414,17 @@ func executeAuthorizedBootstrap(request privilegedRequest, interactive bool, met
 	if err != nil {
 		return privilegedResult{}, &authorizationUnavailableError{cause: err}
 	}
-	binary, err := os.Executable()
+	snapshot, err := snapshotRunningExecutable()
 	if err != nil {
-		return privilegedResult{}, &authorizationUnavailableError{cause: errors.New("cannot identify installer executable")}
+		return privilegedResult{}, &authorizationUnavailableError{cause: err}
 	}
-	binary, err = filepath.EvalSymlinks(binary)
-	if err != nil || !filepath.IsAbs(binary) {
-		return privilegedResult{}, &authorizationUnavailableError{cause: errors.New("cannot resolve installer executable")}
+	defer snapshot.cleanup()
+	python, err := trustedSystemPython()
+	if err != nil {
+		return privilegedResult{}, &authorizationUnavailableError{cause: errors.New("a root-owned, non-writable Python 3.10+ interpreter is required for protected privilege handoff")}
 	}
-	elevate, err := chooseElevationCommand(binary, interactive, payload, method, isExecutableFile)
+	elevate, err := chooseElevationCommand(python, snapshot.directory, snapshot.digest,
+		os.Getuid(), interactive, payload, method, isExecutableFile)
 	if err != nil {
 		return privilegedResult{}, &authorizationUnavailableError{cause: err}
 	}
