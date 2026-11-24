@@ -182,6 +182,128 @@ installer-owned persistent rule should not be removed by a normal
 uninstall. Any explicit WOL cleanup action must use the same ownership
 and conflict guarantees.
 
+## Publication primitive (development-only increment)
+
+`scripts/wol_publication.py` implements a small filesystem-only component.
+It has no CLI, no root request, no installer caller and no bundled copy.
+The tests open only disposable fixture directories. It is not a complete
+WOL transaction or permission to modify a real host.
+
+The future trusted controller supplies two already-open, independently
+validated directory descriptors: an existing protected device-specific
+drop-in directory and a separate private receipt directory. Both are
+checked for ownership and permissions. Directory identities are bound
+to the receipt. There is no arbitrary target name, content or directory
+creation/removal in the primitive. Its fixed target and exact bytes are:
+
+```ini
+# 90-computer-host-wol.conf (filename, not part of the contents)
+[Link]
+WakeOnLan=magic
+```
+
+Only the two INI lines (and trailing newline) are written.
+
+1. After the future controller records durable APPLYING and confirms the
+   approved policy, prepare creates a hidden transaction-specific anchor
+   using O_EXCL in the same directory as the destination. It is not a
+   .conf file and is not intended to be parsed by systemd. The inode is
+   written, set to mode 0644 and fsynced, then the directory is fsynced.
+2. Create the transaction-specific private mode-0600 receipt using
+   O_EXCL, fsync its contents and directory. The schema binds the
+   transaction ID, absent target before-state, both directory identities,
+   anchor identity, group and modification timestamp. Schema 2 stores
+   (f_fsid, st_ino) for each directory and the anchor, never the
+   mount-local st_dev. The anchor must be on the same current device
+   as its policy directory. Current-mount comparisons still use
+   (st_dev, st_ino) when comparing the anchor with the target.
+   Receipt parsing rejects duplicate/unknown fields, older schemas,
+   invalid values, unexpected links, permissions, missing data and
+   oversized records. Missing or zero filesystem IDs refuse staging.
+   Public operations translate filesystem errors to fixed PublicationError
+   messages with suppressed exception context; an occupied foreign target
+   is a distinct PublicationConflict, including EEXIST at atomic link().
+3. Only after prepare has returned successfully may the authorized
+   live controller publish: hard-link the anchor to the fixed target.
+   The atomic link operation cannot replace an existing target, even
+   one created concurrently with identical contents. Verify the inode,
+   contents, mode, owner, group, timestamp and expected link count,
+   fsync the anchored inode and directory, and verify again.
+4. For rollback, retain the anchor and receipt. If the target is absent
+   and the original anchor remains intact with one link, the effect
+   is unpublished. If the target and anchor are the same verified inode
+   with exactly two links and the original contents/metadata, remove
+   only the target, fsync and reverify. Any mismatch fails closed.
+   Rollback is idempotent while the evidence remains. A replaced file
+   with identical contents is not accepted as owned.
+5. No receipt/anchor retirement is implemented here. A committed live
+   publication retains its hidden anchor and private ownership record
+   until a separately authorized, verified WOL removal. The active
+   transaction journal may be retired after commit, but not the ownership
+   evidence needed for later removal. Normal agent uninstall preserves
+   both links and the private ownership record. Future status/uninstall
+   documentation must describe the retained hidden file. For a verified
+   rollback, terminal cleanup must be crash-safe under the shared lock,
+   including interruption between retiring the anchor and receipt.
+   Never replay publication during recovery. The orphan stage/partial
+   receipt window before successful prepare is deliberately retained
+   for review, not automatically adopted or deleted. No target effect
+   occurs before publication.
+
+This is a narrower primitive than the complete policy design. Before
+integration, resolve the existing planner's refusal of any relevant
+drop-in directory: a protected empty directory may become eligible
+only after a separate policy review tracked in #97. Do not weaken
+drop-in conflict detection simply to exercise this primitive. Creating
+a new directory requires its own durable ownership/recovery mechanism.
+Broader support for generic/default policies remains separate.
+
+Directory descriptors do not prove that the directory is still bound to
+the live policy pathname. The future controller must independently
+revalidate that binding, the base rule and policy inventory, exact
+permanent NIC identity and separate consent. There is no atomic
+compare-and-unlink operation against an uncooperative privileged
+writer; the primitive assumes the shared exclusion domain and protected
+directories. It must not claim resistance to arbitrary concurrent root
+mutation. Even under that assumption, observed replacements, edits,
+extra links and mismatches refuse recovery. Moving the target to a
+hidden quarantine name before inspecting it could narrow the final
+check/unlink race, but also moves potentially foreign policy and adds
+a crash window and a second restoration conflict. Do not introduce
+that sequence without a separately journaled rename/no-clobber
+restoration protocol and review.
+
+The receipt now avoids mount-local st_dev, which can change across
+Btrfs subvolume mounts or device-mapper re-enumeration. f_fsid is
+additional opaque filesystem evidence, NOT a guaranteed persistent
+UUID. Upstream Linux commit c2a74ed0494c2736486b49c52767b2f50b83425f
+(Btrfs f_fsid derivation) incorporates backing dev_t for single-device
+filesystems to distinguish clones. Consequently a reboot, a device
+change, kernel change or cloned filesystem may still change or
+invalidate this evidence. Do not accept inode numbers alone or silently
+ignore an fsid mismatch. A missing or replaced anchor invalidates
+ownership evidence. A verified persistent filesystem/subvolume identity
+provider may be needed for the production controller if f_fsid is
+unstable on supported hosts. Re-walk the fixed trusted paths without
+following symlinks after restart; compare the actual directory binding
+before any effect. This increment fails closed on identity mismatch;
+it does not yet establish universally reboot-safe recovery. Before
+integration, measure st_dev, f_fsid, inode and hard-link count across a
+normal reboot in throwaway directories on the actual filesystem,
+including Btrfs. No forced reboot or live network changes.
+
+The test matrix covers no-clobber publication, protected receipt
+validation, ownership conflicts, dangling links, metadata/contents
+changes, directory identity, fsync failure windows before and after
+publication, recovery without forward replay and idempotent undo. Tests simulate
+renumbered st_dev with unchanged f_fsid, reject changed/missing fsid
+and old receipt schemas, and verify that raw filesystem errors do not
+expose private entry names.
+Fault injection simulates errors, not a physical power-loss durability
+test. Before production use, exercise the complete journal and cleanup
+protocol across actual supported filesystems and restart/remount
+boundaries. No tests against the live network policy are required here.
+
 ## Test and integration sequence
 
 - Review the service-state hardening and tests first.
