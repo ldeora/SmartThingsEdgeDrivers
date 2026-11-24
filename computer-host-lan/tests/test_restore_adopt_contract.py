@@ -5,6 +5,7 @@ import copy
 import json
 import os
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -229,6 +230,63 @@ class ExistingHelperCompatibilityTests(unittest.TestCase):
                             call()
                         self.assertEqual(self.path.read_bytes(), raw)
 
+
+    def test_embedded_old_helper_modules_refuse_new_wire_and_preserve_journal(self):
+        # Execute the actual embedded Python modules in a fresh isolated
+        # interpreter, not source checkout imports or a mock decoder.
+        # The harness deliberately does not invoke installed-root main()
+        # (which requires the real fixed trusted directory and root).
+        bundle = ROOT / 'linux-installer/bundle/scripts'
+        script = """
+import json
+import os
+from pathlib import Path
+import sys
+sys.path.insert(0, sys.argv[1])
+import installer_root
+import transaction_journal
+root = Path(sys.argv[2])
+assert Path(installer_root.__file__).parent == Path(sys.argv[1])
+assert Path(transaction_journal.__file__).parent == Path(sys.argv[1])
+payload = json.load(sys.stdin)
+for intent in payload['intents']:
+    try:
+        installer_root.parse_request(json.dumps(intent).encode('ascii'))
+    except installer_root.RequestError:
+        pass
+    else:
+        raise AssertionError('embedded helper accepted future intent')
+store = transaction_journal.ProtectedJournal(root=root, owner_uid=os.geteuid())
+path = root / 'var/backups/linux-host-agent/wizard-transactions/journal.json'
+with store.begin('install'):
+    pass
+for record in payload['records']:
+    before = json.dumps(record, sort_keys=True).encode('ascii')
+    path.write_bytes(before)
+    for call in (store.public_status, store.resume_recovery,
+                 store.resume_finished_cleanup, store.finish_terminal,
+                 lambda: store.begin('repair')):
+        try:
+            call()
+        except transaction_journal.UnsafeJournal:
+            pass
+        else:
+            raise AssertionError('embedded helper accepted future journal')
+        assert path.read_bytes() == before
+print('refused')
+"""
+        records = []
+        for intent in (RESTORE, ADOPT):
+            candidate = stages(intent)
+            records.extend((candidate[0], candidate[3], candidate[-1],
+                            dict(candidate[3], phase='ROLLED_BACK')))
+        run = subprocess.run(
+            [sys.executable, '-I', '-S', '-B', '-c', script,
+             str(bundle), str(self.root)],
+            input=wire({'intents': [RESTORE, ADOPT], 'records': records}),
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30)
+        self.assertEqual(run.returncode, 0, run.stderr.decode('utf-8', 'replace'))
+        self.assertEqual(run.stdout, b'refused\n')
 
 if __name__ == '__main__':
     unittest.main()
