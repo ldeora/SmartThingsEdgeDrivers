@@ -523,8 +523,28 @@ single-link, exact installed mode, expected owner/group and bounded size.
 The initial policy accepts complete, structurally v2 installed state
 for restore (or all managed files absent with all service flags false),
 and only all-absent managed files for adoption. No partial, damaged,
-legacy or unsafe layout. These file/boolean checks alone are not proof
-of protocol provenance, clean systemd state or orphan eligibility.
+legacy or unsafe layout. Unlike install/upgrade/repair's existing
+capture policy, restore deliberately refuses damaged installed modes
+rather than preserving them for rollback. An otherwise safe managed
+regular file with an unexpected mode produces the fixed
+current_state_permissions_damaged diagnostic. For a recognized v2
+installation, the future user-facing diagnostic should instruct the
+operator to finish abort/recovery and clear the pending transaction,
+then use the supported repair operation before retrying restore.
+Do not advise repair for unknown protocol, unsafe objects, ownership
+mismatches or ambiguous state; do not repair permissions implicitly
+during restore. The existing v1 repair capture semantics are unchanged.
+
+Restore onto a genuinely clean host is an intended supported case,
+conditional on independently verified clean layout and service state.
+An empty managed-file capture with false service flags alone is not
+that proof. Unmarked retained private state requires the explicit
+adoption path; restore must not implicitly adopt it. The eventual
+controller must separately establish account, owner marker, retained
+state, and service/enablement eligibility, and define safe activation
+and recovery for the clean case before exposing it. These file/boolean
+checks alone are not proof of protocol provenance, clean systemd
+state or orphan eligibility.
 
 The new rollback format deliberately differs from schema-1 historical
 source snapshots: snapshot-v2-TRANSACTION is a fixed, exclusive directory
@@ -548,6 +568,15 @@ is preserved rather than overwritten. Only a later verified
 SNAPSHOTTED transition binds its digest in the durable journal.
 Unbound partial snapshots are forensic evidence, not eligible recovery
 sources; their eventual cleanup requires a separate reviewed policy.
+A failed publication that leaves the deterministic snapshot directory
+prevents recapture in that transaction. It must take the verified
+pre-apply abort path; do not retry capture with a different name.
+Stage retirement and terminal journal clearing do not prove that an
+unbound before-state directory is absent, and do not delete it. Preserve
+such directories independently of stage retirement. A future operator
+reconciliation/quarantine policy must distinguish unbound forensic
+snapshots from bound rollback evidence and must not retire a referenced
+rollback source.
 A read at STAGED uses the freshly produced capture reference; later
 reads use the journal's immutable name and receipt digest, never a
 caller override. The reader checks exact binding, canonical manifests,
@@ -560,6 +589,12 @@ from the stage) and bind_before (bound receipt and actual current
 managed bytes/metadata and service observation). check_apply_evidence
 rechecks the staged plan and receipt against independent expectations
 and fresh current state; it does not advance to APPLYING.
+The eventual SNAPSHOTTED -> APPLYING verifier must invoke this check
+inside the same active handle and lock scope, together with the other
+operation-specific eligibility and continuity checks. An earlier
+successful read-only call is never permission to mutate; the controller
+must use the pinned evidence from that transition and require durable
+APPLYING publication before any managed change.
 check_rollback_evidence compares actual current fixture files and
 observed service flags against the journal-bound before-state; it does
 not mark ROLLED_BACK. The generic low-level fixture transition API

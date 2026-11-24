@@ -58,14 +58,20 @@ def _directory(fd, uid, *, private=False):
         raise BeforeStateError('unsafe_before_directory')
 
 
-def _read(fd, name, uid, limit, *, mode, gid):
+def _read(fd, name, uid, limit, *, mode, gid, installed=False):
     item = os.open(name, _FILE, dir_fd=fd)
     try:
         info = os.fstat(item)
         if (not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or
                 info.st_uid != uid or info.st_gid != gid or
-                stat.S_IMODE(info.st_mode) != mode or not 0 < info.st_size <= limit):
+                not 0 < info.st_size <= limit):
             raise BeforeStateError('unsafe_before_file')
+        if stat.S_IMODE(info.st_mode) != mode:
+            # Restore is not repair. Only otherwise safe installed regular
+            # files receive the repair-oriented diagnostic; damaged backup
+            # copies or unsafe objects retain the general refusal.
+            raise BeforeStateError('current_state_permissions_damaged' if installed
+                                   else 'unsafe_before_file')
         chunks = bytearray()
         while len(chunks) <= limit:
             block = os.read(item, min(65536, limit + 1 - len(chunks)))
@@ -104,7 +110,7 @@ def _current_file(handle, path):
         except FileNotFoundError:
             return historical.CandidateFile(path, None)
         data = _read(fd, parts[-1], handle.uid, stage._MAX_ITEM,
-                     mode=mode, gid=os.getegid())
+                     mode=mode, gid=os.getegid(), installed=True)
         return historical.CandidateFile(path, data, mode, handle.uid, os.getegid())
 
 
