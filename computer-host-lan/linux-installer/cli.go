@@ -271,7 +271,7 @@ func executeCLI(args []string, root bool,
 	}
 	result := cliResult{privilegedResult: safe, Network: prepared.network, Checks: prepared.checks}
 	if safe.Status == "error" {
-		if safe.ErrorCode == "recovery_required" {
+		if safe.ErrorCode == "recovery_required" || safe.ErrorCode == "recovery_helper_missing" {
 			return result, 3
 		}
 		return result, 1

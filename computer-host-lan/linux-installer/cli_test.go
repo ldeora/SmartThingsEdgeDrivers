@@ -138,6 +138,7 @@ func TestCLIResultAndExitCodeContracts(t *testing.T) {
 		{"success", privilegedResult{SchemaVersion: 1, Operation: "upgrade", Status: "installed", IdentityPreserved: "verified"}, nil, 0, "installed", ""},
 		{"cleanup", privilegedResult{SchemaVersion: 1, Operation: "upgrade", Status: "installed_cleanup_required"}, nil, 3, "installed_cleanup_required", ""},
 		{"recovery", privilegedResult{SchemaVersion: 1, Operation: "upgrade", Status: "error", ErrorCode: "recovery_required"}, errors.New("fixture"), 3, "error", "recovery_required"},
+		{"missing recovery helper", privilegedResult{SchemaVersion: 1, Operation: "upgrade", Status: "error", ErrorCode: "recovery_helper_missing"}, errors.New("fixture"), 3, "error", "recovery_helper_missing"},
 		{"rollback", privilegedResult{SchemaVersion: 1, Operation: "upgrade", Status: "error", ErrorCode: "rolled_back"}, errors.New("fixture"), 1, "error", "rolled_back"},
 		{"authorization unavailable", privilegedResult{}, &authorizationUnavailableError{cause: errors.New("private path")}, 1, "error", "authorization_unavailable"},
 		{"lost reply", privilegedResult{}, errors.New("private output"), 1, "error", "outcome_unknown"},

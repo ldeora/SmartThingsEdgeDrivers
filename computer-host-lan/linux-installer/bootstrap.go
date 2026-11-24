@@ -420,6 +420,9 @@ func prepareTrustedVersionForAction(root, lock string, uid int, status func() (s
 		return false, err
 	}
 	defer guard.Close()
+	if err := guardMissingRecoveryHelper(root, uid); err != nil {
+		return false, err
+	}
 	if uninstallAgent != "" {
 		if err := checkUninstallTarget(root, uninstallAgent, uid, status); err != nil {
 			return false, err
@@ -636,6 +639,8 @@ func relayBootstrapFailure(writer io.Writer, action string, failure error) error
 		code = "unsafe_lock"
 	} else if errors.Is(failure, errNotInstalled) {
 		code = "not_installed"
+	} else if errors.Is(failure, errRecoveryHelperMissing) {
+		code = "recovery_helper_missing"
 	} else if errors.Is(failure, errInstallerRecoveryPending) {
 		code = "recovery_required"
 	} else if errors.Is(failure, errUnavailablePython) {
@@ -684,6 +689,9 @@ func rootBootstrap(reader io.Reader, writer io.Writer) error {
 	}
 	defer bootstrapGuard.Close()
 	if request.Action == "status" || request.Action == "recover" {
+		if err := checkMissingHelperForExistingAction(trustedDir, trustedLock, 0); err != nil {
+			return relayBootstrapFailure(writer, request.Action, err)
+		}
 		response, helperErr := runInstalledHelper(trustedDir, request)
 		if response.SchemaVersion == 1 {
 			// A committed operation can leave its previous trusted bundle
