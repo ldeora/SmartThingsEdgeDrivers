@@ -50,6 +50,18 @@ def has_artifacts(handle):
         raise _ERROR('stage_quarantine_namespace_unavailable') from None
 
 
+def _check_active(handle, active, entries):
+    # The stage lock belongs to this directory. Refuse a namespace
+    # replacement rather than syncing an unrelated directory by pathname.
+    current = stage.legacy_stage._walk_destination(handle.root, handle.uid, create=False)
+    try:
+        if (not os.path.samestat(os.fstat(active), os.fstat(current)) or
+                journal._entries(active) != entries):
+            raise _ERROR('stage_quarantine_active_changed')
+    finally:
+        os.close(current)
+
+
 def _receipt(record, items):
     source, destination, _ = _names(record)
     return journal.canonical(dict(
@@ -128,8 +140,7 @@ def quarantine_corrupt_stage(handle, *, confirmation, verify):
             if journal.canonical(handle.record()) != frozen:
                 raise _ERROR('quarantine_journal_changed')
             handle._clean()
-            if journal._entries(active) != entries:
-                raise _ERROR('foreign_or_ambiguous_stage')
+            _check_active(handle, active, entries)
             if namespace is not None:
                 q._same_entry(base, q._NAMESPACE, namespace)
                 if _read_receipt(namespace, receipt_name, handle.uid, receipt) != had_receipt:
@@ -163,15 +174,15 @@ def quarantine_corrupt_stage(handle, *, confirmation, verify):
             if src is not None:
                 q._same_entry(active, source, fd)
                 q._same_entry(base, q._NAMESPACE, namespace)
-                if (journal._entries(active) != entries or
-                        q._inventory(fd, handle.uid, staged=True) != items or
+                _check_active(handle, active, entries)
+                if (q._inventory(fd, handle.uid, staged=True) != items or
                         not _read_receipt(namespace, receipt_name, handle.uid, receipt)):
                     raise _ERROR('quarantine_publication_changed')
                 q._rename_noreplace(active, source, namespace, destination)
             q._same_entry(namespace, destination, fd)
             q._same_entry(base, q._NAMESPACE, namespace)
-            if (journal._entries(active) != {_LOCK} or
-                    q._inventory(fd, handle.uid, sync=True, staged=True) != items or
+            _check_active(handle, active, {_LOCK})
+            if (q._inventory(fd, handle.uid, sync=True, staged=True) != items or
                     not _read_receipt(namespace, receipt_name, handle.uid, receipt, sync=True)):
                 raise _ERROR('quarantine_publication_changed')
             os.fsync(namespace)
@@ -179,6 +190,7 @@ def quarantine_corrupt_stage(handle, *, confirmation, verify):
                 os.fsync(ancestor)
             os.fsync(active)
             stage._sync_stage_ancestors(handle)
+            _check_active(handle, active, {_LOCK})
             handle._failed = False
             try:
                 handle.record()
@@ -228,5 +240,6 @@ def check_cleanup(handle):
                 raise _ERROR('stage_quarantine_receipt_mismatch')
             q._same_entry(namespace, destination, fd)
             q._same_entry(base, q._NAMESPACE, namespace)
+            _check_active(handle, active, {_LOCK})
     except (OSError, ValueError, before.storage.StagingError):
         raise legacy.JournalConflict('stage quarantine cleanup not verified') from None
