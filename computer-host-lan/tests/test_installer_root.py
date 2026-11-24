@@ -232,6 +232,18 @@ class RootProtocolTests(unittest.TestCase):
             with self.subTest(update=update), self.assertRaises(bridge.RequestError):
                 self.parse(**update)
 
+    def test_future_restore_and_adopt_requests_are_not_dispatched(self):
+        for action in ('restore', 'adopt'):
+            for schema in (1, 2, 3):
+                for extras in ({}, {'snapshot': 'snapshot-abcdefgh'},
+                               {'source': '/tmp/payload', 'power': 'preserve',
+                                'wol_interface': None}):
+                    with self.subTest(action=action, schema=schema, extras=extras):
+                        raw = json.dumps(dict(schema_version=schema,
+                                              action=action, **extras)).encode()
+                        with self.assertRaises(bridge.RequestError):
+                            bridge.parse_request(raw)
+
     def test_duplicate_json_keys_and_oversize_rejected(self):
         for payload in (
             b'{"schema_version":1,"schema_version":1,"action":"status"}',
