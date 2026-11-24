@@ -105,6 +105,9 @@ class FakeSystemd:
     def verify_uninstall_services(self):
         return not self.fail_uninstall_verify and self.verify_uninstall_stopped()
 
+    def prepare_restore(self, previous):
+        pass
+
     def restore_services(self, previous):
         self.restore_calls += 1
         if self.fail_restore:
@@ -437,6 +440,9 @@ class InstallerBackendTests(unittest.TestCase):
                 call('disable', '--now', 'linux-host-agent-power.socket'),
                 call('stop', 'linux-host-agent-power.service'),
                 call('disable', '--now', 'linux-host-agent.service'),
+                call('reset-failed', 'linux-host-agent-power.socket', check=False),
+                call('reset-failed', 'linux-host-agent-power.service', check=False),
+                call('reset-failed', 'linux-host-agent.service', check=False),
             ])
 
     def test_uninstall_requires_disabled_and_inactive_before_any_unlink(self):
@@ -504,7 +510,7 @@ class InstallerBackendTests(unittest.TestCase):
         ops = installer.SystemdOperations()
         import subprocess
         raw = '\n'.join(('LoadState=loaded', 'ActiveState=inactive',
-                         'UnitFileState=disabled', ''))
+                         'SubState=dead', 'UnitFileState=disabled', ''))
         for code, output, expected in (
                 (0, raw, True),
                 (1, raw, False),
@@ -871,8 +877,7 @@ class InstallerBackendTests(unittest.TestCase):
                                   agent_enabled=True, socket_active=False,
                                   socket_enabled=False))
         for state in (None, dict(inactive, LoadState='not-found'),
-                      dict(inactive, ActiveState='failed'),
-                      dict(inactive, ActiveState='activating'),
+                      dict(inactive, ActiveState='activating', SubState='start'),
                       dict(inactive, ActiveState='deactivating'),
                       dict(inactive, UnitFileState='masked'),
                       dict(inactive, UnitFileState='enabled-runtime'),
@@ -883,6 +888,76 @@ class InstallerBackendTests(unittest.TestCase):
                                        side_effect=[active, state]):
                     with self.assertRaises(installer.ControllerError):
                         ops.capture_previous(self.installed_paths())
+
+    def test_capture_failed_or_auto_restart_agent_retries_but_normalizes_rollback(self):
+        self.existing_install()
+        ops = installer.SystemdOperations()
+        inactive = dict(LoadState='loaded', ActiveState='inactive',
+                        SubState='dead', UnitFileState='disabled')
+        for state, substate in (('failed', 'failed'), ('activating', 'auto-restart')):
+            for enabled in ('enabled', 'disabled'):
+                broken = dict(inactive, ActiveState=state, SubState=substate,
+                              UnitFileState=enabled)
+                with self.subTest(state=state, enabled=enabled):
+                    with mock.patch.object(ops, '_uninstall_unit_state',
+                                           side_effect=[broken, inactive]):
+                        previous = ops.capture_previous(self.installed_paths())
+                    self.assertFalse(previous['agent_active'])
+                    self.assertEqual(previous['agent_enabled'], enabled == 'enabled')
+                    self.assertTrue(previous['agent_retry'])
+                    with mock.patch.object(core, 'systemctl') as ctl:
+                        ops.activate(previous, power_enabled=False, disable_power=False)
+                    calls = ctl.call_args_list
+                    self.assertLess(calls.index(mock.call('stop', 'linux-host-agent.service')),
+                                    calls.index(mock.call('reset-failed', 'linux-host-agent.service',
+                                                          check=False)))
+                    self.assertIn(mock.call('restart', 'linux-host-agent.service'), calls)
+                    self.assertFalse(previous['agent_active'])
+
+    def test_fresh_rollback_disables_before_removal_and_clears_failed_units(self):
+        ops = installer.SystemdOperations()
+        stopped = dict(LoadState='loaded', ActiveState='inactive',
+                       SubState='dead', UnitFileState='disabled')
+        absent = dict(LoadState='not-found', ActiveState='inactive',
+                      SubState='dead', UnitFileState='')
+        previous = dict(first_install=True, agent_active=False, agent_enabled=False,
+                        socket_active=False, socket_enabled=False)
+        with mock.patch.object(core, 'systemctl') as ctl:
+            with mock.patch.object(ops, '_uninstall_unit_state', return_value=stopped):
+                ops.prepare_restore(previous)
+            self.assertIn(mock.call('disable', '--now', 'linux-host-agent.service',
+                                    check=False), ctl.call_args_list)
+            self.assertIn(mock.call('reset-failed', 'linux-host-agent.service',
+                                    check=False), ctl.call_args_list)
+            ops.restore_services(previous)
+            self.assertEqual(ctl.call_args_list.count(
+                mock.call('reset-failed', 'linux-host-agent.service', check=False)), 3)
+        with mock.patch.object(ops, '_uninstall_unit_state', return_value=absent):
+            self.assertTrue(ops.verify_restored_services(previous))
+        with mock.patch.object(ops, '_uninstall_unit_state',
+                               return_value=dict(stopped, ActiveState='failed')):
+            with mock.patch.object(core, 'systemctl'):
+                with self.assertRaises(installer.ControllerError):
+                    ops.prepare_restore(previous)
+
+    def test_fresh_rollback_dangling_enablement_blocks_before_removing_files(self):
+        link = self.root / 'etc/systemd/system/multi-user.target.wants/linux-host-agent.service'
+        def fail_activation(*args, **kwargs):
+            link.parent.mkdir(parents=True, exist_ok=True)
+            link.symlink_to('../linux-host-agent.service')
+            raise RuntimeError('activation failure')
+        with mock.patch.object(self.services, 'activate', side_effect=fail_activation):
+            with self.assertRaises(installer.ControllerError) as error:
+                self.backend.run(self.request(), ROOT, self.hashes)
+        self.assertEqual(error.exception.code, 'recovery_required')
+        self.assertTrue(link.is_symlink())
+        self.assertTrue(self.installed_paths().location(core.SYSTEMD_PATHS[0]).is_file())
+        # Simulate the successful disable on an explicit recovery.
+        with mock.patch.object(self.services, 'prepare_restore',
+                               side_effect=lambda previous: link.unlink()):
+            self.assertEqual(self.backend.recover_interrupted().status, 'rolled_back')
+        self.assertFalse(link.is_symlink())
+        self.assertFalse(self.installed_paths().location(core.SYSTEMD_PATHS[0]).exists())
 
     def test_stopped_install_verification_never_accepts_failed_query(self):
         old = self.existing_install(active=False, enabled=False)
@@ -913,7 +988,8 @@ class InstallerBackendTests(unittest.TestCase):
                                        return_value=state) as query:
                     self.assertEqual(ops.verify_restored_services(
                         dict(before, first_install=first)), expected)
-                    self.assertEqual(query.call_count, 2)
+                    self.assertEqual(query.call_count, 3 if first and expected else
+                                     1 if first else 2)
 
     def test_stopped_agent_skips_http_but_checks_files_and_service_state(self):
         old = self.existing_install(active=False, enabled=False)
