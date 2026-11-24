@@ -185,6 +185,9 @@ See #152 and #155.
 
 ### Credential continuity (I11) evidence
 
+See the [proposed two-level credential continuity contract](LINUX-INSTALLER-CREDENTIAL-CONTINUITY.md) for #155. The proposed v1.0 guarantee is uninterrupted-process metadata verification and honest not_verified reporting after interruption; durable cross-interruption evidence is deferred to v1.1, subject to maintainer approval.
+
+
 Disposable-root probes used the real InstallerBackend with simulated
 service operations and runtime health observations, not real systemd or
 a claim that the agent normally rewrites credentials:
@@ -199,10 +202,15 @@ a claim that the agent normally rewrites credentials:
 These demonstrate missing detection, not spontaneous credential changes.
 The normal agent persistent_value publishes only absent credentials
 without replacing an existing file, and the installer managed allowlist
-excludes both credentials. Proposed remedy (#155): capture protected
-metadata continuity before APPLYING and check it before terminal success
-and during recovery. Use reboot-stable filesystem/subvolume identity
-(#98), inode/size/mode/owner/mtime/ctime, no credential value or hash.
+excludes both credentials. Proposed v1.0 remedy (#155): capture private in-memory
+metadata before APPLYING and compare before COMMITTED or ROLLED_BACK
+in the same process, using st_dev/inode/size/mode/owner/mtime/ctime.
+Explicit recovery without that baseline reports credential continuity
+not_verified, not a failure of managed-state restoration by itself.
+No new journal schema or persistent receipt in v1.0. Durable continuity
+across interruption, including reboot-stable filesystem/subvolume
+identity (#98), is the proposed v1.1 extension. Neither level stores
+credential values or hashes.
 Account for legitimate first-start hard-link leftovers and distinguish
 absent/newly created credentials. Metadata is continuity evidence under
 the trusted-root/cooperating-writer model, not cryptographic content
