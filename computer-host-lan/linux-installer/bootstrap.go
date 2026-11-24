@@ -48,12 +48,19 @@ type privilegedResult struct {
 	ErrorCode                  string `json:"error_code"`
 	FailureStage               string `json:"failure_stage,omitempty"`
 	RecoveryStatus             string `json:"recovery_status"`
+	RecoveryOperation          string `json:"recovery_operation,omitempty"`
 	PrivilegedTransactionState string `json:"privileged_transaction_state"`
 	IdentityPreserved          string `json:"identity_preserved"`
 	SecretsIncluded            bool   `json:"secrets_included"`
 }
 
 func (r privilegedRequest) validate() error {
+	if r.SchemaVersion == 2 {
+		if r.Action != "uninstall" || r.Power != "" || r.WOLInterface != nil {
+			return errors.New("invalid uninstall request")
+		}
+		return nil
+	}
 	if r.SchemaVersion != 1 {
 		return errors.New("unsupported privileged request version")
 	}
@@ -81,15 +88,51 @@ func decodePrivilegedRequest(r io.Reader) (privilegedRequest, error) {
 	if err != nil || len(raw) == 0 || len(raw) > 4096 {
 		return privilegedRequest{}, errors.New("invalid privileged request length")
 	}
+	// Decode exact JSON member names, without Go's case-insensitive
+	// struct matching or last-value-wins duplicate handling.
 	decoder := json.NewDecoder(bytes.NewReader(raw))
-	decoder.DisallowUnknownFields()
-	var request privilegedRequest
-	if err := decoder.Decode(&request); err != nil {
-		return privilegedRequest{}, errors.New("invalid privileged request")
+	start, err := decoder.Token()
+	if err != nil || start != json.Delim('{') {
+		return privilegedRequest{}, errors.New("invalid privileged request object")
+	}
+	fields := make(map[string]json.RawMessage)
+	for decoder.More() {
+		token, err := decoder.Token()
+		key, ok := token.(string)
+		if err != nil || !ok {
+			return privilegedRequest{}, errors.New("invalid privileged request key")
+		}
+		switch key {
+		case "schema_version", "action", "power", "wol_interface":
+		default:
+			return privilegedRequest{}, errors.New("unknown privileged request key")
+		}
+		if _, exists := fields[key]; exists {
+			return privilegedRequest{}, errors.New("duplicate privileged request key")
+		}
+		var value json.RawMessage
+		if err := decoder.Decode(&value); err != nil {
+			return privilegedRequest{}, errors.New("invalid privileged request value")
+		}
+		fields[key] = value
+	}
+	end, err := decoder.Token()
+	if err != nil || end != json.Delim('}') {
+		return privilegedRequest{}, errors.New("invalid privileged request object")
 	}
 	var extra any
 	if decoder.Decode(&extra) != io.EOF {
 		return privilegedRequest{}, errors.New("unexpected data after privileged request")
+	}
+	var request privilegedRequest
+	if err := json.Unmarshal(raw, &request); err != nil {
+		return privilegedRequest{}, errors.New("invalid privileged request")
+	}
+	if request.Action == "uninstall" || request.Action == "status" || request.Action == "recover" {
+		// Reject even explicitly empty/null installation settings.
+		if len(fields) != 2 {
+			return privilegedRequest{}, errors.New("unexpected privileged request fields")
+		}
 	}
 	if err := request.validate(); err != nil {
 		return privilegedRequest{}, err
@@ -101,7 +144,7 @@ func pythonRequest(r privilegedRequest) ([]byte, error) {
 	if err := r.validate(); err != nil {
 		return nil, err
 	}
-	data := map[string]any{"schema_version": 1, "action": r.Action}
+	data := map[string]any{"schema_version": r.SchemaVersion, "action": r.Action}
 	if r.Action == "install" || r.Action == "upgrade" || r.Action == "repair" {
 		data["source"] = trustedDir + "/payload"
 		data["power"] = r.Power
@@ -434,9 +477,8 @@ func runTrustedHelperCommand(cmd *exec.Cmd, request privilegedRequest) (privileg
 	var stdout, stderr cappedBuffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	runErr := cmd.Run()
-	var reply privilegedResult
-	if err := json.Unmarshal(stdout.Bytes(), &reply); err != nil ||
-		reply.SchemaVersion != 1 || reply.SecretsIncluded {
+	reply, decodeErr := validatedPrivilegedReply(stdout.Bytes(), request.Action)
+	if decodeErr != nil {
 		if runErr != nil &&
 			strings.TrimSpace(stderr.String()) == "Python 3.10+ is required (install a compatible system Python interpreter)." {
 			return privilegedResult{}, errUnavailablePython
@@ -444,6 +486,10 @@ func runTrustedHelperCommand(cmd *exec.Cmd, request privilegedRequest) (privileg
 		return privilegedResult{}, errInvalidHelperResponse
 	}
 	if runErr != nil || reply.Status == "error" {
+		// Never forward a success result when the helper exited nonzero.
+		if reply.Status != "error" {
+			return privilegedResult{}, errInvalidHelperResponse
+		}
 		if reply.ErrorCode != "" {
 			return reply, fmt.Errorf("privileged helper reported %s", reply.ErrorCode)
 		}
@@ -500,24 +546,15 @@ func completeTrustedVersion(root string, ownerUID int, restore bool) error {
 // non-zero. Forward the sanitized schema-v1 envelope rather than discarding
 // it in Go and reducing everything to an authorization failure.
 func relayHelperResponse(writer io.Writer, action string, reply privilegedResult, helperErr error) error {
-	if reply.SchemaVersion != 1 {
-		return helperErr
+	// Apply the same operation/enum validation at the root boundary
+	// as at the unprivileged UI. Never relay a mismatched success.
+	wire, err := json.Marshal(reply)
+	if err != nil {
+		return errInvalidHelperResponse
 	}
-	if reply.Status == "error" && reply.Operation == "" {
-		// The Python root helper deliberately omits operation from its
-		// fixed error envelope. The validated Go request supplies it.
-		reply.Operation = action
-	}
-	if reply.Operation != action || reply.SecretsIncluded {
-		return errors.New("invalid privileged helper reply")
-	}
-	if reply.Status == "error" && !knownPrivilegedError(reply.ErrorCode) {
-		return errors.New("unexpected privileged helper error")
-	}
-	if !validAbortedFailureStage(reply.ErrorCode, reply.FailureStage) {
-		// Reject any unexpected diagnostic payload rather than relaying
-		// untrusted free-form text out of a privileged process.
-		return errors.New("unexpected privileged failure stage")
+	reply, err = validatedPrivilegedReply(wire, action)
+	if err != nil || (helperErr != nil && reply.Status != "error") {
+		return errInvalidHelperResponse
 	}
 	if err := json.NewEncoder(writer).Encode(reply); err != nil {
 		return err
@@ -620,11 +657,11 @@ func rootBootstrap(reader io.Reader, writer io.Writer) error {
 	}
 	// Once verified success and cleanup is complete the old helper may be
 	// retired. A retained previous copy is never executed automatically.
-	if old && response.Status == "installed" {
+	if old && (response.Status == "installed" || response.Status == "uninstalled") {
 		if err := completeTrustedVersion(trustedDir, 0, false); err != nil {
-			// A committed installation must never be presented as failed
-			// solely because the previous launcher cleanup could not finish.
-			response.Status = "installed_cleanup_required"
+			// Committed operations must not be presented as failed
+			// solely because previous launcher cleanup could not finish.
+			response.Status += "_cleanup_required"
 		}
 	}
 	return relayHelperResponse(writer, request.Action, response, nil)
