@@ -8,7 +8,7 @@ Do not run/import this module as root from an untrusted checkout.
 """
 from __future__ import annotations
 
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass, replace
 import errno
 import fcntl
@@ -617,16 +617,40 @@ def _sync_snapshot(backup: Path) -> None:
 
 def _sync_managed_directories(changes: list[core.Change],
                               transaction: core.InstallTransaction) -> None:
+    """Sync managed directory entries bottom-up, including mkdir ancestors.
+
+    Reconstruct the fixed directory set on every call, including recovery
+    after a crash: an already existing directory may not yet be durable.
+    An absent optional subtree is a valid no-op, but its nearest existing
+    ancestor still needs syncing. Walk from the trusted root descriptor;
+    a symlink or non-directory is an error, not an absent subtree.
+    """
+    parents = {transaction.location(c.path).parent.relative_to(transaction.root)
+               for c in changes}
+    if not parents:
+        return
     flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_DIRECTORY | os.O_CLOEXEC
-    for parent in {transaction.location(c.path).parent for c in changes}:
-        if not parent.exists():
-            # An absent optional drop-in may be a valid no-op removal.
-            continue
-        fd = os.open(parent, flags)
-        try:
-            os.fsync(fd)
-        finally:
-            os.close(fd)
+    with ExitStack() as stack:
+        root_fd = os.open(transaction.root, flags)
+        stack.callback(os.close, root_fd)
+        opened = {(): root_fd}
+        for parent in sorted(parents):
+            parts = ()
+            for component in parent.parts:
+                child = (*parts, component)
+                if child not in opened:
+                    try:
+                        fd = os.open(component, flags, dir_fd=opened[parts])
+                    except FileNotFoundError:
+                        # Only ENOENT is an acceptable absent subtree.
+                        break
+                    stack.callback(os.close, fd)
+                    opened[child] = fd
+                parts = child
+        # Every existing directory on an allowlisted path is synced once.
+        # In particular sync the root/opt/etc entries after their children.
+        for parts in sorted(opened, key=lambda p: (-len(p), p)):
+            os.fsync(opened[parts])
 
 
 def _files_match_snapshot(backup: Path, transaction: core.InstallTransaction) -> bool:

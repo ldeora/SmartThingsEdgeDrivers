@@ -24,6 +24,20 @@ These requirements were drafted before rc.2 publication; unchecked items remain 
 
 ### P0: gate from published v1.0.0-rc.2 to stable v1.0.0
 
+- [ ] **Linux installer convergence (#101):** the intended stable design is
+  one protected transactional engine for supported installation entry points,
+  not two differing recovery guarantees. Follow the
+  [consolidation contract](../development/LINUX-INSTALLER-CONSOLIDATION.md).
+  Until cutover and physical acceptance, published rc.2 continues to use
+  the legacy shell installer; the Go wizard remains development-only.
+  Historical backup restoration is distinct from interrupted-transaction
+  recovery. No silent adoption, removal of options or unjournaled WOL changes.
+- [ ] **Linux installer authenticity (#84):** before offering an elevated
+  standalone Go installer as a release download, publish an independently
+  authenticated checksum/signature and document verification; the checksum
+  beside a CI test binary is not sufficient. Verify recovery availability,
+  helper promotion and supported shell entry points on the release build.
+
 - [ ] Run a **minimum seven-day unattended soak** on at least one physical Windows 11 system and one Linux host with a real SmartThings hub; log dates, exact binaries/driver version, reconnects, resource use and any duplicate/stuck state.
 - [ ] Exercise hub restart, agent stop/start, computer reboot, a router/network interruption and host DHCP address change (where feasible); separate a **hub IP change** from a **host IP change**, because the Windows firewall may intentionally scope access to the hub's previous IP.
 - [ ] Validate all four repository workflows on the **final merged main SHA**. Build the proposed stable release assets from the final stable commit, checking source/embedded versions, SHA-256 and attestations; do not mix commits or replace existing rc.2 release assets.
