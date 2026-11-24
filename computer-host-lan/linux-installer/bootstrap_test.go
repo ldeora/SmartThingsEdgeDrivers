@@ -809,3 +809,94 @@ func TestUninstallRepliesValidatedAtBothBoundaries(t *testing.T) {
 		}
 	}
 }
+
+func TestUninstallPreflightRefusesMissingAgentWithoutPromotion(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("temporary non-root bootstrap fixture")
+	}
+	parent := t.TempDir()
+	root := filepath.Join(parent, "computer-host-lan")
+	lock := filepath.Join(parent, "install.lock")
+	agent := filepath.Join(parent, "opt", "linux-host-agent", "linux_host_agent.py")
+	uid := os.Geteuid()
+	changed, err := prepareTrustedVersionForAction(root, lock, uid, func() (string, error) {
+		t.Fatal("clean host must not invoke a nonexistent helper")
+		return "", nil
+	}, agent)
+	if changed || !errors.Is(err, errNotInstalled) {
+		t.Fatalf("Clean uninstall preflight: changed=%v err=%v", changed, err)
+	}
+	for _, path := range []string{root, root + ".next", root + ".previous", root + ".failed"} {
+		if _, err := os.Lstat(path); !os.IsNotExist(err) {
+			t.Fatalf("Clean uninstall created helper path %s: %v", path, err)
+		}
+	}
+	// A retained helper must be inspected under the same manual lock.
+	// Its pending journal takes priority over missing managed files.
+	if err := os.Mkdir(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	marker := filepath.Join(root, "keep")
+	if err := os.WriteFile(marker, []byte("unchanged"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, state := range []string{"none", "recovery_required"} {
+		want := errNotInstalled
+		if state != "none" {
+			want = errInstallerRecoveryPending
+		}
+		changed, err := prepareTrustedVersionForAction(root, lock, uid, func() (string, error) {
+			if guard, err := lockInstaller(lock, uid); err == nil {
+				guard.Close()
+				t.Fatal("Preflight status was not checked under the shared lock")
+			}
+			return state, nil
+		}, agent)
+		if changed || !errors.Is(err, want) {
+			t.Fatalf("Retained helper state %s: changed=%v err=%v", state, changed, err)
+		}
+		if content, err := os.ReadFile(marker); err != nil || string(content) != "unchanged" {
+			t.Fatal("Missing agent must not replace retained helper")
+		}
+		if _, err := os.Lstat(root + ".next"); !os.IsNotExist(err) {
+			t.Fatal("Missing agent must not stage a helper")
+		}
+	}
+}
+
+func TestUninstallPreflightAllowsManualAgentWithoutExistingHelper(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("temporary non-root bootstrap fixture")
+	}
+	parent := t.TempDir()
+	root := filepath.Join(parent, "computer-host-lan")
+	lock := filepath.Join(parent, "install.lock")
+	agent := filepath.Join(parent, "linux_host_agent.py")
+	if err := os.WriteFile(agent, []byte("fixture"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	changed, err := prepareTrustedVersionForAction(root, lock, os.Geteuid(), func() (string, error) {
+		t.Fatal("first helper promotion must not invoke old status")
+		return "", nil
+	}, agent)
+	if changed || err != nil {
+		t.Fatalf("Existing agent without helper: changed=%v err=%v", changed, err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "installer_root.py")); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestUninstallMissingAgentDiagnostic(t *testing.T) {
+	var out bytes.Buffer
+	if err := relayBootstrapFailure(&out, "uninstall", errNotInstalled); !errors.Is(err, errNotInstalled) {
+		t.Fatal(err)
+	}
+	reply, err := validatedPrivilegedReply(out.Bytes(), "uninstall")
+	if err != nil || reply.ErrorCode != "not_installed" {
+		t.Fatalf("Unexpected absent-agent response: %+v %v", reply, err)
+	}
+	if !strings.Contains(userFacingPrivilegeFailure(reply).Error(), "nothing to uninstall") {
+		t.Fatal("Missing actionable absent-agent diagnostic")
+	}
+}
