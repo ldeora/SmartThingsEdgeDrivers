@@ -802,18 +802,7 @@ class InstallerBackend:
                         journal.abort(lambda _: True)
                         outcome = 'aborted'
                     elif phase in _APPLIED and backup is not None and previous is not None:
-                        core.validate_v2_backup(backup, root=self.root)
-                        self.services.prepare_restore(previous)
-                        if previous['first_install'] and not _enablement_absent(transaction):
-                            raise ControllerError('recovery_required')
-                        restored = transaction.restore(backup)
-                        self.services.restore_services(restored)
-                        _sync_managed_directories(changes, transaction)
-                        verified = (_files_match_snapshot(backup, transaction) and
-                                    self.services.verify_restored_services(restored) is True and
-                                    (not restored['first_install'] or
-                                     _enablement_absent(transaction)))
-                        journal.mark_rolled_back(lambda _: verified)
+                        self._restore_snapshot(journal, transaction, backup)
                         outcome = 'rolled_back'
                     else:
                         raise ControllerError('recovery_required')
@@ -928,17 +917,7 @@ class InstallerBackend:
                         journal.abort(lambda _: True)
                         outcome = 'aborted'
                     elif phase in _APPLIED and backup is not None and previous is not None:
-                        core.validate_v2_backup(backup, root=self.root)
-                        self.services.prepare_restore(previous)
-                        if previous['first_install'] and not _enablement_absent(transaction):
-                            raise ControllerError('recovery_required')
-                        restored = transaction.restore(backup)
-                        self.services.restore_services(restored)
-                        verified = (_files_match_snapshot(backup, transaction) and
-                                    self.services.verify_restored_services(restored) is True and
-                                    (not restored['first_install'] or
-                                     _enablement_absent(transaction)))
-                        journal.mark_rolled_back(lambda _: verified)
+                        self._restore_snapshot(journal, transaction, backup)
                         outcome = 'rolled_back'
                     else:
                         raise ControllerError('recovery_required')
@@ -971,6 +950,44 @@ class InstallerBackend:
         return InstallOutcome('installed', request.operation,
                               identity_state)
 
+    def _restore_snapshot(self, journal, transaction: core.InstallTransaction,
+                          backup: Path, *,
+                          journal_owned_fresh_install: bool = False) -> None:
+        """Restore and durably verify the snapshot before marking rollback complete.
+
+        Only explicit recovery of the protected APPLYING+ journal may use
+        the first-install exception: the crash can predate the owner record.
+        All callers already hold the shared installer and journal locks.
+        """
+        core.validate_v2_backup(
+            backup, root=self.root,
+            journal_owned_fresh_install=journal_owned_fresh_install)
+        manifest = json.loads(core._read_backup_file(
+            backup / 'manifest.json', core.MAX_BACKUP_MANIFEST_BYTES))
+        previous = manifest.get('previous')
+        _check_previous(previous)
+        if journal_owned_fresh_install and previous['first_install']:
+            # A journal-bound v2 snapshot lets a first install be retried
+            # even if systemd created private state before the crash.
+            core.write_owner_record(self.root)
+
+        self.services.prepare_restore(previous)
+        if previous['first_install'] and not _enablement_absent(transaction):
+            raise ControllerError('recovery_required')
+        restored = transaction.restore(backup)
+        _check_previous(restored)
+        self.services.restore_services(restored)
+        # Use the validated snapshot's allowlisted paths, including removals,
+        # rather than the forward plan. A sync failure leaves the journal
+        # nonterminal so explicit recovery can retry.
+        changes = [core.Change(item['path'], None) for item in manifest['items']]
+        _sync_managed_directories(changes, transaction)
+        verified = (_files_match_snapshot(backup, transaction) and
+                    self.services.verify_restored_services(restored) is True and
+                    (not restored['first_install'] or
+                     _enablement_absent(transaction)))
+        journal.mark_rolled_back(lambda _: verified)
+
     def _recover_locked(self, journal, transaction: core.InstallTransaction) -> RecoveryOutcome:
         """Resolve a durable nonterminal transaction, never resume an install.
 
@@ -1000,32 +1017,8 @@ class InstallerBackend:
                 (self.root == Path('/') and backup_base.stat().st_uid != 0)):
             raise ControllerError('recovery_required')
         backup = backup_base / snapshot_name
-        # The protected APPLYING+ journal is the authority for the limited
-        # first-install exception. An interruption may predate the v2 marker.
-        core.validate_v2_backup(
-            backup, root=self.root, journal_owned_fresh_install=True)
-        manifest = json.loads(core._read_backup_file(
-            backup / 'manifest.json', core.MAX_BACKUP_MANIFEST_BYTES))
-        previous = manifest.get('previous')
-        _check_previous(previous)
-        if previous['first_install']:
-            # A journal-bound v2 snapshot lets a first install be retried
-            # even if systemd created private state before the crash.
-            core.write_owner_record(self.root)
-
-        self.services.prepare_restore(previous)
-        if previous['first_install'] and not _enablement_absent(transaction):
-            raise ControllerError('recovery_required')
-        restored = transaction.restore(backup)
-        _check_previous(restored)
-        self.services.restore_services(restored)
-        changes = [core.Change(item['path'], None) for item in manifest['items']]
-        _sync_managed_directories(changes, transaction)
-        verified = (_files_match_snapshot(backup, transaction) and
-                    self.services.verify_restored_services(restored) is True and
-                    (not restored['first_install'] or
-                     _enablement_absent(transaction)))
-        journal.mark_rolled_back(lambda _snapshot_name: verified)
+        self._restore_snapshot(journal, transaction, backup,
+                               journal_owned_fresh_install=True)
         staging.finish_terminal_stage(journal, root=self.root,
                                       owner_uid=self.owner_uid)
         journal.clear_finished()

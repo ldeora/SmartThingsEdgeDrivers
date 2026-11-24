@@ -596,6 +596,75 @@ class InstallerBackendTests(unittest.TestCase):
         self.assertEqual(self.store.public_status()['privileged_transaction_state'], 'none')
         self.assertEqual(self.stage_entries(), [])
 
+    def test_upgrade_rollback_syncs_snapshot_parents_before_terminal_record(self):
+        old = self.existing_install()
+        original = old.read_bytes()
+        self.services.fail_verify = True
+        real_sync = installer._sync_managed_directories
+        real_mark = journal.TransactionHandle.mark_rolled_back
+        synced = []
+
+        def observe_sync(changes, transaction):
+            real_sync(changes, transaction)
+            if self.services.restore_calls:
+                self.assertEqual(old.read_bytes(), original)
+                synced.append({change.path for change in changes})
+
+        def observe_mark(handle, verify_restored):
+            record = handle._record()
+            manifest = json.loads((self.root / core.BACKUP_BASE.lstrip('/') /
+                                   record['snapshot_name'] /
+                                   'manifest.json').read_text())
+            self.assertEqual(synced, [{item['path'] for item in manifest['items']}])
+            return real_mark(handle, verify_restored)
+
+        with (
+            mock.patch.object(installer, '_sync_managed_directories',
+                              side_effect=observe_sync),
+            mock.patch.object(journal.TransactionHandle, 'mark_rolled_back',
+                              new=observe_mark),
+        ):
+            with self.assertRaises(installer.ControllerError) as error:
+                self.backend.run(self.request('upgrade', expected_identity=UUID),
+                                 ROOT, self.hashes)
+        self.assertEqual(error.exception.code, 'rolled_back')
+        self.assertEqual(len(synced), 1)
+        self.assertEqual(self.store.public_status()['privileged_transaction_state'],
+                         'none')
+
+    def test_rollback_directory_sync_failure_retains_journal_for_recovery(self):
+        old = self.existing_install()
+        original = old.read_bytes()
+        self.services.fail_verify = True
+        real_sync = installer._sync_managed_directories
+
+        def fail_restored_sync(changes, transaction):
+            if self.services.restore_calls:
+                raise OSError('fixture directory fsync failure')
+            real_sync(changes, transaction)
+
+        with mock.patch.object(installer, '_sync_managed_directories',
+                               side_effect=fail_restored_sync):
+            with self.assertRaises(installer.ControllerError) as error:
+                self.backend.run(self.request('upgrade', expected_identity=UUID),
+                                 ROOT, self.hashes)
+            self.assertEqual(error.exception.code, 'recovery_required')
+            self.assertEqual(old.read_bytes(), original)
+            self.assertEqual(self.store.public_status()[
+                'privileged_transaction_state'], 'recovery_required')
+            self.assertEqual(len(self.stage_entries()), 1)
+            with self.assertRaises(installer.ControllerError) as error:
+                self.backend.recover_interrupted()
+            self.assertEqual(error.exception.code, 'recovery_required')
+            self.assertEqual(self.store.public_status()[
+                'privileged_transaction_state'], 'recovery_required')
+
+        self.assertEqual(self.backend.recover_interrupted().status, 'rolled_back')
+        self.assertEqual(old.read_bytes(), original)
+        self.assertEqual(self.stage_entries(), [])
+        self.assertEqual(self.store.public_status()['privileged_transaction_state'],
+                         'none')
+
     def test_failed_restore_does_not_falsely_report_success(self):
         self.existing_install()
         self.services.fail_verify = True
