@@ -486,4 +486,3 @@ func requireProtectedHandoffExecutable() error {
 	}
 	return validateProtectedHandoffExecutablePath(executable, protectedHandoffRoot, 0)
 }
-
