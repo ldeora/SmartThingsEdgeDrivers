@@ -123,13 +123,16 @@ def _receipt(policy_fd: int, private_fd: int, txid: str, uid: int) -> dict:
         raise PublicationError('invalid publication receipt') from None
     if (type(record) is not dict or set(record) != {
             'schema', 'transaction_id', 'policy_directory', 'private_directory',
-            'anchor', 'anchor_gid'} or
+            'anchor', 'anchor_gid', 'anchor_mtime_ns', 'target_before'} or
             type(record['schema']) is not int or record['schema'] != 1 or
             record['transaction_id'] != txid or
             any(not _valid_identity(record[k]) for k in
                 ('policy_directory', 'private_directory', 'anchor')) or
             type(record['anchor_gid']) is not int or
-            not 0 <= record['anchor_gid'] <= 2**32 - 1):
+            not 0 <= record['anchor_gid'] <= 2**32 - 1 or
+            type(record['anchor_mtime_ns']) is not int or
+            not 0 <= record['anchor_mtime_ns'] <= 2**63 - 1 or
+            record['target_before'] != 'absent'):
         raise PublicationError('invalid publication receipt')
     if (record['policy_directory'] != _identity(policy) or
             record['private_directory'] != _identity(private)):
@@ -142,7 +145,8 @@ def _state(policy_fd: int, private_fd: int, txid: str, uid: int) -> str:
     record = _receipt(policy_fd, private_fd, txid, uid)
     data, info = _read(policy_fd, anchor, uid, 0o644, (1, 2), len(CONTENT))
     if (data != CONTENT or record['anchor'] != _identity(info) or
-            info.st_gid != record['anchor_gid']):
+            info.st_gid != record['anchor_gid'] or
+            info.st_mtime_ns != record['anchor_mtime_ns']):
         raise PublicationError('publication anchor changed')
     target = _entry(policy_fd, TARGET)
     if target is None:
@@ -176,7 +180,8 @@ def prepare(policy_fd: int, private_fd: int, txid: str, *, owner_uid: int = 0) -
     record = dict(schema=1, transaction_id=txid,
                   policy_directory=_identity(policy),
                   private_directory=_identity(private),
-                  anchor=_identity(info), anchor_gid=info.st_gid)
+                  anchor=_identity(info), anchor_gid=info.st_gid,
+                  anchor_mtime_ns=info.st_mtime_ns, target_before='absent')
     raw = (json.dumps(record, sort_keys=True, separators=(',', ':')) + '\n').encode('utf-8')
     _write_new(private_fd, receipt, raw, 0o600, owner_uid)
     if _state(policy_fd, private_fd, txid, owner_uid) != 'unpublished':
@@ -188,10 +193,32 @@ def inspect(policy_fd: int, private_fd: int, txid: str, *, owner_uid: int = 0) -
     return _state(policy_fd, private_fd, txid, owner_uid)
 
 
+def _sync_effect(policy_fd: int, private_fd: int, txid: str, uid: int,
+                 expected: str) -> None:
+    if _state(policy_fd, private_fd, txid, uid) != expected:
+        raise PublicationError('publication effect not verified')
+    anchor, _ = _names(txid)
+    record = _receipt(policy_fd, private_fd, txid, uid)
+    fd = os.open(anchor, _READ, dir_fd=policy_fd)
+    try:
+        info = os.fstat(fd)
+        _check_file(info, uid, 0o644, (2,) if expected == 'published' else (1,))
+        if _identity(info) != record['anchor']:
+            raise PublicationError('publication anchor changed before sync')
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+    os.fsync(policy_fd)
+    if _state(policy_fd, private_fd, txid, uid) != expected:
+        raise PublicationError('publication effect not verified')
+
+
 def publish(policy_fd: int, private_fd: int, txid: str, *, owner_uid: int = 0) -> None:
     """Atomically add only the fixed target; never replace another entry.
 
-    A failure after link() may mean publication happened; the retained
+    Only call after prepare returned successfully, within the same
+    authorized APPLYING operation. Never resume forward from an uncertain
+    prepare. A failure after link() may mean publication happened; the retained
     anchor and receipt allow a fresh inspection. Recovery must roll back,
     not call publish again to complete an interrupted transaction.
     """
@@ -200,9 +227,7 @@ def publish(policy_fd: int, private_fd: int, txid: str, *, owner_uid: int = 0) -
         raise PublicationError('publication already applied')
     os.link(anchor, TARGET, src_dir_fd=policy_fd, dst_dir_fd=policy_fd,
             follow_symlinks=False)
-    os.fsync(policy_fd)
-    if _state(policy_fd, private_fd, txid, owner_uid) != 'published':
-        raise PublicationError('publication not verified')
+    _sync_effect(policy_fd, private_fd, txid, owner_uid, 'published')
 
 
 def rollback(policy_fd: int, private_fd: int, txid: str, *, owner_uid: int = 0) -> None:
@@ -219,6 +244,4 @@ def rollback(policy_fd: int, private_fd: int, txid: str, *, owner_uid: int = 0) 
         if _state(policy_fd, private_fd, txid, owner_uid) != 'published':
             raise PublicationError('publication changed before rollback')
         os.unlink(TARGET, dir_fd=policy_fd)
-    os.fsync(policy_fd)
-    if _state(policy_fd, private_fd, txid, owner_uid) != 'unpublished':
-        raise PublicationError('publication rollback not verified')
+    _sync_effect(policy_fd, private_fd, txid, owner_uid, 'unpublished')
