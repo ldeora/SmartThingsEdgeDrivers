@@ -26,6 +26,7 @@ const (
 
 var (
 	errInstallerBusy            = errors.New("another installer is running")
+	errNotInstalled             = errors.New("no installed Linux agent")
 	errUnsafeInstallerLock      = errors.New("unsafe installer lock")
 	errInstallerRecoveryPending = errors.New("recover previous installer transaction before changing the trusted helper")
 	errUnavailablePython        = errors.New("installed helper could not select a compatible system Python")
@@ -341,20 +342,65 @@ func lockInstaller(path string, ownerUID int) (*os.File, error) {
 // It never runs the Python installer while holding that lock (which would
 // deadlock when InstallerBackend acquires the same flock).
 func prepareTrustedVersion(root, lock string, uid int, status func() (string, error)) (bool, error) {
+	return prepareTrustedVersionForAction(root, lock, uid, status, "")
+}
+
+// An uninstall may promote a helper for a real manual v2 installation,
+// but must not create one on a clean or already-uninstalled host. Check
+// the fixed managed agent path under the shared installer lock. A pending
+// journal takes precedence over absence of the agent during recovery.
+func checkUninstallTarget(root, agent string, uid int, status func() (string, error)) error {
+	var parentErr error
+	if root == trustedDir && uid == 0 {
+		parentErr = verifyParents(filepath.Dir(agent), uid)
+	} else {
+		parentErr = protectedPath(filepath.Dir(agent), uid, true)
+	}
+	if parentErr != nil && !os.IsNotExist(parentErr) {
+		return parentErr
+	}
+	if parentErr == nil {
+		if err := protectedPath(agent, uid, false); err == nil {
+			return nil
+		} else if !os.IsNotExist(err) {
+			return err
+		}
+	}
+	// Missing agent: inspect a trusted existing helper, if any, without
+	// promoting or repairing helper directories. Never report a pending
+	// uninstall as a clean host.
+	if _, err := os.Lstat(root); err == nil {
+		if root == trustedDir && uid == 0 {
+			if err := verifyParents(root, uid); err != nil {
+				return err
+			}
+		} else if err := protectedPath(root, uid, true); err != nil {
+			return err
+		}
+		state, err := status()
+		if err != nil {
+			return err
+		}
+		if state != "none" {
+			return errInstallerRecoveryPending
+		}
+	} else if !os.IsNotExist(err) {
+		return err
+	} else if _, err := os.Lstat(root + ".previous"); err == nil {
+		return errInstallerRecoveryPending
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	return errNotInstalled
+}
+
+func prepareTrustedVersionForAction(root, lock string, uid int, status func() (string, error), uninstallAgent string) (bool, error) {
 	if err := validateEmbeddedBundle(); err != nil {
 		return false, err
 	}
 	parent := filepath.Dir(root)
-	if err := os.MkdirAll(parent, 0o755); err != nil {
-		return false, err
-	}
-	if root == trustedDir && uid == 0 {
-		if err := verifyParents(parent, uid); err != nil {
-			return false, err
-		}
-	} else {
-		// Only internal tests may inject a temporary root; the exported
-		// rootBootstrap entry hardcodes trustedDir and UID 0.
+	if root != trustedDir || uid != 0 {
+		// Only internal tests may inject a temporary root.
 		if uid == 0 || uid != os.Geteuid() {
 			return false, errors.New("unsupported trusted directory override")
 		}
@@ -370,6 +416,19 @@ func prepareTrustedVersion(root, lock string, uid int, status func() (string, er
 		return false, err
 	}
 	defer guard.Close()
+	if uninstallAgent != "" {
+		if err := checkUninstallTarget(root, uninstallAgent, uid, status); err != nil {
+			return false, err
+		}
+	}
+	if err := os.MkdirAll(parent, 0o755); err != nil {
+		return false, err
+	}
+	if root == trustedDir && uid == 0 {
+		if err := verifyParents(parent, uid); err != nil {
+			return false, err
+		}
+	}
 	previous, next := root+".previous", root+".next"
 	hadPreviousArtifact := false
 	if _, err := os.Lstat(previous); err == nil {
@@ -571,6 +630,8 @@ func relayBootstrapFailure(writer io.Writer, action string, failure error) error
 		code = "installation_busy"
 	} else if errors.Is(failure, errUnsafeInstallerLock) {
 		code = "unsafe_lock"
+	} else if errors.Is(failure, errNotInstalled) {
+		code = "not_installed"
 	} else if errors.Is(failure, errInstallerRecoveryPending) {
 		code = "recovery_required"
 	} else if errors.Is(failure, errUnavailablePython) {
@@ -643,10 +704,14 @@ func rootBootstrap(reader io.Reader, writer io.Writer) error {
 		}
 		return relayBootstrapFailure(writer, request.Action, helperErr)
 	}
-	old, err := prepareTrustedVersion(trustedDir, trustedLock, 0, func() (string, error) {
+	uninstallAgent := ""
+	if request.Action == "uninstall" {
+		uninstallAgent = "/opt/linux-host-agent/linux_host_agent.py"
+	}
+	old, err := prepareTrustedVersionForAction(trustedDir, trustedLock, 0, func() (string, error) {
 		response, err := runInstalledHelper(trustedDir, privilegedRequest{SchemaVersion: 1, Action: "status"})
 		return response.PrivilegedTransactionState, err
-	})
+	}, uninstallAgent)
 	if err != nil {
 		return relayBootstrapFailure(writer, request.Action, err)
 	}
