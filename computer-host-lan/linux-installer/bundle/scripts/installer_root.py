@@ -34,6 +34,7 @@ _TRUSTED_MODULES = (
     'installer_root.py',
     'installer-entry.sh',
     'installer_transaction.py',
+    'credential_continuity.py',
     'install_core.py',
     'payload_staging.py',
     'transaction_journal.py',
@@ -231,6 +232,7 @@ def dispatch(request: dict, trusted_manifest: dict, *, backend, journal,
                       recovery_status=done.status, secrets_included=False)
         if done.operation in ('install', 'upgrade', 'repair', 'uninstall'):
             result['recovery_operation'] = done.operation
+        result.update(done.credential_result.public())
         return result
     # The installed root-owned shell has already selected and version-checked
     # this executable from fixed system paths. sys.executable is *not*
@@ -249,7 +251,7 @@ def dispatch(request: dict, trusted_manifest: dict, *, backend, journal,
             raise ControllerError('recovery_required')
         return dict(status=done.status, operation='uninstall',
                     identity_preserved=done.identity_preserved,
-                    secrets_included=False)
+                    secrets_included=False, **done.credential_result.public())
     from installer_transaction import InstallRequest
     power = request['power']
     options = InstallRequest(
@@ -262,7 +264,8 @@ def dispatch(request: dict, trusted_manifest: dict, *, backend, journal,
     done = backend.run(options, Path(request['source']), trusted_manifest['files'])
     return dict(status=done.status, operation=action,
                 identity_preserved=done.identity_preserved,
-                source_verified=done.source_verified, secrets_included=False)
+                source_verified=done.source_verified, secrets_included=False,
+                **done.credential_result.public())
 
 
 def _reply(payload: dict) -> None:
@@ -313,6 +316,12 @@ def main(argv=None) -> int:
                     if exc.code == 'adoption_required' else None))
             if exc.code == 'aborted' and exc.failure_stage is not None:
                 envelope['failure_stage'] = exc.failure_stage
+            if request['action'] == 'recover':
+                from credential_continuity import Result
+                envelope.update(Result(reason=
+                    'continuity_unverified_after_interruption').public())
+            elif request['action'] != 'status':
+                envelope.update(exc.credential_result.public())
             _reply(envelope)
             return 3
         _reply(result)

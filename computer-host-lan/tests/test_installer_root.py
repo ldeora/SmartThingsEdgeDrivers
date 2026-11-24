@@ -18,18 +18,22 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'scripts'))
 import installer_root as bridge
+import credential_continuity as continuity
 
 
 class FakeBackend:
     def __init__(self):
         self.calls = []
-        self.recovered = mock.Mock(status='rolled_back', operation=None)
-        self.removed = mock.Mock(status='uninstalled', identity_preserved='verified')
+        self.recovered = mock.Mock(status='rolled_back', operation=None, credential_result=
+                                   continuity.Result(reason='continuity_unverified_after_interruption'))
+        self.removed = mock.Mock(status='uninstalled', identity_preserved='verified',
+                                 credential_result=continuity.Result('verified', 'absent'))
 
     def run(self, request, source, files):
         self.calls.append((request, source, files))
         return mock.Mock(status='installed', operation=request.operation,
-                         identity_preserved='not_verified', source_verified=True)
+                         identity_preserved='not_verified', source_verified=True,
+                         credential_result=continuity.Result('absent', 'newly_present'))
 
     def uninstall(self):
         self.calls.append('uninstall')
@@ -173,7 +177,8 @@ class RootProtocolTests(unittest.TestCase):
                 request, self.manifest, backend=self.backend,
                 journal=self.journal, selected_python='/usr/sbin/python3')
             self.assertEqual(response, dict(status=status, operation='uninstall',
-                identity_preserved='verified', secrets_included=False))
+                identity_preserved='verified', secrets_included=False,
+                **continuity.Result('verified', 'absent').public()))
             self.assertEqual(self.backend.calls[-1], 'uninstall')
         for payload in (
                 b'{"schema_version":1,"action":"uninstall"}',

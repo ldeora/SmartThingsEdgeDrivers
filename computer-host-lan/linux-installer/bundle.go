@@ -25,6 +25,7 @@ var installedHelpers = []string{
 	"installer-entry.sh",
 	"installer_root.py",
 	"installer_transaction.py",
+	"credential_continuity.py",
 	"install_core.py",
 	"payload_staging.py",
 	"transaction_journal.py",

@@ -52,6 +52,10 @@ type privilegedResult struct {
 	RecoveryOperation          string `json:"recovery_operation,omitempty"`
 	PrivilegedTransactionState string `json:"privileged_transaction_state"`
 	IdentityPreserved          string `json:"identity_preserved"`
+	InstallationIDContinuity   string `json:"installation_id_continuity,omitempty"`
+	ControlTokenContinuity     string `json:"control_token_continuity,omitempty"`
+	CredentialContinuity       string `json:"credential_continuity,omitempty"`
+	ContinuityReason           string `json:"continuity_reason,omitempty"`
 	SecretsIncluded            bool   `json:"secrets_included"`
 }
 

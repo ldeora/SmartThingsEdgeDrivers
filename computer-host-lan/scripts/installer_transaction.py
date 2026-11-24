@@ -27,6 +27,7 @@ from typing import Mapping, Protocol, Callable
 import install_core as core
 import payload_staging as staging
 import runtime_verify
+import credential_continuity as continuity
 from transaction_journal import ProtectedJournal, JournalConflict, _staged_payload_remains
 
 _MANUAL_LOCK = Path('/run/lock/linux-host-agent-install.lock')
@@ -44,7 +45,8 @@ _IFNAME = re.compile(r'[A-Za-z0-9_.-]{1,15}\Z')
 class ControllerError(RuntimeError):
     """All user-facing errors are fixed, sanitized codes."""
 
-    def __init__(self, code: str, *, failure_stage: str | None = None):
+    def __init__(self, code: str, *, failure_stage: str | None = None,
+                 credential_result: continuity.Result = continuity.Result()):
         if code not in ('invalid_request', 'installation_busy', 'aborted',
                         'rolled_back', 'recovery_required',
                         'unsupported_environment', 'adoption_required',
@@ -61,6 +63,7 @@ class ControllerError(RuntimeError):
         )
         super().__init__(message)
         self.code = code
+        self.credential_result = credential_result
         # Only a fixed pre-apply stage can appear in the public JSON.
         # No filesystem paths, source data, UUIDs or exception strings.
         self.failure_stage = (failure_stage
@@ -120,12 +123,14 @@ class InstallOutcome:
     operation: str
     identity_preserved: str  # 'verified' or 'not_verified'
     source_verified: bool = True
+    credential_result: continuity.Result = continuity.Result()
 
 
 @dataclass(frozen=True)
 class UninstallOutcome:
     status: str  # 'uninstalled' or 'uninstalled_cleanup_required'
     identity_preserved: str  # 'verified' or 'not_verified'
+    credential_result: continuity.Result = continuity.Result()
 
 
 @dataclass(frozen=True)
@@ -134,6 +139,12 @@ class RecoveryOutcome:
     status: str       # aborted, rolled_back, cleaned
     previous_phase: str | None = None
     operation: str | None = None  # fixed journal operation, never an identifier
+
+    @property
+    def credential_result(self):
+        return continuity.Result(reason=(
+            '' if self.status == 'nothing_to_recover' else
+            'continuity_unverified_after_interruption'))
 
 
 _UNSAFE_LOCK_ERRNOS = frozenset((
@@ -882,6 +893,13 @@ class InstallerBackend:
         self.manual_lock_path = Path(manual_lock_path)
         self.services = services if services is not None else SystemdOperations()
 
+    def _observe_credentials(self):
+        # Live account resolution cannot be provided by the caller. Tests
+        # replace this private method on their disposable backend only.
+        if self.root != Path('/'):
+            raise continuity.ContinuityError()
+        return continuity.observe_live()
+
     def _check_context(self) -> None:
         if os.geteuid() != self.owner_uid:
             raise ControllerError('unsupported_environment')
@@ -949,6 +967,7 @@ class InstallerBackend:
         store = ProtectedJournal(root=self.root, owner_uid=self.owner_uid)
         changes = [core.Change(name, None) for name in sorted(core.MANAGED_PATHS)]
         with store.begin('uninstall') as journal:
+            credential_check = continuity.Check(journal, self._observe_credentials)
             backup = None
             previous = None
             identity_state = 'not_verified'
@@ -962,6 +981,7 @@ class InstallerBackend:
                 _check_previous(previous)
                 if previous['first_install']:
                     raise ControllerError('unsupported_environment')
+                credential_check.capture()
                 saved_identity = read_saved_identity(self.root)
                 identity_state = 'verified' if saved_identity else 'not_verified'
                 failure_stage = 'snapshot'
@@ -973,6 +993,7 @@ class InstallerBackend:
                                 snapshot_name=backup.name)
                 # All changes, including stopping units and creating an
                 # ownership marker, require this durable APPLYING entry.
+                credential_check.verify(journal)
                 journal.advance('SNAPSHOTTED', 'APPLYING')
                 core.write_owner_record(self.root)
                 self.services.stop_for_uninstall()
@@ -990,18 +1011,20 @@ class InstallerBackend:
                         not core.owner_record_exists(self.root) or
                         read_saved_identity(self.root) != saved_identity):
                     raise ControllerError('recovery_required')
+                credential_check.verify(journal, allow_new=False)
                 journal.advance('VERIFYING', 'COMMITTED')
             except Exception:
                 try:
                     phase = journal._record()['phase']
                     if phase == 'COMMITTED':
                         return UninstallOutcome('uninstalled_cleanup_required',
-                                                identity_state)
+                                                identity_state, credential_check.result)
                     if phase in _PREAPPLY:
                         journal.abort(lambda _: True)
                         outcome = 'aborted'
                     elif phase in _APPLIED and backup is not None and previous is not None:
-                        self._restore_snapshot(journal, transaction, backup)
+                        self._restore_snapshot(journal, transaction, backup,
+                                               credential_check=credential_check)
                         outcome = 'rolled_back'
                     else:
                         raise ControllerError('recovery_required')
@@ -1009,10 +1032,14 @@ class InstallerBackend:
                         journal, root=self.root, owner_uid=self.owner_uid)
                     journal.clear_finished()
                 except Exception:
-                    raise ControllerError('recovery_required') from None
+                    raise ControllerError('recovery_required',
+                                          credential_result=(credential_check.result if credential_check.failed
+                                                             else continuity.Result())) from None
                 raise ControllerError(
                     outcome,
-                    failure_stage=failure_stage if outcome == 'aborted' else None
+                    failure_stage=failure_stage if outcome == 'aborted' else None,
+                    credential_result=(credential_check.result if credential_check.failed or outcome == 'rolled_back'
+                                       else continuity.Result())
                 ) from None
 
             # A committed uninstall is final; only clean its journal.
@@ -1023,14 +1050,15 @@ class InstallerBackend:
                 journal.clear_finished()
             except Exception:
                 return UninstallOutcome('uninstalled_cleanup_required',
-                                        identity_state)
-        return UninstallOutcome('uninstalled', identity_state)
+                                        identity_state, credential_check.result)
+        return UninstallOutcome('uninstalled', identity_state, credential_check.result)
 
     def _run_locked(self, request: InstallRequest, source: Path,
                     trusted_hashes: Mapping[str, str]) -> InstallOutcome:
         store = ProtectedJournal(root=self.root, owner_uid=self.owner_uid)
         transaction = core.InstallTransaction(self.root)
         with store.begin(request.operation) as journal:
+            credential_check = continuity.Check(journal, self._observe_credentials)
             receipt = None
             backup = None
             previous = None
@@ -1048,6 +1076,7 @@ class InstallerBackend:
                 # Only root-side code reads the protected UUID. The wizard
                 # cannot supply or read it. A provided internal hint must
                 # match the actual persisted ID, or we reject pre-apply.
+                credential_check.capture()
                 saved_identity = read_saved_identity(self.root)
                 if (request.expected_identity is not None and
                         request.expected_identity != saved_identity):
@@ -1082,6 +1111,7 @@ class InstallerBackend:
                 journal.advance('STAGED', 'SNAPSHOTTED',
                                 snapshot_name=backup.name)
                 # NO managed file or service may change before this marker.
+                credential_check.verify(journal)
                 journal.advance('SNAPSHOTTED', 'APPLYING')
                 # The existing manual installer creates the service user
                 # before install_core. The backend must do so as well,
@@ -1102,6 +1132,7 @@ class InstallerBackend:
                     transaction=transaction
                 ) is not True:
                     raise ControllerError('recovery_required')
+                credential_check.verify(journal, allow_new=True)
                 journal.advance('VERIFYING', 'COMMITTED')
             except Exception:
                 # If a durable COMMITTED record was written before an fsync
@@ -1112,13 +1143,15 @@ class InstallerBackend:
                         return InstallOutcome('installed_cleanup_required',
                                               request.operation,
                                               identity_state if previous is not None and
-                                              'identity_state' in locals() else 'not_verified')
+                                              'identity_state' in locals() else 'not_verified',
+                                              credential_result=credential_check.result)
                     if phase in _PREAPPLY:
                         # This controller has not touched managed targets.
                         journal.abort(lambda _: True)
                         outcome = 'aborted'
                     elif phase in _APPLIED and backup is not None and previous is not None:
-                        self._restore_snapshot(journal, transaction, backup)
+                        self._restore_snapshot(journal, transaction, backup,
+                                               credential_check=credential_check)
                         outcome = 'rolled_back'
                     else:
                         raise ControllerError('recovery_required')
@@ -1129,10 +1162,14 @@ class InstallerBackend:
                             journal, root=self.root, owner_uid=self.owner_uid)
                     journal.clear_finished()
                 except Exception:
-                    raise ControllerError('recovery_required') from None
+                    raise ControllerError('recovery_required',
+                                          credential_result=(credential_check.result if credential_check.failed
+                                                             else continuity.Result())) from None
                 raise ControllerError(
                     outcome,
-                    failure_stage=failure_stage if outcome == 'aborted' else None
+                    failure_stage=failure_stage if outcome == 'aborted' else None,
+                    credential_result=(credential_check.result if credential_check.failed or outcome == 'rolled_back'
+                                       else continuity.Result())
                 ) from None
             finally:
                 if receipt is not None:
@@ -1147,13 +1184,14 @@ class InstallerBackend:
                 journal.clear_finished()
             except Exception:
                 return InstallOutcome('installed_cleanup_required', request.operation,
-                                      identity_state)
+                                      identity_state, credential_result=credential_check.result)
         return InstallOutcome('installed', request.operation,
-                              identity_state)
+                              identity_state, credential_result=credential_check.result)
 
     def _restore_snapshot(self, journal, transaction: core.InstallTransaction,
                           backup: Path, *,
-                          journal_owned_fresh_install: bool = False) -> None:
+                          journal_owned_fresh_install: bool = False,
+                          credential_check: continuity.Check | None = None) -> None:
         """Restore and durably verify the snapshot before marking rollback complete.
 
         Only explicit recovery of the protected APPLYING+ journal may use
@@ -1187,6 +1225,10 @@ class InstallerBackend:
                     self.services.verify_restored_services(restored) is True and
                     (not restored['first_install'] or
                      _enablement_absent(transaction)))
+        if credential_check is not None:
+            # Even after a known mismatch, perform the authorized managed
+            # restoration above; never report terminal rollback success.
+            credential_check.verify(journal, allow_new=True)
         journal.mark_rolled_back(lambda _: verified)
 
     def _recover_locked(self, journal, transaction: core.InstallTransaction) -> RecoveryOutcome:

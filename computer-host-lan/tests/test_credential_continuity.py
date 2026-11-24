@@ -30,6 +30,46 @@ class CredentialContinuityTests(unittest.TestCase):
         path.chmod(0o600)
         return path
 
+    def test_check_is_handle_bound_and_failure_sticky(self):
+        path = self.create('control-token')
+        handle = object()
+        check = c.Check(handle, self.observe)
+        check.capture()
+        self.assertEqual(check.verify(handle).control_token, 'verified')
+        with self.assertRaises(c.ContinuityError):
+            check.verify(object())
+        with self.assertRaises(c.ContinuityError):
+            check.verify(handle)
+        self.assertTrue(check.failed)
+        self.assertEqual(check.result.reason, 'credential_continuity_unverified')
+        self.assertNotIn(str(path), str(check.result.public()))
+
+    def test_live_account_resolution_distinguishes_absence_and_inconsistency(self):
+        user = mock.Mock(pw_name='linuxhost', pw_uid=123, pw_gid=456,
+                         pw_dir='/var/lib/linux-host-agent', pw_shell='/sbin/nologin')
+        group = mock.Mock(gr_name='linuxhost', gr_gid=456)
+        with mock.patch.object(c.pwd, 'getpwnam', return_value=user), \
+                mock.patch.object(c.grp, 'getgrnam', return_value=group):
+            self.assertEqual(c._live_account(), (123, 456))
+            group.gr_gid = 789
+            with self.assertRaises(c.ContinuityError):
+                c._live_account()
+        with mock.patch.object(c.pwd, 'getpwnam', side_effect=KeyError), \
+                mock.patch.object(c.grp, 'getgrnam', side_effect=KeyError):
+            self.assertIsNone(c._live_account())
+        with mock.patch.object(c.pwd, 'getpwnam', side_effect=KeyError), \
+                mock.patch.object(c.grp, 'getgrnam', return_value=group):
+            with self.assertRaises(c.ContinuityError):
+                c._live_account()
+
+    def test_live_observation_rechecks_account_without_host_access(self):
+        with mock.patch.object(c.os, 'geteuid', return_value=0), \
+                mock.patch.object(c, '_live_account', side_effect=[(123, 456), (123, 789)]), \
+                mock.patch.object(c, '_walk') as walk:
+            with self.assertRaises(c.ContinuityError):
+                c.observe_live()
+            walk.assert_called_once_with(Path('/'), 0, (123, 456))
+
     def test_retained_metadata_no_content_reads(self):
         for name in c._NAMES:
             self.create(name)
