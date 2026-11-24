@@ -131,6 +131,7 @@ func TestCLIResultAndExitCodeContracts(t *testing.T) {
 		{"cleanup", privilegedResult{SchemaVersion: 1, Operation: "upgrade", Status: "installed_cleanup_required"}, nil, 3, "installed_cleanup_required", ""},
 		{"recovery", privilegedResult{SchemaVersion: 1, Operation: "upgrade", Status: "error", ErrorCode: "recovery_required"}, errors.New("fixture"), 3, "error", "recovery_required"},
 		{"rollback", privilegedResult{SchemaVersion: 1, Operation: "upgrade", Status: "error", ErrorCode: "rolled_back"}, errors.New("fixture"), 1, "error", "rolled_back"},
+		{"authorization unavailable", privilegedResult{}, &authorizationUnavailableError{cause: errors.New("private path")}, 1, "error", "authorization_unavailable"},
 		{"lost reply", privilegedResult{}, errors.New("private output"), 1, "error", "outcome_unknown"},
 		{"wrong action", privilegedResult{SchemaVersion: 1, Operation: "install", Status: "installed"}, nil, 1, "error", "outcome_unknown"},
 		{"secret flag", privilegedResult{SchemaVersion: 1, Operation: "upgrade", Status: "installed", SecretsIncluded: true}, nil, 1, "error", "outcome_unknown"},
@@ -161,5 +162,38 @@ func TestCLIPreflightFailureDoesNotAuthorize(t *testing.T) {
 		}, nil)
 	if code != 1 || result.ErrorCode != "preflight_failed" || result.SecretsIncluded {
 		t.Fatalf("unexpected result: %+v, %d", result, code)
+	}
+}
+
+func TestCLIStatusExitCodes(t *testing.T) {
+	for _, tc := range []struct {
+		state string
+		code  int
+	}{
+		{"none", 0},
+		{"in_progress", 3},
+		{"incomplete", 3},
+		{"recovery_required", 3},
+		{"", 1},
+	} {
+		t.Run(tc.state, func(t *testing.T) {
+			result, code := executeCLI([]string{"status"}, false, prepareCLIRequest,
+				func(req privilegedRequest, interactive bool, method string) (privilegedResult, error) {
+					return privilegedResult{
+						SchemaVersion: 1, Operation: req.Action, Status: "passed",
+						PrivilegedTransactionState: tc.state,
+					}, nil
+				})
+			if code != tc.code || result.SecretsIncluded {
+				t.Fatalf("unexpected status outcome: %+v, %d", result, code)
+			}
+			if tc.state == "" {
+				if result.ErrorCode != "outcome_unknown" {
+					t.Fatalf("empty state accepted: %+v", result)
+				}
+			} else if result.Status != "passed" || result.PrivilegedTransactionState != tc.state {
+				t.Fatalf("status evidence lost: %+v", result)
+			}
+		})
 	}
 }

@@ -272,3 +272,23 @@ func TestRootBootstrapRelaysHelperFailureAsJSONWithNonzeroExit(t *testing.T) {
 		}
 	}
 }
+
+func TestElevationProcessDistinguishesStartFailureFromExitFailure(t *testing.T) {
+	// No real elevation: ordinary local subprocesses exercise the actual
+	// Start/Wait boundary. Only Start failure is a certain no-op.
+	missing := filepath.Join(t.TempDir(), "missing-provider")
+	err := runElevationProcess(exec.Command(missing))
+	var unavailable *authorizationUnavailableError
+	if !errors.As(err, &unavailable) {
+		t.Fatalf("missing executable not classified as unavailable: %v", err)
+	}
+	cmd := exec.Command("/bin/sh", "-c", "exit 1")
+	err = runElevationProcess(cmd)
+	unavailable = nil
+	if err == nil || errors.As(err, &unavailable) || cmd.ProcessState == nil {
+		t.Fatalf("started process failure misclassified: %v", err)
+	}
+	if err := runElevationProcess(exec.Command("/bin/sh", "-c", "exit 0")); err != nil {
+		t.Fatal(err)
+	}
+}

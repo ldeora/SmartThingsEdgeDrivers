@@ -24,7 +24,8 @@ prompts or provider retries. No hub discovery, pairing, firewall or persistent
 WOL configuration. Status/recovery use the existing protected helper.
 Use an independently authenticated executable for any eventual release.
 Except for --help, stdout contains a single JSON result.
-Exit: 0 completed, 1 failed/unknown, 2 invalid invocation, 3 recovery/cleanup required.
+Exit: 0 completed, 1 failed/unknown, 2 invalid invocation,
+      3 outstanding transaction or cleanup required.
 `
 
 type cliOptions struct {
@@ -179,6 +180,10 @@ func executeCLI(args []string, root bool,
 	// A CLI request is noninteractive even if stdout/stdin happen to be
 	// attached to a terminal. Never invoke su or a password prompt.
 	reply, err := authorize(req, false, o.elevation)
+	var unavailable *authorizationUnavailableError
+	if errors.As(err, &unavailable) {
+		return cliFailure(o.action, "authorization_unavailable"), 1
+	}
 	// Reuse the existing fixed-enum result checks before re-encoding. Do
 	// not relay raw subprocess diagnostics or unknown response fields.
 	raw, marshalErr := json.Marshal(reply)
@@ -195,6 +200,18 @@ func executeCLI(args []string, root bool,
 	}
 	if strings.HasSuffix(safe.Status, "_cleanup_required") {
 		return safe, 3
+	}
+	if o.action == "status" {
+		switch safe.PrivilegedTransactionState {
+		case "none":
+			return safe, 0
+		case "in_progress", "incomplete", "recovery_required":
+			return safe, 3
+		default:
+			// A successful status envelope without a state is not
+			// evidence that there is no outstanding transaction.
+			return cliFailure(o.action, "outcome_unknown"), 1
+		}
 	}
 	return safe, 0
 }

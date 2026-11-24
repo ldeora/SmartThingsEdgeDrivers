@@ -141,13 +141,23 @@ shell instructions remain unchanged, including their read-only dry run.
 
 Except for help, stdout is a single schema-version-1 JSON result containing
 only fixed operation/status/error and optional recovery/identity fields;
-`secrets_included` is false. No raw privileged output is copied. Exit 0
-means a completed operation (status may report an outstanding transaction);
+`secrets_included` is false. Empty strings mean no applicable or reported
+value, not a verified negative. No raw privileged output is copied.
+Exit 0 means a completed operation (for status, transaction state none);
 1 means failure or unknown outcome; 2 invalid invocation or root caller;
-3 indicates recovery required or committed success with pending cleanup.
-An `outcome_unknown` result does **not** prove that nothing changed;
-inspect status and use explicit recovery if indicated, rather than
-blindly repeating an installation. `preflight_failed` is before elevation.
+3 indicates an outstanding transaction (including an in-progress one)
+or committed success with pending cleanup. A status result can be
+successful with exit 3: its state is retained. Do not recover an active
+transaction merely because status exited 3.
+
+`preflight_failed` and `authorization_unavailable` are certain no-ops
+with respect to privileged installation: preflight failed, no provider
+could be selected, the executable could not be resolved, or the provider
+process could not start. `outcome_unknown` means the caller lacks a
+definitive result; authorization refusal after the provider started
+(e.g. sudo -n) is one possible cause. No provider stderr is parsed.
+Do not assume that nothing changed; inspect status and use explicit
+recovery if indicated, rather than blindly repeating an installation.
 For discovery, restrict TCP/8765 to the trusted LAN/hub and ensure Avahi
 is installed/running; these are not modified by CLI commands.
 

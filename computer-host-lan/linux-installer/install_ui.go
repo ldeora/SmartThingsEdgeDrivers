@@ -431,25 +431,43 @@ func elevationInput(method string, payload []byte, terminal io.Reader) io.Reader
 	return bytes.NewReader(payload)
 }
 
+// authorizationUnavailableError means the authorization provider process
+// did not start. It is intentionally distinct from any failure after Start,
+// including a nonzero provider exit or lost/invalid helper response. Keep
+// the existing human-readable error for the wizard.
+type authorizationUnavailableError struct {
+	cause error
+}
+
+func (e *authorizationUnavailableError) Error() string { return e.cause.Error() }
+func (e *authorizationUnavailableError) Unwrap() error { return e.cause }
+
+func runElevationProcess(cmd *exec.Cmd) error {
+	if err := cmd.Start(); err != nil {
+		return &authorizationUnavailableError{cause: err}
+	}
+	return cmd.Wait()
+}
+
 func executeAuthorizedBootstrap(request privilegedRequest, interactive bool, method string) (privilegedResult, error) {
 	if err := request.validate(); err != nil {
-		return privilegedResult{}, err
+		return privilegedResult{}, &authorizationUnavailableError{cause: err}
 	}
 	payload, err := json.Marshal(request)
 	if err != nil {
-		return privilegedResult{}, err
+		return privilegedResult{}, &authorizationUnavailableError{cause: err}
 	}
 	binary, err := os.Executable()
 	if err != nil {
-		return privilegedResult{}, errors.New("cannot identify installer executable")
+		return privilegedResult{}, &authorizationUnavailableError{cause: errors.New("cannot identify installer executable")}
 	}
 	binary, err = filepath.EvalSymlinks(binary)
 	if err != nil || !filepath.IsAbs(binary) {
-		return privilegedResult{}, errors.New("cannot resolve installer executable")
+		return privilegedResult{}, &authorizationUnavailableError{cause: errors.New("cannot resolve installer executable")}
 	}
 	elevate, err := chooseElevationCommand(binary, interactive, payload, method, isExecutableFile)
 	if err != nil {
-		return privilegedResult{}, err
+		return privilegedResult{}, &authorizationUnavailableError{cause: err}
 	}
 	cmd := exec.Command(elevate.path, elevate.args...)
 	cmd.Dir = "/"
@@ -469,7 +487,14 @@ func executeAuthorizedBootstrap(request privilegedRequest, interactive bool, met
 	} else {
 		cmd.Stderr = &stderr
 	}
-	runErr := cmd.Run()
+	runErr := runElevationProcess(cmd)
+	var unavailable *authorizationUnavailableError
+	if errors.As(runErr, &unavailable) {
+		// A failed Start cannot have produced a privileged reply.
+		return privilegedResult{}, &authorizationUnavailableError{
+			cause: errors.New("administrator authorization or privileged bootstrap failed; no valid installer result was received"),
+		}
+	}
 	return interpretPrivilegedExecution(stdout.Bytes(), runErr, request.Action)
 }
 
