@@ -141,6 +141,52 @@ class PartialReceiptCases:
             self.finish(handle)
 
 
+    def test_completed_append_sync_failure_uses_normal_retry(self):
+        with self.store.transaction(ADOPT) as handle:
+            source, dest, receipt, expected = self.interrupted(handle, 17)
+        identity = receipt.stat()
+        real_sync = os.fsync
+
+        def sync(fd):
+            info = os.fstat(fd)
+            if os.path.samestat(info, identity) and info.st_size == len(expected):
+                raise OSError('injected completed receipt fsync failure')
+            return real_sync(fd)
+
+        with self.store.transaction() as handle:
+            with mock.patch.object(os, 'fsync', side_effect=sync):
+                with self.assertRaises(before.BeforeStateError):
+                    self.reconcile(handle)
+            self.assertEqual(receipt.read_bytes(), expected)
+            self.assertTrue(source.exists())
+            self.assertFalse(dest.exists())
+            with self.assertRaises(old.JournalConflict):
+                handle.record()
+        with self.store.transaction() as handle:
+            with self.assertRaises(before.BeforeStateError):
+                self.reconcile(handle)
+            self.assertEqual(self.move(handle), 'quarantined')
+            self.finish(handle)
+
+    def test_missing_receipt_and_forward_handle_refused(self):
+        with self.store.transaction(ADOPT) as handle:
+            source = self.prepare_source(handle)
+            dest, receipt = self.locations(handle)
+            verifier = mock.Mock(return_value=True)
+            with self.assertRaises(before.BeforeStateError):
+                self.reconcile(handle, verifier)
+            verifier.assert_not_called()
+            self.assertFalse(receipt.exists())
+        with self.store.transaction() as handle:
+            verifier = mock.Mock(return_value=True)
+            with self.assertRaises(before.BeforeStateError):
+                self.reconcile(handle, verifier)
+            verifier.assert_not_called()
+            self.assertTrue(source.exists())
+            self.assertFalse(receipt.exists())
+            self.assertFalse(dest.exists())
+
+
 class UnboundPartialReceiptTests(PartialReceiptCases, unittest.TestCase):
     setUp = unbound.UnboundQuarantineTests.setUp
     prepare = unbound.UnboundQuarantineTests.prepare
