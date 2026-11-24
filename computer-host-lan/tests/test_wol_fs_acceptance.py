@@ -148,7 +148,7 @@ class AcceptanceTests(unittest.TestCase):
         self.directory.chmod(0o755)
         with self.assertRaises(acceptance.FixtureNotPrivate):
             self.run_fixture('prepare')
-        self.assertEqual(list(self.directory.iterdir()), [self.link_directory])
+        self.assertEqual(list(self.directory.iterdir()), [])
 
     def test_public_entry_refuses_root_before_opening_directory(self):
         with mock.patch.object(acceptance.os, 'getuid', return_value=0), \
