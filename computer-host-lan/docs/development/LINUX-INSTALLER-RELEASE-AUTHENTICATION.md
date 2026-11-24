@@ -90,6 +90,22 @@ to run unless `/proc/self/exe` resolves to the expected root-owned handoff
 path. The wrapper removes the temporary root copy after the bootstrap exits.
 sudo, doas, run0 and su retain their existing input/password semantics.
 
+### Platform-specific validation and deferred compatibility
+
+- **`/run` mounted `noexec`: not supported by this implementation.** The
+  protected copy is executed by pathname below `/run/computer-host-lan`.
+  A hardened `noexec` mount therefore prevents the handoff from starting;
+  the launcher fails closed, but currently reports its generic handoff
+  failure rather than a dedicated mount diagnostic. Explicit detection and a
+  fixed diagnostic, or a separately reviewed sealed-`memfd`/`fexecve`
+  design, are deferred. Do not claim support for `noexec` hosts.
+- **Gentoo Python wrapper:** `/usr/bin/python3` may resolve to Gentoo's
+  `python-exec2c` wrapper. The Go code checks the resolved executable's
+  root-owned path and invokes it with isolated, no-bytecode options
+  (`-I -S -B`). Actual validation through both `su` and `run0` on hydra
+  remains required before release; the wrapper has not yet been hardware-
+  tested as part of this PR.
+
 This pins the elevated process to the image already running in the ordinary
 user process and prevents a pathname replacement between that launch and
 elevation from changing the bytes executed as root. The handoff does not

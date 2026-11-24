@@ -69,7 +69,7 @@ try:
 
     child_args = json.loads(child_args_text)
     if not isinstance(child_args, list) or not child_args or not all(
-            isinstance(x, str) and "\\x00" not in x for x in child_args):
+            isinstance(x, str) and "\x00" not in x for x in child_args):
         fail()
     if base_uid == 0:
         if (child_args[0] != "-root-bootstrap" or
@@ -91,7 +91,7 @@ try:
             (source_dir_visible.st_dev, source_dir_visible.st_ino)):
         fail()
 
-    source_fd = os.open("installer", os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=source_dir_fd)
+    source_fd = os.open("installer", os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=source_dir_fd)
     source_before = os.fstat(source_fd)
     source_visible = os.stat("installer", dir_fd=source_dir_fd, follow_symlinks=False)
     if (not stat.S_ISREG(source_before.st_mode) or source_before.st_uid != caller_uid or
@@ -102,7 +102,7 @@ try:
         fail()
 
     # /run is a fixed, root-owned parent. The child directory is private and
-    # is also used by the Go bootstrap's lifetime lock.
+    # is also used by the Go bootstrap lifetime lock.
     parent_fd = os.open(base_parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
     parent_stat = os.fstat(parent_fd)
     if (not stat.S_ISDIR(parent_stat.st_mode) or parent_stat.st_uid != base_uid or
@@ -201,7 +201,7 @@ finally:
         os.close(base_fd)
     if parent_fd is not None:
         os.close(parent_fd)
-`;
+`
 
 type executableSnapshot struct {
 	directory string
@@ -319,7 +319,7 @@ func trustedSystemPython() (string, error) {
 		if err := protectedPath(resolved, 0, false); err != nil || !isExecutableFile(resolved) {
 			continue
 		}
-		cmd := exec.Command(resolved, "-I", "-S", "-c",
+		cmd := exec.Command(resolved, "-I", "-S", "-B", "-c",
 			"import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)")
 		cmd.Dir = "/"
 		cmd.Env = []string{"PATH=/usr/sbin:/usr/bin:/sbin:/bin", "HOME=/root", "LANG=C", "LC_ALL=C"}
@@ -343,7 +343,7 @@ func protectedHandoffArguments(python, sourceDir, digest string, callerUID int, 
 		return nil, err
 	}
 	return []string{
-		"-I", "-S", "-c", protectedHandoffScript,
+		"-I", "-S", "-B", "-c", protectedHandoffScript,
 		sourceDir, digest, strconv.Itoa(callerUID),
 		"/run", "computer-host-lan", "0", string(encoded),
 	}, nil

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -14,6 +15,7 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 )
 
 func TestElevationFallbackOrderAndNoninteractiveRules(t *testing.T) {
@@ -61,8 +63,12 @@ func TestElevationFallbackOrderAndNoninteractiveRules(t *testing.T) {
 			if !strings.Contains(joined, test.wantArg) {
 				t.Fatalf("Missing required option %s in %q", test.wantArg, got.args)
 			}
+			handoffArgument := protectedHandoffScript
+			if got.method == "su" {
+				handoffArgument = quotePOSIXShell(protectedHandoffScript)
+			}
 			if !strings.Contains(joined, "-root-bootstrap") ||
-				!strings.Contains(joined, protectedHandoffScript) {
+				!strings.Contains(joined, handoffArgument) {
 				t.Fatalf("Provider did not invoke the fixed protected handoff: %+v", got)
 			}
 			if strings.Contains(joined, sourceDir) == false {
@@ -88,7 +94,7 @@ func TestExplicitElevationChoiceSelectsOnlyRequestedProvider(t *testing.T) {
 	}
 	if !strings.Contains(chosen.args[2], "-root-bootstrap") ||
 		!strings.Contains(chosen.args[2], string(payload)) ||
-		!strings.Contains(chosen.args[2], protectedHandoffScript) {
+		!strings.Contains(chosen.args[2], quotePOSIXShell(protectedHandoffScript)) {
 		t.Fatalf("Explicit su did not retain the protected handoff and bounded request: %+v", chosen)
 	}
 	chosen, err = chooseElevationCommand(python, sourceDir, digest, 1000, true, payload, "run0", available)
@@ -128,6 +134,7 @@ func TestSuFallbackQuotesEveryProtectedHandoffArgument(t *testing.T) {
 	}
 	if !strings.Contains(got.args[2], `'\''`) ||
 		!strings.Contains(got.args[2], "'-I'") ||
+		!strings.Contains(got.args[2], "'-B'") ||
 		!strings.Contains(got.args[2], "-root-bootstrap") {
 		t.Fatalf("Executable, snapshot path or request was not safely shell-quoted: %q", got.args[2])
 	}
@@ -163,14 +170,15 @@ func TestSuPassesRequestAsQuotedArgumentAndKeepsStdinForPassword(t *testing.T) {
 		t.Fatal(err)
 	}
 	fields := strings.Split(strings.TrimSuffix(string(output), "\x00"), "\x00")
-	if len(fields) != 11 || fields[0] != "-I" || fields[1] != "-S" || fields[2] != "-c" ||
-		fields[3] != protectedHandoffScript || fields[4] != sourceDir ||
-		fields[5] != strings.Repeat("d", 64) || fields[6] != "1000" ||
-		fields[7] != "/run" || fields[8] != "computer-host-lan" || fields[9] != "0" {
+	if len(fields) != 12 || fields[0] != "-I" || fields[1] != "-S" ||
+		fields[2] != "-B" || fields[3] != "-c" ||
+		fields[4] != protectedHandoffScript || fields[5] != sourceDir ||
+		fields[6] != strings.Repeat("d", 64) || fields[7] != "1000" ||
+		fields[8] != "/run" || fields[9] != "computer-host-lan" || fields[10] != "0" {
 		t.Fatalf("su did not preserve the exact protected launcher arguments: %q", fields)
 	}
 	var childArgs []string
-	if err := json.Unmarshal([]byte(fields[10]), &childArgs); err != nil {
+	if err := json.Unmarshal([]byte(fields[11]), &childArgs); err != nil {
 		t.Fatal(err)
 	}
 	if len(childArgs) != 3 || childArgs[0] != "-root-bootstrap" ||
@@ -267,11 +275,23 @@ func testPythonInterpreter(t *testing.T) string {
 	return abs
 }
 
-func runProtectedHandoffFixture(t *testing.T, snapshot executableSnapshot, tamper bool) ([]byte, error, string) {
+func runProtectedHandoffFixture(t *testing.T, snapshot executableSnapshot, tamper, fifo bool) ([]byte, error, string) {
 	t.Helper()
 	python := testPythonInterpreter(t)
+	if tamper && fifo {
+		t.Fatal("fixture cannot tamper and replace the snapshot with a FIFO simultaneously")
+	}
+	snapshotPath := filepath.Join(snapshot.directory, "installer")
 	if tamper {
-		if err := os.WriteFile(filepath.Join(snapshot.directory, "installer"), []byte("tampered"), 0o600); err != nil {
+		if err := os.WriteFile(snapshotPath, []byte("tampered"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if fifo {
+		if err := os.Remove(snapshotPath); err != nil {
+			t.Fatal(err)
+		}
+		if err := syscall.Mkfifo(snapshotPath, 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -285,14 +305,19 @@ func runProtectedHandoffFixture(t *testing.T, snapshot executableSnapshot, tampe
 	}
 	uid := strconv.Itoa(os.Getuid())
 	args := []string{
-		"-I", "-S", "-c", protectedHandoffScript,
+		"-I", "-S", "-B", "-c", protectedHandoffScript,
 		snapshot.directory, snapshot.digest, uid, parent,
 		"computer-host-lan", uid, string(childArgs),
 	}
-	cmd := exec.Command(python, args...)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, python, args...)
 	cmd.Dir = "/"
 	cmd.Env = []string{"PATH=/usr/bin:/bin", "HOME=" + os.Getenv("HOME"), "LANG=C", "LC_ALL=C"}
 	output, runErr := cmd.CombinedOutput()
+	if ctx.Err() != nil {
+		runErr = ctx.Err()
+	}
 	return output, runErr, filepath.Join(parent, "computer-host-lan")
 }
 
@@ -305,7 +330,7 @@ func TestProtectedHandoffScriptExecutesTheDigestMatchedCopy(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer snapshot.cleanup()
-	output, runErr, root := runProtectedHandoffFixture(t, snapshot, false)
+	output, runErr, root := runProtectedHandoffFixture(t, snapshot, false, false)
 	if runErr != nil || !bytes.Contains(output, []byte("TestProtectedHandoffChild")) {
 		t.Fatalf("protected copy did not execute: err=%v output=%q", runErr, output)
 	}
@@ -324,13 +349,32 @@ func TestProtectedHandoffScriptRefusesTamperedSnapshot(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer snapshot.cleanup()
-	output, runErr, root := runProtectedHandoffFixture(t, snapshot, true)
+	output, runErr, root := runProtectedHandoffFixture(t, snapshot, true, false)
 	if runErr == nil || bytes.Contains(output, []byte("TestProtectedHandoffChild")) {
 		t.Fatalf("tampered executable was run: err=%v output=%q", runErr, output)
 	}
 	entries, err := os.ReadDir(root)
 	if err != nil || len(entries) != 0 {
 		t.Fatalf("failed handoff left a protected executable: entries=%v err=%v", entries, err)
+	}
+}
+
+func TestProtectedHandoffScriptRejectsFIFOWithoutBlocking(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("fixture uses an unprivileged caller")
+	}
+	snapshot, err := snapshotRunningExecutable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer snapshot.cleanup()
+	output, runErr, _ := runProtectedHandoffFixture(t, snapshot, false, true)
+	exitErr, ok := runErr.(*exec.ExitError)
+	if !ok || exitErr.ExitCode() != 126 {
+		t.Fatalf("FIFO was not rejected promptly with the fixed failure code: err=%v output=%q", runErr, output)
+	}
+	if bytes.Contains(output, []byte("TestProtectedHandoffChild")) {
+		t.Fatalf("FIFO snapshot unexpectedly executed: %q", output)
 	}
 }
 
