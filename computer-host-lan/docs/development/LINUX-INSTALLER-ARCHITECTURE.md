@@ -243,7 +243,7 @@ Do not waive real Windows/Linux acceptance, licensing/signing, channel
 assignment or seven-day soak. Review #131 CI Lua execution separately:
 the local non-root standalone archive run had four expected skips
 (two missing monorepo workflows, one unannounced-RC-only test, one
-root-only cross-UID test); all ten test_lua modules' discovered tests
+root-only cross-UID test); all ten tests discovered by test_lua*.py
 passed in the focused local run, no skips there. This does not establish
 Lua execution in every CI job. Go source reviewed; local Go 1.23.2 is
 below the required 1.25.8; Go validation remains CI/reviewer-only.
