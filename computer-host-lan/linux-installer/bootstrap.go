@@ -621,6 +621,19 @@ func rootBootstrap(reader io.Reader, writer io.Writer) error {
 	if request.Action == "status" || request.Action == "recover" {
 		response, helperErr := runInstalledHelper(trustedDir, request)
 		if response.SchemaVersion == 1 {
+			// A committed operation can leave its previous trusted bundle
+			// behind even after the journal is clean. Explicit recovery
+			// may retire that bundle using the same locked, clean-status
+			// gate as normal completion, never by restoring it.
+			if request.Action == "recover" && helperErr == nil && response.Status == "passed" {
+				if _, err := os.Lstat(trustedDir + ".previous"); err == nil {
+					if err := completeTrustedVersion(trustedDir, 0, false); err != nil {
+						return relayBootstrapFailure(writer, request.Action, err)
+					}
+				} else if !os.IsNotExist(err) {
+					return relayBootstrapFailure(writer, request.Action, err)
+				}
+			}
 			return relayHelperResponse(writer, request.Action, response, helperErr)
 		}
 		if request.Action == "recover" {
