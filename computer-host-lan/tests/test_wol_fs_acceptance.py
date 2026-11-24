@@ -27,8 +27,9 @@ class AcceptanceTests(unittest.TestCase):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
         self.directory = Path(temp.name)
-        self.link_directory = self.directory / 'systemd-network-fixture'
-        self.link_directory.mkdir(mode=0o700)
+        link_temp = tempfile.TemporaryDirectory()
+        self.addCleanup(link_temp.cleanup)
+        self.link_directory = Path(link_temp.name)
         self.boot = BOOT1
         self.link_uuid = UUID
 
@@ -127,7 +128,7 @@ class AcceptanceTests(unittest.TestCase):
         with mock.patch.object(acceptance.identity, 'identify', return_value=None):
             result = self.run_fixture('prepare')
         self.assertEqual(result['status'], 'identity_unavailable')
-        self.assertEqual(list(self.directory.iterdir()), [self.link_directory])
+        self.assertEqual(list(self.directory.iterdir()), [])
 
     def test_nonempty_fixture_refused_without_overwriting(self):
         existing = self.directory / 'existing'
