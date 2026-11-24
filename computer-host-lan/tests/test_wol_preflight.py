@@ -64,6 +64,13 @@ class PreflightTests(unittest.TestCase):
             self.replies[('systemctl', '--version')] = f'systemd {version} ({version}.2)\n'
             self.assertEqual(gate.tool_versions(self.run_query).udev, version)
 
+    def test_version_gate_accepts_udevadm_packaging_suffix(self):
+        self.replies[('udevadm', '--version')] = '256 (256.5-1)\\n'
+        self.replies[('systemctl', '--version')] = 'systemd 256 (256.5-1)\\n'
+        versions = gate.tool_versions(self.run_query)
+        self.assertIsNotNone(versions)
+        self.assertEqual(versions.udev, 256)
+
     def test_version_gate_rejects_old_mixed_missing_and_malformed(self):
         for a, b in (('247\n', 'systemd 247\n'),
                      ('261\n', 'systemd 260\n'),
