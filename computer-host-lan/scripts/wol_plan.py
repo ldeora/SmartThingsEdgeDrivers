@@ -455,7 +455,9 @@ def plan(interface: str, *, root: Path = Path('/'),
                 final_listing = inventory(root, owner_uid)
                 final_identity = empty_local_dropin(root, observed[1], owner_uid, final_listing[1])
                 if (listing is None or final_listing != listing or
-                        empty_identity is None or final_identity != empty_identity):
+                        empty_identity is None or final_identity != empty_identity or
+                        inspect_link_tree(root, observed[1], before[1], owner_uid,
+                                          listing=final_listing) != (tree, scope, policy)):
                     tree, scope, policy = 'selection_changed', 'not_verified', 'not_verified'
             except (OSError, ValueError, UncertainPolicy):
                 tree = scope = policy = 'not_verified'
