@@ -525,8 +525,8 @@ transaction-bound quarantine receipt, no replacement, checked same
 filesystem publication and synchronization of both parents, and a
 retry-safe check before journal clearing. Preserve bytes and refuse
 unsafe or foreign objects; neither quarantined stage nor its receipt
-can authorize forward work. Until implemented and accepted, preserve
-the stage and journal for expert review. Do not offer a live manual
+can authorize forward work. Until the fixture implementation below is integrated and accepted for
+live use, preserve the stage and journal for expert review. Do not offer a live manual
 deletion recipe. A retiring stage has already crossed the verified
 retirement boundary; partial deletion precludes checking the original
 whole-tree digest, so retries inspect surviving entries only.
@@ -676,10 +676,39 @@ a supported operator reconciliation path for unavailable quarantine
 and partial receipts; never recommend deleting evidence to unblock it.
 See Linux rename(2): https://man7.org/linux/man-pages/man2/rename.2.html.
 
+The fixture restore_adopt_stage_quarantine.py now supports explicit
+quarantine of a corrupt journal-bound ready stage in ABORTED, ROLLED_BACK
+or COMMITTED only. It holds manual, journal and stage locks, requires
+QUARANTINE confirmation and an independent terminal outcome verifier
+on each attempt (including retry). The verifier must not reacquire the
+stage lock or rely on the corrupt plan; a future live verifier must
+establish managed/service/credential outcome and explicit authorization.
+Healthy stages use normal retirement. Pending, retiring, foreign,
+ambiguous and unsafe stages are refused. Only definite structural or
+content validation failure or missing required files qualifies after
+bounded opaque allowlist validation; unrelated I/O errors refuse.
+The fixed quarantine-v2 directory under the backup base holds
+corrupt-stage-TRANSACTION and a separate receipt binding the exact
+terminal journal, staged-plan digest, source/destination and opaque
+file inventory. It uses the same no-replace primitive and limitations
+as unbound-before quarantine. The source stage and quarantine must
+share a filesystem; split mounts and unsupported rename fail closed.
+Receipt and destination ancestry are synced before moving; both
+parents and stage ancestry are synced afterwards. No evidence is deleted.
+A fresh recovery handle must explicitly reverify a completed move,
+even if the active staging directory is empty. The presence of either
+transaction-specific quarantine artifact blocks ordinary stage retirement;
+journal clearing requires a successful quarantine verification in the
+current handle, intact matching receipt/destination and independent
+terminal cleanup verification. The quarantine evidence is rechecked
+before and after that callback. The receipt is not authorization to
+apply a plan or clear a journal by itself. Partial receipts and
+ambiguous layouts remain preserved for reconciliation. No production
+or embedded integration.
+
 Remaining: actual phase-specific execution and recovery verification,
 partial orphan/ambiguous-write policy, incomplete quarantine receipt
-reconciliation, corrupted-stage quarantine implementation, and compatible
-helper provisioning. Never claim a valid
+reconciliation, and compatible helper provisioning. Never claim a valid
 record or stage alone proves authorization or restored state.
 The existing v1 writer, recovery, Go bootstrap and bundle remain unchanged.
 

@@ -310,6 +310,11 @@ def retire_terminal_plan(handle):
     handle._clean()
     if record['phase'] not in contract._TERMINAL:
         raise PlanError('terminal_stage_required')
+    # A quarantine receipt is a separate durable recovery boundary.
+    # Do not delete a source or certify an empty stage over that evidence.
+    import restore_adopt_stage_quarantine as quarantine
+    if quarantine.has_artifacts(handle):
+        raise PlanError('stage_quarantine_requires_reconciliation')
     try:
         base, lock = _locked(handle, create=False)
     except legacy_stage.StagingConflict as exc:

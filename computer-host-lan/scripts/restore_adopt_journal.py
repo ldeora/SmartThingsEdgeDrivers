@@ -128,6 +128,7 @@ class Handle:
         self._recovering = recovering
         self._failed = False
         self._stage_retirement_verified = False
+        self._stage_quarantine_receipt = None
 
     def record(self):
         if not self._active or self._failed or self._pid != os.getpid():
@@ -180,6 +181,8 @@ class Handle:
     def clear_finished(self, verify):
         current = self.record()
         self._clean()
+        import restore_adopt_stage_quarantine as quarantine
+        quarantine.check_cleanup(handle=self)
         if (current['phase'] not in contract._TERMINAL or
                 legacy._staged_payload_remains(self.root, self.uid) or
                 (not self._stage_retirement_verified and
@@ -192,6 +195,7 @@ class Handle:
                 (not self._stage_retirement_verified and
                  _stage_base_exists(self.root, self.uid))):
             raise legacy.JournalConflict('stage cleanup incomplete')
+        quarantine.check_cleanup(handle=self)
         self._failed = True
         os.unlink(legacy._JOURNAL, dir_fd=self._directory)
         os.fsync(self._directory)
