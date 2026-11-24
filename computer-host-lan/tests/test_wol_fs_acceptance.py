@@ -110,9 +110,16 @@ class AcceptanceTests(unittest.TestCase):
         self.assertTrue(prepared['link_directory_identity_available'])
         self.assertFalse(prepared['same_filesystem_and_subvolume_as_link_dir'])
         compared = self.run_fixture('compare')
-        self.assertFalse(compared['link_directory_identity_unchanged'])
+        self.assertTrue(compared['link_directory_identity_unchanged'])
         self.assertFalse(compared['same_filesystem_and_subvolume_as_link_dir'])
         self.assertTrue(compared['persistent_identity_unchanged'])
+
+    def test_link_directory_identity_change_is_reported_after_reboot(self):
+        self.run_fixture('prepare')
+        self.link_uuid = OTHER_UUID
+        compared = self.run_fixture('compare')
+        self.assertFalse(compared['link_directory_identity_unchanged'])
+        self.assertFalse(compared['same_filesystem_and_subvolume_as_link_dir'])
 
     def test_link_directory_identity_unavailable_is_explicit(self):
         with mock.patch.object(acceptance, '_open_link_directory', return_value=None):
