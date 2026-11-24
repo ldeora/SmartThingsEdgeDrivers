@@ -283,11 +283,26 @@ class FixtureJournal:
             raise legacy.JournalConflict('compatible v2 candidate required')
         self._reconcile_temp(verify, expected=frozen)
 
-    def _reconcile_temp(self, verify, *, expected):
+    def reconcile_partial_orphan_temp(self, *, confirmation, verify):
+        """Discard a fully identifiable initial record missing only its LF.
+
+        No durable predecessor exists. Do not reconstruct an unknown
+        writer, intent or phase from incomplete JSON. The trusted verifier
+        must independently establish prior authority/host state and that
+        no transaction work started; merely healthy current state is not
+        enough. No candidate is promoted and no handle is returned.
+        """
+        if confirmation != 'RECONCILE_ORPHAN' or not callable(verify):
+            raise legacy.JournalConflict('explicit orphan reconciliation required')
+        self._reconcile_temp(verify, expected=None, orphan_missing_newline=True)
+
+    def _reconcile_temp(self, verify, *, expected, orphan_missing_newline=False):
         with engine.manual_install_lock(self.lock, owner_uid=self.uid):
             directory, lock = self._store._acquire(create=False)
             try:
                 current = read_record(directory, self.uid)
+                if orphan_missing_newline and current is not None:
+                    raise legacy.JournalConflict('durable journal exists')
                 entries = _entries(directory)
                 normal = {legacy._LOCK} | ({legacy._JOURNAL} if current is not None else set())
                 extras = entries - normal
@@ -307,9 +322,11 @@ class FixtureJournal:
                         if not raw:
                             raise legacy.JournalConflict('incomplete journal uncertainty')
                         candidate = contract.decode_journal(raw)
-                        if candidate['schema'] != 2 or canonical(candidate) != raw:
+                        proposed = canonical(candidate)
+                        if (candidate['schema'] != 2 or
+                                len(proposed) > legacy._MAX_BYTES or
+                                (proposed[:-1] if orphan_missing_newline else proposed) != raw):
                             raise legacy.JournalConflict('unsupported journal uncertainty')
-                        proposed = raw
                     else:
                         # No inference from an empty or ambiguous orphan.
                         # With a durable v2 record, even a zero-byte failed
@@ -353,6 +370,29 @@ class FixtureJournal:
                     # Re-establish durable current record/ancestry BEFORE
                     # retiring the uncertainty evidence.
                     _sync_ancestors(self.root, self.uid)
+                    if orphan_missing_newline:
+                        # Recheck the fixed journal namespace and held bytes
+                        # after the last sync, before retiring the evidence.
+                        live = legacy._open_directory(self.root, self.uid, create=False)
+                        try:
+                            if live is None or not os.path.samestat(os.fstat(directory), os.fstat(live)):
+                                raise legacy.JournalConflict('orphan journal directory changed')
+                        finally:
+                            if live is not None:
+                                os.close(live)
+                        os.lseek(fd, 0, os.SEEK_SET)
+                        after = os.fstat(fd)
+                        visible = os.stat(name, dir_fd=directory, follow_symlinks=False)
+                        def stamp(st):
+                            return (st.st_dev, st.st_ino, st.st_mode, st.st_uid,
+                                    st.st_gid, st.st_nlink, st.st_size,
+                                    st.st_mtime_ns, st.st_ctime_ns)
+                        if (os.read(fd, legacy._MAX_BYTES + 1) != raw or
+                                stamp(info) != stamp(after) or stamp(info) != stamp(visible) or
+                                stamp(info) != stamp(os.fstat(fd)) or
+                                _entries(directory) != entries or
+                                legacy._staged_payload_remains(self.root, self.uid)):
+                            raise legacy.JournalConflict('orphan uncertainty changed')
                     os.unlink(name, dir_fd=directory)
                     os.fsync(directory)
                 finally:

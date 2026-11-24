@@ -502,11 +502,35 @@ safe. In particular, an empty temporary file is a prefix of every
 candidate and binds nothing. A complete candidate goes through the
 complete-record path. Both methods share the same ownership, exact entry,
 transition, callback, byte/metadata recheck and durability guards.
-Neither method promotes the candidate. A partial orphan with no durable
-record, conflicting or multiple records, unsafe metadata, unknown schema
-or nonmatching prefix is preserved. In particular an empty initial write
-cannot identify its originating schema or operation. Expert intervention
-may still be required for those cases. No guessing based on filenames.
+Neither method promotes the candidate. The partial-transition API still
+refuses every orphan with no durable record. Conflicting or multiple
+records, unsafe metadata, unknown schema or nonmatching prefix are
+preserved. In particular an empty initial write cannot identify its
+originating schema or operation. No guessing based on filenames.
+
+A separate fixture reconcile_partial_orphan_temp operation requires the
+literal RECONCILE_ORPHAN confirmation and accepts only the narrow case of
+an otherwise complete canonical schema-2 INSPECTED record missing its
+final LF. All JSON fields, including the complete transaction identity,
+intent, schema and phase, must be present and valid; no caller-supplied
+record is used to fill in missing bytes. The complete-record API remains
+separate. A durable journal, a stage, a missing closing brace, unknown
+schema, later phase, noncanonical encoding, or any other incomplete or
+ambiguous record is refused. As for a complete orphan, the independent
+trusted verifier must establish that no transaction work started and that
+managed/service/credential/ownership state agrees with an independently
+established pre-transaction baseline, not just that the current system
+looks healthy. Matching structure does not prove writer provenance or
+unchanged state. Under the existing manual and journal locks, recheck
+namespace, held bytes, metadata and absence of stage before unlinking;
+sync the ancestry first and the directory afterwards. No journal is
+created, no candidate promoted and no transaction handle returned.
+Earlier partial orphan writes remain blocked until independently durable
+provenance and pre-begin evidence can justify a separately reviewed path.
+The legacy v1 orphan mechanism shares the namespace and can accept very
+short prefixes; live mixed-version recovery must explicitly fence it
+before schema-2 publication, not use legacy recovery to bypass this
+policy. No production recovery or CLI integration is authorized here.
 
 If a discarded temporary record proposed VERIFYING -> COMMITTED, the
 durable VERIFYING phase still controls recovery: roll back even if all
@@ -757,8 +781,9 @@ changes; unsupported filesystem/libc and ambiguous states still need
 a supported operator path before release.
 
 Remaining: actual phase-specific execution and recovery verification,
-partial orphan/ambiguous-write policy, ambiguous quarantine evidence
-operator policy, and compatible helper provisioning. Never claim a valid
+ambiguous orphan/partial-write operator policy (including legacy routing),
+ambiguous quarantine evidence operator policy, and compatible helper
+provisioning. Never claim a valid
 record or stage alone proves authorization or restored state.
 The existing v1 writer, recovery, Go bootstrap and bundle remain unchanged.
 
