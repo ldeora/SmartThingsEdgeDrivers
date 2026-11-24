@@ -245,7 +245,8 @@ def dispatch(request: dict, trusted_manifest: dict, *, backend, journal,
         done = backend.uninstall()
         if (done.status not in ('uninstalled', 'uninstalled_cleanup_required') or
                 done.identity_preserved not in ('verified', 'not_verified')):
-            raise RequestError('invalid_request')
+            from installer_transaction import ControllerError
+            raise ControllerError('recovery_required')
         return dict(status=done.status, operation='uninstall',
                     identity_preserved=done.identity_preserved,
                     secrets_included=False)
