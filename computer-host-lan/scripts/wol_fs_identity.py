@@ -20,6 +20,9 @@ import sys
 # fsuuid2: u8 len, u8 uuid[16], sizeof=17.
 # btrfs_ioctl_ino_lookup_args: u64 treeid, u64 objectid, char name[4080].
 _FS_IOC_GETFSUUID = 0x80111500
+# Btrfs UAPI: _IOR(0x94, 31, struct btrfs_ioctl_fs_info_args).
+_BTRFS_IOC_FS_INFO = 0x8400941f
+_BTRFS_FS_INFO_FLAG_METADATA_UUID = 1 << 2
 _BTRFS_IOC_INO_LOOKUP = 0xc0000000 | (4096 << 16) | (0x94 << 8) | 18
 _SUPPORTED_ABIS = frozenset(('x86_64', 'aarch64', 'riscv64'))
 _FILESYSTEMS = frozenset(('ext4', 'xfs', 'btrfs'))
@@ -88,6 +91,25 @@ def _uuid(fd: int) -> bytes:
     return bytes(buf[1:])
 
 
+def _btrfs_uuid(fd: int) -> bytes:
+    """Native Btrfs evidence, limited to equal FSID and metadata UUID.
+
+    A differing UUID may be legitimate (e.g. btrfstune) or temporary.
+    Equality is not proof against cloned/restored filesystems.
+    """
+    buf = bytearray(1024)
+    struct.pack_into('=Q', buf, 48, _BTRFS_FS_INFO_FLAG_METADATA_UUID)
+    if fcntl.ioctl(fd, _BTRFS_IOC_FS_INFO, buf, True) != 0:
+        raise ValueError('Btrfs filesystem identity unavailable')
+    fsid = bytes(buf[16:32])
+    flags = struct.unpack_from('=Q', buf, 48)[0]
+    metadata_uuid = bytes(buf[64:80])
+    if (flags != _BTRFS_FS_INFO_FLAG_METADATA_UUID or
+            not any(fsid) or fsid != metadata_uuid):
+        raise ValueError('Btrfs filesystem identity unavailable')
+    return fsid
+
+
 def _subvolume(fd: int) -> int:
     buf = bytearray(4096)
     # Special unprivileged query: treeid=0, objectid=256.
@@ -125,11 +147,12 @@ def identify(fd: int) -> FilesystemIdentity | None:
         filesystem = mount[2]
         if filesystem not in _FILESYSTEMS:
             return None
-        uuid = _uuid(fd)
+        read_uuid = _btrfs_uuid if filesystem == 'btrfs' else _uuid
+        uuid = read_uuid(fd)
         subvolume = _subvolume(fd) if filesystem == 'btrfs' else None
         # Reject inconsistent observations rather than returning partial
         # evidence. No atomic snapshot of mounts is claimed.
-        if (_uuid(fd) != uuid or
+        if (read_uuid(fd) != uuid or
                 (filesystem == 'btrfs' and _subvolume(fd) != subvolume) or
                 _mount(fd) != mount):
             return None
