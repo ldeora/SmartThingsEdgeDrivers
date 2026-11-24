@@ -940,6 +940,112 @@ class InstallerBackendTests(unittest.TestCase):
                 with self.assertRaises(installer.ControllerError):
                     ops.prepare_restore(previous)
 
+    def _failed_unit_fixture(self, *, existing, fail_activation=False):
+        """Run the real controller and SystemdOperations against fake systemd.
+
+        Model the troublesome case where stopping a failed unit does not
+        clear failure state and disable only removes links while loaded.
+        """
+        agent, helper, socket = (Path(path).name for path in core.SYSTEMD_PATHS)
+        paths = {Path(path).name: self.installed_paths().location(path)
+                 for path in core.SYSTEMD_PATHS}
+        if existing:
+            self.existing_install()
+            for unit in (helper, socket):
+                paths[unit].write_text('fixture unit')
+        states = {unit: 'inactive' for unit in paths}
+        enabled = {unit: False for unit in paths}
+        if existing:
+            states[agent] = 'failed'
+            enabled[agent] = True
+            states[helper] = 'failed'
+        link = self.root / 'etc/systemd/system/multi-user.target.wants' / agent
+
+        def query(unit):
+            loaded = paths[unit].exists()
+            state = states[unit]
+            return dict(LoadState='loaded' if loaded else 'not-found',
+                        ActiveState=state,
+                        SubState={'active': 'running', 'inactive': 'dead',
+                                  'failed': 'failed'}[state],
+                        UnitFileState=('static' if unit == helper else
+                                       'enabled' if enabled[unit] else 'disabled')
+                        if loaded else '')
+
+        def ctl(*args, check=True):
+            verb = args[0]
+            if verb == 'daemon-reload':
+                return
+            unit = args[-1]
+            if verb == 'enable':
+                enabled[unit] = True
+                if unit == agent:
+                    link.parent.mkdir(parents=True, exist_ok=True)
+                    if not link.is_symlink():
+                        link.symlink_to('../' + agent)
+                if '--now' in args:
+                    if unit == agent and fail_activation:
+                        states[unit] = 'failed'
+                        raise core.subprocess.CalledProcessError(1, args)
+                    states[unit] = 'active'
+            elif verb == 'disable':
+                if paths[unit].exists():
+                    enabled[unit] = False
+                    if unit == agent and link.is_symlink():
+                        link.unlink()
+                if '--now' in args and states[unit] != 'failed':
+                    states[unit] = 'inactive'
+            elif verb == 'stop':
+                if states[unit] != 'failed':
+                    states[unit] = 'inactive'
+            elif verb == 'reset-failed':
+                if states[unit] == 'failed':
+                    states[unit] = 'inactive'
+            elif verb == 'restart':
+                self.assertNotEqual(states[unit], 'failed')
+                states[unit] = 'active'
+            else:
+                self.fail('unexpected systemctl call')
+
+        ops = installer.SystemdOperations(health_probe=mock.Mock(return_value={
+            'status': 'passed', 'runtime_verified': True, 'identity_preserved': 'passed'}))
+        self.backend.services = ops
+        for target, attribute, replacement in (
+                (ops, '_uninstall_unit_state', query),
+                (ops, 'ensure_agent_user', mock.Mock()),
+                (core, 'systemctl', ctl)):
+            patcher = mock.patch.object(target, attribute, side_effect=replacement)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        return states, enabled, link, agent
+
+    def test_failed_fresh_install_rolls_back_and_removes_enablement(self):
+        states, enabled, link, agent = self._failed_unit_fixture(
+            existing=False, fail_activation=True)
+        with self.assertRaises(installer.ControllerError) as error:
+            self.backend.run(self.request(), ROOT, self.hashes)
+        self.assertEqual(error.exception.code, 'rolled_back')
+        self.assertEqual(states[agent], 'inactive')
+        self.assertFalse(enabled[agent])
+        self.assertFalse(link.is_symlink())
+        self.assertFalse(self.installed_paths().location(core.SYSTEMD_PATHS[0]).exists())
+        self.assertEqual(self.store.public_status()['privileged_transaction_state'], 'none')
+
+    def test_failed_existing_agent_can_be_repaired(self):
+        states, enabled, _, agent = self._failed_unit_fixture(existing=True)
+        result = self.backend.run(self.request('repair'), ROOT, self.hashes)
+        self.assertEqual(result.status, 'installed')
+        self.assertEqual(states[agent], 'active')
+        self.assertTrue(enabled[agent])
+
+    def test_failed_existing_agent_can_be_uninstalled(self):
+        states, enabled, link, agent = self._failed_unit_fixture(existing=True)
+        result = self.backend.uninstall()
+        self.assertEqual(result.status, 'uninstalled')
+        self.assertTrue(all(state == 'inactive' for state in states.values()))
+        self.assertFalse(enabled[agent])
+        self.assertFalse(link.is_symlink())
+
     def test_fresh_rollback_dangling_enablement_blocks_before_removing_files(self):
         link = self.root / 'etc/systemd/system/multi-user.target.wants/linux-host-agent.service'
         def fail_activation(*args, **kwargs):
