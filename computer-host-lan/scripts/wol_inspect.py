@@ -66,11 +66,11 @@ def read_identity(net: Path, interface: str) -> tuple[str, str, str] | None:
         kind = (path / 'type').read_text().strip()
         if not index.isascii() or not index.isdecimal() or int(index) <= 0:
             return None
-        if not valid_mac(mac):
-            return None
         if (kind != '1' or not (path / 'device').exists() or
                 (path / 'wireless').exists() or (path / 'phy80211').exists()):
             return index, mac, 'other'
+        if not valid_mac(mac):
+            return None
         return index, mac, 'ethernet'
     except (OSError, UnicodeError, ValueError):
         return None
@@ -109,14 +109,30 @@ def parse_nm_policy(output: str | None) -> str:
     names = {'default': 1, 'ignore': 0x8000, 'none': 0, 'phy': 2,
              'unicast': 4, 'multicast': 8, 'broadcast': 16,
              'arp': 32, 'magic': 64}
-    if value in names:
-        flags = names[value]
+    def named_flags(text: str) -> int | None:
+        parts = [part.strip() for part in text.split(',')]
+        if (not parts or len(set(parts)) != len(parts) or
+                any(part not in names for part in parts)):
+            return None
+        # DEFAULT, IGNORE and NONE are alternatives, not combined flags.
+        if len(parts) > 1 and any(part in ('default', 'ignore', 'none')
+                                  for part in parts):
+            return None
+        result = 0
+        for part in parts:
+            result |= names[part]
+        return result
+
+    match = re.fullmatch(r'(0x[0-9a-fA-F]{1,8}|[0-9]{1,10})(?: \(([^()]*)\))?', value)
+    if match is None:
+        flags = named_flags(value)
     else:
-        match = re.fullmatch(r'(0x[0-9a-fA-F]{1,8}|[0-9]{1,10})(?: \([a-z, -]+\))?', value)
-        if match is None:
-            return 'not_verified'
-        number = match.group(1)
+        number, label = match.groups()
         flags = int(number, 16 if number.startswith('0x') else 10)
+        if label is not None and named_flags(label) != flags:
+            return 'not_verified'
+    if flags is None:
+        return 'not_verified'
     if flags == 1:
         return 'default'
     if flags == 0x8000:
@@ -132,31 +148,37 @@ def parse_nm_policy(output: str | None) -> str:
     return 'other_flags'
 
 
-def properties(output: str | None, keys: tuple[str, ...]) -> dict[str, str] | None:
+def properties(output: str | None, keys: tuple[str, ...], *,
+               optional: tuple[str, ...] = ()) -> dict[str, str] | None:
     if output is None:
         return None
     found = {}
     for line in output.splitlines():
         key, sep, value = line.partition('=')
-        if key in keys:
+        if key in keys or key in optional:
             if not sep or key in found:
                 return None
             found[key] = value
-    return found if set(found) == set(keys) else None
+    return found if set(keys).issubset(found) else None
 
 
-def selected_link(output: str | None) -> tuple[str, Path | None]:
+def selected_link(output: str | None) -> tuple[str, Path | None, str]:
     # ID_NET_LINK_FILE is the observed udev selection, not proof of
     # the next selection after configuration changes or a reboot.
-    props = properties(output, ('ID_NET_LINK_FILE',))
+    # Report only the presence of observed drop-ins. Do not read them,
+    # expose their paths, or assume that they actually override WOL.
+    props = properties(output, ('ID_NET_LINK_FILE',),
+                       optional=('ID_NET_LINK_FILE_DROPINS',))
     if props is None:
-        return 'not_verified', None
+        return 'not_verified', None, 'not_verified'
     raw = props['ID_NET_LINK_FILE']
     path = PurePosixPath(raw)
     if (str(path) != raw or str(path.parent) not in _LINK_DIRS or
             not re.fullmatch(r'[A-Za-z0-9_.+-]+\.link', path.name)):
-        return 'not_verified', None
-    return _LINK_DIRS[str(path.parent)], Path(raw)
+        return 'not_verified', None, 'not_verified'
+    dropins = ('present' if props.get('ID_NET_LINK_FILE_DROPINS', '').strip()
+               else 'not_reported')
+    return _LINK_DIRS[str(path.parent)], Path(raw), dropins
 
 
 def read_link(path: Path) -> str | None:
@@ -202,7 +224,7 @@ def base_link_policy(output: str | None) -> str:
                 values.append(value.strip())
     if link_sections != 1 or len(values) > 1:
         return 'not_verified'
-    if not values:
+    if not values or values == ['']:
         return 'unspecified'
     flags = values[0].split()
     allowed = {'phy', 'unicast', 'multicast', 'broadcast', 'arp', 'magic',
@@ -218,8 +240,11 @@ def inspect(interface: str, *, net: Path = Path('/sys/class/net'),
     result = dict(schema_version=1, operation='wol_inspect', mode='read_only',
                   interface_state='not_verified', magic_packet_support='not_verified',
                   runtime_magic_packet='not_verified', hardware_query='not_verified',
+                  default_query_status='not_attempted', ioctl_query_status='not_attempted',
                   permanent_mac_match='not_verified', backend='not_verified',
+                  networkmanager_state='not_verified',
                   nm_profile_policy='not_verified', observed_link='not_verified',
+                  observed_link_dropins='not_verified',
                   base_link_policy='not_verified', changes_applied=False,
                   persistence_verified=False, secrets_included=False)
     if (not isinstance(interface, str) or not _IFACE.fullmatch(interface) or
@@ -237,7 +262,11 @@ def inspect(interface: str, *, net: Path = Path('/sys/class/net'),
     for method, args in (
             ('default', ('ethtool', interface)),
             ('ioctl', ('ethtool', '--disable-netlink', interface))):
-        state = parse_ethtool(run(args))
+        output = run(args)
+        state = parse_ethtool(output)
+        result[method + '_query_status'] = (
+            'verified' if state is not None else
+            'query_failed' if output is None else 'incomplete_or_invalid')
         if state is not None:
             result['magic_packet_support'], result['runtime_magic_packet'] = state
             result['hardware_query'] = method
@@ -253,6 +282,7 @@ def inspect(interface: str, *, net: Path = Path('/sys/class/net'),
                          '--property=LoadState,ActiveState', '--',
                          'NetworkManager.service')), ('LoadState', 'ActiveState'))
     if nm == {'LoadState': 'loaded', 'ActiveState': 'active'}:
+        result['networkmanager_state'] = 'active'
         # Global NM activity alone does not prove this NIC has an active
         # profile. Do not fall back to udev if NM ownership is ambiguous.
         active = run(('nmcli', '--wait', '5', '--get-values',
@@ -273,12 +303,19 @@ def inspect(interface: str, *, net: Path = Path('/sys/class/net'),
                 result['backend'] = result['nm_profile_policy'] = 'not_verified'
     elif nm in ({'LoadState': 'loaded', 'ActiveState': 'inactive'},
                 {'LoadState': 'not-found', 'ActiveState': 'inactive'}):
-        kind, path = selected_link(run(('udevadm', 'info', '--query=property',
-                                       '--path=/sys/class/net/' + interface)))
+        result['networkmanager_state'] = 'inactive'
+        kind, path, dropins = selected_link(run(
+            ('udevadm', 'info', '--query=property', '--path=/sys/class/net/' + interface)))
         if path is not None:
             result['backend'] = 'systemd_udev'
             result['observed_link'] = kind
-            result['base_link_policy'] = base_link_policy(link_reader(path))
+            result['observed_link_dropins'] = dropins
+            # A drop-in may alter WOL. Do not present the base declaration
+            # as usable evidence when udev reports applied drop-ins.
+            if dropins == 'not_reported':
+                result['base_link_policy'] = base_link_policy(link_reader(path))
+    elif nm is not None:
+        result['networkmanager_state'] = 'unexpected_state'
 
     if read_identity(net, interface) != before:
         baseline['interface_state'] = 'interface_changed'
