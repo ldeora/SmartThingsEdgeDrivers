@@ -420,10 +420,13 @@ consistent evidence, not necessarily a changed persistent identity.
 `scripts/wol_fs_acceptance.py` is an explicitly unprivileged developer
 tool. The public entry point refuses root. It requires a newly created,
 user-owned mode-0700 empty directory on the filesystem under test.
-It never opens the live systemd policy directory, invokes privileged
-commands, or changes NIC settings. Within that private directory it
-creates two fixed fixture subdirectories and uses the actual schema-2
-publication primitive. A mode-0600 baseline retains raw UUIDs, boot ID,
+It opens the fixed `/etc/systemd/network` directory read-only,
+through no-follow directory descriptors, solely to compare filesystem
+and subvolume identity. It does not enumerate that directory or read
+policy files. It invokes no privileged commands and changes no NIC
+settings. Within the private fixture it creates two fixed subdirectories
+and uses the actual schema-2 publication primitive. A mode-0600 baseline
+retains raw UUIDs (including the link-directory identity), boot ID,
 mount-local device numbers, f_fsid, inode and link counts privately.
 Output is redacted comparison flags only.
 
@@ -439,18 +442,38 @@ python3 -B scripts/wol_fs_acceptance.py prepare "$fixture"
 python3 -B scripts/wol_fs_acceptance.py compare "$fixture"
 ```
 
-Keep the exact fixture path and checkout revision. After a normal
-reboot (no reboot just for this test), set fixture to the retained
-path and repeat compare. different_boot must be true for reboot
-acceptance. Inspect persistent_identity_available/unchanged,
-device_numbers_unchanged, filesystem_ids_unchanged,
-inode_numbers_unchanged, link_counts_unchanged,
-published_hardlinks_intact and schema2_publication_verified. Only
-share JSON output, never the private baseline or receipt. The fixture
-tests the filesystem/subvolume at the chosen location, not necessarily
-the same mount/subvolume as /etc or /var. Compare FSTYPE and mount
-layout separately; test additional ordinary-user-owned persistent
-locations if needed. No write to /etc or /var is required.
+Keep the exact fixture path and checkout revision. The tool
+automatically opens `/etc/systemd/network` read-only and reports
+`same_filesystem_and_subvolume_as_link_dir`. This must be true for the
+fixture to count as evidence about the filesystem/subvolume used by
+the live policy directory. On Btrfs, a matching filesystem UUID with a
+different subvolume is not a match. If the flag is false or
+`link_directory_identity_available` is false, choose another
+ordinary-user-writable persistent location and prepare a new fixture;
+do not infer equivalence from FSTYPE alone.
+
+After a normal reboot (no reboot just for this test), repeat compare
+using the retained fixture path and the same checkout revision.
+`different_boot` must be true for reboot acceptance. Inspect
+`persistent_identity_available`, `persistent_identity_unchanged`,
+`device_numbers_unchanged`, `filesystem_ids_unchanged`,
+`inode_numbers_unchanged`, `link_counts_unchanged`,
+`link_directory_identity_available`,
+`link_directory_identity_unchanged`,
+`same_filesystem_and_subvolume_as_link_dir`,
+`published_hardlinks_intact` and `schema2_publication_verified`.
+Only share JSON output, never the private baseline or receipt. The
+fixture and link-directory identities are compared independently;
+the latter is not used to bypass the existing schema-2 receipt checks.
+No write to /etc or /var is required.
+
+Fixed failure statuses distinguish `root_refused`,
+`fixture_not_private`, `fixture_not_empty`, `baseline_invalid`,
+`fixture_rolled_back`, `identity_unavailable`,
+`rollback_refused` and the generic `fixture_error`. The output
+never includes the fixture path, UUID, boot ID, transaction ID or raw
+exception. After rollback, a later compare reports
+`fixture_rolled_back` rather than a generic missing-file error.
 
 After recording the comparison, optionally run the explicit fixture
 rollback:
@@ -468,9 +491,15 @@ fails, retain the fixture and report the fixed status; do not repair
 or delete real network policy. The script is not a production recovery
 tool, and the fixture's publication is not applied to systemd.
 
-The fixture regressions simulate a boot change, mismatch, publication
-refusal and malformed/unsafe fixture entry. Physical acceptance still
-requires real reboot/remount evidence on Btrfs and ext4/XFS/LVM.
+The fixture regressions simulate a boot change, fixture-versus-
+link-directory filesystem/subvolume match and mismatch, unavailable
+link-directory identity, publication refusal, duplicate JSON keys and
+fixed failure statuses. The udevadm version parser accepts either a
+bare major or a packaged parenthesized suffix, but actual
+`udevadm --version` and `systemctl --version` output from hydra and
+representative Debian/Fedora hosts should still be retained as fixtures.
+Physical acceptance still requires real reboot/remount evidence on
+Btrfs and ext4/XFS/LVM.
 Issue #98 remains open; the receipt schema and production caller are
 unchanged in this increment.
 
