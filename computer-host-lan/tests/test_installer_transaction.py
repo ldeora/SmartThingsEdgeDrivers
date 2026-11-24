@@ -596,6 +596,115 @@ class InstallerBackendTests(unittest.TestCase):
         self.assertEqual(self.store.public_status()['privileged_transaction_state'], 'none')
         self.assertEqual(self.stage_entries(), [])
 
+    def test_managed_directory_sync_walks_existing_ancestors_bottom_up(self):
+        trans = self.installed_paths()
+        changes = [core.Change(core.POWER_DROPIN, b'fixture'),
+                   core.Change(core.WOL_DROPIN, None),
+                   core.Change(core.APP_FILES[0], b'fixture'),
+                   core.Change(core.AVAHI_PATH, None)]
+        trans.apply(changes)
+        expected = (
+            'etc/systemd/system/linux-host-agent.service.d',
+            'etc/systemd/system', 'opt/linux-host-agent',
+            'etc/systemd', 'etc', 'opt', '.',
+        )
+        # Map descriptors by inode rather than assuming fd numbering.
+        by_identity = {}
+        for name in expected:
+            info = (self.root / name).stat()
+            by_identity[(info.st_dev, info.st_ino)] = name
+        synced = []
+        real_fsync = os.fsync
+
+        def observe(fd):
+            info = os.fstat(fd)
+            synced.append(by_identity[(info.st_dev, info.st_ino)])
+            real_fsync(fd)
+
+        with mock.patch.object(installer.os, 'fsync', side_effect=observe):
+            installer._sync_managed_directories(changes, trans)
+        self.assertEqual(len(synced), len(expected))
+        self.assertEqual(set(synced), set(expected))
+        for name in expected:
+            if name != '.':
+                parent = str(Path(name).parent)
+                self.assertLess(synced.index(name), synced.index(parent))
+        self.assertFalse((self.root / 'etc/avahi').exists())
+
+    def test_managed_directory_sync_refuses_symlink_even_if_dangling(self):
+        trans = self.installed_paths()
+        target = trans.location(core.POWER_DROPIN)
+        target.parent.parent.mkdir(parents=True)
+        target.parent.symlink_to(self.root / 'absent', target_is_directory=True)
+        with self.assertRaises(OSError):
+            installer._sync_managed_directories(
+                [core.Change(core.POWER_DROPIN, None)], trans)
+        self.assertTrue(target.parent.is_symlink())
+
+    def test_forward_ancestor_sync_precedes_committed(self):
+        ancestor = self.root / 'etc'
+        synced = []
+        real_fsync = os.fsync
+        real_advance = journal.TransactionHandle.advance
+
+        def observe_sync(fd):
+            info = os.fstat(fd)
+            if ancestor.exists():
+                target = ancestor.stat()
+                if (info.st_dev, info.st_ino) == (target.st_dev, target.st_ino):
+                    synced.append(True)
+            real_fsync(fd)
+
+        def observe_advance(handle, previous, next_phase, **kwargs):
+            if next_phase == 'COMMITTED':
+                self.assertTrue(synced)
+            return real_advance(handle, previous, next_phase, **kwargs)
+
+        with (
+            mock.patch.object(installer.os, 'fsync', side_effect=observe_sync),
+            mock.patch.object(journal.TransactionHandle, 'advance',
+                              new=observe_advance),
+        ):
+            result = self.backend.run(self.request(enable_power=True),
+                                      ROOT, self.hashes)
+        self.assertEqual(result.status, 'installed')
+        self.assertTrue(synced)
+        self.assertEqual(self.store.public_status()['privileged_transaction_state'],
+                         'none')
+
+    def test_forward_ancestor_sync_failure_and_recovery_retry(self):
+        # The service drop-in and app directories are new on this fixture.
+        # Fail fsync specifically on the managed /etc ancestor, not a
+        # file or a journal directory. The same failure during rollback
+        # must retain the applied journal; explicit recovery retries it.
+        ancestor = self.root / 'etc'
+        real_fsync = os.fsync
+        failures = []
+
+        def fail_ancestor(fd):
+            info = os.fstat(fd)
+            if ancestor.exists():
+                target = ancestor.stat()
+                if (info.st_dev, info.st_ino) == (target.st_dev, target.st_ino):
+                    failures.append(True)
+                    raise OSError('fixture ancestor directory fsync failure')
+            real_fsync(fd)
+
+        with mock.patch.object(installer.os, 'fsync', side_effect=fail_ancestor):
+            with self.assertRaises(installer.ControllerError) as error:
+                self.backend.run(self.request(enable_power=True), ROOT, self.hashes)
+            self.assertEqual(error.exception.code, 'recovery_required')
+            self.assertGreaterEqual(len(failures), 2)
+            self.assertFalse(self.services.activations)
+            self.assertEqual(self.store.public_status()[
+                'privileged_transaction_state'], 'recovery_required')
+            self.assertEqual(len(self.stage_entries()), 1)
+        self.assertEqual(self.backend.recover_interrupted().status, 'rolled_back')
+        self.assertEqual(self.store.public_status()['privileged_transaction_state'],
+                         'none')
+        self.assertEqual(self.stage_entries(), [])
+        self.assertFalse(self.installed_paths().location(core.APP_FILES[0]).exists())
+
     def test_upgrade_rollback_syncs_snapshot_parents_before_terminal_record(self):
         old = self.existing_install()
         original = old.read_bytes()
