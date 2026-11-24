@@ -185,6 +185,9 @@ See #152 and #155.
 
 ### Credential continuity (I11) evidence
 
+See the [proposed credential continuity contract](LINUX-INSTALLER-CREDENTIAL-CONTINUITY.md) for #155. It is a design under review, not an accepted implementation.
+
+
 Disposable-root probes used the real InstallerBackend with simulated
 service operations and runtime health observations, not real systemd or
 a claim that the agent normally rewrites credentials:
