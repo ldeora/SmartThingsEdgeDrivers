@@ -268,6 +268,8 @@ class FixtureJournal:
         Only a durable v2 transaction is supported here. Empty/short orphan
         writes do not establish schema or intent, and are preserved. Expected
         is a trusted fixture input, not a candidate parsed from partial bytes.
+        The verifier must independently establish that proposal under the
+        locks, including any new evidence, as well as actual host state.
         No candidate is ever promoted; the durable phase controls recovery.
         """
         frozen = canonical(contract.validate_record(expected))

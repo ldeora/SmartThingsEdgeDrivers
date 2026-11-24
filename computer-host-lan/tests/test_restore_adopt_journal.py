@@ -171,6 +171,49 @@ class JournalTests(unittest.TestCase):
                     recovery.advance('ABORTED', verify=verified)
                     recovery.clear_finished(verified)
 
+    def test_real_short_write_reconciles_only_after_verification(self):
+        with self.store.transaction(ADOPT) as handle:
+            current = handle.record()
+            candidate = dict(current, phase='STAGED', evidence=ADOPT_EVIDENCE)
+            real_write = os.write
+            calls = []
+
+            def write(fd, content):
+                calls.append(len(content))
+                if len(calls) == 1:
+                    return real_write(fd, content[:19])
+                raise OSError('fixture interrupted write')
+
+            with mock.patch.object(v2.os, 'write', side_effect=write):
+                with self.assertRaises(old.UnsafeJournal):
+                    handle.advance('STAGED', evidence=ADOPT_EVIDENCE, verify=verified)
+            with self.assertRaises(old.JournalConflict):
+                handle.record()
+        temp, = self.path.parent.glob('.wizard-journal-*')
+        raw = temp.read_bytes()
+        self.assertEqual(raw, v2.canonical(candidate)[:19])
+        with self.assertRaises(old.JournalConflict):
+            with self.store.transaction():
+                self.fail('uncertain write accepted without reconciliation')
+
+        def mutate(durable, proposed):
+            self.assertEqual(durable, current)
+            self.assertEqual(proposed, candidate)
+            temp.write_bytes(b'changed')
+            return True
+
+        with self.assertRaises(old.JournalConflict):
+            self.store.reconcile_partial_temp(candidate, mutate)
+        self.assertEqual(temp.read_bytes(), b'changed')
+        self.assertEqual(self.path.read_bytes(), v2.canonical(current))
+        # Restore only the synthetic fixture evidence for the positive path.
+        temp.write_bytes(raw)
+        self.store.reconcile_partial_temp(candidate, lambda durable, proposed:
+                                          durable == current and proposed == candidate)
+        with self.store.transaction() as recovery:
+            recovery.advance('ABORTED', verify=verified)
+            recovery.clear_finished(verified)
+
     def test_partial_wrong_prefix_or_transition_preserved(self):
         with self.store.transaction(ADOPT) as handle:
             current = handle.record()
