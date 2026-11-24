@@ -103,6 +103,64 @@ before a release.
 The existing `scripts/install-agent.sh` remains the supported
 production installer. The Go wizard is **not** part of v1.0.0-rc.2.
 
+## Noninteractive CLI (development only)
+
+The same standalone Go executable provides a strict, noninteractive command
+interface. Use only a trusted test build on a reversible test host until
+release authenticity (#84) and installer convergence (#101) are complete.
+
+```sh
+./computer-host-linux-installer-test cli --help
+# Examples for a supervised test with already-authorized sudo:
+./computer-host-linux-installer-test cli install --confirm INSTALL --elevation sudo
+./computer-host-linux-installer-test cli upgrade --confirm UPGRADE --power preserve --elevation sudo
+./computer-host-linux-installer-test cli repair --confirm REPAIR --elevation sudo
+./computer-host-linux-installer-test cli status --elevation sudo
+./computer-host-linux-installer-test cli recover --confirm RECOVER --elevation sudo
+./computer-host-linux-installer-test cli uninstall --confirm UNINSTALL --elevation sudo
+```
+
+Run as an ordinary user, not with sudo in front of the executable. The CLI
+does not prompt for passwords: sudo/doas use noninteractive authorization
+and run0 uses no-ask-password. Auto selects one available provider and
+does not retry another after failure. It does not support su. Install,
+upgrade and repair require the action to agree with the embedded read-only
+inspection; the backend checks again under its lock. Default power is
+preserve; enable/disable are explicit. Optional `--wol-interface IFNAME`
+pins the agent interface only. No discovery, pairing, firewall or persistent
+WOL change is performed. Recovery uses the already installed protected
+helper, not a replacement payload. Status is privileged inspection and can
+initialize the bootstrap coordination lock; it does not install an agent.
+
+Each option is a separate name/value pair, may occur only once, and is
+valid only for the documented action. Missing or wrong confirmation is
+an invocation error. There is no arbitrary source, Python override,
+historical backup restore, retained-state adoption, persistent WOL
+configuration or legacy shell fallback in this increment. Current published
+shell instructions remain unchanged, including their read-only dry run.
+
+Except for help, stdout is a single schema-version-1 JSON result containing
+only fixed operation/status/error and optional recovery/identity fields;
+`secrets_included` is false. Empty strings mean no applicable or reported
+value, not a verified negative. No raw privileged output is copied.
+Exit 0 means a completed operation (for status, transaction state none);
+1 means failure or unknown outcome; 2 invalid invocation or root caller;
+3 indicates an outstanding transaction (including an in-progress one)
+or committed success with pending cleanup. A status result can be
+successful with exit 3: its state is retained. Do not recover an active
+transaction merely because status exited 3.
+
+`preflight_failed` and `authorization_unavailable` are certain no-ops
+with respect to privileged installation: preflight failed, no provider
+could be selected, the executable could not be resolved, or the provider
+process could not start. `outcome_unknown` means the caller lacks a
+definitive result; authorization refusal after the provider started
+(e.g. sudo -n) is one possible cause. No provider stderr is parsed.
+Do not assume that nothing changed; inspect status and use explicit
+recovery if indicated, rather than blindly repeating an installation.
+For discovery, restrict TCP/8765 to the trusted LAN/hub and ensure Avahi
+is installed/running; these are not modified by CLI commands.
+
 ## Regenerating the embedded bundle
 
 The checked-in `bundle/` is generated from a fixed allowlist of authoritative

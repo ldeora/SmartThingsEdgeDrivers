@@ -372,6 +372,15 @@ func runAccessible(reader io.Reader, writer io.Writer) error {
 }
 
 func main() {
+	// Separate grammar: CLI flags cannot leak into demo, wizard or the
+	// internal privileged bootstrap invocation.
+	if len(os.Args) > 1 && os.Args[1] == "cli" {
+		os.Exit(runCLI(os.Args[2:], os.Stdout))
+	}
+	flag.Usage = func() {
+		fmt.Fprintln(flag.CommandLine.Output(), "Usage: installer [wizard flags] or installer cli --help")
+		flag.PrintDefaults()
+	}
 	accessible := flag.Bool("accessible", false, "use ANSI-free plain prompts with Back support")
 	preview := flag.Bool("preview", false, "print a sample plan without starting a TUI")
 	live := flag.Bool("live", false, "read-only Linux inspection/plan (default) or explicitly confirmed installation with -install")

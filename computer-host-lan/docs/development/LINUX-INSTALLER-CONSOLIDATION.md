@@ -36,6 +36,15 @@ These are meaningful differences, not equivalent implementations.
 
 ## Trust and entry points
 
+The authenticated standalone Go release executable is the common entry
+point for both interactive and noninteractive use. The initial `cli`
+subcommand is development-only and calls the existing bootstrap with
+explicit action-specific confirmation and noninteractive authorization.
+Do not add a second bootstrap to the shell scripts. Future shell wrappers
+must invoke the authenticated executable, not compute trust from the
+source checkout. Cutover remains gated on #84 and #101.
+
+
 The current root helper verifies its protected manifest and stages the
 fixed payload under the common lock. A manifest calculated from the same
 untrusted source tree is not independent publisher authentication. Review
