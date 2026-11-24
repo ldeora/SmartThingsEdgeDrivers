@@ -177,6 +177,55 @@ It does not yet implement explicit adoption intent in the journal or
 reconcile old incomplete markers. Historical restore and adoption remain
 unavailable through the Go helper and CLI.
 
+## Protected capture records and orphan-state inspection
+
+The protected controller now writes a separate schema-version-1 receipt
+`.snapshot-NAME.protected.json` directly in the private backup base,
+not inside the schema-1 snapshot. The protected writer issues it after
+syncing the snapshot and before recording SNAPSHOTTED, with the shared
+installer and journal locks held. It records local capture origin,
+transaction/operation, manifest digest, hashes of present captured files,
+captured path coverage, observed old agent VERSION (or null), and the
+actual protected capture_previous result, including retry flags when
+present. It explicitly says release authenticity not_verified. A receipt
+is not evidence of a committed transaction, verified historical runtime,
+or publisher authentication. No legacy snapshot is retroactively certified.
+
+The existing rollback manifest, file scope and recovery reader are unchanged.
+Ordinary upgrades can have partial plans because optional files are retained
+untouched; complete historical eligibility requires every MANAGED_PATHS
+entry, including explicit absence for optional files. Complete coverage is
+not sufficient: required installed files, strict metadata, supported
+service-state representation and independent installed-byte/version
+expectations must also pass. A receipt reader requires the complete protected
+capture and verifies the original manifest and pinned bytes using those
+independent expectations. Hashes of unrendered release templates alone
+do not authenticate rendered units. A trusted source for installed-byte
+expectations and compatibility policy still needs implementation.
+
+The receipt is mode 0600, created and synced before non-replacing
+publication and ancestor synchronization. Publication or validation
+failure aborts before managed mutation. A crash can leave an ignored
+temporary receipt or an extra hard link; historical inspection refuses
+unsafe receipts, while original recovery remains independent of them.
+No automatic orphan cleanup, receipt selection CLI or restore is exposed.
+
+Experimental `scripts/retained_state_eligibility.py` inspects the orphan
+layout only. It requires the existing non-root linuxhost account/group,
+expected home and non-login shell, trusted parent directories, no managed
+entry or ownership directory, a private 0700 state directory, exactly the
+two 0600 single-link files with matching account ownership, canonical UUID
+and lowercase 64-hex control token (newline-terminated, as written by the
+agent). It checks read stability and returns only fixed evidence fields,
+never values or hashes. Missing/extra/unsafe files, incomplete marker and
+ambiguous accounts are refused, not repaired. This is conservative:
+legitimate older layouts or leftover agent temporary files may require
+separate expert review. Account layout does not establish account history;
+format does not establish v2 provenance. Service quiescence, journal
+eligibility, consent, and revalidation under lock at adoption time are
+separate gates. The reader is not in the embedded bundle and has no
+production caller.
+
 ## Implementation order and acceptance
 
 1. Specify strict historical snapshot eligibility and provenance/version
