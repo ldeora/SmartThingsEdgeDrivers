@@ -1,0 +1,278 @@
+name: Computer Host LAN authenticated Linux installer
+
+# Dispatch explicitly on an already approved, protected lightweight tag.
+# No PR, branch push, or tag push can automatically sign or publish.
+on:
+  workflow_dispatch:
+    inputs:
+      expected_tag:
+        description: Exact independently approved release tag
+        required: true
+        type: string
+      expected_sha:
+        description: Full independently approved main commit SHA
+        required: true
+        type: string
+      create_draft:
+        description: Stage Linux assets in a new draft after separate approval
+        required: true
+        type: boolean
+        default: false
+
+permissions: {}
+concurrency:
+  group: computer-host-linux-attested-release
+  cancel-in-progress: false
+
+env:
+  EXPECTED_TAG: ${{ inputs.expected_tag }}
+  EXPECTED_SHA: ${{ inputs.expected_sha }}
+  CREATE_DRAFT: ${{ inputs.create_draft }}
+  SIGNER_WORKFLOW: ldeora/SmartThingsEdgeDrivers/.github/workflows/computer-host-linux-attested-release.yml
+  INSTALLER: computer-host-linux-installer
+  GO_RELEASE_VERSION: '1.25.14'
+
+jobs:
+  eligibility:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Refuse unapproved source, missing checks or existing release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 -B computer-host-lan/scripts/ci/attested_release_gate.py eligibility
+
+  build:
+    needs: eligibility
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        replica: [a, b]
+    env:
+      GOTOOLCHAIN: local
+      CGO_ENABLED: '0'
+      GOOS: linux
+      GOARCH: amd64
+      GOAMD64: v1
+      GOFLAGS: ''
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: ${{ env.GO_RELEASE_VERSION }}
+          cache: false
+      - name: Verify source, modules and embedded bundle; test and build
+        working-directory: computer-host-lan/linux-installer
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          test "$(go env GOVERSION)" = "go$GO_RELEASE_VERSION"
+          test -z "$(git status --porcelain)"
+          test -z "$(gofmt -l ./*.go)"
+          go mod download
+          go mod verify
+          go mod tidy -diff
+          python3 -B -m unittest -v test_sync_bundle
+          python3 -B sync_bundle.py --check
+          go test -count=1 ./...
+          go vet ./...
+          test -z "$(git status --porcelain)"
+          mkdir "$RUNNER_TEMP/release-build"
+          go build -mod=readonly -trimpath -buildvcs=true \
+            -o "$RUNNER_TEMP/release-build/$INSTALLER" .
+          test -z "$(git status --porcelain)"
+          cd "$RUNNER_TEMP/release-build"
+          go version -m "$INSTALLER" > build-info.txt
+          grep -F "vcs.revision=$EXPECTED_SHA" build-info.txt
+          grep -F "vcs.modified=false" build-info.txt
+          sha256sum "$INSTALLER" > "$INSTALLER.sha256"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: linux-build-${{ matrix.replica }}
+          path: ${{ runner.temp }}/release-build/
+          if-no-files-found: error
+          retention-days: 7
+
+  attest:
+    needs: [eligibility, build]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: computer-host-linux-attest
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Recheck exact source, CI and recorded attestation approval
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 -B computer-host-lan/scripts/ci/attested_release_gate.py attest
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: linux-build-a
+          path: ${{ runner.temp }}/linux-a
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: linux-build-b
+          path: ${{ runner.temp }}/linux-b
+      - name: Require byte-identical independent builds
+        shell: bash
+        run: |
+          set -euo pipefail
+          for replica in a b; do
+            (cd "$RUNNER_TEMP/linux-$replica" && sha256sum -c "$INSTALLER.sha256")
+          done
+          cmp "$RUNNER_TEMP/linux-a/$INSTALLER" "$RUNNER_TEMP/linux-b/$INSTALLER"
+          cmp "$RUNNER_TEMP/linux-a/build-info.txt" "$RUNNER_TEMP/linux-b/build-info.txt"
+          mkdir "$RUNNER_TEMP/attested"
+          cp "$RUNNER_TEMP/linux-a/$INSTALLER" "$RUNNER_TEMP/attested/"
+          cp "$RUNNER_TEMP/linux-a/$INSTALLER.sha256" "$RUNNER_TEMP/attested/"
+          {
+            printf 'Source: %s\nTag: %s\nGo: %s\n' "$EXPECTED_SHA" "$EXPECTED_TAG" "$GO_RELEASE_VERSION"
+            cat "$RUNNER_TEMP/linux-a/build-info.txt"
+          } > "$RUNNER_TEMP/attested/$INSTALLER.build-info.txt"
+      - name: Generate GitHub build provenance for the exact executable
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: ${{ runner.temp }}/attested/computer-host-linux-installer
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: linux-attested-candidate
+          path: ${{ runner.temp }}/attested/
+          if-no-files-found: error
+          retention-days: 7
+
+  verify:
+    needs: attest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      attestations: read
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: linux-attested-candidate
+          path: ${{ runner.temp }}/candidate
+      - name: Verify exact bytes and reject incorrect identities
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/candidate"
+          sha256sum -c "$INSTALLER.sha256"
+          gh --version
+          verify() {
+            gh attestation verify "$1" --repo "$2" --signer-workflow "$3" \
+              --source-ref "$4" --source-digest "$5" \
+              --signer-digest "$EXPECTED_SHA" --deny-self-hosted-runners \
+              --predicate-type https://slsa.dev/provenance/v1
+          }
+          positive() {
+            verify "$INSTALLER" "$GITHUB_REPOSITORY" "$SIGNER_WORKFLOW" \
+              "$GITHUB_REF" "$EXPECTED_SHA"
+          }
+          reject() {
+            if verify "$@"; then
+              echo "Unexpected attestation verification success" >&2
+              exit 1
+            fi
+          }
+          positive
+          cp "$INSTALLER" "$RUNNER_TEMP/modified"
+          printf '\001' >> "$RUNNER_TEMP/modified"
+          reject "$RUNNER_TEMP/modified" "$GITHUB_REPOSITORY" "$SIGNER_WORKFLOW" "$GITHUB_REF" "$EXPECTED_SHA"
+          reject "$INSTALLER" actions/checkout "$SIGNER_WORKFLOW" "$GITHUB_REF" "$EXPECTED_SHA"
+          reject "$INSTALLER" "$GITHUB_REPOSITORY" "$GITHUB_REPOSITORY/.github/workflows/computer-host-release.yml" "$GITHUB_REF" "$EXPECTED_SHA"
+          reject "$INSTALLER" "$GITHUB_REPOSITORY" "$SIGNER_WORKFLOW" refs/heads/main "$EXPECTED_SHA"
+          reject "$INSTALLER" "$GITHUB_REPOSITORY" "$SIGNER_WORKFLOW" "$GITHUB_REF" 0000000000000000000000000000000000000000
+          # A second positive check reduces the risk of counting a network
+          # outage during the negative checks as successful validation.
+          positive
+          printf 'Verified candidate: %s at %s\n' "$EXPECTED_TAG" "$EXPECTED_SHA" >> "$GITHUB_STEP_SUMMARY"
+
+  draft:
+    needs: [eligibility, verify]
+    if: ${{ inputs.create_draft }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: computer-host-linux-draft
+    permissions:
+      contents: write
+      actions: read
+      attestations: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: linux-attested-candidate
+          path: ${{ runner.temp }}/candidate
+      - name: Recheck approvals and verify before creating any draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B computer-host-lan/scripts/ci/attested_release_gate.py draft
+          cd "$RUNNER_TEMP/candidate"
+          sha256sum -c "$INSTALLER.sha256"
+          gh attestation verify "$INSTALLER" --repo "$GITHUB_REPOSITORY" \
+            --signer-workflow "$SIGNER_WORKFLOW" --source-ref "$GITHUB_REF" \
+            --source-digest "$EXPECTED_SHA" --signer-digest "$EXPECTED_SHA" \
+            --deny-self-hosted-runners --predicate-type https://slsa.dev/provenance/v1
+          # POST creates a new draft only; no edits to existing releases.
+          # If any upload fails, leave the draft for explicit human review.
+          prerelease=false
+          if [[ "$EXPECTED_TAG" == *-rc.* ]]; then prerelease=true; fi
+          release_id="$(gh api --method POST "repos/$GITHUB_REPOSITORY/releases" \
+            -f tag_name="$EXPECTED_TAG" -f target_commitish="$EXPECTED_SHA" \
+            -f name="$EXPECTED_TAG" -F draft=true -F prerelease="$prerelease" \
+            -f body='INCOMPLETE DRAFT: authenticated Linux installer only. Other release assets, acceptance and publication require explicit maintainer review.' \
+            --jq '.id')"
+          [[ "$release_id" =~ ^[0-9]+$ ]]
+          mkdir "$RUNNER_TEMP/draft-check"
+          for asset in "$INSTALLER" "$INSTALLER.sha256" "$INSTALLER.build-info.txt"; do
+            test "$(gh api "repos/$GITHUB_REPOSITORY/releases/$release_id" --jq '.draft')" = true
+            # Upload to the newly created release ID; never clobber an asset.
+            asset_id="$(curl --fail --silent --show-error --max-time 120 --request POST \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H 'Accept: application/vnd.github+json' \
+              -H 'Content-Type: application/octet-stream' --data-binary "@$asset" \
+              "https://uploads.github.com/repos/$GITHUB_REPOSITORY/releases/$release_id/assets?name=$asset" |
+              jq -er --arg name "$asset" 'select(.name == $name and .state == "uploaded") | .id')"
+            [[ "$asset_id" =~ ^[0-9]+$ ]]
+            # Retrieve the exact uploaded asset by ID and compare all bytes.
+            gh api "repos/$GITHUB_REPOSITORY/releases/assets/$asset_id" \
+              -H 'Accept: application/octet-stream' > "$RUNNER_TEMP/draft-check/$asset"
+            cmp "$asset" "$RUNNER_TEMP/draft-check/$asset"
+          done
+          gh attestation verify "$RUNNER_TEMP/draft-check/$INSTALLER" --repo "$GITHUB_REPOSITORY" \
+            --signer-workflow "$SIGNER_WORKFLOW" --source-ref "$GITHUB_REF" \
+            --source-digest "$EXPECTED_SHA" --signer-digest "$EXPECTED_SHA" \
+            --deny-self-hosted-runners --predicate-type https://slsa.dev/provenance/v1
+          test "$(gh api "repos/$GITHUB_REPOSITORY/releases/$release_id" --jq '.draft')" = true
+          printf 'Draft staged and checked; NOT published: %s\n' "$EXPECTED_TAG" >> "$GITHUB_STEP_SUMMARY"

@@ -1,10 +1,10 @@
 # Linux installer release authentication — design for #84
 
-**No attested release exists yet.** The protected executable handoff is
-implemented in PR #164, pending independent review and merge. The dedicated
-tag-only build/attestation/publication workflow below remains the next
-implementation increment. Nothing in this document authorizes a release tag,
-publication, or changes to existing RC assets.
+**No attested release exists yet.** PR #164 merged the protected handoff.
+The dedicated manually dispatched tag workflow implements the build,
+attestation, verification and optional draft-only staging policy below.
+It is not enabled by the current rc.2 manifest. Nothing in this document
+authorizes a release tag, publication, or changes to existing RC assets.
 
 Use GitHub public-repository artifact attestations (Sigstore-backed build
 provenance) for the standalone Linux installer. Unlike a checksum shipped
@@ -16,31 +16,90 @@ References: [GitHub artifact attestations](https://docs.github.com/en/actions/co
 
 ## Build and publication policy
 
-Proposed dedicated workflow: .github/workflows/computer-host-linux-attested-release.yml.
-Separate from PR test artifacts and existing unsigned candidate workflow.
-No attestations for arbitrary PR/fork builds or pull_request_target code.
-Only explicitly approved release tags on reviewed main; verify exact
-release.json version/tag/commit, green required checks and no replacement
-of existing assets. Pin actions to reviewed full commit SHAs. Least
-privileges: contents read for build; id-token write and attestations write
-only for attesting job; separate explicitly approved publishing job with
-contents write. No unreviewed source inputs or secrets in assets.
+Dedicated workflow: .github/workflows/computer-host-linux-attested-release.yml.
+No automatic push, PR or fork signing. The release gate checks the repository
+name and ID, dispatch event, first run attempt, exact independently supplied
+tag and full commit, lightweight tag and current main head, and the manifest.
+Only v1.0.0 or v1.0.0-rc.3 and later v1.0.0 RCs are eligible. Release prep
+must explicitly set `release_stage` to `attestation-ready-v<VERSION>`
+and `release_candidate_tag` to the exact tag, including for stable v1.0.0.
+The published rc.2 metadata is deliberately unchanged.
 
-Build clean linux/amd64 with exact supported Go patch version (go.mod
-currently 1.25.8; reevaluate security updates before release), GOTOOLCHAIN=local,
-CGO_ENABLED=0, GOOS=linux, GOARCH=amd64, go mod verify, bundle generator
-check, tests and go build -mod=readonly -trimpath -buildvcs=true. Record exact
-toolchain/version/source SHA/digest. Compare a second clean build; claim
-reproducibility only after measurement. Attest the exact executable bytes
-with GitHub's supported provenance action. Upload those bytes unchanged.
-Fail closed if attestation or verification unavailable; no unsigned
-elevated release fallback. No retagging or alteration of RC assets.
+Require the latest exact-commit main push/dispatch runs of all five named
+Linux, Windows, Inno, release-packaging and Go installer workflows to be
+successful with all expected jobs successful. PR checks alone are not
+sufficient. The Go installer CI now supports manual dispatch, so dispatch
+any missing workflows on main after final release preparation and review.
+No existing release (including draft) for the tag is allowed.
 
-## Proposed verification
+Two clean GitHub-hosted ubuntu-24.04 jobs build linux/amd64 with Go 1.25.14
+(the exact patch observed in the successful #164 CI, newer than the minimum
+1.25.8 in go.mod), GOTOOLCHAIN=local, CGO_ENABLED=0, GOAMD64=v1, no action
+cache, verified modules and embedded bundle, tests and vet. Reevaluate the
+pinned Go patch and action commits before release. Build with -mod=readonly
+-trimpath -buildvcs=true and require clean VCS status and exact revision.
+The attesting job compares both binaries and build information byte-for-byte.
+No reproducibility claim until a real run passes.
+
+Only the attesting job has id-token and attestations write permissions.
+The verification job downloads the candidate on a separate runner and
+uses gh to enforce repository, workflow, source ref, source and signer
+digest, GitHub-hosted runners and SLSA provenance predicate. It rejects
+modified bytes, wrong repo/workflow/ref/source digest and repeats the
+positive check. The altered bytes also exercise the no-attestation case.
+
+### Maintainer configuration and explicit dispatch (not performed yet)
+
+Before the first real dispatch, protect reviewed main and release tags
+against unapproved creation, updates and deletion using repository rules.
+The gate checks live refs, not the completeness of repository rulesets;
+administrators must configure and independently verify those controls.
+No retagging. Keep main at the approved commit for this release operation.
+
+Create the GitHub environments `computer-host-linux-attest` and (only
+if draft staging is desired) `computer-host-linux-draft`. For each:
+configure required reviewers, prevent self-review, disable administrator
+bypass, and allow only the exact approved release tag using selected
+deployment tags (no branch or wildcard). An independent authorized
+reviewer is required; if the repository cannot provide one, stop rather
+than weakening the policy. The gate checks reviewer rules, tag policy
+and the recorded independent approval after the environment gate. The
+repository owner must confirm admin bypass and tag protection separately.
+API errors, missing settings, incomplete CI and absent approvals fail
+closed. No settings are automatically created or altered by this PR.
+
+After approval of a future release-prep commit, complete all exact-commit
+CI and create the approved lightweight tag under the configured rules.
+Example commands (placeholders, not authorization):
+
+```sh
+gh workflow run computer-host-linux-attested-release.yml \\
+  --ref EXPECTED_APPROVED_TAG \\
+  -f expected_tag=EXPECTED_APPROVED_TAG \\
+  -f expected_sha=EXPECTED_APPROVED_SOURCE_COMMIT \\
+  -f create_draft=false
+```
+
+Approve the attestation environment only after reviewing the expected
+source/ref and CI. Download and independently verify the candidate.
+A fresh dispatch with `create_draft=true` is optional and requires
+separate environment approval after successful verification. Reruns
+are refused; use a fresh explicit dispatch and approvals. The draft job
+rechecks eligibility and provenance, creates only a new draft, uploads
+only the Linux executable and its checksum/build-info files, downloads
+the executable back by asset ID and verifies exact bytes and provenance.
+If staging fails, leave any partial draft untouched for maintainer review.
+No overwrite, deletion, automatic publication, Edge-channel changes,
+or unsigned elevated release fallback. The draft is intentionally
+incomplete: the full Windows/source/docs asset set and release acceptance
+must be independently assembled and reviewed before manual publication.
+The existing unsigned candidate packaging workflow remains unchanged.
+
+## Independent operator verification
 
 Operator independently knows the expected repository, approved tag and
 commit (trusted release announcement/verified source record), and obtains
-GitHub CLI from a trusted distribution. Once the workflow exists, use
+GitHub CLI from a trusted distribution. For an eligible release, use
 the following verification policy (placeholders are not a real release):
 
 ```sh
@@ -49,7 +108,9 @@ gh attestation verify ./computer-host-linux-installer \
   --signer-workflow ldeora/SmartThingsEdgeDrivers/.github/workflows/computer-host-linux-attested-release.yml \
   --source-ref refs/tags/EXPECTED_APPROVED_TAG \
   --source-digest EXPECTED_APPROVED_SOURCE_COMMIT \
-  --deny-self-hosted-runners
+  --signer-digest EXPECTED_APPROVED_SOURCE_COMMIT \
+  --deny-self-hosted-runners \
+  --predicate-type https://slsa.dev/provenance/v1
 ```
 
 Normal online verification retrieves the attestation and trust material.
@@ -75,7 +136,7 @@ Any nonzero result or unexpected signer/ref/commit means do not execute.
 Use actual final filename and documented minimum verifier version at release.
 A valid attestation is not an independent code review.
 
-### Protected executable handoff — PR #164 (pending review)
+### Protected executable handoff — PR #164 (merged)
 
 The new handoff snapshots `/proc/self/exe`, not the mutable pathname returned
 by `os.Executable()`, into a private user-owned 0700 directory. The root
@@ -102,9 +163,13 @@ sudo, doas, run0 and su retain their existing input/password semantics.
 - **Gentoo Python wrapper:** `/usr/bin/python3` may resolve to Gentoo's
   `python-exec2c` wrapper. The Go code checks the resolved executable's
   root-owned path and invokes it with isolated, no-bytecode options
-  (`-I -S -B`). Actual validation through both `su` and `run0` on hydra
-  remains required before release; the wrapper has not yet been hardware-
-  tested as part of this PR.
+  (`-I -S -B`). Hydra acceptance on 2026-11-24 confirmed that direct
+  wrapper invocation fails but the existing version-specific Python
+  3.14.10 fallback succeeds. Actual `su` handoff returned
+  `nothing_to_recover`, left only bootstrap.lock, and preserved the
+  agent PID and activation timestamp. Basic `run0` authorization failed
+  independently of the installer; physical `run0` acceptance remains
+  required on a suitably configured supported host before release.
 
 This pins the elevated process to the image already running in the ordinary
 user process and prevents a pathname replacement between that launch and
