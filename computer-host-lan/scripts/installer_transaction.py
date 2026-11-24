@@ -221,7 +221,7 @@ class SystemdOperations:
                       state['UnitFileState'] in ('enabled', 'disabled') and
                       (state['ActiveState'] == 'failed' or
                        (state['ActiveState'] == 'activating' and
-                        state['SubState'] == 'auto-restart')))
+                        state['SubState'] in ('auto-restart', 'auto-restart-queued'))))
             observed = ((False, state['UnitFileState'] == 'enabled') if broken
                         else self._stable_unit_state(state, absent=first_install))
             if observed is None:
@@ -1023,8 +1023,8 @@ class InstallerBackend:
         _sync_managed_directories(changes, transaction)
         verified = (_files_match_snapshot(backup, transaction) and
                     self.services.verify_restored_services(restored) is True and
-                                    (not restored['first_install'] or
-                                     _enablement_absent(transaction)))
+                    (not restored['first_install'] or
+                     _enablement_absent(transaction)))
         journal.mark_rolled_back(lambda _snapshot_name: verified)
         staging.finish_terminal_stage(journal, root=self.root,
                                       owner_uid=self.owner_uid)
