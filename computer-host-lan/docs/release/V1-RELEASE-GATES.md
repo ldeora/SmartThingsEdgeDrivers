@@ -30,17 +30,24 @@ These requirements were drafted before rc.2 publication; unchecked items remain 
   [consolidation contract](../development/LINUX-INSTALLER-CONSOLIDATION.md).
   Until cutover and physical acceptance, published rc.2 continues to use
   the legacy shell installer; the Go wizard remains development-only.
-  Historical backup restoration is distinct from interrupted-transaction
-  recovery. No silent adoption, removal of options or unjournaled WOL changes.
+  Development source now explicitly refuses legacy shell and direct Python
+  mutation paths; the read-only source plan remains available. The
+  authenticated wizard/CLI is the intended sole supported installation
+  entry point. Historical backup restoration, retained-state adoption,
+  elevated Python overrides and automated persistent WOL changes are
+  unsupported in v1.0; no silent fallback. Historical restoration is
+  distinct from interrupted-transaction recovery. Cutover is not accepted
+  until the verified release installer and migration/refusal paths pass
+  real-host tests and version-matched user documentation is ready.
 - [ ] **Linux installer authenticity (#84):** before offering an elevated
-  standalone Go installer as a release download, publish an independently
-  authenticated checksum/signature and document verification; the checksum
-  beside a CI test binary is not sufficient. Verify recovery availability,
+  standalone Go installer as a release download, generate and independently
+  verify its GitHub artifact attestation under the approved release workflow;
+  the checksum beside a CI test binary is not sufficient. Verify recovery availability,
   helper promotion and supported shell entry points on the release build.
 
 - [ ] Run a **minimum seven-day unattended soak** on at least one physical Windows 11 system and one Linux host with a real SmartThings hub; log dates, exact binaries/driver version, reconnects, resource use and any duplicate/stuck state.
 - [ ] Exercise hub restart, agent stop/start, computer reboot, a router/network interruption and host DHCP address change (where feasible); separate a **hub IP change** from a **host IP change**, because the Windows firewall may intentionally scope access to the hub's previous IP.
-- [ ] Validate all four repository workflows on the **final merged main SHA**. Build the proposed stable release assets from the final stable commit, checking source/embedded versions, SHA-256 and attestations; do not mix commits or replace existing rc.2 release assets.
+- [ ] Validate all five required repository workflows on the **final merged main SHA**. Build the proposed stable release assets from the final stable commit, checking source/embedded versions, SHA-256 and attestations; do not mix commits or replace existing rc.2 release assets.
 - [ ] Verify Windows x64 first install and upgrade from v0.5.5/v0.5.6 on an existing device; verify Linux upgrade. Failure recovery must retain known-good snapshot/state. Recheck SmartThings channel assignment separately from GitHub publication.
 - [ ] Perform final security, licensing, download integrity and supported-platform sign-off. Publish a new stable tag only after explicit approval; never retag or overwrite existing published betas. Test permanent links and disclose unsigned status if applicable.
 

@@ -2,6 +2,12 @@
 
 **Latest published prerelease: [v1.0.0-rc.2](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v1.0.0-rc.2)** (November 21, 2026 UTC, immutable source commit `72e4a99c4b2e8f958ce771152826319318d0d537`). Linux/Edge **0.4.6-rc.2**, Windows agent **0.2.7-rc.2**, protocol **v2 unchanged**. Obtain version-matched unsigned Windows Setup/ZIP or Linux source and checksums from the release rather than CI artifacts. [v0.5.5-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.5-beta.1) remains the last independently Windows 11 hardware-tested rollback baseline; rc.2 Windows 11 acceptance remains pending.
 
+**Development source is not the published rc.2 package.** The legacy
+Linux mutating source entry points are retired in main. Use the published
+version-matched release for rc.2 instructions; do not elevate a main
+checkout or development source archive. The future authenticated Linux
+wizard/CLI still requires release qualification.
+
 ## Published rc.2 versus older rc.1
 
 The [older rc.1 release](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v1.0.0-rc.1) was built from tag `5466ad0`. Published rc.2 adds PRs #56–#60: HTTP timeouts/header deadlines, power acknowledgments, hardened Windows ProgramData state, discovery/Wake recovery and publication guidance. See the [rc.2 notes](docs/release/RELEASE-NOTES-v1.0.0-rc.2.md) and [installation guide](INSTALLATION.md#known-differences-between-rc1-and-rc2). Passing CI is not physical Windows 11 acceptance.

@@ -325,7 +325,9 @@ func userFacingPrivilegeFailure(reply privilegedResult) error {
 	case "recovery_required":
 		return errors.New("installer transaction requires recovery. Run this wizard with -recover before retrying; preserve the protected journal and backup")
 	case "adoption_required":
-		return errors.New("retained agent state needs v2 verification. Use the manual Linux installer with --adopt-retained-state after confirming its provenance")
+		return errors.New("Retained agent state cannot be verified as a supported v2 installation. " +
+			"Adoption is not supported in v1.0. Preserve the retained state, identity, key and backups; " +
+			"do not delete or regenerate them. Seek recovery guidance before retrying.")
 	case "unsupported_python":
 		return errors.New("a system Python 3.10 or newer is required; install a compatible interpreter without changing the system default")
 	case "not_installed":

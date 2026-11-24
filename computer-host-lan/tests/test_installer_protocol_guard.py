@@ -112,20 +112,23 @@ class InstalledProtocolTests(unittest.TestCase):
         self.assertFalse((self.root / 'var/backups').exists())
 
     def test_every_mutating_cli_path_refuses_before_backup_or_services(self):
-        for args in (
-            ['--install', '--source', str(ROOT), '--python', '/usr/bin/python3'],
-            ['--uninstall'],
-        ):
-            with self.subTest(args=args):
-                with mock.patch.object(core.os, 'geteuid', return_value=0), \
-                     mock.patch.object(core, 'require_v2_or_clean',
-                                       side_effect=core.InstallError('Legacy v1')), \
-                     mock.patch.object(core.Path, 'mkdir') as mkdir, \
-                     mock.patch.object(core, 'systemctl') as systemctl:
-                    with self.assertRaises(core.InstallError):
+        for uid in (0, 1000):
+            for args in (
+                ['--install', '--source', str(ROOT), '--python', '/usr/bin/python3'],
+                ['--uninstall'], ['--rollback', '/missing/snapshot'],
+                ['--check-existing', '--adopt-retained-state'],
+                ['--plan', '--source', str(ROOT), '--python', '/usr/bin/python3', '--adopt-retained-state'],
+            ):
+                with self.subTest(uid=uid, args=args), \
+                        mock.patch.object(core.os, 'geteuid', return_value=uid), \
+                        mock.patch.object(core, 'require_v2_or_clean') as guard, \
+                        mock.patch.object(core, 'InstallTransaction') as trans, \
+                        mock.patch.object(core.Path, 'mkdir') as mkdir, \
+                        mock.patch.object(core, 'systemctl') as systemctl:
+                    with self.assertRaisesRegex(core.InstallError, 'disabled|not supported'):
                         core.run_cli(args)
-                    mkdir.assert_not_called()
-                    systemctl.assert_not_called()
+                    for operation in (guard, trans, mkdir, systemctl):
+                        operation.assert_not_called()
 
     def test_protected_v2_record_allows_uninstall_reinstall_with_retained_identity(self):
         agent = self.put(core.APP_FILES[0], b'PROTOCOL = "computer-host-agent"\n')
@@ -156,32 +159,34 @@ class InstalledProtocolTests(unittest.TestCase):
         self.assertEqual(self.classify(), 'v2')
         self.assertEqual(core.require_v2_or_clean(self.root), 'v2')
 
-    def test_orphan_retained_state_needs_explicit_manual_adoption(self):
+    def test_orphan_retained_state_is_classified_without_adoption(self):
         secret = self.put('/var/lib/linux-host-agent/control-token', b'UNCHANGED')
         self.assertEqual(self.classify(), 'unknown')
-        with self.assertRaises(core.InstallError):
+        with self.assertRaisesRegex(
+                core.InstallError, 'not supported in v1.0') as error:
             core.require_v2_or_clean(self.root)
+        self.assertIn('Preserve the retained state', str(error.exception))
         self.assertEqual(core.require_v2_or_clean(
-            self.root, adopt_retained_state=True), 'adopted')
+            self.root, classify_orphan_state=True), 'orphan_state')
         self.assertEqual(secret.read_bytes(), b'UNCHANGED')
         core.write_owner_record(self.root)
         self.assertEqual(self.classify(), 'v2')
-        # Explicit adoption is invalid when a record already exists.
+        # Orphan-state classification is invalid when a v2 owner record exists.
         with self.assertRaises(core.InstallError):
-            core.require_v2_or_clean(self.root, adopt_retained_state=True)
+            core.require_v2_or_clean(self.root, classify_orphan_state=True)
 
-    def test_adoption_never_overrides_v1_or_partial_managed_files(self):
+    def test_orphan_state_classification_never_overrides_v1_or_partial_files(self):
         self.put('/var/lib/linux-host-agent/control-token', b'SECRET')
         agent = self.put(core.APP_FILES[0], b'PROTOCOL = "linux-host-agent"\n')
         with self.assertRaises(core.InstallError):
-            core.require_v2_or_clean(self.root, adopt_retained_state=True)
+            core.require_v2_or_clean(self.root, classify_orphan_state=True)
         agent.unlink()
         bad_unit = self.put(core.SYSTEMD_PATHS[0], b'ambiguous')
         with self.assertRaises(core.InstallError):
-            core.require_v2_or_clean(self.root, adopt_retained_state=True)
+            core.require_v2_or_clean(self.root, classify_orphan_state=True)
         bad_unit.unlink()
         self.assertEqual(core.require_v2_or_clean(
-            self.root, adopt_retained_state=True), 'adopted')
+            self.root, classify_orphan_state=True), 'orphan_state')
 
     def test_v2_marker_is_not_allowed_to_override_detectable_v1(self):
         core.write_owner_record(self.root)
@@ -432,20 +437,13 @@ class InstalledProtocolTests(unittest.TestCase):
         with self.assertRaises(core.InstallError):
             core.validate_v2_backup(backup, root=self.root)
 
-    def test_rollback_does_not_depend_on_damaged_current_protocol(self):
-        # A bad backup should be rejected BEFORE any lock or service writes,
-        # and the current-host coexistence guard must not run.
-        backup_base = self.root / 'backup-base'
-        bad_backup = backup_base / 'snapshot-bad'
-        bad_backup.mkdir(parents=True)
-        with mock.patch.object(core, 'BACKUP_BASE', str(backup_base)), \
-             mock.patch.object(core.os, 'geteuid', return_value=0), \
-             mock.patch.object(core, 'require_v2_or_clean') as guard, \
-             mock.patch.object(core, 'validate_v2_backup',
-                               side_effect=core.InstallError('Invalid backup')):
-            with self.assertRaises(core.InstallError):
-                core.run_cli(['--rollback', str(bad_backup)])
+    def test_historical_rollback_refused_before_inspecting_backup(self):
+        with mock.patch.object(core, 'validate_v2_backup') as validate, \
+                mock.patch.object(core, 'require_v2_or_clean') as guard:
+            with self.assertRaisesRegex(core.InstallError, 'Historical restore is not supported'):
+                core.run_cli(['--rollback', '/missing/snapshot'])
             guard.assert_not_called()
+            validate.assert_not_called()
 
     def test_read_only_cli_guard_works_without_root(self):
         with mock.patch.object(core.os, 'geteuid', return_value=1000), \
@@ -459,86 +457,30 @@ class InstalledProtocolTests(unittest.TestCase):
                 core.run_cli(['--plan', '--source', str(ROOT), '--python', '/usr/bin/python3'])
             mkdir.assert_not_called()
 
-    def test_shell_checks_prior_to_account_creation(self):
-        # Run the entire legacy shell installer with harmless PATH stubs.
-        # Only its systemd directory probe is redirected to the fixture.
-        scripts = self.root / 'fixture' / 'scripts'
-        scripts.mkdir(parents=True)
-        bin_dir = self.root / 'bin'
-        bin_dir.mkdir()
-        active = self.root / 'systemd'
-        active.mkdir()
-        source = (ROOT / 'scripts/install-agent.sh').read_text()
-        self.assertEqual(source.count('/run/systemd/system'), 1)
-        entry = scripts / 'install-agent.sh'
-        entry.write_text(source.replace('/run/systemd/system', str(active)))
-        (scripts / 'python-selector.sh').write_bytes(
-            (ROOT / 'scripts/python-selector.sh').read_bytes())
-        log = self.root / 'calls'
-
-        def stub(name, body):
-            target = bin_dir / name
-            target.write_text('#!/bin/sh\n' + body + '\n')
-            target.chmod(0o755)
-            return target
-
-        stub('id', 'printf "0\\n"')
-        stub('dirname', 'for arg do :; done; printf "%s\\n" "${arg%/*}"')
-        stub('getent', 'printf "getent\\n" >> "$CALL_LOG"; exit 2')
-        stub('useradd', 'printf "useradd\\n" >> "$CALL_LOG"')
-        for name in ('systemctl', 'install', 'nologin'):
-            stub(name, 'exit 99')
-        interpreter = stub('python3', '''case "$1" in
-  -c) exit 0 ;;
-esac
-shift
-printf '%s\\n' "$*" >> "$CALL_LOG"
-case "$1" in
-  --check-existing|--check-wizard-journal)
-    [ "$1" != "$BLOCK_AT" ] || exit 2 ;;
-  --install|--plan) ;;
-  *) exit 99 ;;
-esac
-exit 0''')
-
-        for blocked, dry, adopt in (
-                ('--check-existing', False, False),
-                ('--check-wizard-journal', False, True),
-                ('', False, True), ('', True, True)):
-            with self.subTest(blocked=blocked, dry=dry, adopt=adopt):
-                log.write_text('')
-                args = ['/bin/sh', str(entry), '--python', str(interpreter)]
-                if dry:
-                    args.append('--dry-run')
-                if adopt:
-                    args.append('--adopt-retained-state')
-                result = subprocess.run(args, env={
-                    'PATH': str(bin_dir), 'CALL_LOG': str(log),
-                    'BLOCK_AT': blocked, 'LANG': 'C',
-                }, capture_output=True, text=True, timeout=10)
-                calls = log.read_text().splitlines()
-                check = '--check-existing' + (' --adopt-retained-state' if adopt else '')
-                self.assertTrue(calls, result.stderr)
-                self.assertEqual(calls[0], check)
-                if blocked:
-                    self.assertNotEqual(result.returncode, 0)
-                    self.assertEqual(calls, [check] if blocked == '--check-existing'
-                                     else [check, '--check-wizard-journal'])
-                else:
-                    self.assertEqual(result.returncode, 0, result.stderr)
-                    if dry:
-                        self.assertEqual(len(calls), 2)
-                        self.assertTrue(calls[-1].startswith('--plan '))
-                    else:
-                        self.assertEqual(calls[1:4], [
-                            '--check-wizard-journal', 'getent', 'useradd'])
-                        self.assertEqual(len(calls), 5)
-                        self.assertTrue(calls[-1].startswith('--install '))
-                    self.assertTrue(calls[-1].endswith(' --adopt-retained-state'))
+    def test_legacy_shell_mutations_refused_before_external_commands(self):
+        # Empty PATH: no Python selection, id, useradd, systemctl or other
+        # external command may be needed to refuse a legacy mutation.
+        for script, args in (
+            ('install-agent.sh', []),
+            ('install-agent.sh', ['--enable-power']),
+            ('install-agent.sh', ['--python', '/missing/python']),
+            ('install-agent.sh', ['--dry-run', '--adopt-retained-state']),
+            ('install-agent.sh', ['--dry-run', '--configure-wol', '--wol-interface', 'lo']),
+            ('uninstall-agent.sh', ['--confirm']),
+            ('rollback-agent.sh', ['--backup', '/missing/snapshot']),
+            ('configure-wol.sh', ['--interface', 'lo', '--apply']),
+        ):
+            with self.subTest(script=script, args=args):
+                result = subprocess.run(['/bin/sh', str(ROOT / 'scripts' / script), *args],
+                                        env={'PATH': str(self.root), 'LANG': 'C'},
+                                        capture_output=True, text=True, timeout=5)
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertRegex(result.stderr, 'disabled|not supported')
+                self.assertEqual(result.stdout, '')
+                self.assertEqual(list(self.root.iterdir()), [])
 
     def test_preflight_source_guard_mentions_existing_protocol_check(self):
-        # Static guard for the separate read-only script. Actual modifying
-        # installer ordering is exercised by the behavioral fixture above.
+        # Static guard for the separate read-only script.
         self.assertIn('--check-existing', (ROOT / 'scripts/preflight.sh').read_text())
 
 

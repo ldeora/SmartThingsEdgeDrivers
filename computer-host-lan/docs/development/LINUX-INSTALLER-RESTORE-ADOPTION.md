@@ -2,11 +2,13 @@
 
 **Proposed design for #101; no new privileged operation is implemented.**
 Review separately before any change to the helper, journal or CLI. Existing
-rc.2 shell commands remain unchanged. This is not persistent WOL work.
+rc.2 shell commands remain unchanged. Development source now explicitly
+refuses historical restoration and adoption; the following legacy evidence
+describes the retired path, not a supported operation. This is not persistent WOL work.
 
 ## Current evidence and constraints
 
-- `install_core.run_cli --rollback` selects a direct child of the backup
+- The retired `install_core.run_cli --rollback` path selected a direct child of the backup
   base, validates v2 backup provenance, acquires the shared lock, checks
   the protected journal and restores the old snapshot. It does not
   journal the current before-state. Its service observations are legacy
@@ -21,9 +23,10 @@ rc.2 shell commands remain unchanged. This is not persistent WOL work.
   undoing a journal-bound transaction. Recovery calls it with a special
   first-install ownership exception. The exception must never authorize
   a user-selected historical snapshot.
-- `require_v2_or_clean(..., adopt_retained_state=True)` accepts only the
-  orphan-state-only layout with no managed files and no owner record.
-  This is a shape test, not proof that the private ID/key belongs to v2.
+- `require_v2_or_clean(..., classify_orphan_state=True)` returns
+  `orphan_state` only for the orphan-state-only layout with no managed files
+  and no owner record. This is a shape classification, not proof that the
+  private ID/key belongs to v2 and never authorizes adoption.
 - `write_owner_record` retains v2 intent across uninstall and failed
   activation/rollback. It creates the folder and marker separately.
   A crash after mkdir or partial marker write is not equivalent to a

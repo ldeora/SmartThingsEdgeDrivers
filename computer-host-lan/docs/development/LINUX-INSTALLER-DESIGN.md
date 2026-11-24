@@ -1,6 +1,8 @@
 # Computer Host LAN — Linux installer design specification
 
 > **Historical design note:** Describes the implementation at its original milestone. For current behavior, see [Linux installer architecture](LINUX-INSTALLER-ARCHITECTURE.md).
+>
+> **Current v1.0 cutover:** The entry-point table and source-tree diagram below describe the pre-consolidation design. Current development source refuses legacy shell/Python mutations; the authenticated Go wizard/CLI is the intended sole installer entry point, pending release qualification. Do not elevate legacy source scripts.
 
 **Status:** proposed / design only  
 **Date:** 2026-11-22  

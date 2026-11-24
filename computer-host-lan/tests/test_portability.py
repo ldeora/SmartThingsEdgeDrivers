@@ -59,12 +59,13 @@ class PortabilityTests(unittest.TestCase):
                 with self.subTest(file=p.name, value=value):
                     self.assertNotIn(value, content)
 
-    def test_installer_checks_compatible_python_before_mutating_files(self):
+    def test_source_plan_checks_python_without_account_creation(self):
         s = (ROOT/'scripts/install-agent.sh').read_text()
         self.assertIn('linuxhost_select_python', s)
         self.assertIn('PYTHON_BIN=$LINUXHOST_PYTHON', s)
         self.assertIn('install_core.py', s)
-        self.assertLess(s.index('linuxhost_select_python'), s.index('useradd --system'))
+        self.assertLess(s.index('Legacy installation disabled'), s.index('linuxhost_select_python'))
+        self.assertNotIn('useradd', s)
         self.assertIn('--python', s)
         self.assertNotIn('update-alternatives', s)
 

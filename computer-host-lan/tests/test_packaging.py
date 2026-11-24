@@ -91,7 +91,7 @@ class StaticChecks(unittest.TestCase):
         self.assertIn('--enable-power-control',(ROOT/'agent/systemd/enable-power.conf').read_text())
         installer=(ROOT/'scripts/install-agent.sh').read_text()
         self.assertIn('--configure-wol', installer)
-        self.assertIn('scripts/configure-wol.sh',installer)
+        self.assertNotIn('scripts/configure-wol.sh',installer)
         self.assertIn('linux-host-agent-power.socket', (ROOT/'scripts/install_core.py').read_text())
         self.assertIn('--wol-interface', installer)
         self.assertIn('LINUX_HOST_WOL_INTERFACE', (ROOT/'scripts/install_core.py').read_text())

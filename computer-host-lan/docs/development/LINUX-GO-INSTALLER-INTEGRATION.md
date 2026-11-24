@@ -365,8 +365,9 @@ help for:
   prerequisites before retrying
 - `recovery_required`: explicitly run the wizard with `-recover`;
   never delete its protected journal or backup to bypass the guard
-- `adoption_required`: inspect older retained v2 state, then use the
-  manual `--adopt-retained-state` recovery option
+- `adoption_required`: retained state cannot be verified as a supported v2
+  installation. Adoption is not supported in v1.0; preserve the state,
+  identity, key and backups, and seek recovery guidance.
 - `unsupported_python`: install a compatible system Python
   (3.10 or later) without changing the distribution's default symlink
 

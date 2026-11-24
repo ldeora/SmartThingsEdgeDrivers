@@ -113,12 +113,12 @@ be overwritten by a later sequential manual install, which would
 otherwise invalidate the wizard's recovery snapshot.
 
 The read-only JSON plan rejects v1/ambiguous hosts with its existing
-prerequisite_missing error. The backend additionally distinguishes an
-orphan-only retained state as `adoption_required` with fixed text directing
-the user to the manual installer `--adopt-retained-state` **only after**
-confirming the retained state is v2. The Go wizard is not yet connected
-to this backend; dedicated migration UI/status remains an API/Go decoder
-follow-up (issue #71).
+`prerequisite_missing` error. The backend additionally classifies an
+orphan-only retained-state layout as `adoption_required`; this is a shape
+classification only, not proof of v2 provenance and not an adoption action.
+The v1.0 cutover does not support retained-state adoption. Preserve the
+existing state, identity, key and backups, and seek recovery guidance. This
+paragraph supersedes the original milestone's manual-adoption proposal.
 Source-only parity tests use clean hosts and recognizable v2 fixtures.
 
 ## Errors and recovery behavior

@@ -1,6 +1,9 @@
 > **Historical Linux-only v0.3.1 source document.** It describes the
 > pre-refactor release and must not be used as evidence of hardware
-> validation for v0.4.0-dev.1. For the current architecture read
+> validation for v0.4.0-dev.1. The rollback command below belongs only to
+> that historical installer. Current development source explicitly refuses
+> `rollback-agent.sh`; preserve old snapshots and seek recovery guidance.
+> Do not elevate current source scripts. For the current architecture read
 > `README.md`, `PROTOCOL.md`, `INSTALLATION.md` and
 > `docs/development/LINUX-PARITY-ACCEPTANCE.md`.
 

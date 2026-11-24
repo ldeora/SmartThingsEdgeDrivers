@@ -1,7 +1,7 @@
-# Linux installer consolidation — proposed stable-release contract
+# Linux installer consolidation — stable-release contract
 
 Related: #101, #84, #88, #98, #109. This records the intended architecture
-and acceptance gates, not a completed migration or an available release.
+and acceptance gates, not proof of physical acceptance or an available release.
 
 ## Decision
 
@@ -13,7 +13,7 @@ engine. The current published rc.2 shell installer remains supported for
 that release with its documented limitations. Do not switch public
 installation instructions to an unsigned test artifact.
 
-## Current contract and migration obligations
+## Legacy contract and migration obligations
 
 | Existing path | Current semantics | Required transition |
 | --- | --- | --- |
@@ -28,11 +28,34 @@ installation instructions to an unsigned test artifact.
 | rollback-agent.sh --backup PATH | Explicit historical snapshot restoration | Distinct protected operation; cannot be substituted by -recover |
 | Go -recover | Recover interrupted journal, never replay forward changes | Preserve fixed request, protected helper and terminal cleanup |
 
-The legacy install shell currently creates the service user outside the
-engine's lock/journal and can run configure-wol after installation. The
-legacy core uses boolean systemctl exit-code observations and does not
-have the wizard's journal, strict service verification or runtime gate.
+The retired legacy install shell created the service user outside the
+engine's lock/journal and could run configure-wol after installation. The
+legacy CLI used boolean systemctl exit-code observations and lacked
+the wizard's journal, strict service verification and runtime gate.
 These are meaningful differences, not equivalent implementations.
+
+## Development cutover: explicit refusal
+
+The chosen v1.0 source transition is explicit refusal, not automatic
+delegation. The three old mutating shell entry points refuse rather than
+searching for or executing a possibly unauthenticated binary. The direct
+`install_core.py` CLI also refuses install, uninstall, historical rollback
+and retained-state adoption before host inspection or mutation. Its
+shared file-plan, snapshot and service primitives remain for the protected
+backend; this is not a second public installation engine.
+
+`install-agent.sh --dry-run` remains a read-only informational source
+plan with power, interface and Python-selection options; it is not the
+protected CLI plan or an authorization to install. An explicit Python
+override is not a supported elevated installer option. Do not run source
+diagnostics with sudo. The old `--configure-wol` and
+`--adopt-retained-state` options refuse even with dry-run. The standalone
+`configure-wol.sh --apply` also refuses; its read-only preview remains.
+Existing network settings, snapshots, credentials and agents are not changed.
+
+No public release instructions switch to the new executable until
+attestation and physical acceptance. The immutable rc.2 assets are
+untouched; do not re-use the rc.2 version label for development artifacts.
 
 ## Trust and entry points
 
@@ -40,9 +63,9 @@ The authenticated standalone Go release executable is the common entry
 point for both interactive and noninteractive use. The initial `cli`
 subcommand is development-only and calls the existing bootstrap with
 explicit action-specific confirmation and noninteractive authorization.
-Do not add a second bootstrap to the shell scripts. Future shell wrappers
+Do not add a second bootstrap to the shell scripts. If a future compatibility wrapper is introduced, it
 must invoke the authenticated executable, not compute trust from the
-source checkout. Cutover remains gated on #84 and #101.
+source checkout. The v1.0 cutover does not introduce such a wrapper. Cutover remains gated on #84 and #101.
 
 
 The current root helper verifies its protected manifest and stages the
@@ -85,6 +108,7 @@ proposed separate contracts and their acceptance gates.
    installer on Gentoo and additional supported distributions. Then
    update user-facing quick starts and packaging together.
 
-The current release instructions remain unchanged until this work passes
-review and physical acceptance. Neither this architecture decision nor
+The published rc.2 instructions remain version-bound until this work passes
+review and physical acceptance. Development source documentation identifies
+the refusal boundary and does not direct users to elevate source code. Neither this architecture decision nor
 fixture tests authorize changing live network policy.

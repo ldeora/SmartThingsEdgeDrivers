@@ -1,6 +1,8 @@
 # Linux installer — experimental read-only JSON API
 
 > **Historical design note:** Describes the implementation at its original milestone. For current behavior, see [Linux installer architecture](LINUX-INSTALLER-ARCHITECTURE.md).
+>
+> **Current v1.0 cutover:** The legacy `install-agent.sh` source entry point is now read-only/dry-run only and refuses installation. Published rc.2 instructions remain version-bound; the authenticated Go wizard/CLI is the intended v1.0 entry point but is not yet release-qualified.
 
 **Status:** preliminary implementation; no privileged installer operations.  
 **Design contract:** [LINUX-INSTALLER-DESIGN.md](LINUX-INSTALLER-DESIGN.md)
@@ -164,11 +166,12 @@ read-only Go subprocess budget is 45 seconds) or introduce a shared deadline.
   waking the service merely to pass a live HTTP probe.
 
 `verify` cannot install, pair, fix firewall rules, establish hub
-reachability, or inspect protected credentials. The existing
-`scripts/install-agent.sh` remains the supported manual installer.
-The runtime verifier has **not yet been integrated as a commit gate** in
-`install_core.py`; that requires protected transaction/recovery handling.
-Existing `inspect` and `plan` schema fields remain unchanged.
+reachability, or inspect protected credentials. The legacy
+`scripts/install-agent.sh` is no longer a supported mutation path in
+current development source; it refuses installation. The runtime verifier
+has **not yet been integrated as a commit gate** in `install_core.py`;
+that requires protected transaction/recovery handling. Existing `inspect`
+and `plan` schema fields remain unchanged.
 
 ## Platform and security limitations
 
