@@ -229,9 +229,13 @@ def _comparison(before: dict, after: dict) -> dict:
     old_link_id = None if old_link is None else old_link['persistent']
     new_link_id = None if new_link is None else new_link['persistent']
     link_available = old_link_id is not None and new_link_id is not None
-    same_link_fs = bool(new_link_id is not None and all(
-        new[name]['persistent'] is not None and
-        new[name]['persistent'][:3] == new_link_id[:3] for name in _FILES))
+    same_link_fs = bool(
+        link_available and old_link_id[:3] == new_link_id[:3] and
+        all(old[name]['persistent'] is not None and
+            old[name]['persistent'][:3] == old_link_id[:3] and
+            new[name]['persistent'] is not None and
+            new[name]['persistent'][:3] == new_link_id[:3]
+            for name in _FILES))
     return dict(
         different_boot=before['boot'] != after['boot'],
         persistent_identity_available=_available(before) and _available(after),
