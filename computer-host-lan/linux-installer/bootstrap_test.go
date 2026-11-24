@@ -790,6 +790,19 @@ func TestFuturePrivilegedRequestsAreRejected(t *testing.T) {
 	}
 }
 
+func TestCurrentBootstrapRejectsExactProposedV3WireIntents(t *testing.T) {
+	// Matches the experimental Python wire contract. Neither of these
+	// intents may reach the current privileged bootstrap or promotion.
+	for _, wire := range []string{
+		`{"schema_version":3,"action":"restore","snapshot_name":"snapshot-historical","confirmation":"RESTORE"}`,
+		`{"schema_version":3,"action":"adopt","confirmation":"ADOPT","retained_protocol":"v2","power":"disable","wol_interface":null}`,
+	} {
+		if _, err := decodePrivilegedRequest(strings.NewReader(wire)); err == nil {
+			t.Fatal("current bootstrap accepted proposed v3 wire intent")
+		}
+	}
+}
+
 func TestEmbeddedReadOnlyAPIContainsNoWritableRootHelper(t *testing.T) {
 	api, cleanup, err := makeEmbeddedReadOnlyAPI()
 	if err != nil {

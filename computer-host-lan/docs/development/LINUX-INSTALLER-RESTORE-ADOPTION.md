@@ -290,30 +290,131 @@ future modifying operation must revalidate under its own transaction
 boundary and verify retained identity and key after activation. Real-host
 service queries cannot be overridden; fixture roots may inject mocks.
 
-## Future protocol compatibility contract
+## Proposed versioned wire contracts (experimental)
 
-Keep current Go and Python request schemas 1 and 2 and journal schema 1
-unchanged in this increment. Restore/adopt are not accepted even when a
-caller supplies proposed confirmation words. Current decoder tests
-exercise unknown operation and schema combinations, including terminal
-future journal records: no status success, automatic reaping, or old
-recovery dispatch. Go promotion tests preserve current/previous/next
-helper directories when the installed helper reports unknown or
-unreadable journal state. This is current-version refusal evidence,
-not a completed new-protocol compatibility implementation.
+The experimental codec in `scripts/restore_adopt_contract.py` is the
+reviewable candidate for the future privileged boundary. It has **no
+production caller, no writer, no dispatch, no embedded bundle integration,
+and no new CLI command**. The currently installed helper and Go bootstrap
+continue to reject these new versions. Request schemas 1 and 2 and journal
+schema 1 remain unchanged; the candidate decoder delegates their existing
+validation instead of redefining their grammar.
 
-Before introducing restore/adopt, specify new exact versioned request and
-journal formats (including distinct current-before-state and historical
-source references, durable adoption consent, and transaction-bound evidence).
-New helper must continue reading old supported recovery records without
-reinterpreting them. Old helper must fail closed on new records, including
-terminal ones. Recovery always uses the helper capable of interpreting
-the active record. Version promotion must not proceed on unknown/error
-status, including when the current helper is missing and a prior/next
-artifact exists; reconcile and validate before replacing any helper.
-Test actual old/new installed helper combinations, including interruption
-between renames, before enabling the new operations. Do not silently
-fallback to the legacy engine. A separate release gate remains #84.
+### Request schema 3
+
+Exact JSON fields, no extras, duplicate names, arbitrary source paths,
+commands, credential values or caller-supplied release trust material.
+Proposed normalized wire intents (not executable commands):
+
+```json
+{"schema_version":3,"action":"restore","snapshot_name":"snapshot-historical","confirmation":"RESTORE"}
+```
+
+```json
+{"schema_version":3,"action":"adopt","confirmation":"ADOPT","retained_protocol":"v2","power":"disable","wol_interface":null}
+```
+
+The restore identifier selects one direct child of the fixed snapshot
+namespace. The trusted helper must resolve authenticated historical
+expectations independently; neither the request nor its chosen snapshot
+supplies that trust. No restore-time overrides of historical power,
+Python or interface configuration. Adoption requires an explicit operator
+assertion of prior v2 provenance, explicit enable/disable (default disable
+in the future CLI), and a nullable validated interface pin. It does not
+accept preserve, because an eligible orphan has no installed power
+drop-in. The literal confirmations express intent, not authentication or
+proof of prior protocol. Both actions still require separate unprivileged
+confirmation, explicit administrator authorization, protected entry,
+under-lock eligibility and independent evidence checks. Future Go-to-Python
+handoff must not accept arbitrary source or Python paths.
+
+### Journal schema 2
+
+Exact common fields: schema (2), transaction_id (32 lowercase hex),
+operation (restore/adopt), phase, snapshot_name, before_receipt_sha256,
+intent (exact corresponding v3 request), evidence (null or exact
+operation-specific object). The original schema-1 journal is not rewritten.
+The 2048-byte record and 4096-byte request limits remain.
+
+- Restore intent holds the historical **forward source** name.
+  Stage evidence binds source_receipt_sha256, source_manifest_sha256,
+  release_manifest_sha256, staged_plan_sha256, agent_version and renderer
+  (initially v2_fixed_plan_1). All digests are lowercase SHA-256 hex.
+  Actual trust and compatibility must be established by the protected
+  caller; a structurally valid digest is not evidence of authenticity.
+- Adoption intent includes the retained_protocol assertion and chosen
+  settings. Stage evidence binds payload_manifest_sha256,
+  staged_plan_sha256, agent_version, retained_layout=verified,
+  service_state=verified_absent and pre_begin_journal=verified_empty.
+  The last field describes the observation **before** the journal was
+  created, not a claim that the newly created journal is absent.
+  No private UUID, token, or credential hashes are stored. Eligibility
+  evidence and consent cannot prove key equality after activation.
+- snapshot_name and before_receipt_sha256 refer **only to the new
+  current-before-state** snapshot and its protected receipt, never to
+  the selected historical forward source. Recovery must authenticate
+  the actual before-state receipt against the journal, verify its
+  transaction/operation/name binding and file bytes, and never apply
+  the historical source during rollback.
+
+The staged_plan_sha256 field is reserved for the digest of the exact
+protected stage manifest bytes, not a digest supplied by the caller.
+Before enabling either action, define the bounded canonical stage
+manifest/namespace, pinned content, metadata, service observations and
+transaction binding; for adoption also bind the verified new payload
+manifest and explicitly selected settings. Define how the before-state
+receipt writer and recovery reader support the new operations. No current
+receipt or staging implementation is altered by this codec. The codec
+checks structure and immutable binding, not the underlying files.
+
+| Phase | Evidence | Before-state name and receipt digest |
+| --- | --- | --- |
+| INSPECTED | null | both null |
+| STAGED | required | both null |
+| SNAPSHOTTED | required | both required |
+| APPLYING / ACTIVATING / VERIFYING | required | both required |
+| COMMITTED / ROLLED_BACK | required | both required |
+| ABORTED | unchanged from originating pre-apply phase | unchanged, either paired or null |
+
+The transition guard permits the existing sequential phases, pre-apply
+ABORTED, and applied-phase ROLLED_BACK only. Operation, transaction ID
+and intent are immutable; evidence may be introduced only at STAGED
+and the new before-state pair only at SNAPSHOTTED. No terminal record can
+transition again. A durable authorization record by itself never allows
+mutation: require current eligibility and verified staging before durable
+APPLYING. Adoption marker publication is permitted only after APPLYING
+and separately reviewed checks; pre-apply abort must not publish it.
+
+### Compatibility and recovery dispatch
+
+The candidate recovery classifier returns a fixed contract identifier
+(legacy_v1, restore_v2, adopt_v2) and an action (abort_before_apply,
+rollback_before_state, terminal_cleanup). It cannot execute any action.
+A terminal v2 record still needs compatible cleanup; it is never proof
+of a clean journal. Never resume forward restoration or adoption after
+interruption. Schema-1 recovery continues to use the existing rules.
+Do not route a new record through the old first-install exception.
+
+Tests exercise the actual current Python journal writer, status,
+begin/recovery and terminal cleanup APIs, as well as the exact candidate
+wire format. A fresh isolated interpreter uses the actual embedded old
+Python modules for refusal tests, not an invented legacy decoder. The
+current Go request decoder rejects both exact v3 examples. These are
+codec/API compatibility fixtures, not a complete installed old/new
+helper matrix or evidence of new recovery support.
+
+Before enabling either operation, implement the trusted stage and
+journal reader/writer and separate recovery dispatch; test real old/new
+helper combinations including helper promotion interrupted between
+renames. In particular, the existing bootstrap normally asks the
+current helper for status before promotion, but a missing current and
+previous helper can look like a first installation even if protected
+journal or staging evidence survives. Close that gap with a protected
+absence check (or compatible helper reconciliation) before promotion.
+Never retire an unknown helper/artifact or infer a clean state from
+unreadable status. Keep existing helper available until its compatible
+cleanup completes. No silent fallback to the legacy modifying engine.
+Release gate #84 remains separate.
 
 ## Implementation order and acceptance
 
