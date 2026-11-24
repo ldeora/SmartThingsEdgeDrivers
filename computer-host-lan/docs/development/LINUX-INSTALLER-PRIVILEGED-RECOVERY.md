@@ -1,5 +1,7 @@
 # PR #77 — applied-phase crash recovery and fixed privileged request boundary
 
+> **Historical design note:** Describes the implementation at its original milestone. For current behavior, see [Linux installer architecture](LINUX-INSTALLER-ARCHITECTURE.md).
+
 **Status:** Python backend and privilege-handoff contract with source/fixture
 tests. This is **not** a deployed or production-enabled wizard. Neither
 the live `linuxhost` agent, its UUID/key, WOL, systemd, SmartThings driver

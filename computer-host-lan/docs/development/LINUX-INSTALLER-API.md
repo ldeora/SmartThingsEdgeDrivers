@@ -1,5 +1,7 @@
 # Linux installer — experimental read-only JSON API
 
+> **Historical design note:** Describes the implementation at its original milestone. For current behavior, see [Linux installer architecture](LINUX-INSTALLER-ARCHITECTURE.md).
+
 **Status:** preliminary implementation; no privileged installer operations.  
 **Design contract:** [LINUX-INSTALLER-DESIGN.md](LINUX-INSTALLER-DESIGN.md)
 

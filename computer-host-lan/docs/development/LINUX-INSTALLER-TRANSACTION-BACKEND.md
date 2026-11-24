@@ -1,5 +1,7 @@
 # Linux installer PR #76 — Transaction backend and shared installation lock
 
+> **Historical design note:** Describes the implementation at its original milestone. For current behavior, see [Linux installer architecture](LINUX-INSTALLER-ARCHITECTURE.md).
+
 **Scope:** root-side controller library and fixture tests, not an elevated
 wizard or live installing product. No user-visible agent, Edge Driver,
 systemd, credentials, firewall, WOL, networking, or hub state is modified

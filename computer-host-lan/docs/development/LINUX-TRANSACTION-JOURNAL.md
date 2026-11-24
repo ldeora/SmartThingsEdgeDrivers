@@ -1,5 +1,7 @@
 # Linux wizard protected transaction journal — foundation
 
+> **Historical design note:** Describes the implementation at its original milestone. For current behavior, see [Linux installer architecture](LINUX-INSTALLER-ARCHITECTURE.md).
+
 **Status:** isolated, review-only foundation; **NOT** an installing wizard.  
 **Scope:** `scripts/transaction_journal.py`, fixture tests and this design note.  
 **Production behavior:** unchanged; no systemd, agent, service, power, credentials,

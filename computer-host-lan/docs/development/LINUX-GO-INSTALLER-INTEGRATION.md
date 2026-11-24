@@ -1,5 +1,7 @@
 # Computer Host LAN — Go installer bootstrap and execution (PR #78)
 
+> **Historical design note:** Describes the implementation at its original milestone. For current behavior, see [Linux installer architecture](LINUX-INSTALLER-ARCHITECTURE.md).
+
 **Status: draft, integration and test only.** This PR brings the latest
 reviewed Go UI from draft PRs #67/#72 onto the post-#77 backend and adds a
 real, explicitly authorized installer flow. The branch is a self-contained

@@ -1,5 +1,7 @@
 # Linux feature-parity gate — v0.3.1-beta.1 → v0.4.0-dev.1
 
+> **Historical design note:** Describes the implementation at its original milestone. For current behavior, see [Linux installer architecture](LINUX-INSTALLER-ARCHITECTURE.md).
+
 **Status: NOT PASSED on real hardware.** The initial baseline was verified on
 Gentoo `hydra` with systemd, an Ethernet NIC and SmartThings hub. The new v2
 refactor has only been exercised with source-level tests, real Lua VM mocks,

@@ -1,5 +1,7 @@
 # Linux installer PR #75 — protected, transaction-bound payload staging
 
+> **Historical design note:** Describes the implementation at its original milestone. For current behavior, see [Linux installer architecture](LINUX-INSTALLER-ARCHITECTURE.md).
+
 **Status:** isolated DATA-ONLY milestone, not a working privileged installer.  
 **Production behavior:** unchanged. No sudo/polkit, installed agent/service,
 systemd, persistent UUID, token, firewall, networking, WOL or hub interaction.
