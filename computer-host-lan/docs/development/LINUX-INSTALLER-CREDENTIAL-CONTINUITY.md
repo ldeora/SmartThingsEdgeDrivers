@@ -8,13 +8,33 @@ install/upgrade/repair/uninstall/recover operation set (schema-1 engine).
 No restore/adopt, WOL mutation, account adoption, credential migration,
 or new public install operation is part of this design.
 
-## 1. Goal and non-goals
+## 1. Goal, non-goals and proposed release decision
+
+Independent review of #157 recommends two levels, subject to maintainer
+acceptance of the release scope:
+
+| Level | Required guarantee | Deliberate limitation |
+| --- | --- | --- |
+| v1.0 (#155) | Verify retained credential metadata within the original uninterrupted controller process, including rollback; never claim continuity without evidence. | Explicit recovery in a new process, even on the same boot, cannot verify continuity with the original transaction. |
+| v1.1 (#152; durable follow-up to #155) | Extend protected continuity evidence across process termination and reboot, including cleanup recovery. | Still metadata evidence under the trusted-root model, not cryptographic content proof. |
+
+For v1.0, the journal schema, provenance receipt and snapshot format
+remain unchanged. No durable sidecar, persistent filesystem UUID
+dependency, new recovery dispatcher or cross-schema fence is required
+by this narrow contract. The durable design below is retained as
+a separately reviewed v1.1 proposal, not a v1.0 acceptance condition.
+#84 authentication and #101 supported entry-point convergence remain
+release gates. This proposed scope does not waive any existing
+managed-file, service or recovery verification.
+
+### Shared objective
 
 Before a terminal outcome asserts preservation, independently establish
 that each pre-existing installation-id and control-token remains the
 same protected filesystem object with unchanged relevant metadata.
 This applies to stopped agents and uninstall as well as active runtime
-verification and rollback after process interruption. Existing state is
+verification and same-process rollback; the durable v1.1 level extends
+the comparison to recovery after process interruption. Existing state is
 never regenerated, copied, restored, deleted, or corrected to make a
 comparison succeed. Explicitly distinguish originally absent credentials
 from retained credentials. Continue to require the existing file,
@@ -63,18 +83,23 @@ a safe existing state directory, and an inaccessible or unsafe path.
 No-follow directory descriptors and held file descriptors must match
 visible entries after capture and before comparison; exclude atime.
 
-For each existing file, record a private observation of filesystem
-type, filesystem UUID, Btrfs subvolume ID where applicable, inode, size,
-file type/mode, uid/gid, link count, mtime_ns and ctime_ns. Record safe
+For each existing file, capture a private observation of device/inode,
+size, file type/mode, uid/gid, link count, mtime_ns and ctime_ns.
+For v1.0 use st_dev only within the original uninterrupted process
+and same boot; prefer holding safe metadata-only descriptors to pin
+objects where practical. Never serialize or reuse that baseline.
+For the durable v1.1 level additionally qualify filesystem type,
+persistent filesystem UUID and Btrfs subvolume ID where applicable
+(section 4). Record safe
 state-directory identity/ownership when present (not directory mtime or
 ctime as a continuity equality test, because creating a missing
 credential legitimately changes those). State-directory absence and
 account absence are explicit states. Do not use st_dev/f_fsid as a
 persistent identity. Within one observation, volatile stat/mount data
 may detect a race; it is not evidence across boot. Recheck account
-mapping and path identity. Strict canonical bounded encoding, explicit
-types/ranges, reject duplicates and unknown fields; no generic arbitrary
-paths or caller-provided fields.
+mapping and path identity. No generic arbitrary paths or caller-provided
+fields. The v1.0 in-memory observation uses bounded typed fields; strict
+canonical serialized encoding applies only to the durable v1.1 level.
 
 The normal files are private mode 0600 with canonical UUID/token sizes.
 Existing read_saved_identity permits some legacy UUID lengths/modes;
@@ -95,11 +120,120 @@ external links, symlinks and unstable observations refuse. Preserve
 leftover temp evidence; do not delete it just to obtain a convenient
 single link. A link disappearing after capture changes ctime/link count:
 it is not a continuity pass even if contents probably remain the same.
-Acceptance must cover normal first-start completion and legitimate
-interrupted publication; the conservative initial behavior may require
-retry/expert review for unstable or ambiguous state.
+A stable, fully accounted-for leftover alias is not itself a refusal
+condition. persistent_value does not clean up such old aliases merely
+because the final file already exists. Acceptance must cover normal
+first-start completion, an unchanged leftover alias across upgrade
+and rollback, and legitimate interrupted publication; unstable or
+ambiguous state may require retry/expert review.
 
-## 3. Persistent filesystem identity is a release feasibility gate
+## 3. v1.0 implementation contract: uninterrupted-process verification
+
+### Baseline and outcome
+
+Capture at STAGED under the existing manual and journal locks, after
+eligibility checks and before any managed mutation. Bind the in-memory
+observation to this controller invocation and transaction handle;
+recheck before APPLYING and after all file/service operations, before
+COMMITTED or ROLLED_BACK. Retain it through same-process error and
+rollback paths. A fresh process must never construct a replacement
+baseline from current state and describe it as the pre-transaction
+observation. No persisted continuity receipt or journal changes.
+
+The comparison uses st_dev/inode and the metadata in section 2;
+no persistent filesystem identity lookup is necessary. A changed mount
+or identity, unsafe/unreadable path, or unstable observation fails
+closed. Recheck visible names, parent identity and safe ownership.
+Do not require unchanged directory mtime/ctime: a new credential or
+ordinary directory activity can legitimately change them. A stable
+account mapping and directory identity/permissions must still hold
+where the pre-existing baseline requires them. Verify on real systemd
+that normal activation and rollback restart with StateDirectory= do
+not rewrite credential ctime; if they do, investigate before changing
+comparison rules. This is a physical observation requirement, not an
+assumption or reason to suppress a mismatch.
+
+| Situation | Required credential-continuity reporting |
+| --- | --- |
+| Original baseline; both retained and unchanged | verified (metadata continuity only) |
+| Originally absent credential, still absent | absent / no prior credential (not verified preservation) |
+| Originally absent credential, safely now present | newly_present (observed creation/appearance, not proof of creator or prior continuity) |
+| Mixed retained and absent/newly present | Report each separately; no aggregate claim that both pre-existing credentials were preserved |
+| Known mismatch or unsafe/unavailable comparison during original invocation | Fail verification, fixed redacted reason; no successful continuity claim |
+| Explicit recovery or later terminal cleanup with no original baseline | not_verified, reason continuity_unverified_after_interruption |
+| No transaction to recover | Not applicable; never fabricate a baseline |
+
+Exact field names and wire/UI shape are implementation review decisions.
+Prefer distinct fixed per-credential statuses and a separate aggregate
+credential_continuity field. Existing identity_preserved denotes the
+UUID/runtime or uninstall disk check; do not silently broaden it.
+Current InstallOutcome, UninstallOutcome, RecoveryOutcome, ControllerError
+and Go decoding/display paths must be audited together, including
+success, cleanup-required, rolled_back, aborted, cleaned and failure
+paths. A missing field from an older helper is not_verified, never
+verified. Do not conflate successful managed-state recovery with proof
+of credential continuity; an explicit recovery can successfully restore
+managed state while continuity remains not_verified. Present that
+distinction visibly in the wizard, CLI and redacted machine result.
+No credential values, hashes, file metadata or raw private errors in
+public output.
+
+### Failure and interruption boundary
+
+If the original invocation detects a mismatch or unsafe comparison
+before managed mutation, refuse/abort using existing safe rules.
+After managed mutation, attempt the existing authorized managed
+rollback where safe; the comparison must be part of the rollback
+verification before ROLLED_BACK is written. A known continuity failure
+must not be laundered by a later successful file/service check. If
+continuity cannot be verified, retain the nonterminal journal and
+return recovery_required with a fixed redacted diagnostic; do not
+regenerate or restore credentials. If already COMMITTED, do not
+reverse the committed operation merely to clean up; do not return
+verified if the final observation fails. Retain evidence where
+applicable, and explain cleanup status separately.
+
+A later explicit schema-1 recovery without the original in-memory
+baseline follows the existing managed-state rollback or terminal
+cleanup policy and reports not_verified, including if the preceding
+process had detected a mismatch. v1.0 deliberately does not durably
+remember that mismatch or the prior observation. Do not claim that
+it detects changes across process termination, prevents a compatible
+older helper from ordinary schema-1 recovery, or preserves a permanent
+continuity failure marker. Preserve existing protected recovery
+evidence until authorized recovery succeeds; do not introduce an
+unrecoverable journal state solely because the baseline is absent.
+Where later cleanup is implicit in a new begin, the new transaction's
+fresh observation cannot certify the previous one; check reporting
+and user guidance so no implicit previous-continuity claim arises.
+This distinction is the proposed narrowing of I11 for v1.0.
+
+### v1.0 acceptance
+
+- Implement fixture-tested metadata observer and comparisons first;
+  include no-follow safe directory/file identity, account/owner/mode,
+  absent/newly present, stable exact first-start aliases, same-size
+  rewrite, inode replacement and timestamp/link changes. No new
+  credential content reads.
+- Integrate original invocation checks in install/upgrade/repair/
+  uninstall, pre-apply, forward and same-process rollback paths.
+  Reproduce all four #155 probes and require no false verified result
+  or clean same-process rollback on known mismatch. Test stopped
+  agent, mixed absence, ordinary service restart, terminal publication
+  error and cleanup-required paths.
+- Exercise recovery from fresh process/after reboot for all relevant
+  phases and terminal cleanup, including no original baseline and
+  old helpers without the result field. Verify old schema-1 journal
+  and snapshot compatibility, explicit recovery remains possible,
+  and no false claim of preservation. Test machine and human output,
+  including wizard/CLI display and fixed redacted errors.
+- Run full Python, Go, bundle, CI and independent review. Observe
+  normal service restart on supported physical hosts (including
+  StateDirectory and file ctime stability); no deliberate corruption
+  on a working host. No cross-reboot filesystem UUID qualification
+  required for this v1.0 level.
+
+## 4. v1.1 durable level: persistent filesystem identity feasibility
 
 The existing development-only wol_fs_identity.identify(fd) (#98) is a
 candidate building block, not a supported installer dependency today.
@@ -119,7 +253,7 @@ ownership/mode management: a legitimate chmod/chown or metadata
 transition must not be confused with a verified unchanged observation.
 Do not weaken comparisons silently to pass such a test.
 
-Before adopting this as an unconditional stable gate, determine whether
+Before adopting this as an unconditional durable v1.1 gate, determine whether
 the stable-identity implementation is available on the intended Linux
 support matrix. If it is unavailable, choose an explicit reviewed
 support/diagnostic policy or a different reliable persistent observation
@@ -133,7 +267,7 @@ Clean installs with absent credentials must also establish safe later
 observations and support for the resulting state, or refuse before
 mutation. Do not infer support from the filesystem containing /tmp.
 
-## 4. Durable evidence and old-helper compatibility
+## 5. v1.1 durable evidence and old-helper compatibility
 
 ### Storage alternatives
 
@@ -155,7 +289,7 @@ exists. The normal Go bootstrap retains the recovery-compatible helper,
 but deletion/replacement or explicit downgrade must not circumvent
 the evidence contract. No reliance solely on version strings.
 
-### Proposed narrow journal evolution
+### Proposed future journal evolution (v1.1 only)
 
 Retain existing schema-1 initial INSPECTED and STAGED publications,
 including their initial-write recovery rules. No managed mutation
@@ -211,7 +345,7 @@ helper presence check and independently authenticated recovery-helper
 availability (#84) are relevant to this boundary; test both present and
 missing helper scenarios before deploying the enhanced envelope.
 
-## 5. Controller integration and terminal outcomes
+## 6. v1.1 controller integration and terminal outcomes
 
 | Phase / observation | Required behavior |
 | --- | --- |
@@ -273,8 +407,13 @@ for continuity failures and separately distinguish no prior identity.
 No filesystem UUID, inode, timestamps, credential values, hashes,
 raw exceptions or sidecar data in result/status/diagnostics.
 
-## 6. Implementation sequence and acceptance
+## 7. v1.1 durable implementation sequence and acceptance
 
+This is the deferred durable implementation plan, not the v1.0
+critical path. Coordinate with #148, #150 and schema-2 compatibility
+and ownership work to share the recovery dispatcher, compatibility
+matrix and stable filesystem observations where practical. The example
+schema identifier remains a design option, not an assigned format.
 Do not implement the entire controller or change the embedded bundle
 in the design PR.
 
@@ -311,6 +450,9 @@ in the design PR.
    after normal reboot, and supervised acceptance on reversible
    hosts. No deliberate fault injection on hydra's working install.
 
-#155 remains open. #101/#84 and existing release gates remain open.
+#155 remains open for the proposed narrow v1.0 acceptance criteria.
+The durable design is deferred to a separate v1.1 issue/contract after
+maintainer approval; #152 remains relevant. #101/#84 and existing
+release gates remain open.
 Nothing in this design authorizes schema-2 production deployment,
 changes to released rc.2 assets or live-host testing.
