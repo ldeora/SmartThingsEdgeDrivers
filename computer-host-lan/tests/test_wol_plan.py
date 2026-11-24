@@ -247,6 +247,20 @@ class WolPlannerTests(unittest.TestCase):
         self.replies[UDEV] = udev
         self.assertEqual(self.plan()['link_tree'], 'selection_changed')
 
+    def test_empty_dropin_rule_changes_during_final_udev_query_are_refused(self):
+        self.empty_dropin()
+        calls = 0
+
+        def udev():
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                self.put(LOCAL, exact_rule(wol='off'))
+            return 'ID_NET_LINK_FILE=' + LOCAL + '\n'
+
+        self.replies[UDEV] = udev
+        self.assertEqual(self.plan()['link_tree'], 'selection_changed')
+
     def test_empty_dropin_never_overrides_reported_or_earlier_conflict(self):
         self.empty_dropin()
         self.replies[UDEV] += 'ID_NET_LINK_FILE_DROPINS=/private/override.conf\n'
