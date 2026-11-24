@@ -139,6 +139,18 @@ class RetainedStateTests(unittest.TestCase):
         self.assertFalse((self.root / 'var/backups').exists())
         self.assertFalse((self.root / core.OWNER_DIR.lstrip('/')).exists())
 
+    def test_environment_refuses_wrong_lock_and_real_service_override(self):
+        services = mock.Mock()
+        for options in (
+                dict(root=self.root, owner_uid=self.uid,
+                     manual_lock_path=self.root / 'wrong.lock', services=services),
+                dict(root=Path('/'), owner_uid=self.uid, services=services)):
+            with self.assertRaisesRegex(adoption.AdoptionEligibilityError,
+                                        'unsupported_context'):
+                with adoption.adoption_candidate(**options):
+                    self.fail('unsafe inspection context accepted')
+        services.verify_uninstall_services.assert_not_called()
+
     def test_environment_refuses_pending_and_terminal_journal(self):
         services = mock.Mock()
         services.verify_uninstall_services.return_value = True

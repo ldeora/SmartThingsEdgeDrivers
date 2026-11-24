@@ -187,7 +187,9 @@ def _require_empty_journal(root: Path, owner_uid: int) -> None:
                     stack.callback(os.close, lock)
                     journal._take_lock(lock, shared=True)
                 # No unknown directory contents or terminal leftovers.
-                if set(os.listdir(directory)) - {'lock'}:
+                fresh = os.open('.', _DIR, dir_fd=directory)
+                stack.callback(os.close, fresh)
+                if set(os.listdir(fresh)) - {'lock'}:
                     raise AdoptionEligibilityError('journal_not_empty')
             if journal._staged_payload_remains(root, owner_uid):
                 raise AdoptionEligibilityError('journal_not_empty')
@@ -209,12 +211,12 @@ def adoption_candidate(*, root: Path = Path('/'), owner_uid: int = 0,
     still independently establish v2 provenance and explicit consent.
     """
     root = Path(root)
-    if (owner_uid != os.geteuid() or
-            (root == Path('/') and (owner_uid != 0 or
-             manual_lock_path != engine._MANUAL_LOCK or services is not None)) or
-            (root != Path('/') and
-             (services is None or not Path(manual_lock_path).is_absolute() or
-              not Path(manual_lock_path).is_relative_to(root)))):
+    manual_lock_path = Path(manual_lock_path)
+    if (not root.is_absolute() or '..' in root.parts or
+            owner_uid != os.geteuid() or
+            manual_lock_path != root / engine._MANUAL_LOCK.relative_to('/') or
+            (root == Path('/') and (owner_uid != 0 or services is not None)) or
+            (root != Path('/') and services is None)):
         raise AdoptionEligibilityError('unsupported_context')
     if services is None:
         services = engine.SystemdOperations()
@@ -224,14 +226,16 @@ def adoption_candidate(*, root: Path = Path('/'), owner_uid: int = 0,
                 not engine._enablement_absent(core.InstallTransaction(root))):
             raise AdoptionEligibilityError('service_state_unconfirmed')
 
-    try:
-        with engine.manual_install_lock(manual_lock_path, owner_uid=owner_uid):
+    with ExitStack() as stack:
+        try:
+            stack.enter_context(engine.manual_install_lock(
+                manual_lock_path, owner_uid=owner_uid))
             _require_empty_journal(root, owner_uid)
             require_quiescence()
             evidence = inspect_retained_state(root, owner_uid=owner_uid)
             require_quiescence()
             _require_empty_journal(root, owner_uid)
-            yield replace(evidence, service_state='verified',
-                          journal_state='verified')
-    except engine.ControllerError:
-        raise AdoptionEligibilityError('installer_lock_or_environment_unavailable') from None
+        except engine.ControllerError:
+            raise AdoptionEligibilityError(
+                'installer_lock_or_environment_unavailable') from None
+        yield replace(evidence, service_state='verified', journal_state='verified')
