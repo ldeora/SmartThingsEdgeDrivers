@@ -12,9 +12,46 @@ import json
 import os
 from pathlib import Path
 import stat
+import sys
 from typing import Callable
 
-import wol_inspect as probe
+
+def _load_inspector():
+    """Import the sibling module in isolated mode from a trusted checkout.
+
+    A development script is not a privileged installed helper. In
+    particular, refuse to import from a user-owned checkout as root.
+    Future integration must use the installed helper's fixed trust boundary.
+    """
+    directory = Path(__file__).absolute().parent
+    uid = os.geteuid()
+    # A normal developer may use a checkout they own, under root-owned
+    # parents. Root requires every component to be root-owned.
+    for parent in (*reversed(directory.parents), directory):
+        info = parent.lstat()
+        if (not stat.S_ISDIR(info.st_mode) or info.st_uid not in (0, uid)
+                or info.st_mode & 0o022):
+            raise RuntimeError('unsafe inspector import directory')
+    for name in ('wol_plan.py', 'wol_inspect.py'):
+        info = (directory / name).lstat()
+        if (not stat.S_ISREG(info.st_mode) or info.st_uid not in (0, uid)
+                or info.st_mode & 0o022):
+            raise RuntimeError('unsafe inspector source')
+    sys.path.insert(0, str(directory))
+    try:
+        import wol_inspect
+        return wol_inspect
+    finally:
+        sys.path.pop(0)
+
+
+# Normal module imports are used by fixture tests and the future installed
+# helper, which owns its import boundary. Standalone isolated execution
+# needs the explicit, checked sibling import.
+if __name__ == '__main__':
+    probe = _load_inspector()
+else:
+    import wol_inspect as probe
 
 # Highest priority first for equal basenames. /lib is accepted only as
 # an alias of /usr/lib, or when /usr/lib/systemd/network does not exist.
@@ -172,7 +209,9 @@ def has_secureon(text: str) -> bool:
 
 
 def inspect_link_tree(root: Path, observed: Path, mac: str,
-                      owner_uid: int) -> tuple[str, str, str]:
+                      owner_uid: int, *,
+                      listing: tuple[dict[str, Path], set[str]] | None = None
+                      ) -> tuple[str, str, str]:
     """Return fixed (tree evidence, scope, base policy) classifications.
 
     For an earlier rule, only a literal *permanent* MAC mismatch is
@@ -181,7 +220,7 @@ def inspect_link_tree(root: Path, observed: Path, mac: str,
     """
     unknown = ('not_verified', 'not_verified', 'not_verified')
     try:
-        winners, dropins = inventory(root, owner_uid)
+        winners, dropins = listing if listing is not None else inventory(root, owner_uid)
         selected = winners.get(observed.name)
         observed_path = str(observed)
         if observed_path.startswith('/lib/') and selected is not None:
@@ -242,7 +281,9 @@ def recommendation(evidence: dict, tree: str, scope: str,
             # Only a review candidate. Before any future mutation, verify
             # exact old flags, profile persistence, NIC binding, credential
             # status and administrator consent; no UUID/flags are emitted.
-            return 'review_nm_add_magic', 'explicit_nm_flags_without_magic'
+            reason = ('explicit_nm_wol_disabled' if nm == 'none'
+                      else 'explicit_nm_flags_without_magic')
+            return 'review_nm_add_magic', reason
         return 'manual_review', 'nm_policy_not_explicit'
     if backend != 'systemd_udev':
         return 'manual_review', 'network_backend_not_verified'
@@ -289,10 +330,16 @@ def plan(interface: str, *, root: Path = Path('/'),
     valid = (isinstance(interface, str) and probe._IFACE.fullmatch(interface)
              and interface not in ('.', '..') and not interface.startswith('-'))
     before = probe.read_identity(net, interface) if valid else None
+    listing = None
+    inventory_failed = False
+
     def protected_link_reader(path: Path) -> str | None:
-        # Reuse only an inventory winner from a protected directory.
+        # Reuse one directory inventory for the subsequent precedence
+        # check. File contents are read again, not assumed immutable.
+        nonlocal listing, inventory_failed
         try:
-            winners, _ = inventory(root, owner_uid)
+            listing = inventory(root, owner_uid)
+            winners, _ = listing
             actual = winners.get(path.name)
             absolute = str(path)
             if absolute.startswith('/lib/') and rooted(root, '/lib').is_symlink():
@@ -301,6 +348,8 @@ def plan(interface: str, *, root: Path = Path('/'),
                 return None
             return read_rule(actual, owner_uid)
         except (OSError, UnicodeError, ValueError, UncertainPolicy):
+            if listing is None:
+                inventory_failed = True
             return None
 
     evidence = probe.inspect(interface, net=net, run=record,
@@ -310,8 +359,17 @@ def plan(interface: str, *, root: Path = Path('/'),
             and observed[1] is not None and before is not None):
         if observed[2] == 'present':
             tree = 'dropins_require_review'
-        elif evidence['permanent_mac_match'] == 'matches':
-            tree, scope, policy = inspect_link_tree(root, observed[1], before[1], owner_uid)
+        elif evidence['permanent_mac_match'] == 'matches' and not inventory_failed:
+            tree, scope, policy = inspect_link_tree(
+                root, observed[1], before[1], owner_uid, listing=listing)
+            # The shared inventory is not an atomic snapshot. Recheck its
+            # names and winning paths to catch changes during inspection.
+            if listing is not None:
+                try:
+                    if inventory(root, owner_uid) != listing:
+                        tree, scope, policy = 'selection_changed', 'not_verified', 'not_verified'
+                except (OSError, UnicodeError, ValueError, UncertainPolicy):
+                    tree = scope = policy = 'not_verified'
         again = probe.selected_link(run(
             ('udevadm', 'info', '--query=property', '--path=/sys/class/net/' + interface)))
         if again != observed:
