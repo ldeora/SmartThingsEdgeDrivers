@@ -747,8 +747,11 @@ for corrupt stages the existing cleanup guard still blocks retirement
 and journal clearing until quarantine is verified. An empty prefix
 authenticates nothing; the safety basis is the independently verified
 terminal outcome, still-present exact source and receipt-before-move
-rule, not the prefix itself. Missing, conflicting, nonmatching, unsafe
-or destination-only partial evidence is preserved. The existing optional
+rule, not the prefix itself. A matching prefix is consistency evidence
+against the receipt reconstructed from the current tree, not proof that
+the interrupted attempt observed the same inventory; a short prefix may
+contain no inventory evidence at all. Missing, conflicting, nonmatching,
+unsafe or destination-only partial evidence is preserved. The existing optional
 unbound preservation policy is unchanged. No live commands or production
 changes; unsupported filesystem/libc and ambiguous states still need
 a supported operator path before release.
