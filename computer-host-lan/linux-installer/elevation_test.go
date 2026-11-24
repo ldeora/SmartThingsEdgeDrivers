@@ -92,8 +92,12 @@ func TestExplicitElevationChoiceSelectsOnlyRequestedProvider(t *testing.T) {
 	if err != nil || chosen.method != "su" {
 		t.Fatalf("Explicit su override was ignored: %+v, %v", chosen, err)
 	}
+	encodedChildArgs, err := json.Marshal([]string{"-root-bootstrap", "-request", string(payload)})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !strings.Contains(chosen.args[2], "-root-bootstrap") ||
-		!strings.Contains(chosen.args[2], string(payload)) ||
+		!strings.Contains(chosen.args[2], quotePOSIXShell(string(encodedChildArgs))) ||
 		!strings.Contains(chosen.args[2], quotePOSIXShell(protectedHandoffScript)) {
 		t.Fatalf("Explicit su did not retain the protected handoff and bounded request: %+v", chosen)
 	}
