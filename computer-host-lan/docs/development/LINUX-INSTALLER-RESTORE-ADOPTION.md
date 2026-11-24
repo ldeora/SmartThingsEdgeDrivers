@@ -257,6 +257,22 @@ reads a snapshot to derive expectations nor authorizes a restore. The
 candidate reader can use the resulting hashes and version as independent
 expectations only when their input provenance was actually established.
 
+The renderer identifier is covered by a frozen synthetic payload and
+literal expected per-path SHA-256 values in test_historical_expectations.py.
+The contract exercises both an unchanged and a versioned Python command
+(including multiple substitutions in a unit), and all eight combinations
+of power, interface pinning and Avahi presence. It compares the exact
+present-path hashes and absent paths, without computing the expected output
+through generate_plan. Changes in rendering semantics must not silently
+reuse the old identifier: preserve the old contract or introduce a new
+identifier and review historical compatibility explicitly. Do not simply
+refresh the golden hashes. Changes to current release source templates
+are different: their bytes are bound by the independently authenticated
+release manifest; a new release still needs compatibility review, but
+does not require a renderer bump if the transformation of frozen historical
+inputs is unchanged. This test is not a compatibility guarantee for every
+historical template or configuration.
+
 The experimental adoption_candidate context holds the existing shared
 installer lock during inspection and while yielding its evidence. It
 may create the normal lock file but never writes a journal, stops a

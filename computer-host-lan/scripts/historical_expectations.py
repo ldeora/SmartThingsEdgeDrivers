@@ -20,6 +20,9 @@ import install_core as core
 import installer_root as boundary
 import payload_staging as staging
 
+# Compatibility contract pinned by HistoricalRendererContractTests.
+# A rendering change requires a deliberate identifier/compatibility review;
+# source-only release changes are independently bound by the manifest digest.
 _RENDERER = 'v2_fixed_plan_1'
 _VERSION_LINE = re.compile(rb'''(?m)^VERSION[ \t]*=[ \t]*["']([A-Za-z0-9.+_-]{1,64})["'][ \t]*\r?$''')
 
