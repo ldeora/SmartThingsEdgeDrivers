@@ -57,6 +57,104 @@ not infer whether an error was caused by permissions, driver support, tool
 availability, an old ethtool version or timeout. The probe does not execute `udevadm test-builtin`, change
 the current WOL flag, or restart networking.
 
+## Development policy planner
+
+The next increment adds a separate development-only read-only command:
+
+```sh
+python3 -I -S -B scripts/wol_plan.py --interface enp1s0f0
+```
+
+It combines the same redacted inspection with additional systemd policy
+evidence. Run it first as a normal user. Standalone execution checks the
+ownership and permissions of the script directory, its ancestors and both
+source files before loading the sibling source directly (no import search
+path addition or cached bytecode). A normal user may use a protected
+checkout they own. Root execution requires `-I -S -B` and a root-owned
+protected copy of both reviewed files, not a normal user's checkout.
+Do not elevate from a writable or unreviewed source tree. For a root
+comparison, an administrator may copy the independently reviewed sources
+into a private root-owned directory and invoke the planner there using
+the trusted system Python interpreter. No configuration is applied.
+
+The planner inventories the supported systemd network directories in
+same-basename priority order. A standard merged-/usr alias is recognized;
+ambiguous distinct legacy vendor directories, unsafe paths, unreadable
+files and excessive inventory sizes are not verified. Empty files and
+`/dev/null` masks are recognized. The observed udev base file must be
+the current same-name winner. Earlier effective rules are considered
+potentially matching unless they contain a single literal permanent MAC
+match for a different NIC. A current-MAC mismatch alone is not enough
+to exclude an earlier rule at the next boot. Any potentially relevant
+drop-in directory or reported drop-ins defers policy evaluation, even
+if the directory is empty or the file is masked. The planner deliberately
+does not implement general systemd matching, drop-in merging, or
+re-evaluation of device initialization; a consistent observed base
+rule is only limited evidence, not proof of future effective policy.
+It does not execute udev test builtins. Reuse one directory inventory for the base declaration and precedence
+evaluation, then rescan the inventory and re-read the udev selection
+and interface identity after inspection. This detects changed names or
+winning paths but is not an atomic filesystem snapshot; file content
+changes, concurrent changes reverted between reads and changes after
+inspection still require a fresh protected check before a future write.
+
+The plan exposes fixed enums only. In particular, it emits no writable
+target, command, raw profile, MAC, filename, password or old/new value.
+`automatic_changes_allowed`, `changes_applied`,
+`persistence_verified` and `secrets_included` are always false.
+The nested `inspection` is evidence, not authorization.
+
+| Recommendation | Interpretation |
+| --- | --- |
+| preserve | Observed explicit magic policy and enabled runtime flag; leave it alone, not proof that wake will work after reboot |
+| verify_hardware | Missing hardware information; a trusted administrator check may help |
+| unavailable | Unsuitable/unverified interface or explicitly unsupported magic packets |
+| review_runtime | Existing magic declaration differs from runtime; investigate, don't rewrite policy |
+| review_nm_add_magic | Explicit NM flags lack magic; reason distinguishes explicit disabled WOL (`explicit_nm_wol_disabled`) from other flags (`explicit_nm_flags_without_magic`); candidate for review only |
+| review_link_dropin | Local single literal permanent-MAC rule with unspecified WOL and no observed precedence conflict; consider scoped drop-in only after additional checks |
+| manual_review | Ambiguous ownership, identity, SecureOn, explicit conflicting/default/ignore policy, shared/complex rule, drop-ins, or unsafe paths |
+
+The link evidence fields distinguish `base_rule_observed`,
+`selection_changed`, `earlier_rule_requires_review`,
+`dropins_require_review`, and `not_verified`. Scope can be
+`permanent_mac`, `current_mac`, `shared_or_complex` or
+`not_verified`. A SecureOn declaration or runtime flag requires review;
+no password is emitted. Existing runtime-only and /usr/local vendor
+policies are not treated as stable persistent configurations. The
+observed base declaration is compared with the later read, but this
+is not an atomic snapshot of network configuration.
+
+A NetworkManager candidate is deliberately advisory: before any future
+transaction, resolve the exact numerical old flags and proposed flags,
+prove the profile is persistent and bound to the intended NIC (not
+shared across devices), check password/SecureOn status, verify actual
+active manager and profile identity, obtain explicit separate consent,
+and revalidate under lock. Existing combined magic flags must remain
+unchanged. Explicit none or other flags may be intentional; no
+automated addition may happen merely because this planner suggested
+review. DEFAULT and IGNORE require manual review rather than an
+automatic override of global policy.
+
+Likewise, a systemd drop-in candidate is not an approved file operation.
+A future transaction must confirm the same exact permanent-MAC match,
+supported systemd semantics, file and directory ownership, lack of
+conflicting policies or credentials, exact before-state, and a
+no-clobber owned destination. Current-MAC-only rules are not write
+candidates. A shared/default rule cannot be modified for one NIC by
+adding a shared drop-in; creating a competing first-match rule could
+lose unrelated settings. Generic/default configurations therefore
+require manual review in this increment. Broader safe support for
+these common configurations is a separate design/review gate, not
+silently handled by a new .link rule.
+
+Physical Gentoo inspection from #93 established that ethtool 7.0
+may return success without WOL lines when unprivileged, and that
+both default and ioctl queries report the expected flags with
+administrator authorization. The planner must preserve the existing
+local WOL policy in that configuration, provided the additional
+inventory checks find no ambiguity. A read-only NetworkManager
+hardware comparison remains necessary before a writable NM path.
+
 ## Why this is separate from the manual script
 
 The existing script's per-MAC rule detection only checks a narrow textual
@@ -76,7 +174,7 @@ References:
    and, where necessary, using a trusted root copy on the existing Gentoo
    setup and on a NetworkManager-managed Ethernet connection. Verify
    classification and redaction without applying changes.
-2. **Policy planning:** Determine the actual effective policy and conflicts.
+2. **Policy planning (this increment):** Collect conservative precedence and conflict evidence; defer complex effective-policy evaluation.
    Never create a first-match .link that shadows an existing rule. Consider
    a narrowly scoped supported override only if unrelated semantics are
    preserved; otherwise refuse automatic configuration and give manual
@@ -98,6 +196,20 @@ References:
 5. **Acceptance:** Fixture tests for both backends and conflict/rollback
    paths; supervised Gentoo and NetworkManager hardware tests, reboot and
    magic-packet wake only after explicit approval.
+
+### Supported-layout limitations
+
+The conservative inventory deliberately refuses directory symlinks other
+than the recognized /lib -> usr/lib alias. For example, Fedora
+Silverblue/ostree may have a symlinked /usr/local, NixOS may expose
+/etc/systemd/network through a symlink, and older split-/usr systems may
+have distinct vendor network directories under both /lib and /usr/lib.
+These layouts can produce not_verified even when WOL works. Check
+`ls -ld /lib /usr/local /etc/systemd/network` when diagnosing an
+unexpected result. A legitimate symlinked .link (other than a recognized
+/dev/null mask), when selected or potentially earlier, likewise requires
+review. No arbitrary symlink resolution is attempted. Do not alter the
+host's layout to satisfy this development probe.
 
 The existing agent uninstall retains external WOL policy. Any later cleanup
 of an installer-owned WOL configuration must be explicit, ownership-aware,
