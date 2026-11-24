@@ -196,3 +196,32 @@ func TestUninstallCleanupAndRollbackMessages(t *testing.T) {
 		t.Fatal(out.String())
 	}
 }
+
+func TestConfirmationDoesNotConsumeTypedAheadInput(t *testing.T) {
+	for _, word := range []string{"UNINSTALL", "RECOVER"} {
+		reader := strings.NewReader(word + "\nnext-line\n")
+		line, err := readConfirmationLine(reader)
+		if err != nil || line != word {
+			t.Fatalf("Confirmation: %q %v", line, err)
+		}
+		if reader.Len() != len("next-line\n") {
+			t.Fatal("Confirmation consumed input intended for the next prompt")
+		}
+	}
+	reader := strings.NewReader("UNINSTALL\nnext-line\n")
+	var out bytes.Buffer
+	calls := 0
+	err := confirmUninstall(reader, &out, func(req privilegedRequest) (privilegedResult, error) {
+		calls++
+		if reader.Len() != len("next-line\n") {
+			t.Fatal("Uninstall consumed input before elevation")
+		}
+		return privilegedResult{Status: "uninstalled", IdentityPreserved: "verified"}, nil
+	})
+	if err != nil || calls != 1 {
+		t.Fatalf("Confirmation failed: %v, calls=%d", err, calls)
+	}
+	if _, err := readConfirmationLine(strings.NewReader(strings.Repeat("x", 129) + "\n")); err == nil {
+		t.Fatal("Unbounded confirmation accepted")
+	}
+}
