@@ -229,7 +229,10 @@ class SystemdOperations:
             result[prefix + '_active'], result[prefix + '_enabled'] = observed
             if broken:
                 result[prefix + '_retry'] = True
-        if first_install and not _enablement_absent(transaction):
+        if first_install and (
+                self._stable_unit_state(self._uninstall_unit_state(
+                    'linux-host-agent-power.service'), absent=True) is None or
+                not _enablement_absent(transaction)):
             raise ControllerError('unsupported_environment')
         return result
 
@@ -434,9 +437,11 @@ class SystemdOperations:
     def prepare_restore(self, previous: dict) -> None:
         if not previous['first_install']:
             return
-        # Disable while the installed unit files still exist. Recovery
+        # Load any partially installed files before disabling. Recovery
         # may resume after their removal, so also attempt stop independently.
-        # Postconditions (including dangling links) decide success.
+        # Verify quiescence before removing files; postconditions also check
+        # dangling links. Do not require disable/reset success on absent units.
+        core.systemctl('daemon-reload')
         core.systemctl('disable', '--now', 'linux-host-agent-power.socket', check=False)
         core.systemctl('stop', 'linux-host-agent-power.socket', check=False)
         core.systemctl('stop', 'linux-host-agent-power.service', check=False)
@@ -445,6 +450,17 @@ class SystemdOperations:
         for unit in ('linux-host-agent-power.socket', 'linux-host-agent-power.service',
                      'linux-host-agent.service'):
             core.systemctl('reset-failed', unit, check=False)
+        for unit, allowed in (
+                ('linux-host-agent-power.socket', ('disabled',)),
+                ('linux-host-agent.service', ('disabled',)),
+                ('linux-host-agent-power.service', ('static', 'disabled'))):
+            state = self._uninstall_unit_state(unit)
+            if self._stable_unit_state(state, absent=True) is not None:
+                continue
+            if (state is None or state['LoadState'] != 'loaded' or
+                    state['ActiveState'] != 'inactive' or
+                    state['UnitFileState'] not in allowed):
+                raise ControllerError('recovery_required')
 
     def restore_services(self, previous: dict) -> None:
         # Clear failed/start-limit state before restarting restored units;
@@ -772,6 +788,8 @@ class InstallerBackend:
                     elif phase in _APPLIED and backup is not None and previous is not None:
                         core.validate_v2_backup(backup, root=self.root)
                         self.services.prepare_restore(previous)
+                        if previous['first_install'] and not _enablement_absent(transaction):
+                            raise ControllerError('recovery_required')
                         restored = transaction.restore(backup)
                         self.services.restore_services(restored)
                         _sync_managed_directories(changes, transaction)
@@ -896,6 +914,8 @@ class InstallerBackend:
                     elif phase in _APPLIED and backup is not None and previous is not None:
                         core.validate_v2_backup(backup, root=self.root)
                         self.services.prepare_restore(previous)
+                        if previous['first_install'] and not _enablement_absent(transaction):
+                            raise ControllerError('recovery_required')
                         restored = transaction.restore(backup)
                         self.services.restore_services(restored)
                         verified = (_files_match_snapshot(backup, transaction) and
@@ -978,6 +998,8 @@ class InstallerBackend:
             core.write_owner_record(self.root)
 
         self.services.prepare_restore(previous)
+        if previous['first_install'] and not _enablement_absent(transaction):
+            raise ControllerError('recovery_required')
         restored = transaction.restore(backup)
         _check_previous(restored)
         self.services.restore_services(restored)
