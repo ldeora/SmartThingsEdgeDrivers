@@ -408,10 +408,11 @@ def require_v2_or_clean(root: Path = Path('/'), *, classify_orphan_state: bool =
         if classify_orphan_state and _retained_state_only(root):
             return 'orphan_state'
         raise InstallError(
-            'Retained agent state cannot be verified as a supported v2 installation. '
-            'Adoption is not supported in v1.0. Preserve the retained state, identity, '
-            'key and backups; do not delete or regenerate them. '
-            'Seek recovery guidance before retrying.')
+            'Existing Linux Host Agent files or retained state could not be identified '
+            'as a supported v2 installation. Refusing automatic changes; investigate '
+            'before migration or repair. Adoption is not supported in v1.0. '
+            'Preserve the retained state, identity, key and backups; do not delete or '
+            'regenerate them. Seek recovery guidance before retrying.')
     if classify_orphan_state:
         raise InstallError('Orphan-state classification applies only when retained state '
                            'exists without managed files or a v2 ownership record')
@@ -648,7 +649,10 @@ def run_cli(argv=None) -> int:
     if args.install or args.uninstall or args.rollback is not None:
         raise InstallError('Legacy mutation disabled; use the independently verified release installer wizard/CLI. Historical restore is not supported; preserve backups and seek recovery guidance.')
     if args.adopt_retained_state:
-        raise InstallError('Retained agent state cannot be verified as a supported v2 installation. Adoption is not supported in v1.0. Preserve the retained state, identity, key and backups; do not delete or regenerate them. Seek recovery guidance before retrying.')
+        raise InstallError(
+            'Retained-state adoption is not supported in v1.0. Preserve the retained '
+            'state, identity, key and backups; do not delete or regenerate them. '
+            'Seek recovery guidance before retrying.')
     if os.geteuid() != 0 and not (args.plan or args.check_existing):
         parser.error('must run as root')
     if args.plan and (not args.source or not args.python_bin):
