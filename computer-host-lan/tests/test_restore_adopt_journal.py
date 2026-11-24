@@ -100,6 +100,54 @@ class JournalTests(unittest.TestCase):
         self.assertTrue(leftovers[0].exists())
         self.assertEqual(self.path.read_bytes(), before)
 
+    def test_reconcile_complete_temp_never_promotes_candidate(self):
+        with self.store.transaction(ADOPT) as handle:
+            before = self.path.read_bytes()
+            with mock.patch.object(v2.os, 'replace', side_effect=OSError('fixture')):
+                with self.assertRaises(old.UnsafeJournal):
+                    handle.advance('STAGED', evidence=ADOPT_EVIDENCE, verify=verified)
+        temp, = self.path.parent.glob('.wizard-journal-*')
+        pending = temp.read_bytes()
+        with self.assertRaises(old.JournalConflict):
+            self.store.reconcile_complete_temp(lambda *_: False)
+        self.assertEqual(temp.read_bytes(), pending)
+        self.store.reconcile_complete_temp(
+            lambda current, candidate: current['phase'] == 'INSPECTED' and
+            candidate['phase'] == 'STAGED')
+        self.assertFalse(temp.exists())
+        self.assertEqual(self.path.read_bytes(), before)
+        with self.store.transaction() as handle:
+            handle.advance('ABORTED', verify=verified)
+            handle.clear_finished(verified)
+
+    def test_orphan_initial_write_requires_complete_record_and_no_stage(self):
+        with mock.patch.object(v2.os, 'replace', side_effect=OSError('fixture')):
+            with self.assertRaises(old.UnsafeJournal):
+                with self.store.transaction(ADOPT):
+                    self.fail('uncertain initial record returned a handle')
+        temp, = self.path.parent.glob('.wizard-journal-*')
+        raw = temp.read_bytes()
+        temp.write_bytes(raw[:20])
+        with self.assertRaises(old.UnsafeJournal):
+            self.store.reconcile_complete_temp(lambda *_: True)
+        self.assertEqual(temp.read_bytes(), raw[:20])
+        temp.write_bytes(raw)
+        self.store.reconcile_complete_temp(
+            lambda current, candidate: current is None and candidate['phase'] == 'INSPECTED')
+        self.assertFalse(temp.exists())
+        self.assertFalse(self.path.exists())
+
+    def test_conflicting_temp_is_preserved(self):
+        with self.store.transaction(ADOPT) as handle:
+            current = handle.record()
+        temp = self.path.parent / ('.wizard-journal-' + 'f' * 32)
+        raw = v2.canonical(dict(current, transaction_id='b' * 32))
+        temp.write_bytes(raw)
+        temp.chmod(0o600)
+        with self.assertRaises(old.UnsafeJournal):
+            self.store.reconcile_complete_temp(lambda *_: True)
+        self.assertEqual(temp.read_bytes(), raw)
+
     def test_failed_directory_sync_poisoned_handle_new_record_preserved(self):
         with self.store.transaction(ADOPT) as handle:
             real_sync = os.fsync

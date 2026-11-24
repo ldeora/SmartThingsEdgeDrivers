@@ -96,6 +96,26 @@ def _sync_ancestors(root, uid):
             os.fsync(fd)
 
 
+def _stage_base_exists(root, uid):
+    """Read-only guarded walk; existing empty stage still needs sync."""
+    from contextlib import ExitStack
+    with ExitStack() as stack:
+        fd = os.open(root, legacy._DIR_FLAGS)
+        stack.callback(os.close, fd)
+        for i, name in enumerate(legacy._STAGE_COMPONENTS):
+            try:
+                fd = os.open(name, legacy._DIR_FLAGS, dir_fd=fd)
+            except FileNotFoundError:
+                return False
+            stack.callback(os.close, fd)
+            info = os.fstat(fd)
+            if (info.st_uid != uid or
+                    (stat.S_IMODE(info.st_mode) != 0o700 if i >= 2
+                     else bool(stat.S_IMODE(info.st_mode) & 0o022))):
+                raise legacy.UnsafeJournal('unsafe stage ancestor')
+        return True
+
+
 class Handle:
     """Single-use fixture capability; recovery handles cannot advance forward."""
     def __init__(self, root, uid, directory, record, *, recovering):
@@ -107,6 +127,7 @@ class Handle:
         self._active = True
         self._recovering = recovering
         self._failed = False
+        self._stage_retirement_verified = False
 
     def record(self):
         if not self._active or self._failed or self._pid != os.getpid():
@@ -161,11 +182,13 @@ class Handle:
         self._clean()
         if (current['phase'] not in contract._TERMINAL or
                 legacy._staged_payload_remains(self.root, self.uid) or
+                not self._stage_retirement_verified and _stage_base_exists(self.root, self.uid) or
                 not callable(verify) or verify(current) is not True):
             raise legacy.JournalConflict('terminal cleanup not verified')
         self.record()
         self._clean()
-        if legacy._staged_payload_remains(self.root, self.uid):
+        if (legacy._staged_payload_remains(self.root, self.uid) or
+                not self._stage_retirement_verified and _stage_base_exists(self.root, self.uid)):
             raise legacy.JournalConflict('stage cleanup incomplete')
         self._failed = True
         os.unlink(legacy._JOURNAL, dir_fd=self._directory)
@@ -222,5 +245,73 @@ class FixtureJournal:
             finally:
                 if handle is not None:
                     handle._active = False
+                os.close(lock)
+                os.close(directory)
+
+
+    def reconcile_complete_temp(self, verify):
+        """Discard one complete, known v2 interrupted write after verification.
+
+        Never promote a temp or derive forward authority from it. Partial
+        bytes, unknown versions, multiple entries and missing proof remain
+        untouched. The callback is fixture-only: it must establish the
+        actual unchanged/restored state required by the durable record,
+        including the absence of stage for an orphan initial write.
+        """
+        with engine.manual_install_lock(self.lock, owner_uid=self.uid):
+            directory, lock = self._store._acquire(create=False)
+            try:
+                current = read_record(directory, self.uid)
+                entries = _entries(directory)
+                normal = {legacy._LOCK} | ({legacy._JOURNAL} if current is not None else set())
+                extras = entries - normal
+                if not normal <= entries or len(extras) != 1:
+                    raise legacy.JournalConflict('ambiguous journal uncertainty')
+                name, = extras
+                if not legacy._TEMP_NAME.fullmatch(name):
+                    raise legacy.JournalConflict('unknown journal uncertainty')
+                fd = os.open(name, legacy._FILE_FLAGS, dir_fd=directory)
+                try:
+                    legacy._checked_regular(fd, self.uid)
+                    info = os.fstat(fd)
+                    raw = os.read(fd, legacy._MAX_BYTES + 1)
+                    if not 0 < len(raw) == info.st_size <= legacy._MAX_BYTES:
+                        raise legacy.JournalConflict('incomplete journal uncertainty')
+                    candidate = contract.decode_journal(raw)
+                    if candidate['schema'] != 2 or canonical(candidate) != raw:
+                        raise legacy.JournalConflict('unsupported journal uncertainty')
+                    if current is None:
+                        if (candidate['phase'] != 'INSPECTED' or
+                                legacy._staged_payload_remains(self.root, self.uid)):
+                            raise legacy.JournalConflict('not an orphan initial write')
+                    else:
+                        if current['schema'] != 2:
+                            raise legacy.JournalConflict('legacy journal uncertainty')
+                        contract.validate_transition(current, candidate)
+                    # Freeze both arguments; never use callback-modified data.
+                    before = canonical(current)
+                    if not callable(verify) or verify(json.loads(before), json.loads(raw)) is not True:
+                        raise legacy.JournalConflict('uncertainty not independently reconciled')
+                    if canonical(read_record(directory, self.uid)) != before or _entries(directory) != entries:
+                        raise legacy.JournalConflict('journal changed during reconciliation')
+                    now = os.stat(name, dir_fd=directory, follow_symlinks=False)
+                    if (not os.path.samestat(info, now) or
+                            (info.st_mode, info.st_uid, info.st_nlink, info.st_size,
+                             info.st_mtime_ns, info.st_ctime_ns) !=
+                            (now.st_mode, now.st_uid, now.st_nlink, now.st_size,
+                             now.st_mtime_ns, now.st_ctime_ns)):
+                        raise legacy.JournalConflict('uncertain record changed')
+                    if current is None and legacy._staged_payload_remains(self.root, self.uid):
+                        raise legacy.JournalConflict('orphan stage requires recovery')
+                    # Re-establish durable current record/ancestry BEFORE
+                    # retiring the uncertainty evidence.
+                    _sync_ancestors(self.root, self.uid)
+                    os.unlink(name, dir_fd=directory)
+                    os.fsync(directory)
+                finally:
+                    os.close(fd)
+            except (OSError, contract.ContractError):
+                raise legacy.UnsafeJournal('unreconciled journal uncertainty') from None
+            finally:
                 os.close(lock)
                 os.close(directory)

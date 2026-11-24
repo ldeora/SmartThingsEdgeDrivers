@@ -13,7 +13,7 @@ import install_core as core
 import restore_adopt_journal as journal
 import restore_adopt_stage as stage
 import transaction_journal as old
-from test_restore_adopt_contract import ADOPT, ADOPT_EVIDENCE, RESTORE
+from test_restore_adopt_contract import ADOPT, ADOPT_EVIDENCE, RESTORE, RESTORE_EVIDENCE
 
 SERVICES = dict(agent_active=True, agent_enabled=True, socket_active=False, socket_enabled=False)
 
@@ -127,7 +127,7 @@ class StageTests(unittest.TestCase):
                 with self.store.transaction(intent) as handle:
                     digest = stage.stage_plan(handle, files(), SERVICES)
                     evidence = (ADOPT_EVIDENCE if intent == ADOPT else
-                                __import__('test_restore_adopt_contract').RESTORE_EVIDENCE)
+                                RESTORE_EVIDENCE)
                     handle.advance('STAGED', evidence=dict(evidence, staged_plan_sha256=digest),
                                    verify=lambda _: True)
                     with self.assertRaises(stage.PlanError):

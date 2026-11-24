@@ -314,12 +314,14 @@ def retire_terminal_plan(handle):
         base, lock = _locked(handle, create=False)
     except legacy_stage.StagingConflict as exc:
         if str(exc) == 'trusted staging root missing':
+            handle._stage_retirement_verified = True
             return
         raise
     try:
         entries = journal._entries(base) - {legacy_stage._LOCK}
         if not entries:
             _sync_stage_ancestors(handle)
+            handle._stage_retirement_verified = True
             return
         txid = record['transaction_id']
         pending, ready, retiring = (prefix + txid for prefix in
@@ -345,6 +347,7 @@ def retire_terminal_plan(handle):
             # Retiring is a durable authorization boundary: no content
             # is removed until the new name is synced. Retry also syncs
             # an already-visible retiring name after an uncertain rename.
+            handle._failed = True
             if name != retiring:
                 os.rename(name, retiring, src_dir_fd=base, dst_dir_fd=base)
             _sync_stage_ancestors(handle)
@@ -364,6 +367,8 @@ def retire_terminal_plan(handle):
                 raise PlanError('retirement_directory_changed')
             os.rmdir(retiring, dir_fd=base)
             _sync_stage_ancestors(handle)
+            handle._stage_retirement_verified = True
+            handle._failed = False
         finally:
             os.close(directory)
     except OSError:
