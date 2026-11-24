@@ -416,6 +416,62 @@ unreadable status. Keep existing helper available until its compatible
 cleanup completes. No silent fallback to the legacy modifying engine.
 Release gate #84 remains separate.
 
+## Experimental durable journal and staged-plan persistence
+
+The fixture-only modules restore_adopt_journal.py and restore_adopt_stage.py
+exercise actual persistence under disposable roots. They are not embedded
+or called by the production controller. The journal uses the existing
+manual installer lock, journal location and exclusive lock; the stage
+uses the existing fixed staging base and stage lock. Lock order is manual,
+journal, stage. Old helpers see the actual v2 record or staged evidence
+and refuse to operate over it. No separate live journal namespace.
+
+The fixture journal accepts a new v3 intent only with no prior journal,
+uncertain journal temp or staged payload. It writes canonical sorted
+ASCII JSON with newline, 0600 temporary file, fsync, atomic replacement,
+directory sync and initial ancestor sync. A recovery context re-syncs
+ancestors before returning a handle. Every transition uses the immutable
+contract and an explicit trusted fixture verification callback. Such a
+callback is not production verification; the actual evidence checks
+must be connected by the future controller. The proposed record is
+frozen across the callback. Failed publication poisons the forward
+handle. Recovery handles permit abort or rollback only, never forward
+advancement. Cleanup refuses any surviving stage or unexpected journal
+entry; uncertain writes (including a missing journal with a temp file)
+are retained for separately reviewed recovery. No automatic deletion
+of uncertain files or migration of legacy records.
+
+The new stage format is a complete plan, not the legacy source payload.
+Fixed names pending-plan-TRANSACTION and ready-plan-TRANSACTION in the
+existing private staging directory, with manifest.json and numbered
+N.data files only for present managed entries. The canonical schema-1
+stage manifest includes transaction ID, operation, exact intent, sorted
+complete managed-path entries (presence, intended mode, length and
+SHA-256; absent entries have null metadata) and explicit desired agent
+and socket active/enabled flags. Required app/unit files cannot be
+absent. Adoption must agree with chosen power and interface presence,
+and must activate/enable the agent, with socket state matching power.
+The caller still must authenticate the actual staged contents, including
+the WOL pin and historical service observations. No stage byte is
+executed or applied. The stage digest is over the exact manifest bytes.
+Limits: 16 KiB manifest, 2 MiB/item, 8 MiB aggregate. Private 0600 data
+files and private stage directory, descriptor-relative bounded reads,
+single links, exact expected names, fixed managed paths, checked
+metadata and content digests. The reader returns immutable bytes, not
+paths for later execution. At INSPECTED it needs the caller's freshly
+produced stage digest; at STAGED and later it uses the immutable journal
+evidence. Publication writes and syncs before rename, syncs all fixed
+ancestors afterwards and poisons the forward handle on uncertainty.
+
+These are persistence primitives, not a usable recovery implementation.
+No stage deletion is implemented yet: even terminal fixture cleanup
+refuses an existing stage. The next increments must add transaction-bound
+pending/ready/retiring cleanup, strict before-state receipt writer/reader
+for v2 operations, the actual evidence verification controller and
+compatible helper provisioning. Never claim a valid record or stage
+alone proves authorization or restored state. The existing v1 writer,
+recovery, Go bootstrap and bundle remain unchanged.
+
 ## Implementation order and acceptance
 
 1. Specify strict historical snapshot eligibility and provenance/version
