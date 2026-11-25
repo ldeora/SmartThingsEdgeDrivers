@@ -9,6 +9,19 @@ $env:HostAgent__StateDirectory = $state
 $env:HostAgent__Port = '18765'
 $env:HostAgent__DiscoveryEnabled = 'false'
 $base = 'http://127.0.0.1:18765'
+# Test-fixture comparison: ignore Windows' automatic SDDL control flags,
+# but retain protection and every explicit/inherited allow/deny rule.
+function Get-AccessRuleSnapshot($security) {
+  $rules = @($security.GetAccessRules($true, $true, [Security.Principal.SecurityIdentifier]) |
+    ForEach-Object {
+      '{0}:{1}:{2}:{3}:{4}:{5}' -f $_.IdentityReference.Value, $_.AccessControlType,
+        ([int]$_.FileSystemRights), $_.InheritanceFlags, $_.PropagationFlags, $_.IsInherited
+    })
+  [string[]]$sorted = $rules
+  [Array]::Sort($sorted, [StringComparer]::Ordinal)
+  $protection = if ($security.AreAccessRulesProtected) { 'P|' } else { '|' }
+  return ($protection + ($sorted -join ';'))
+}
 function Start-Agent {
   $p = Start-Process -FilePath $Executable -PassThru -WindowStyle Hidden
   for ($i=0; $i -lt 40; $i++) {
@@ -102,15 +115,17 @@ try {
   [IO.File]::WriteAllText($keyPath, ([BitConverter]::ToString($keyBytes)).Replace('-', '').ToLowerInvariant())
   $unsafeAcl = Get-Acl -LiteralPath $keyPath
   $everyone = [Security.Principal.SecurityIdentifier]::new('S-1-1-0')
-  $originalDacl = $unsafeAcl.GetSecurityDescriptorSddlForm([Security.AccessControl.AccessControlSections]::Access)
+  $originalDacl = Get-AccessRuleSnapshot $unsafeAcl
   $injectedRule = [Security.AccessControl.FileSystemAccessRule]::new($everyone, 'Read', 'Allow')
   $unsafeAcl.AddAccessRule($injectedRule)
   Set-Acl -LiteralPath $keyPath -AclObject $unsafeAcl
   try { Assert-MonitoringWithoutPower } finally {
     $unsafeAcl.RemoveAccessRuleSpecific($injectedRule)
     Set-Acl -LiteralPath $keyPath -AclObject $unsafeAcl
-    $restoredDacl = (Get-Acl -LiteralPath $keyPath).GetSecurityDescriptorSddlForm([Security.AccessControl.AccessControlSections]::Access)
-    if ($restoredDacl -cne $originalDacl) { throw 'Console smoke did not restore original token DACL' }
+    $restoredDacl = Get-AccessRuleSnapshot (Get-Acl -LiteralPath $keyPath)
+    if ($restoredDacl -cne $originalDacl) {
+      throw "Console smoke did not restore original token DACL.`nExpected: $originalDacl`nObserved: $restoredDacl"
+    }
   }
   Write-Host 'PASS missing, malformed and unsafe token leave HTTP monitoring active and power denied'
   $p = Start-Agent

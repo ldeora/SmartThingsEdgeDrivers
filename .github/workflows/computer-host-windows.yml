@@ -200,6 +200,19 @@ jobs:
             }
             # Run the degraded-credential checks under the actual installed
             # LocalService + service SID, not only under the console CI user.
+            # Test-fixture comparison: ignore Windows' automatic SDDL control flags,
+            # but retain protection and every explicit/inherited allow/deny rule.
+            function Get-AccessRuleSnapshot($security) {
+              $rules = @($security.GetAccessRules($true, $true, [Security.Principal.SecurityIdentifier]) |
+                ForEach-Object {
+                  '{0}:{1}:{2}:{3}:{4}:{5}' -f $_.IdentityReference.Value, $_.AccessControlType,
+                    ([int]$_.FileSystemRights), $_.InheritanceFlags, $_.PropagationFlags, $_.IsInherited
+                })
+              [string[]]$sorted = $rules
+              [Array]::Sort($sorted, [StringComparer]::Ordinal)
+              $protection = if ($security.AreAccessRulesProtected) { 'P|' } else { '|' }
+              return ($protection + ($sorted -join ';'))
+            }
             function Assert-DegradedServicePower {
               Start-Service ComputerHostAgent
               $checked = $false
@@ -236,7 +249,7 @@ jobs:
             # before the next installer operation, even if the test fails.
             $unsafeTokenAcl = Get-Acl -LiteralPath $secretPath
             $everyone = [Security.Principal.SecurityIdentifier]::new('S-1-1-0')
-            $originalTokenDacl = $unsafeTokenAcl.GetSecurityDescriptorSddlForm([Security.AccessControl.AccessControlSections]::Access)
+            $originalTokenDacl = Get-AccessRuleSnapshot $unsafeTokenAcl
             $injectedTokenRule = [Security.AccessControl.FileSystemAccessRule]::new($everyone, 'Read', 'Allow')
             $unsafeTokenAcl.AddAccessRule($injectedTokenRule)
             Set-Acl -LiteralPath $secretPath -AclObject $unsafeTokenAcl
@@ -245,8 +258,10 @@ jobs:
               Stop-Service ComputerHostAgent -ErrorAction SilentlyContinue
               $unsafeTokenAcl.RemoveAccessRuleSpecific($injectedTokenRule)
               Set-Acl -LiteralPath $secretPath -AclObject $unsafeTokenAcl
-              $restoredTokenDacl = (Get-Acl -LiteralPath $secretPath).GetSecurityDescriptorSddlForm([Security.AccessControl.AccessControlSections]::Access)
-              if ($restoredTokenDacl -cne $originalTokenDacl) { throw 'Service test did not restore original token DACL' }
+              $restoredTokenDacl = Get-AccessRuleSnapshot (Get-Acl -LiteralPath $secretPath)
+              if ($restoredTokenDacl -cne $originalTokenDacl) {
+                throw "Service test did not restore original token DACL.`nExpected: $originalTokenDacl`nObserved: $restoredTokenDacl"
+              }
             }
             if ((Get-Content -LiteralPath $secretPath -Raw).Trim() -cne $secret) { throw 'Service changed unsafe token' }
             Start-Service ComputerHostAgent

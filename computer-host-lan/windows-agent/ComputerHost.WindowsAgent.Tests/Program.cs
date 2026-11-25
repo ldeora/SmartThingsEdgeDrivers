@@ -11,6 +11,22 @@ static void Assert(bool condition, string message)
     Console.WriteLine("PASS " + message);
 }
 
+// Compare the fixture's actual ACEs and inheritance protection, not SDDL
+// control flags (Windows can set the auto-inherited flag when writing a DACL).
+[System.Runtime.Versioning.SupportedOSPlatform("windows")]
+static string AccessRules(FileSystemSecurity security) =>
+    (security.AreAccessRulesProtected ? "P|" : "|") + string.Join(";",
+        security.GetAccessRules(true, true, typeof(SecurityIdentifier))
+            .Cast<FileSystemAccessRule>()
+            .Select(rule => $"{rule.IdentityReference}:{rule.AccessControlType}:{(int)rule.FileSystemRights}:{rule.InheritanceFlags}:{rule.PropagationFlags}:{rule.IsInherited}")
+            .OrderBy(value => value, StringComparer.Ordinal));
+
+static void AssertRestoredRules(string expected, string actual, string message)
+{
+    Assert(expected == actual, expected == actual ? message :
+        $"{message}\nExpected: {expected}\nObserved: {actual}");
+}
+
 Assert(AgentContract.Protocol == "computer-host-agent", "protocol name");
 Assert(AgentContract.ApiVersion == 2 && AgentContract.Platform == "windows", "v2 Windows envelope");
 Assert(AgentContract.ServiceType == "_computerhost._tcp.local", "same mDNS service as Linux");
@@ -111,7 +127,7 @@ try
         Assert(File.ReadAllText(keyPath) == key, "unsafe token is not replaced");
         var directory = new DirectoryInfo(temp);
         var unsafeAcl = directory.GetAccessControl();
-        var original = unsafeAcl.GetSecurityDescriptorSddlForm(AccessControlSections.Access);
+        var original = AccessRules(unsafeAcl);
         var directoryRule = new FileSystemAccessRule(new SecurityIdentifier(WellKnownSidType.WorldSid, null),
             FileSystemRights.Read, AccessControlType.Allow);
         unsafeAcl.AddAccessRule(directoryRule);
@@ -128,13 +144,13 @@ try
             // injected rule explicitly, then check the on-disk DACL.
             unsafeAcl.RemoveAccessRuleSpecific(directoryRule);
             directory.SetAccessControl(unsafeAcl);
-            Assert(directory.GetAccessControl().GetSecurityDescriptorSddlForm(AccessControlSections.Access) == original,
+            AssertRestoredRules(original, AccessRules(directory.GetAccessControl()),
                 "test restored original state directory DACL");
         }
 
         var identityFile = new FileInfo(Path.Combine(temp, "installation-id"));
         var unsafeIdentityAcl = identityFile.GetAccessControl();
-        var identityAcl = unsafeIdentityAcl.GetSecurityDescriptorSddlForm(AccessControlSections.Access);
+        var identityAcl = AccessRules(unsafeIdentityAcl);
         var identityRule = new FileSystemAccessRule(new SecurityIdentifier(WellKnownSidType.WorldSid, null),
             FileSystemRights.Write, AccessControlType.Allow);
         unsafeIdentityAcl.AddAccessRule(identityRule);
@@ -149,7 +165,7 @@ try
         {
             unsafeIdentityAcl.RemoveAccessRuleSpecific(identityRule);
             identityFile.SetAccessControl(unsafeIdentityAcl);
-            Assert(identityFile.GetAccessControl().GetSecurityDescriptorSddlForm(AccessControlSections.Access) == identityAcl,
+            AssertRestoredRules(identityAcl, AccessRules(identityFile.GetAccessControl()),
                 "test restored original identity file DACL");
         }
         Assert(new PersistentIdentity(cfg).Id == id1.Id, "restored state remains usable with original identity");
