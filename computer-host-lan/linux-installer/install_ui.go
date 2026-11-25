@@ -493,9 +493,10 @@ func onboardingMode(result privilegedResult) string {
 func showPowerKeyInstructions(w io.Writer) {
 	fmt.Fprintln(w, "If you need the control key, read it privately as administrator on this computer:")
 	fmt.Fprintln(w, "  sudo cat /var/lib/linux-host-agent/control-token")
-	fmt.Fprintln(w, "  or, without sudo: su -c 'cat /var/lib/linux-host-agent/control-token'")
+	fmt.Fprintln(w, "  or: run0 cat /var/lib/linux-host-agent/control-token")
+	fmt.Fprintln(w, "  or: su -c 'cat /var/lib/linux-host-agent/control-token' (requires the root password)")
 	fmt.Fprintln(w, "Use a private terminal; do not record, screenshot, log or share the output.")
-	fmt.Fprintln(w, "Enter the 64-character value in controlKey and enable allowPowerCommands in the SmartThings device settings.")
+	fmt.Fprintln(w, "In the SmartThings device settings, enter the 64-character value in Power control key (64 hex chars) [controlKey] and turn on Enable shutdown/reboot/suspend (allowPowerCommands).")
 }
 
 func showInstallationOutcome(w io.Writer, s *liveSelection, req privilegedRequest, result privilegedResult) {
@@ -522,7 +523,7 @@ func showInstallationOutcome(w io.Writer, s *liveSelection, req privilegedReques
 	fmt.Fprintln(w, "Automatic hub pairing, firewall changes and persistent WOL configuration were not performed.")
 	switch req.Power {
 	case "enable":
-		fmt.Fprintln(w, "For remote power, enable allowPowerCommands and configure controlKey in the SmartThings device if needed.")
+		fmt.Fprintln(w, "For remote power, turn on Enable shutdown/reboot/suspend (allowPowerCommands) and configure Power control key (64 hex chars) [controlKey] in the SmartThings device if needed.")
 		fmt.Fprintln(w, "If the retained control key is unchanged and already configured, no key update is normally needed. Identity verification alone does not verify key equality.")
 		fmt.Fprintln(w, "The control key is not shown here.")
 		showPowerKeyInstructions(w)

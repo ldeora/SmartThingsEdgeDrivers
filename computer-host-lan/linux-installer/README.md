@@ -50,10 +50,13 @@ The completion screen links to the existing driver channel, reminds users to
 allow TCP 8765 (or their configured port) from the hub on a trusted private LAN,
 and provides optional power setup instructions. If power is enabled and the
 key is needed, an administrator can read the existing control token locally
-with `sudo cat /var/lib/linux-host-agent/control-token` (or
-`su -c 'cat /var/lib/linux-host-agent/control-token'`). Use a private terminal
-without logging or screen sharing. Enter the 64-character value in the
-SmartThings device's `controlKey` preference and enable `allowPowerCommands`.
+with `sudo cat /var/lib/linux-host-agent/control-token`, or use
+`run0 cat /var/lib/linux-host-agent/control-token` or
+`su -c 'cat /var/lib/linux-host-agent/control-token'` (requires the root
+password). Use a private terminal without logging or screen sharing.
+In the SmartThings device settings, enter the 64-character value in
+**Power control key (64 hex chars)** (`controlKey`) and turn on
+**Enable shutdown/reboot/suspend** (`allowPowerCommands`).
 Do not read or replace a key merely to upgrade an existing installation with
 working power control. Monitoring-only installations do not need the key.
 The wizard never reads, displays or copies the secret.

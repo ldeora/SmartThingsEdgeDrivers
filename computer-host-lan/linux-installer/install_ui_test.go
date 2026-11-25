@@ -262,8 +262,11 @@ func TestInstallationOutcomeUsesIdentityAndPowerChoices(t *testing.T) {
 				}
 				if power != "disable" {
 					for _, phrase := range []string{"sudo cat /var/lib/linux-host-agent/control-token",
-						"su -c 'cat /var/lib/linux-host-agent/control-token'",
-						"do not record, screenshot, log or share", "allowPowerCommands"} {
+						"run0 cat /var/lib/linux-host-agent/control-token",
+						"su -c 'cat /var/lib/linux-host-agent/control-token' (requires the root password)",
+						"do not record, screenshot, log or share",
+						"Enable shutdown/reboot/suspend (allowPowerCommands)",
+						"Power control key (64 hex chars) [controlKey]"} {
 						if !strings.Contains(text, phrase) {
 							t.Fatalf("missing private key guidance %q: %s", phrase, text)
 						}
@@ -281,7 +284,9 @@ func TestInstallationOutcomeUsesIdentityAndPowerChoices(t *testing.T) {
 					}
 				case "disable":
 					if !strings.Contains(text, "no control key setup is needed") || strings.Contains(text, "allowPower") ||
-						strings.Contains(text, "/var/lib/linux-host-agent/control-token") {
+						strings.Contains(text, "/var/lib/linux-host-agent/control-token") ||
+						strings.Contains(text, "Power control key (64 hex chars)") ||
+						strings.Contains(text, "Enable shutdown/reboot/suspend") {
 						t.Fatal(text)
 					}
 				}
