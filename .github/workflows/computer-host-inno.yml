@@ -307,6 +307,21 @@ jobs:
               }
             } finally { $p.Dispose() }
           }
+          # Exercise the exact read-only script under native Windows PowerShell,
+          # independently of Inno's output parser. This is an existing install.
+          $inspectScript = (Resolve-Path windows-agent/scripts/Install-WindowsAgent.ps1).Path
+          $inspectResult = Join-Path $env:RUNNER_TEMP 'computerhost-inspection-ci.txt'
+          $inspectError = Join-Path $env:RUNNER_TEMP 'computerhost-inspection-ci-error.txt'
+          Remove-Item -LiteralPath $inspectResult,$inspectError -ErrorAction SilentlyContinue
+          & "$env:WINDIR/System32/WindowsPowerShell/v1.0/powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $inspectScript -InspectConfiguration -ConfigurationPath $inspectResult -DiagnosticPath $inspectError
+          if ($LASTEXITCODE -ne 0) {
+            if (Test-Path -LiteralPath $inspectError) { Get-Content -LiteralPath $inspectError }
+            throw 'Native Windows PowerShell configuration inspection failed'
+          }
+          if ([IO.File]::ReadAllText($inspectResult) -cne "upgrade|on|$hub") {
+            throw 'Native Windows PowerShell inspection did not return the expected settings'
+          }
+          Write-Host 'PASS native Windows PowerShell inspection of the existing ZIP installation'
           Write-Host 'TEST: ZIP-to-Setup migration'
           # Simulate a legacy installation lacking the current service metadata.
           & sc.exe description ComputerHostAgent 'Legacy description for migration test' | Out-Null
@@ -422,8 +437,24 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $setup = (Get-ChildItem windows-agent/installer/output -Filter '*setup.exe' -File | Select-Object -First 1).FullName
           & ./windows-agent/scripts/Test-WindowsInstallerWizard.ps1 -SetupExecutable $setup -ExpectRetainedScope LocalSubnet
+          # Restore a genuinely fresh synthetic installation for the full
+          # onboarding/key-copy test; an ordinary upgrade must skip these pages.
+          $uninstaller = Join-Path $env:ProgramFiles 'Computer Host Agent/unins000.exe'
+          $p = Start-Process -FilePath $uninstaller -ArgumentList '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART' -Wait -PassThru
+          if ($p.ExitCode -ne 0 -or (Get-Service ComputerHostAgent -ErrorAction SilentlyContinue)) {
+            throw 'CI uninstall before fresh graphical test failed'
+          }
+          $state = Join-Path $env:ProgramData 'ComputerHostAgent'
+          if (Test-Path -LiteralPath $state) { Remove-Item -LiteralPath $state -Recurse -Force }
           & ./windows-agent/scripts/Test-WindowsInstallerWizard.ps1 -SetupExecutable $setup -FullInstall
           & ./windows-agent/scripts/Test-WindowsInstallerWizard.ps1 -SetupExecutable $setup -ExpectRetainedScope '192.0.2.20' -ExpectRetainedPower
+      - name: Exercise unchanged graphical upgrade through retained-settings summary
+        shell: pwsh
+        timeout-minutes: 5
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $setup = (Get-ChildItem windows-agent/installer/output -Filter '*setup.exe' -File | Select-Object -First 1).FullName
+          & ./windows-agent/scripts/Test-WindowsInstallerWizard.ps1 -SetupExecutable $setup -FullInstall -KeepSettings -ExpectRetainedScope '192.0.2.20' -ExpectRetainedPower
       - name: Exercise graphical monitoring-only mode and explicit local-network fallback
         shell: pwsh
         timeout-minutes: 5

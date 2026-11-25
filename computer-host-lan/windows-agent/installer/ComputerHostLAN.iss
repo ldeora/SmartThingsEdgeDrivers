@@ -294,6 +294,8 @@ begin
       LocalSubnetCheck.Checked := False;
       HubSelect.Enabled := True;
       SetAdvancedVisible(False);
+      HubSelect.ItemIndex := -1;
+      HubSelect.Text := '';
       if IsValidIPv4(PreviousInput) then HubSelect.Text := PreviousInput;
       HubStatus.Caption := 'Choose the hub you want to use.';
     end

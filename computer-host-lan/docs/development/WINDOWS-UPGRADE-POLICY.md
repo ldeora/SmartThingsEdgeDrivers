@@ -31,3 +31,16 @@ Use only disposable CI state; never send authenticated power commands.
 GUI prefill requires native desktop verification; silent/ZIP cases can
 be covered by the existing native install workflows. Physical rc.3
 acceptance remains required.
+
+For a valid implicit graphical upgrade, a summary page defaults to keeping
+settings; selecting **Change settings** opens the prefilled hub and power
+pages. If prior scope is unknown, start discovery but require explicit
+selection, never automatically choose a discovered hub on upgrade. Failed
+inspection must not silently substitute defaults: GUI requires affirmative
+network and power choices; silent Setup requires both explicit overrides.
+The installation script still validates existing configuration, service and
+state before its mutations. A successfully committed upgrade skips first-time
+onboarding and shows upgrade-specific completion text. Skip the key page
+only if power is off or the actual install confirms previous opt-in and
+retention of an existing key; a new opt-in or new key still needs guidance.
+The temporary inspection and result records contain no key or UUID.

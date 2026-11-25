@@ -8,7 +8,8 @@ param([Parameter(Mandatory)][string]$SetupExecutable,
       [switch]$MonitoringOnly,
       [switch]$SubnetFallback,
       [string]$ExpectRetainedScope = '',
-      [switch]$ExpectRetainedPower)
+      [switch]$ExpectRetainedPower,
+      [switch]$KeepSettings)
 $ErrorActionPreference = 'Stop'
 
 Add-Type -TypeDefinition @'
@@ -160,7 +161,11 @@ function WaitForClipboard([string]$expected, [string]$stage) {
 $proc = $null
 $window = $null
 try {
-    $args = if ($FullInstall) {
+    if ($KeepSettings -and (-not $FullInstall -or -not $ExpectRetainedScope)) {
+        throw '-KeepSettings requires -FullInstall and -ExpectRetainedScope'
+    }
+    $wasUpgrade = [bool](Get-Service ComputerHostAgent -ErrorAction SilentlyContinue)
+    $args = if ($FullInstall -and -not $KeepSettings) {
         if ($MonitoringOnly) { '/ENABLEPOWER=0' } else { '/HUBIP=192.0.2.20 /ENABLEPOWER=1' }
     } else { '' }
     $modeSuffix = if ($MonitoringOnly) { '-monitoring-only' } else { '-power-enabled' }
@@ -193,6 +198,44 @@ try {
     if (-not $next) { throw 'Welcome Next button is not visible' }
     [ComputerHostWizardProbe]::Click($next.Handle)
 
+    if ($ExpectRetainedScope) {
+        WaitForWizardText $window.Handle 'Upgrade - keep current settings' 'retained-settings summary'
+        $scopePattern = if ($ExpectRetainedScope -eq 'LocalSubnet') { 'LocalSubnet' } else { [regex]::Escape($ExpectRetainedScope) }
+        WaitForWizardText $window.Handle $scopePattern 'summary shows retained network scope'
+        $powerPattern = if ($ExpectRetainedPower) { 'Power control: enabled' } else { 'Power control: disabled' }
+        WaitForWizardText $window.Handle $powerPattern 'summary shows retained power preference'
+        CaptureWizardPage $window ('02-upgrade-summary' + $modeSuffix)
+        $change = FindVisibleButton $window.Handle '^Change settings$'
+        if (-not $change -or [ComputerHostWizardProbe]::IsChecked($change.Handle)) {
+            throw 'Change settings must be unchecked by default'
+        }
+        if ($KeepSettings) {
+            $before = Invoke-RestMethod http://127.0.0.1:8765/v2/info -TimeoutSec 3
+            $keyPath = Join-Path $env:ProgramData 'ComputerHostAgent/control-token'
+            $keyHash = if (Test-Path -LiteralPath $keyPath) { (Get-FileHash -LiteralPath $keyPath).Hash } else { '' }
+            ClickWizardButton $window.Handle 'Next'
+            WaitForWizardText $window.Handle 'Ready to Install' 'keep settings skips hub and power pages'
+            ClickWizardButton $window.Handle 'Install'
+            WaitForWizardText $window.Handle 'Computer Host LAN upgrade complete' 'upgrade skips first-install onboarding and retained key page' 240
+            if ($ExpectRetainedPower -and $keyHash) {
+                WaitForWizardText $window.Handle 'existing power key is unchanged' 'retained-key guidance'
+            }
+            $after = Invoke-RestMethod http://127.0.0.1:8765/v2/info -TimeoutSec 3
+            $afterKeyHash = if (Test-Path -LiteralPath $keyPath) { (Get-FileHash -LiteralPath $keyPath).Hash } else { '' }
+            $config = Get-Content -LiteralPath (Join-Path $env:ProgramFiles 'Computer Host Agent/appsettings.json') -Raw | ConvertFrom-Json
+            $scope = @((Get-NetFirewallRule -Name 'ComputerHostAgent-TCP8765' | Get-NetFirewallAddressFilter).RemoteAddress)
+            if ($after.id -ne $before.id -or $keyHash -cne $afterKeyHash -or
+                $config.HostAgent.EnablePowerControl -ne [bool]$ExpectRetainedPower -or
+                $scope.Count -ne 1 -or $scope[0] -ne $ExpectRetainedScope) {
+                throw 'Keep-settings upgrade changed identity, key or settings'
+            }
+            ClickWizardButton $window.Handle 'Finish'
+            Write-Host 'PASS complete unchanged graphical upgrade preserves UUID, key and settings'
+            return
+        }
+        [ComputerHostWizardProbe]::Click($change.Handle)
+        ClickWizardButton $window.Handle 'Next'
+    }
     $onHub = $false
     for ($attempt = 0; $attempt -lt 70; $attempt++) {
         $children = @([ComputerHostWizardProbe]::Children($window.Handle))
@@ -329,6 +372,18 @@ try {
         ClickWizardButton $window.Handle 'Next'
         WaitForWizardText $window.Handle 'Ready to Install' 'confirmation page'
         ClickWizardButton $window.Handle 'Install'
+        if ($wasUpgrade -and $MonitoringOnly) {
+            WaitForWizardText $window.Handle 'Computer Host LAN upgrade complete' 'monitoring-only upgrade skips onboarding and key page' 240
+            ClickWizardButton $window.Handle 'Finish'
+            $info = Invoke-RestMethod http://127.0.0.1:8765/v2/info -TimeoutSec 3
+            if (@($info.power_actions).Count -ne 0) { throw 'Monitoring-only upgrade left power enabled' }
+            if ($SubnetFallback) {
+                $scope = @((Get-NetFirewallRule -Name 'ComputerHostAgent-TCP8765' | Get-NetFirewallAddressFilter).RemoteAddress)
+                if ($scope.Count -ne 1 -or $scope[0] -ne 'LocalSubnet') { throw 'Graphical scope change failed' }
+            }
+            Write-Host 'PASS graphical upgrade changes settings without first-install onboarding'
+            return
+        }
         WaitForWizardText $window.Handle 'Open driver channel' 'post-install SmartThings connection page' 240
         WaitForWizardText $window.Handle 'Scan nearby' 'SmartThings device discovery guidance'
         $status = @(VisibleControls $window.Handle | Where-Object {
