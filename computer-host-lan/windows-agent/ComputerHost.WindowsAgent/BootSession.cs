@@ -17,7 +17,7 @@ public sealed class BootSession
         var path = Path.Combine(identity.StateDirectory, "boot-session.json");
         var estimate = DateTimeOffset.UtcNow.ToUnixTimeSeconds() - (long)(uptimeMs / 1000);
         StoredBoot? existing = null;
-        if (File.Exists(path))
+        if (identity.ValidateAgentFile("boot-session.json"))
         {
             try { existing = JsonSerializer.Deserialize<StoredBoot>(File.ReadAllText(path)); }
             catch (JsonException) { /* Rebuild a non-secret derived cache on corruption. */ }
@@ -33,6 +33,8 @@ public sealed class BootSession
         var temp = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
         File.WriteAllText(temp, json);
         File.Move(temp, path, overwrite: true);
+        if (!identity.ValidateAgentFile("boot-session.json"))
+            throw new InvalidDataException("Boot session state is missing after creation.");
     }
 
     // A two-minute tolerance allows scheduling and time measurement uncertainty;

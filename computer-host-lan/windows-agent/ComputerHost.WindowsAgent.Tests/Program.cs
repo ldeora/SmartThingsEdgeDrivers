@@ -1,5 +1,7 @@
 using System.Text.Json;
 using System.ComponentModel;
+using System.Security.AccessControl;
+using System.Security.Principal;
 using Microsoft.Extensions.Logging.Abstractions;
 using ComputerHost.WindowsAgent;
 
@@ -36,9 +38,6 @@ var throttle = new PowerAuthentication(key);
 for (var i = 0; i < PowerAuthentication.MaxChallengesPerMinute; i++)
     Assert(throttle.Issue("192.0.2.44") is not null, "challenge within rate limit " + i);
 Assert(throttle.Issue("192.0.2.44") is null, "challenge rate limit");
-Assert(!new PowerConfiguration(new AgentOptions { EnablePowerControl = false },
-    new PersistentIdentity(new AgentOptions { StateDirectory = Path.Combine(Path.GetTempPath(), "computerhost-disabled-" + Guid.NewGuid().ToString("N")) })).Enabled,
-    "monitoring mode remains default");
 
 var a = new WindowsMetrics.CpuSample(1000, 5000, 5000);
 var b = new WindowsMetrics.CpuSample(1200, 5600, 5400);
@@ -58,7 +57,60 @@ var temp = Path.Combine(Path.GetTempPath(), "computerhost-agent-tests-" + Guid.N
 try
 {
     var cfg = new AgentOptions { StateDirectory = temp };
+    if (OperatingSystem.IsWindows())
+    {
+        bool rejected = false;
+        try { _ = new PersistentIdentity(cfg); } catch (InvalidDataException) { rejected = true; }
+        Assert(rejected && !Directory.Exists(temp), "missing Windows state is not created by the agent");
+        using var current = WindowsIdentity.GetCurrent();
+        var owner = current.User!;
+        var acl = new DirectorySecurity();
+        acl.SetOwner(owner);
+        acl.SetAccessRuleProtection(true, false);
+        acl.AddAccessRule(new FileSystemAccessRule(owner, FileSystemRights.FullControl,
+            InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit, PropagationFlags.None,
+            AccessControlType.Allow));
+        new DirectoryInfo(temp).Create(acl);
+    }
     var id1 = new PersistentIdentity(cfg);
+    Assert(!new PowerConfiguration(cfg, id1).Enabled, "monitoring mode remains default");
+    var powerCfg = new AgentOptions { StateDirectory = temp, EnablePowerControl = true };
+    Assert(!new PowerConfiguration(powerCfg, id1).Enabled, "missing token disables power without startup exception");
+    var keyPath = Path.Combine(temp, "control-token");
+    File.WriteAllText(keyPath, "invalid");
+    Assert(!new PowerConfiguration(powerCfg, id1).Enabled, "malformed token disables power");
+    Assert(File.ReadAllText(keyPath) == "invalid", "invalid token is not replaced");
+    File.WriteAllText(keyPath, new string('a', 257));
+    Assert(!new PowerConfiguration(powerCfg, id1).Enabled, "oversized token disables power");
+    if (OperatingSystem.IsWindows())
+    {
+        using var current = WindowsIdentity.GetCurrent();
+        var owner = current.User!;
+        var keyAcl = new FileSecurity();
+        keyAcl.SetOwner(owner);
+        keyAcl.SetAccessRuleProtection(true, false);
+        keyAcl.AddAccessRule(new FileSystemAccessRule(owner, FileSystemRights.FullControl, AccessControlType.Allow));
+        keyAcl.AddAccessRule(new FileSystemAccessRule(new SecurityIdentifier(WellKnownSidType.WorldSid, null),
+            FileSystemRights.Read, AccessControlType.Allow));
+        File.WriteAllText(keyPath, key);
+        new FileInfo(keyPath).SetAccessControl(keyAcl);
+        Assert(!new PowerConfiguration(powerCfg, id1).Enabled, "unexpected token allow ACE disables power");
+        Assert(File.ReadAllText(keyPath) == key, "unsafe token is not replaced");
+        var directory = new DirectoryInfo(temp);
+        var original = directory.GetAccessControl();
+        var unsafeAcl = directory.GetAccessControl();
+        unsafeAcl.AddAccessRule(new FileSystemAccessRule(new SecurityIdentifier(WellKnownSidType.WorldSid, null),
+            FileSystemRights.Read, AccessControlType.Allow));
+        directory.SetAccessControl(unsafeAcl);
+        try
+        {
+            bool rejected = false;
+            try { _ = new PersistentIdentity(cfg); } catch (InvalidDataException) { rejected = true; }
+            Assert(rejected, "unexpected state directory allow ACE refuses identity startup");
+        }
+        finally { directory.SetAccessControl(original); }
+    }
+    File.Delete(keyPath);
     var id2 = new PersistentIdentity(cfg);
     Assert(id1.Id == id2.Id && Guid.TryParse(id1.Id, out _), "persistent identity survives process reinitialization");
     Assert(!Directory.EnumerateFiles(temp, "installation-id.*.tmp").Any(), "atomic identity leaves no temporary file after success");

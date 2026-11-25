@@ -27,6 +27,19 @@ function Stop-Agent($p) {
   $p.WaitForExit(4000) | Out-Null
 }
 try {
+  # Console smoke uses an explicitly selected, private, pre-provisioned
+  # test directory. Installed LocalService uses the installer-owned policy.
+  $owner = [Security.Principal.WindowsIdentity]::GetCurrent().User
+  $acl = New-Object Security.AccessControl.DirectorySecurity
+  $acl.SetOwner($owner)
+  $acl.SetAccessRuleProtection($true, $false)
+  $acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new(
+    $owner, 'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow'))
+  if ($PSVersionTable.PSVersion.Major -le 5) {
+    [void][IO.Directory]::CreateDirectory($state, $acl)
+  } else {
+    [IO.FileSystemAclExtensions]::Create([IO.DirectoryInfo]::new($state), $acl)
+  }
   $p = Start-Agent
   try {
     $info = Invoke-RestMethod -Uri "$base/v2/info" -TimeoutSec 3
@@ -60,9 +73,39 @@ try {
   $keyBytes = New-Object byte[] 32
   $rng = [Security.Cryptography.RandomNumberGenerator]::Create()
   try { $rng.GetBytes($keyBytes) } finally { $rng.Dispose() }
-  New-Item -ItemType Directory -Path $state -Force | Out-Null
-  [IO.File]::WriteAllText((Join-Path $state 'control-token'), ([BitConverter]::ToString($keyBytes)).Replace('-', '').ToLowerInvariant())
+  $keyPath = Join-Path $state 'control-token'
   $env:HostAgent__EnablePowerControl = 'true'
+  function Assert-MonitoringWithoutPower {
+    $process = Start-Agent
+    try {
+      $info = Invoke-RestMethod -Uri "$base/v2/info" -TimeoutSec 3
+      $health = Invoke-RestMethod -Uri "$base/v2/health" -TimeoutSec 3
+      $metrics = Invoke-RestMethod -Uri "$base/v2/metrics" -TimeoutSec 3
+      if ($info.id -ne $oldId -or $health.id -ne $oldId -or $metrics.id -ne $oldId -or
+          @($info.power_actions).Count -ne 0) { throw 'Degraded power changed identity or monitoring' }
+      try { Invoke-WebRequest -Uri "$base/v2/challenge" -TimeoutSec 3 -ErrorAction Stop | Out-Null; throw 'Challenge unexpectedly allowed' }
+      catch { if ($_.Exception.Response.StatusCode.value__ -ne 403) { throw } }
+      try { Invoke-WebRequest -Uri "$base/v2/power/shutdown" -Method Post -TimeoutSec 3 -ErrorAction Stop | Out-Null; throw 'Power unexpectedly allowed' }
+      catch { if ($_.Exception.Response.StatusCode.value__ -ne 403) { throw } }
+    } finally { Stop-Agent $process }
+  }
+  Assert-MonitoringWithoutPower
+  if (Test-Path -LiteralPath $keyPath) { throw 'Missing token was generated' }
+  [IO.File]::WriteAllText($keyPath, 'malformed')
+  Assert-MonitoringWithoutPower
+  if ([IO.File]::ReadAllText($keyPath) -ne 'malformed') { throw 'Invalid token changed' }
+  [IO.File]::WriteAllText($keyPath, ([BitConverter]::ToString($keyBytes)).Replace('-', '').ToLowerInvariant())
+  $keyAcl = Get-Acl -LiteralPath $keyPath
+  $keyAcl.SetAccessRuleProtection($true, $false)
+  $keyAcl.SetOwner($owner)
+  $keyAcl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new($owner, 'FullControl', 'Allow'))
+  Set-Acl -LiteralPath $keyPath -AclObject $keyAcl
+  $unsafeAcl = Get-Acl -LiteralPath $keyPath
+  $everyone = [Security.Principal.SecurityIdentifier]::new('S-1-1-0')
+  $unsafeAcl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new($everyone, 'Read', 'Allow'))
+  Set-Acl -LiteralPath $keyPath -AclObject $unsafeAcl
+  try { Assert-MonitoringWithoutPower } finally { Set-Acl -LiteralPath $keyPath -AclObject $keyAcl }
+  Write-Host 'PASS missing, malformed and unsafe token leave HTTP monitoring active and power denied'
   $p = Start-Agent
   try {
     $info = Invoke-RestMethod -Uri "$base/v2/info" -TimeoutSec 3

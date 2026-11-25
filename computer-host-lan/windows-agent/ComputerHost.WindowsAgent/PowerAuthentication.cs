@@ -83,8 +83,24 @@ public sealed class PowerConfiguration
     {
         if (!options.EnablePowerControl) return;
         var keyPath = Path.Combine(identity.StateDirectory, "control-token");
-        if (!File.Exists(keyPath)) throw new InvalidOperationException("Power is enabled but control-token is absent");
-        var authentication = new PowerAuthentication(File.ReadAllText(keyPath).Trim());
+        PowerAuthentication authentication;
+        try
+        {
+            if (!identity.ValidatePowerToken())
+                throw new InvalidDataException("Missing power credential");
+            using var stream = new FileStream(keyPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+            if (stream.Length > 256)
+                throw new InvalidDataException("Oversized power credential");
+            using var reader = new StreamReader(stream);
+            authentication = new PowerAuthentication(reader.ReadToEnd().Trim());
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or
+                                   InvalidDataException or System.Security.SecurityException)
+        {
+            // Fixed text: do not expose the path, exception, token or signature.
+            logger?.LogWarning("Power credential missing, invalid or unsafe; power commands disabled; monitoring remains active");
+            return;
+        }
         if (!WindowsPowerOperations.TryEnableShutdownPrivilege(out var reason))
         {
             logger?.LogWarning("Power commands unavailable: {Reason}; monitoring remains active", reason);
