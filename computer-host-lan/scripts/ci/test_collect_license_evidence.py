@@ -62,6 +62,25 @@ class LicenseEvidenceTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             collect_dotnet(assets, self.binary, self.root / "wrong", "win-arm64")
 
+        download = graph["project"]["frameworks"]["net10.0"]["downloadDependencies"][0]
+        # .NET 10 emits equal inclusive bounds for an exact runtime pack.
+        for index, exact in enumerate(("[10.0.1, 10.0.1]", "[ 10.0.1 , 10.0.1 ]")):
+            with self.subTest(version=exact):
+                download["version"] = exact
+                assets.write_text(json.dumps(graph), encoding="utf-8")
+                destination = self.root / f"equal-bounds-{index}"
+                collect_dotnet(assets, self.binary, destination, "win-x64")
+                actual = json.loads((destination / "resolved.json").read_text())
+                self.assertEqual(actual, evidence)
+        for index, version in enumerate(("[10.0.1, 10.0.2]", "[10.0.1,)", "(10.0.1, 10.0.1]", "10.0.1")):
+            with self.subTest(version=version):
+                download["version"] = version
+                assets.write_text(json.dumps(graph), encoding="utf-8")
+                destination = self.root / f"unresolved-{index}"
+                with self.assertRaisesRegex(ValueError, "Unresolved runtime-pack version"):
+                    collect_dotnet(assets, self.binary, destination, "win-x64")
+                self.assertFalse(destination.exists())
+
     def test_missing_package_and_expression_only_are_review_items(self):
         output = self.root / "out"
         self.assertEqual(package_record("Missing/1.0", [self.cache], output)["status"],

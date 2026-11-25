@@ -18,14 +18,14 @@ listing. Inno Setup credits Jordan Russell and Martijn Laan; retain the
 original copyright/website notices in redistributed binaries. Do not
 misrepresent the origin of these components.
 
-**Release engineering requirement:** Before publishing a *stable* signed or
-unsigned Windows bundle, capture the complete dependency graph (including
-transitive packages), exact restored versions, original copyright notices,
-the applicable full license texts and .NET runtime redistribution notices
-from the actual compiled output/SDK. Include those notices in the delivered
-Windows ZIP and installation documentation and review them in the final
-release checklist. A SHA-256 checksum is an integrity check, not a code
-signature or an independent provenance attestation.
+**Release engineering follow-up (#118):** Improve the dependency inventory
+and notice bundles using available build-derived evidence. The completeness
+of this automated collection and the packaging improvements are best-effort
+for v1.0, not release gates. Keep existing notices and honor applicable
+upstream redistribution conditions; this project scheduling decision does
+not waive any license terms or establish legal compliance. A SHA-256
+checksum is an integrity check, not a code signature or an independent
+provenance attestation.
 
 Inno Setup's authors request commercial users purchase a license; the
 publisher must decide whether the intended use is commercial. No such
@@ -50,5 +50,8 @@ subdirectories, runtime packs installed outside NuGet and embedded assets.
 No build evidence is automatically substituted for the required delivered
 license texts. Inno Setup commercial-use classification remains a publisher
 decision; see https://jrsoftware.org/inno-setup/purchase and the exact
-installed LICENSE.TXT. Do not distribute a stable package until the reviewed
-notices are included and packaging/installation tests confirm their presence.
+installed LICENSE.TXT. Evidence collection and upload are advisory CI steps
+with bounded timeouts; failures remain visible and incomplete collections
+are not uploaded as complete evidence. Fixture tests remain required.
+Continue notice-bundle improvements and packaging verification under #118
+without gating v1.0 on completion of that automation.

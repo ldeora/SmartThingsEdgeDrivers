@@ -86,6 +86,9 @@ jobs:
           if (-not $iscc) { throw 'Inno Setup 7 compiler missing after installation' }
           "INNO_ISCC=$iscc" >> $env:GITHUB_ENV
       - name: Capture exact Windows dependency and compiler license evidence
+        id: license_evidence
+        continue-on-error: true
+        timeout-minutes: 5
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -103,6 +106,9 @@ jobs:
           [ordered]@{source_commit = "${{ github.sha }}"; compiler_version = $compiler.VersionInfo.ProductVersion; compiler_sha256 = (Get-FileHash -LiteralPath $env:INNO_ISCC -Algorithm SHA256).Hash.ToLowerInvariant(); license_sha256 = (Get-FileHash -LiteralPath $license -Algorithm SHA256).Hash.ToLowerInvariant(); review_status = 'not_signed_off'} | ConvertTo-Json | Set-Content -LiteralPath "$evidence/inno.json" -Encoding utf8
           dotnet --info | Set-Content -LiteralPath "$evidence/dotnet-info.txt" -Encoding utf8
       - name: Upload license review evidence (not a release asset)
+        if: steps.license_evidence.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: 5
         uses: actions/upload-artifact@v7
         with:
           name: computer-host-windows-license-evidence

@@ -92,8 +92,8 @@ def collect_dotnet(assets: Path, binary: Path, output: Path, runtime: str) -> No
     for framework in graph["project"]["frameworks"].values():
         for item in framework.get("downloadDependencies", []):
             version = item["version"]
-            match = re.fullmatch(r"\[([^,\[\]]+)\]", version)
-            if not match:
+            match = re.fullmatch(r"\[\s*([^,\[\]\s]+)\s*(?:,\s*([^,\[\]\s]+)\s*)?\]", version)
+            if not match or match.group(2) not in (None, match.group(1)):
                 raise ValueError("Unresolved runtime-pack version: " + version)
             downloads.add(item["name"] + "/" + match.group(1))
     if not packages:

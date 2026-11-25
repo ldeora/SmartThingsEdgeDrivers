@@ -238,12 +238,18 @@ jobs:
           cd "$RUNNER_TEMP"
           sha256sum computer-host-linux-installer-test > computer-host-linux-installer-test.sha256
       - name: Capture linked Go dependency license evidence
+        id: license_evidence
+        continue-on-error: true
+        timeout-minutes: 5
         run: |
           set -eu
           CGO_ENABLED=0 GOOS=linux GOARCH=amd64 python3 ../scripts/ci/collect_license_evidence.py go \
             --binary "$RUNNER_TEMP/computer-host-linux-installer-test" \
             --output "$RUNNER_TEMP/computer-host-linux-license-evidence"
       - name: Upload Go license review evidence (not a release asset)
+        if: steps.license_evidence.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: 5
         uses: actions/upload-artifact@v7
         with:
           name: computer-host-linux-license-evidence
