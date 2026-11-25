@@ -59,22 +59,22 @@ jobs:
         include:
           - name: debian-12
             image: debian:12
-            install: apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends python3 python3-yaml systemd passwd coreutils util-linux
+            install: apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends python3 python3-yaml systemd passwd coreutils util-linux liblua5.4-0
           - name: debian-13
             image: debian:13
-            install: apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends python3 python3-yaml systemd passwd coreutils util-linux
+            install: apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends python3 python3-yaml systemd passwd coreutils util-linux liblua5.4-0
           - name: ubuntu-24.04
             image: ubuntu:24.04
-            install: apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends python3 python3-yaml systemd passwd coreutils util-linux
+            install: apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends python3 python3-yaml systemd passwd coreutils util-linux liblua5.4-0
           - name: ubuntu-26.04
             image: ubuntu:26.04
-            install: apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends python3 python3-yaml systemd passwd coreutils util-linux
+            install: apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends python3 python3-yaml systemd passwd coreutils util-linux liblua5.4-0
           - name: fedora-43
             image: fedora:43
-            install: dnf install -y python3 python3-pyyaml systemd shadow-utils coreutils util-linux
+            install: dnf install -y python3 python3-pyyaml systemd shadow-utils coreutils util-linux lua-libs
           - name: fedora-44
             image: fedora:44
-            install: dnf install -y python3 python3-pyyaml systemd shadow-utils coreutils util-linux
+            install: dnf install -y python3 python3-pyyaml systemd shadow-utils coreutils util-linux lua-libs
     container:
       image: ${{ matrix.image }}
     steps:
