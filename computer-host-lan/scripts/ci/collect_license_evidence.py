@@ -77,7 +77,7 @@ def package_record(package: str, roots: list[Path], output: Path) -> dict:
             "notices": notices}
 
 
-def collect_dotnet(assets: Path, output: Path, runtime: str) -> None:
+def collect_dotnet(assets: Path, binary: Path, output: Path, runtime: str) -> None:
     graph = json.loads(assets.read_text(encoding="utf-8-sig"))
     targets = [key for key in graph["targets"] if key.endswith("/" + runtime)]
     if len(targets) != 1:
@@ -94,13 +94,17 @@ def collect_dotnet(assets: Path, output: Path, runtime: str) -> None:
             if not match:
                 raise ValueError("Unresolved runtime-pack version: " + version)
             downloads.add(item["name"] + "/" + match.group(1))
-    if not packages or not downloads:
-        raise ValueError("Expected packages and self-contained runtime download dependencies")
+    if not packages:
+        raise ValueError("No resolved runtime-target packages")
+    # Some SDKs expose runtime packs through different restore metadata.
+    # Keep an empty download list explicit for review, rather than treating
+    # it as proof that no runtime redistribution obligations exist.
     roots = [Path(path) for path in graph["packageFolders"]]
     output.mkdir(parents=True, exist_ok=False)
     records = [package_record(key, roots, output) for key in sorted(packages | downloads)]
     write_json(output / "resolved.json", {
         "runtime_target": targets[0], "target_packages": sorted(packages),
+        "binary_sha256": hashlib.sha256(binary.read_bytes()).hexdigest(),
         "download_dependencies": sorted(downloads), "packages": records,
         "review_status": "not_signed_off",
     })
@@ -164,6 +168,7 @@ def main() -> None:
     sub = parser.add_subparsers(dest="kind", required=True)
     dotnet = sub.add_parser("dotnet")
     dotnet.add_argument("--assets", type=Path, required=True)
+    dotnet.add_argument("--binary", type=Path, required=True)
     dotnet.add_argument("--runtime", default="win-x64")
     dotnet.add_argument("--output", type=Path, required=True)
     go = sub.add_parser("go")
@@ -171,7 +176,7 @@ def main() -> None:
     go.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     if args.kind == "dotnet":
-        collect_dotnet(args.assets, args.output, args.runtime)
+        collect_dotnet(args.assets, args.binary, args.output, args.runtime)
     else:
         collect_go(args.binary.resolve(), args.output)
 

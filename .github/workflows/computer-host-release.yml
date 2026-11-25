@@ -85,6 +85,30 @@ jobs:
           }
           if (-not $iscc) { throw 'Inno Setup 7 compiler missing after installation' }
           "INNO_ISCC=$iscc" >> $env:GITHUB_ENV
+      - name: Capture exact Windows dependency and compiler license evidence
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $evidence = Join-Path $env:RUNNER_TEMP 'computer-host-windows-license-evidence'
+          New-Item -ItemType Directory -Path $evidence | Out-Null
+          python scripts/ci/collect_license_evidence.py dotnet --assets windows-agent/ComputerHost.WindowsAgent/obj/project.assets.json --binary windows-agent/publish/win-x64/ComputerHost.WindowsAgent.exe --output "$evidence/agent"
+          if ($LASTEXITCODE -ne 0) { throw 'Agent dependency evidence failed' }
+          python scripts/ci/collect_license_evidence.py dotnet --assets windows-agent/HubDiscovery/obj/project.assets.json --binary windows-agent/publish/hub-discovery/ComputerHost.HubDiscovery.exe --output "$evidence/hub-discovery"
+          if ($LASTEXITCODE -ne 0) { throw 'Discovery dependency evidence failed' }
+          $inno = Split-Path -Parent $env:INNO_ISCC
+          $license = Join-Path $inno 'LICENSE.TXT'
+          if (-not (Test-Path -LiteralPath $license -PathType Leaf)) { throw 'Installed Inno Setup license missing' }
+          Copy-Item -LiteralPath $license -Destination "$evidence/Inno-LICENSE.TXT"
+          $compiler = Get-Item -LiteralPath $env:INNO_ISCC
+          [ordered]@{source_commit = "${{ github.sha }}"; compiler_version = $compiler.VersionInfo.ProductVersion; compiler_sha256 = (Get-FileHash -LiteralPath $env:INNO_ISCC -Algorithm SHA256).Hash.ToLowerInvariant(); license_sha256 = (Get-FileHash -LiteralPath $license -Algorithm SHA256).Hash.ToLowerInvariant(); review_status = 'not_signed_off'} | ConvertTo-Json | Set-Content -LiteralPath "$evidence/inno.json" -Encoding utf8
+          dotnet --info | Set-Content -LiteralPath "$evidence/dotnet-info.txt" -Encoding utf8
+      - name: Upload license review evidence (not a release asset)
+        uses: actions/upload-artifact@v7
+        with:
+          name: computer-host-windows-license-evidence
+          path: ${{ runner.temp }}/computer-host-windows-license-evidence/
+          if-no-files-found: error
+          retention-days: 7
       - name: Compile version-matched unsigned Setup.exe
         shell: pwsh
         run: |

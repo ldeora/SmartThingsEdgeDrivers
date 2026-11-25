@@ -39,7 +39,7 @@ publication or driver deployment is authorized by this record. The expected
 source commit cannot be embedded in its own source commit as a self-reference;
 publish the approved SHA in an independently trusted release record.
 
-## Maintainer decisions and proposed review-fix disposition (2026-11-25)
+## Maintainer decisions and approved review-fix disposition (2026-11-25)
 
 The maintainer has chosen to retain unsigned Windows packages for now,
 continue development while looking for an independent GitHub environment
@@ -51,12 +51,12 @@ exception must be separately designed, reviewed and explicitly approved,
 with no stable exception or unsigned Linux installer fallback. Ordinary CI,
 code review and packaging preparation do not require that environment approval.
 
-The following dispositions are proposed for maintainer approval in #170.
+The following dispositions were approved by the maintainer by merging #170.
 They explicitly preserve the roadmap rule that known in-scope production
 fixes must land before the rc.3 freeze, not be postponed until soak.
 Each fix requires its own scoped review and relevant behavioral tests.
 
-| Issue | Proposed disposition | Scope and rationale |
+| Issue | Approved disposition | Scope and rationale |
 | --- | --- | --- |
 | #126 | Fix before rc.3 | Preserve the existing ZIP/PowerShell power preference unless explicitly changed; fresh installs remain off, Setup explicitly communicates its choice. Reject conflicting flags. |
 | #127 | Fix before rc.3 | Reuse only a validated existing Private firewall scope on upgrades, allow explicit changes, and refuse ambiguous or missing scope rather than silently broadening access. Cover GUI and silent paths. |
@@ -110,7 +110,7 @@ changes explicitly identified; they are not new hardware certifications. Do not 
   limitations; no automatic deletion of suspicious evidence. Promote to
   release blockers if reproduced on supported normal paths or if recovery
   is unsafe. #105 test refactoring and broader feature work remain deferred.
-- The known review fixes have explicit proposed dispositions above; they
+- The known review fixes have explicit approved dispositions above; they
   are not deferred by the implementation freeze. Remaining #41 security
   threat-model question, #131 Lua test availability, #133 clock correction
   heuristic and older low-priority issues remain tracked. Confirm Lua tests
