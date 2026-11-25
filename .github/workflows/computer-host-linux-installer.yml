@@ -73,7 +73,7 @@ jobs:
           grep -q 'Power management: false' "$RUNNER_TEMP/tui-preview.txt"
           grep -q 'Persistent Wake-on-LAN: false' "$RUNNER_TEMP/tui-preview.txt"
           python3 pty_smoke.py "$RUNNER_TEMP/computer-host-linux-tui-demo"
-          printf '1\n4\nk\nk\ny\n' | NO_COLOR=1 TERM=dumb "$RUNNER_TEMP/computer-host-linux-tui-demo" -accessible > "$RUNNER_TEMP/accessibility.txt"
+          printf '1\n4\nk\nk\ny\n' | NO_COLOR=1 TERM=dumb "$RUNNER_TEMP/computer-host-linux-tui-demo" -demo -accessible > "$RUNNER_TEMP/accessibility.txt"
           grep -q 'DEMO COMPLETE' "$RUNNER_TEMP/accessibility.txt"
           if python3 -c 'import sys; sys.exit(b"\x1b" not in open(sys.argv[1], "rb").read())' "$RUNNER_TEMP/accessibility.txt"; then
             echo 'Accessible output contains ANSI escape bytes' >&2
@@ -142,7 +142,48 @@ jobs:
             echo 'Live accessible output contains ANSI escape bytes' >&2
             exit 1
           fi
-      - name: Refuse implicit installation or sudo in preview/test modes
+      - name: Default installer startup and cancellation (no elevation)
+        run: |
+          set -eu
+          binary="$RUNNER_TEMP/computer-host-linux-tui-demo"
+          python3 pty_smoke.py "$binary" --install
+          printf 'quit\n' | NO_COLOR=1 TERM=dumb "$binary" -accessible > "$RUNNER_TEMP/install-cancel.txt"
+          grep -q 'LINUX INSTALLATION (PLAIN TEXT)' "$RUNNER_TEMP/install-cancel.txt"
+          grep -q 'No changes made' "$RUNNER_TEMP/install-cancel.txt"
+          "$binary" -live -preview > "$RUNNER_TEMP/embedded-preview.txt"
+          grep -q 'REAL HOST — READ-ONLY INSPECTION' "$RUNNER_TEMP/embedded-preview.txt"
+          grep -q 'REAL READ-ONLY FILE PLAN' "$RUNNER_TEMP/embedded-preview.txt"
+          python3 - "$binary" <<'PY'
+          import subprocess
+          import sys
+
+          binary = sys.argv[1]
+          for args in (
+              ("-demo", "-live"),
+              ("-demo", "-recover"),
+              ("-demo", "-uninstall"),
+              ("-demo", "-root-bootstrap"),
+              ("-demo=false",),
+              ("-live=false",),
+              ("-install=false",),
+              ("-preview=false",),
+              ("-root-bootstrap=false",),
+              ("-recover=false",),
+              ("-uninstall=false",),
+              ("-api", "/nonexistent"),
+              ("-install",),
+              ("-request", ""),
+              ("-demo", "-elevation", "su"),
+          ):
+              result = subprocess.run([binary, *args], stdin=subprocess.DEVNULL,
+                                      capture_output=True, text=True, timeout=10)
+              assert result.returncode == 2, (args, result)
+          result = subprocess.run([binary], stdin=subprocess.DEVNULL,
+                                  capture_output=True, text=True, timeout=10)
+          assert result.returncode == 1, result
+          assert "interactive installation needs a terminal" in result.stderr, result
+          PY
+      - name: Refuse conflicting installation or sudo in preview/test modes
         run: |
           set -eu
           if "$RUNNER_TEMP/computer-host-linux-tui-demo" -live -install -preview \

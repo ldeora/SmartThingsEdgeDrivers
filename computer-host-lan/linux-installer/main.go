@@ -213,7 +213,7 @@ func interactiveForm(s *selection) *huh.Form {
 func runInteractive(w io.Writer) error {
 	info, err := os.Stdin.Stat()
 	if err != nil || (info.Mode()&os.ModeCharDevice) == 0 {
-		return errors.New("interactive TUI needs a terminal; use -accessible for plain prompts or -preview")
+		return errors.New("interactive demo needs a terminal; use -demo -accessible for plain prompts or -preview")
 	}
 	s := selection{action: "install", hubChoice: "none", powerChoice: "keep", wolChoice: "keep"}
 	fmt.Fprintln(w, "COMPUTER HOST LAN — LINUX WIZARD EXPERIMENT")
@@ -378,13 +378,16 @@ func main() {
 		os.Exit(runCLI(os.Args[2:], os.Stdout))
 	}
 	flag.Usage = func() {
-		fmt.Fprintln(flag.CommandLine.Output(), "Usage: installer [wizard flags] or installer cli --help")
+		fmt.Fprintln(flag.CommandLine.Output(), "Usage: computer-host-linux-installer [wizard flags] or computer-host-linux-installer cli --help")
+		fmt.Fprintln(flag.CommandLine.Output(), "Without mode flags, open the installation/upgrade wizard. Run as your normal user.")
+		fmt.Fprintln(flag.CommandLine.Output(), "Use -live -preview for read-only host inspection, or -demo for a simulated wizard.")
 		flag.PrintDefaults()
 	}
 	accessible := flag.Bool("accessible", false, "use ANSI-free plain prompts with Back support")
-	preview := flag.Bool("preview", false, "print a sample plan without starting a TUI")
-	live := flag.Bool("live", false, "read-only Linux inspection/plan (default) or explicitly confirmed installation with -install")
-	apiPath := flag.String("api", "", "optional path to a read-only source API launcher; -install bundles its own")
+	preview := flag.Bool("preview", false, "print a simulated plan, or inspect the real host with -live")
+	demo := flag.Bool("demo", false, "open the inert simulated wizard")
+	live := flag.Bool("live", false, "read-only Linux inspection/plan, or explicit installation with -install")
+	apiPath := flag.String("api", "", "optional trusted read-only source API launcher for explicit -live modes; otherwise use the embedded inspector")
 	install := flag.Bool("install", false, "guided real installation; explicit final approval and administrator authorization required")
 	rootMode := flag.Bool("root-bootstrap", false, "internal: fixed privileged bootstrap, never run the UI as root")
 	recoverMode := flag.Bool("recover", false, "explicitly recover an interrupted installer operation")
@@ -393,7 +396,14 @@ func main() {
 	requestArg := flag.String("request", "", "internal: bounded non-secret JSON input for su-only root bootstrap")
 	flag.Parse()
 	requestFlagProvided := false
+	implicitInstall := true
 	flag.Visit(func(f *flag.Flag) {
+		// Only presentation and authorization-provider options can
+		// accompany the default wizard. An explicitly false mode flag,
+		// internal flag or source override must not fall into installation.
+		if f.Name != "accessible" && f.Name != "elevation" {
+			implicitInstall = false
+		}
 		if f.Name == "request" {
 			requestFlagProvided = true
 		}
@@ -407,7 +417,7 @@ func main() {
 		os.Exit(2)
 	}
 	if *rootMode {
-		if *live || *install || *preview || *accessible || *apiPath != "" || *recoverMode || *uninstallMode || *elevation != "auto" {
+		if *live || *install || *preview || *demo || *accessible || *apiPath != "" || *recoverMode || *uninstallMode || *elevation != "auto" {
 			fmt.Fprintln(os.Stderr, "Invalid privileged bootstrap invocation.")
 			os.Exit(2)
 		}
@@ -428,8 +438,19 @@ func main() {
 		fmt.Fprintln(os.Stderr, "-request is supported only by the privileged bootstrap")
 		os.Exit(2)
 	}
+	if implicitInstall {
+		*live, *install = true, true
+	}
+	if *demo && (*live || *install || *recoverMode || *uninstallMode || *apiPath != "") {
+		fmt.Fprintln(os.Stderr, "-demo cannot be combined with live, recovery or uninstall modes or -api")
+		os.Exit(2)
+	}
+	if *apiPath != "" && !*live {
+		fmt.Fprintln(os.Stderr, "-api requires an explicit -live mode")
+		os.Exit(2)
+	}
 	if *elevation != "auto" && !*recoverMode && !*install && !*uninstallMode {
-		fmt.Fprintln(os.Stderr, "-elevation is allowed only with -live -install, -uninstall or -recover")
+		fmt.Fprintln(os.Stderr, "-elevation is allowed only with installation, uninstall or recovery")
 		os.Exit(2)
 	}
 	if *uninstallMode {
@@ -475,6 +496,10 @@ func main() {
 	if *preview {
 		fmt.Println((selection{action: "install", hubChoice: "none"}).preview())
 		return
+	}
+	if !*demo {
+		fmt.Fprintln(os.Stderr, "no valid wizard mode selected; use -h for help")
+		os.Exit(2)
 	}
 	var err error
 	if *accessible {

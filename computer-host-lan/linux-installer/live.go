@@ -941,6 +941,15 @@ func runLiveAccessibleWithHubsMode(reader io.Reader, writer io.Writer, api apiCl
 }
 
 func runLive(preview, accessible bool, apiPath string, r io.Reader, w io.Writer) error {
+	if apiPath == "" {
+		var cleanup func()
+		var err error
+		apiPath, cleanup, err = makeEmbeddedReadOnlyAPI()
+		if err != nil {
+			return err
+		}
+		defer cleanup()
+	}
 	client, err := newAPIClient(apiPath)
 	if err != nil {
 		return err

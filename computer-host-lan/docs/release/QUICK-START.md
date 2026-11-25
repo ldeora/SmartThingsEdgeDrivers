@@ -24,7 +24,9 @@ Download the **matching v1.0.0-rc.2 source ZIP from the published release**.
 These Linux commands apply only to that immutable release. They must not
 be used to elevate main or a development source archive, which now
 refuses legacy mutations. The authenticated v1.0 installer is not yet
-available as a release. Linux needs Python 3.10+, systemd and Avahi.
+available as a release. The [planned authenticated Linux installer Quick Start](LINUX-INSTALLER-QUICK-START.md)
+describes the future flow, not a currently available download.
+Linux needs Python 3.10+, systemd and Avahi.
 From the extracted **published rc.2** source directory:
 
 ```sh

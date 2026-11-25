@@ -565,6 +565,12 @@ func runInstallingWizard(accessible bool, apiPath string, reader io.Reader, writ
 	if os.Geteuid() == 0 {
 		return errors.New("run the wizard as your normal user; sudo is requested only after review")
 	}
+	if !accessible {
+		state, err := os.Stdin.Stat()
+		if err != nil || state.Mode()&os.ModeCharDevice == 0 {
+			return errors.New("interactive installation needs a terminal; use -accessible")
+		}
+	}
 	if apiPath == "" {
 		var cleanup func()
 		var err error
@@ -595,10 +601,6 @@ func runInstallingWizard(accessible bool, apiPath string, reader io.Reader, writ
 			true, func(s *liveSelection) error {
 				return installSelection(s, writer, hasTTY, method)
 			})
-	}
-	state, err := os.Stdin.Stat()
-	if err != nil || state.Mode()&os.ModeCharDevice == 0 {
-		return errors.New("interactive installation needs a terminal; use -accessible")
 	}
 	s := newLiveSelection(api, info, hubs)
 	s.firewalldActive = firewalldRunning()

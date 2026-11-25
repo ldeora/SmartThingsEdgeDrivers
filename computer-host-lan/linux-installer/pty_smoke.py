@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Real pseudo-terminal smoke for inert and read-only Linux TUI modes.
+"""Unprivileged PTY startup/cancellation smoke for Linux wizard modes.
 
-Uses only Python stdlib and no root. Live mode invokes only inspect/plan. Checks
-that the full-screen Bubble Tea form starts in a tty and Ctrl+C exits cleanly.
-This does NOT replace manual terminal/screen-reader acceptance.
+Uses only Python stdlib. The default installation wizard is cancelled at
+its welcome page, before review or literal INSTALL consent. No elevation
+or managed mutation is attempted. Does not replace manual acceptance.
 """
 from __future__ import annotations
 
@@ -18,13 +18,14 @@ import termios
 import time
 
 
-def smoke(binary: str, width: int, height: int, *, live: bool = False) -> None:
+def smoke(binary: str, width: int, height: int, *, mode: str) -> None:
     pid, master = pty.fork()
     if pid == 0:
         try:
             env = os.environ.copy()
             env.update(TERM='xterm-256color', NO_COLOR='1')
-            os.execve(binary, [binary, *(['-live', '-api', '../scripts/installer-api.sh'] if live else [])], env)
+            args = {'demo': ['-demo'], 'live': ['-live'], 'install': []}[mode]
+            os.execve(binary, [binary, *args], env)
         except Exception as exc:
             print(f'PTY exec failed: {exc}', file=sys.stderr)
             os._exit(127)
@@ -57,9 +58,14 @@ def smoke(binary: str, width: int, height: int, *, live: bool = False) -> None:
         expected_page = b'1. Welcome'
         if not pump_until(expected_page, 15):
             raise AssertionError(f'full-screen {expected_page!r} page never rendered')
-        # Neither mode can install: cancellation must exit without changes.
+        # Cancel before the installation review or authorization prompt.
         os.write(master, b'\x03')
-        if not pump_until(b'Setup preview cancelled. No changes made.' if live else b'Cancelled; no changes made.', 10):
+        cancelled = {
+            'demo': b'Cancelled; no changes made.',
+            'live': b'Setup preview cancelled. No changes made.',
+            'install': b'Cancelled. No changes made.',
+        }[mode]
+        if not pump_until(cancelled, 10):
             raise AssertionError('Ctrl+C did not produce a clean cancellation')
         deadline = time.monotonic() + 5
         while time.monotonic() < deadline:
@@ -70,7 +76,8 @@ def smoke(binary: str, width: int, height: int, *, live: bool = False) -> None:
             time.sleep(0.05)
         if child_status is None or not os.WIFEXITED(child_status) or os.WEXITSTATUS(child_status) != 0:
             raise AssertionError(f'TUI did not exit with code 0: status={child_status}')
-        mode = 'live read-only' if live else 'inert demo'
+        if mode == 'install' and b'COMPUTER HOST LAN' not in collected:
+            raise AssertionError('installation welcome heading missing')
         print(f'PASS {mode} TUI PTY startup/cancel at {width}x{height}')
     except Exception:
         print('Captured terminal tail:', bytes(collected[-6000:]).decode('utf-8', errors='replace'), file=sys.stderr)
@@ -90,13 +97,13 @@ def smoke(binary: str, width: int, height: int, *, live: bool = False) -> None:
 
 def main() -> int:
     if len(sys.argv) not in (2, 3) or not os.path.isabs(sys.argv[1]) or \
-            (len(sys.argv) == 3 and sys.argv[2] != '--live'):
-        print('Usage: python3 pty_smoke.py /absolute/path/to/binary [--live]', file=sys.stderr)
+            (len(sys.argv) == 3 and sys.argv[2] not in ('--live', '--install')):
+        print('Usage: python3 pty_smoke.py /absolute/path/to/binary [--live|--install]', file=sys.stderr)
         return 2
-    live = len(sys.argv) == 3
-    sizes = ((80, 24),) if live else ((80, 24), (60, 20))
+    mode = sys.argv[2][2:] if len(sys.argv) == 3 else 'demo'
+    sizes = ((80, 24), (60, 20)) if mode == 'demo' else ((80, 24),)
     for width, height in sizes:
-        smoke(sys.argv[1], width, height, live=live)
+        smoke(sys.argv[1], width, height, mode=mode)
     return 0
 
 
