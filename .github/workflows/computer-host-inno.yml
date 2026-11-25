@@ -396,6 +396,24 @@ jobs:
           RunSetup "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /HUBIP=$hub"
           $null = WaitAgentReady 'explicit replacement of missing scope'
           Write-Host 'PASS silent Setup conflict/ambiguous/missing scope refusal before mutation'
+          # Explicit settings bypass failed preference inspection, NOT real
+          # configuration validation. Reject malformed old config before stop.
+          $savedConfig = [IO.File]::ReadAllBytes($configPath)
+          $runningPid = (Get-CimInstance Win32_Service -Filter "Name='ComputerHostAgent'").ProcessId
+          try {
+            $invalidConfig = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json
+            $invalidConfig.HostAgent.EnablePowerControl = 'invalid'
+            $invalidConfig | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $configPath -Encoding utf8
+            $invalidHash = (Get-FileHash -LiteralPath $configPath).Hash
+            RunSetup "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /HUBIP=$hub /ENABLEPOWER=0" -ExpectRefusal
+            if ((Get-CimInstance Win32_Service -Filter "Name='ComputerHostAgent'").ProcessId -ne $runningPid -or
+                (Get-FileHash -LiteralPath $configPath).Hash -ne $invalidHash) {
+              throw 'Explicit Setup arguments bypassed actual configuration validation'
+            }
+          } finally {
+            [IO.File]::WriteAllBytes($configPath, $savedConfig)
+          }
+          Write-Host 'PASS explicit overrides do not bypass existing configuration safety validation'
           Write-Host 'TEST: uninstall removes service/firewall but retains state'
           $uninstaller = Join-Path (Join-Path $env:ProgramFiles 'Computer Host Agent') 'unins000.exe'
           if (-not (Test-Path $uninstaller)) { throw 'Inno uninstall entry missing' }

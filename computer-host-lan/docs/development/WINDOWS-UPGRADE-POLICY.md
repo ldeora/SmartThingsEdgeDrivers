@@ -44,3 +44,11 @@ onboarding and shows upgrade-specific completion text. Skip the key page
 only if power is off or the actual install confirms previous opt-in and
 retention of an existing key; a new opt-in or new key still needs guidance.
 The temporary inspection and result records contain no key or UUID.
+
+Setup also runs the same install script in read-only validation mode with
+the selected arguments before service preparation, regardless of whether
+initial inspection succeeded. A malformed existing configuration still
+refuses before mutation. If interactive recovery restores an abandoned
+upgrade snapshot, restart Setup to read its restored settings rather than
+reuse the pre-recovery selections. The health/version/identity commit gate
+is unchanged.

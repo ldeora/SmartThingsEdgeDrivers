@@ -976,7 +976,8 @@ begin
   end;
   // Validate the actual chosen settings and existing state before stopping
   // the service. This is separate from the optional initial preference read.
-  ExtractTemporaryFile('Install-WindowsAgent.ps1');
+  if not FileExists(ExpandConstant('{tmp}\Install-WindowsAgent.ps1')) then
+    ExtractTemporaryFile('Install-WindowsAgent.ps1');
   DiagnosticFile := ExpandConstant('{tmp}\computerhost-validation-error.txt');
   DeleteFile(DiagnosticFile);
   Params := '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' +
