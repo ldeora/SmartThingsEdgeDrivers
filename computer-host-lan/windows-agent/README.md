@@ -36,3 +36,16 @@ Invoke-RestMethod http://127.0.0.1:8765/v2/info
 Power commands are disabled by default and require explicit -EnablePower and a 64-character private key entered in the SmartThings device preferences. A PowerShell upgrade requires -EnablePower again to retain consent; the graphical installer preserves the previous selection. If Windows policy denies shutdown privileges, the agent keeps monitoring available but does not advertise power commands. The new Windows kit also includes Set-WindowsHubAddress.ps1 and Restore-WindowsAgentUpgrade.ps1 for guarded reconfiguration and recovery.
 
 Do not expose the HTTP agent to the Internet or share the key. Real Windows WOL depends on NIC, firmware, and sleep/power state; one successful Windows 11 test is not a universal guarantee. Read [installation](../INSTALLATION.md), [installer details](installer/README.md), [test matrix](docs/HARDWARE-TEST-MATRIX.md) and [security notes](../docs/beta/SECURITY-AND-PRIVACY.md).
+
+### Development console runs (post-rc.2 main)
+
+The installed LocalService agent requires the installer-provisioned state
+folder and exact ComputerHostAgent service SID. It will not create a missing
+Windows state directory with inherited permissions. For a development
+console run, explicitly select a separate pre-created private state directory
+with a protected DACL granting only the invoking user and trusted
+administrators/SYSTEM access. The console smoke script provisions its own
+fixture. A service invocation cannot select that console policy. Never use
+a production state folder for development testing. Invalid or unsafe power
+credentials leave safe monitoring active; inspect/repair state as an
+administrator without deleting the installation identity.

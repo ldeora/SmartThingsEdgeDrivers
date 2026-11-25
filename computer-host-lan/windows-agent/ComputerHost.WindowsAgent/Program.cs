@@ -106,6 +106,7 @@ app.MapPost("/v2/power/{action}", (string action, HttpContext context, Persisten
 });
 app.MapFallback(() => Results.NotFound());
 
-app.Logger.LogInformation("Windows Host Agent {Version} (power opt-in: {Power}), port {Port}",
-    AgentContract.AgentVersion, options.EnablePowerControl, options.Port);
+app.Logger.LogInformation("Windows Host Agent {Version} (power opt-in: {Power}, available: {Available}), port {Port}",
+    AgentContract.AgentVersion, options.EnablePowerControl,
+    app.Services.GetRequiredService<PowerConfiguration>().Enabled, options.Port);
 await app.RunAsync();

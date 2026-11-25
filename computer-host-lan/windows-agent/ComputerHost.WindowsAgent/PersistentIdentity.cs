@@ -10,17 +10,21 @@ public sealed class PersistentIdentity
 {
     public string Id { get; }
     public string StateDirectory { get; }
+    private readonly StateProtection? _protection;
 
     public PersistentIdentity(AgentOptions options)
     {
         StateDirectory = options.StateDirectory ??
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "ComputerHostAgent");
-        Directory.CreateDirectory(StateDirectory);
+        if (OperatingSystem.IsWindows())
+            _protection = new StateProtection(StateDirectory, options.StateDirectory is not null);
+        else
+            Directory.CreateDirectory(StateDirectory); // Portable contract tests only; Windows executable refuses other OSes.
         var path = Path.Combine(StateDirectory, "installation-id");
         // Create into a private same-directory temporary file and atomically publish it.
         // A power loss before the move can leave an unused .tmp file, but never a
         // zero-byte installation-id. Never regenerate an existing invalid identity.
-        if (!File.Exists(path))
+        if (!ValidateAgentFile("installation-id"))
         {
             var temporary = Path.Combine(StateDirectory, "installation-id." + Guid.NewGuid().ToString("N") + ".tmp");
             try
@@ -42,6 +46,8 @@ public sealed class PersistentIdentity
                 if (File.Exists(temporary)) File.Delete(temporary);
             }
         }
+        if (!ValidateAgentFile("installation-id"))
+            throw new InvalidDataException("Persistent identity is missing after creation.");
         var raw = File.ReadAllText(path, Encoding.ASCII).Trim();
         if (!Guid.TryParseExact(raw, "D", out var guid) ||
             !string.Equals(guid.ToString("D"), raw, StringComparison.Ordinal))
@@ -50,4 +56,14 @@ public sealed class PersistentIdentity
         }
         Id = raw;
     }
+
+    internal bool ValidateAgentFile(string name) =>
+        OperatingSystem.IsWindows()
+            ? _protection!.ValidateFileIfPresent(name)
+            : File.Exists(Path.Combine(StateDirectory, name));
+
+    internal bool ValidatePowerToken() =>
+        OperatingSystem.IsWindows()
+            ? _protection!.ValidateFileIfPresent("control-token", token: true)
+            : File.Exists(Path.Combine(StateDirectory, "control-token"));
 }
