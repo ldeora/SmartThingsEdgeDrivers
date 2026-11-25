@@ -42,7 +42,14 @@ budgets, and an expired power request may already have been accepted.
 Do not blindly retry. This is a cooperative transport deadline, not a
 preemptive limit on synchronous DNS resolution or other non-yielding
 runtime work, nor a monotonic real-time guarantee under clock changes.
-Physical SmartThings hub qualification remains required.
+A detected incompatible scheduler yield is relayed unchanged to finish the
+same request; a one-time error records that the cumulative budget is disabled
+until driver restart, with the original inactivity timeout retained. An
+unavailable initial deadline clock/select also triggers the compatibility
+path. There is no automatic retry, including for signed POST. This is a
+limited compatibility safeguard, not protection against arbitrary runtime
+incompatibility; fallback is a failed qualification. Real upstream runtime CI
+and physical SmartThings hub qualification are required before merging #177.
 
 ## Power commands and credentials
 

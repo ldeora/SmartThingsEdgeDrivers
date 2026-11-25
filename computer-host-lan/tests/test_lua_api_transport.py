@@ -155,6 +155,8 @@ class LuaHTTPTransportTests(unittest.TestCase):
             local closed,created,completed=0,0,0
             local plan,waits={},{}
             local mode='normal'
+            local diagnostics={}
+            package.loaded['log']={error=function(msg) diagnostics[#diagnostics+1]=msg end}
             local http={TIMEOUT=60}
             local raw
             local function op(self,kind,pattern)
@@ -189,6 +191,7 @@ class LuaHTTPTransportTests(unittest.TestCase):
                             connect=function(self) return op(self,'connect') end,
                             send=function(self) return op(self,'send') end,
                             receive=function(self,pattern) return op(self,'receive',pattern) end,
+                            getpeername=function(self) assert(self==raw); return '127.0.0.1',8765 end,
                         }
                         return raw
                     end,
@@ -203,20 +206,29 @@ class LuaHTTPTransportTests(unittest.TestCase):
             package.loaded['st.json']={decode=function(body)
                 assert(body=='{}')
                 return {protocol='computer-host-agent',api_version=2,
-                        id='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',platform='linux',status='running'}
+                        id='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',platform='linux',status='running',
+                        nonce=string.rep('a',48),accepted=true,action='shutdown'}
             end}
             function http.request(request)
                 assert(request.redirect==false)
                 local sock=assert(request.create())
                 assert(sock:settimeout(http.TIMEOUT))
+                assert(sock:getpeername()=='127.0.0.1') -- additional native method
                 local ok,err=sock:connect('127.0.0.1',8765)
                 if not ok then return nil,err end
                 ok,err=sock:send('GET /v2/health HTTP/1.1\r\n\r\n')
                 if not ok then return nil,err end
                 if mode=='exception' then error('injected parser error') end
+                if mode=='compatibility' or (mode=='compatibility-post' and request.method=='POST') then
+                    local token,extra=coroutine.yield('alternate wait',nil,4,'extra')
+                    assert(token=='resume' and extra==42)
+                end
                 for i=1,(mode=='many_headers' and 10 or 1) do
                     ok,err=sock:receive('*l')
-                    if not ok then return nil,err end
+                    if not ok then
+                        if mode=='lost_error' then return nil end
+                        return nil,err
+                    end
                 end
                 if mode=='body' then
                     ok,err=sock:receive(2)
@@ -228,7 +240,7 @@ class LuaHTTPTransportTests(unittest.TestCase):
                 assert(request.sink(nil))
                 sock:close()
                 completed=completed+1
-                return 1,200,{},'HTTP response'
+                return 1,request.method=='POST' and 202 or 200,{},'HTTP response'
             end
             local api=require 'computerhost.api'
             local function run(stages,scenario,arrival)
@@ -247,6 +259,10 @@ class LuaHTTPTransportTests(unittest.TestCase):
                         return r[2],r[3]
                     end
                     local reads,writes,timeout=r[2],r[3],r[4]
+                    if scenario=='compatibility' then
+                        assert(reads=='alternate wait' and writes==nil and timeout==4 and r[5]=='extra')
+                        args=table.pack('resume',42)
+                    else
                     assert((reads[1] or writes[1])==raw,'wrong socket passed to scheduler')
                     assert(timeout>0 and timeout<=4 and timeout<=8-clock,
                            'wait exceeded remaining request budget')
@@ -261,6 +277,7 @@ class LuaHTTPTransportTests(unittest.TestCase):
                     else
                         clock=clock+delay
                         args=table.pack(reads,writes,nil)
+                    end
                     end
                 end
             end
@@ -301,6 +318,8 @@ class LuaHTTPTransportTests(unittest.TestCase):
             assert(not data and err=='HTTP transport failed: timeout',tostring(err))
             assert(clock==4 and #waits==1)
             assert(presence.classify_failure(err)=='host_unreachable')
+            data,err=run({receive={1}},'lost_error',10)
+            assert(not data and err=='HTTP transport failed: timeout',tostring(err))
         """)
 
     def test_buffered_header_reads_sink_and_exception_cleanup(self):
@@ -323,6 +342,32 @@ class LuaHTTPTransportTests(unittest.TestCase):
             expect_deadline({receive={1}},'backwards_clock')
             assert(#waits==1)
             assert(run({},'normal'))
+        """)
+
+
+    def test_compatibility_fallback_resumes_same_request(self):
+        self.run_lua(self.DEADLINE_FIXTURE + r"""
+            assert(run({},'compatibility'))
+            assert(created==1 and completed==1 and closed==1 and #diagnostics==1)
+            assert(diagnostics[1]:find('compatibility fallback',1,true))
+            assert(run({},'compatibility')) -- future direct request, unchanged yield
+            assert(created==2 and completed==2 and closed==2 and #diagnostics==1)
+        """)
+
+
+    def test_compatibility_during_post_does_not_replay(self):
+        self.run_lua(self.DEADLINE_FIXTURE + r"""
+            mode='compatibility-post'
+            local thread=coroutine.create(function()
+                return api.control('127.0.0.1',8765,'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',string.rep('0',64),'shutdown')
+            end)
+            local ok,wait,_,timeout,extra=coroutine.resume(thread)
+            assert(ok and wait=='alternate wait' and timeout==4 and extra=='extra')
+            assert(created==2 and closed==1 and completed==1)
+            local resumed,accepted,err=coroutine.resume(thread,'resume',42)
+            assert(resumed and accepted,tostring(err))
+            assert(coroutine.status(thread)=='dead')
+            assert(created==2 and closed==2 and completed==2 and #diagnostics==1)
         """)
 
 

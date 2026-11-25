@@ -41,6 +41,25 @@ jobs:
         run: |
           python -m unittest discover -s tests -q
           python scripts/ci/smoke_agent.py
+      # Required, test-only upstream runtime coverage, separate from the
+      # deterministic Lua suite. Do not ship these dependencies in any kit.
+      - name: Fetch pinned upstream cosock for native transport integration
+        if: matrix.python == '3.12'
+        uses: actions/checkout@v7
+        with:
+          repository: cosock/cosock
+          ref: 204ae4e37233e2b2410b5979dc6e39fe50411e4f
+          path: .ci-cosock
+          persist-credentials: false
+      - name: Real cosock and LuaSocket HTTP deadline integration
+        if: matrix.python == '3.12'
+        timeout-minutes: 3
+        run: |
+          set -eu
+          sudo apt-get install -y --no-install-recommends lua5.4 lua-socket lua-sec
+          test "$(git -C ../.ci-cosock rev-parse HEAD)" = 204ae4e37233e2b2410b5979dc6e39fe50411e4f
+          lua5.4 -e 'print(_VERSION,require("socket")._VERSION)'
+          python scripts/ci/test_edge_http_runtime.py --cosock-dir ../.ci-cosock
       - name: Validate shell scripts
         run: |
           for s in scripts/*.sh scripts/ci/*.sh; do sh -n "$s"; done

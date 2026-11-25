@@ -37,11 +37,18 @@ class LuaDriverTests(unittest.TestCase):
               temperatureMeasurement={temperature=function() return {kind='temperature'} end}
             }
             local healthy=true
+            local slow_health=false
+            local virtual_elapsed=0
             local error_message='HTTP transport failed: connection refused'
             local boot_id='boot-one'
             local id='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
             package.loaded['computerhost.api']={
               fetch_health=function()
+                if slow_health then
+                  coroutine.yield('health wait',8)
+                  virtual_elapsed=virtual_elapsed+8
+                  return nil,'HTTP transport failed: timeout: HTTP request deadline exceeded'
+                end
                 if not healthy then return nil,error_message end
                 return {id=id,boot_id=boot_id,status='running',uptime_seconds=60}
               end,
@@ -499,6 +506,36 @@ class LuaDriverTests(unittest.TestCase):
             assert(#actions==action_count+1)
             assert(#device.events==previous_events+1)
             action_error,action_status=nil,nil
+            -- A device-thread command queued behind a deadline-limited health
+            -- poll runs after the poll returns. Model serialization explicitly,
+            -- not concurrent calls into handlers on the same device.
+            device.preferences.assumeOffWhenUnreachable=true
+            slow_health=true
+            local poll_thread=coroutine.create(timers['Computer Host health'].fn)
+            local ok,wait,seconds=coroutine.resume(poll_thread)
+            assert(ok and wait=='health wait' and seconds==8)
+            assert(fields.computerhost_poll_busy==true)
+            previous_events=#device.events
+            assert(coroutine.resume(poll_thread))
+            assert(coroutine.status(poll_thread)=='dead' and virtual_elapsed==8)
+            assert(not fields.computerhost_poll_busy)
+            assert(fields.computerhost_failures==1 and fields.computerhost_host_failures==1)
+            assert(device.last_status=='running' and #device.events==previous_events)
+            TEMPLATE.capability_handlers.switch.off(driver,device)
+            assert(#device.events==previous_events+1 and device.events[#device.events].value=='on')
+            assert(#actions==action_count+1 and fields.computerhost_pending_action==nil)
+            for i=2,3 do
+              local task=coroutine.create(timers['Computer Host health'].fn)
+              assert(coroutine.resume(task))
+              assert(coroutine.resume(task))
+              assert(coroutine.status(task)=='dead')
+              assert(fields.computerhost_failures==i and fields.computerhost_host_failures==i)
+            end
+            assert(virtual_elapsed==24 and device.last_status=='unreachable')
+            assert(fields.computerhost_last_switch=='off')
+            slow_health=false
+            timers['Computer Host health'].fn()
+            assert(device.last_status=='running' and fields.computerhost_failures==0)
             -- Without a known state a failed Wake must not fabricate one.
             fields.computerhost_last_ok=false
             fields.computerhost_last_switch=nil
