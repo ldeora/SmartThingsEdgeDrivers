@@ -40,6 +40,9 @@ public static class ComputerHostWizardProbe {
     [DllImport("user32.dll")] private static extern bool IsWindowVisible(IntPtr h);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern bool SetWindowText(IntPtr h, string value);
     [DllImport("user32.dll")] private static extern IntPtr SendMessage(IntPtr h, uint m, IntPtr w, IntPtr l);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern IntPtr SendMessageTimeout(IntPtr h, uint m, UIntPtr w, StringBuilder text,
+        uint flags, uint timeout, out UIntPtr result);
     [DllImport("user32.dll", SetLastError=true)] private static extern bool OpenClipboard(IntPtr h);
     [DllImport("user32.dll")] private static extern bool CloseClipboard();
     [DllImport("user32.dll")] private static extern IntPtr GetClipboardData(uint format);
@@ -75,9 +78,20 @@ public static class ComputerHostWizardProbe {
     }
     public static void Click(IntPtr hwnd) { SendMessage(hwnd, 0x00F5, IntPtr.Zero, IntPtr.Zero); }
     public static bool IsChecked(IntPtr hwnd) { return SendMessage(hwnd, 0x00F0, IntPtr.Zero, IntPtr.Zero).ToInt64() == 1; }
-    public static string TextOf(IntPtr hwnd) {
+    // Only read the visible hub selector, never an arbitrary edit control
+    // (the private key page also contains an edit). GetWindowText can read
+    // stale/empty caption text for controls owned by another process.
+    public static string HubAddressOf(IntPtr hwnd) {
+        var cls = new StringBuilder(256);
+        GetClassName(hwnd, cls, cls.Capacity);
+        if (!IsWindowVisible(hwnd) ||
+            cls.ToString().IndexOf("ComboBox", StringComparison.OrdinalIgnoreCase) < 0)
+            throw new InvalidOperationException("Expected visible hub combo box");
         var text = new StringBuilder(512);
-        GetWindowText(hwnd, text, text.Capacity);
+        UIntPtr copied;
+        if (SendMessageTimeout(hwnd, 0x000D, new UIntPtr((uint)text.Capacity), text,
+                0x0002, 2000, out copied) == IntPtr.Zero)
+            throw new InvalidOperationException("Hub selector WM_GETTEXT failed or timed out");
         return text.ToString();
     }
     public static int PasswordMask(IntPtr hwnd) {
@@ -279,8 +293,13 @@ try {
             if (-not $scopeCheck -or -not [ComputerHostWizardProbe]::IsChecked($scopeCheck.Handle)) {
                 throw 'Existing LocalSubnet choice not prefilled'
             }
-        } elseif ([ComputerHostWizardProbe]::TextOf($input.Handle) -ne $ExpectRetainedScope) {
-            throw 'Existing hub scope not prefilled'
+        } else {
+            $observedScope = [ComputerHostWizardProbe]::HubAddressOf($input.Handle)
+            CaptureWizardPage $window '02-hub-retained-ipv4'
+            if ($observedScope -ne $ExpectRetainedScope) {
+                # Log only the synthetic hub field, never the key page.
+                throw "Existing hub scope not prefilled: expected '$ExpectRetainedScope', observed '$observedScope'"
+            }
         }
         ClickWizardButton $window.Handle 'Next'
         WaitForWizardText $window.Handle 'Enable authenticated shutdown, reboot and suspend' 'retained power page'
@@ -296,7 +315,7 @@ try {
     if (-not [ComputerHostWizardProbe]::SetWindowText($input.Handle, '192.0.2.20')) {
         throw 'Hub IPv4 selector refused manual text entry'
     }
-    if ([ComputerHostWizardProbe]::TextOf($input.Handle) -ne '192.0.2.20') {
+    if ([ComputerHostWizardProbe]::HubAddressOf($input.Handle) -ne '192.0.2.20') {
         throw 'Hub IPv4 selector did not retain manually entered address'
     }
     Write-Host 'PASS manual hub-IP entry accepts and displays IPv4 text'
@@ -312,7 +331,7 @@ try {
     } | Select-Object -First 1
     if (-not $rescanInput) { throw 'Hub selector disappeared after retry' }
     if ($rescanStatus) {
-        if ([ComputerHostWizardProbe]::TextOf($rescanInput.Handle) -ne '192.0.2.20') {
+        if ([ComputerHostWizardProbe]::HubAddressOf($rescanInput.Handle) -ne '192.0.2.20') {
             throw 'Failed hub rediscovery lost previously entered valid IPv4 address'
         }
         Write-Host 'PASS failed rediscovery preserves manually entered hub IPv4 address'
