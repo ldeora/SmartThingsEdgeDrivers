@@ -78,6 +78,7 @@ var
   OpenChannelButton, CopyLinkButton, ShowKeyButton, CopyKeyButton: TNewButton;
   LinkEdit, KeyEdit: TNewEdit;
   Searched, InstallFailed, AgentHealthy, UpgradePrepared, InstallCommitted: Boolean;
+  ExistingInstallation, InspectionFailed, InvalidArguments: Boolean;
 
 function IsValidIPv4(const Address: String): Boolean;
 var
@@ -120,20 +121,37 @@ begin
   Result := True;
 end;
 
-function WasPowerEnabled: Boolean;
+// Ask the same PowerShell implementation used by the ZIP installer.
+procedure InspectPreviousConfiguration(var PreviousScope: String; var PreviousPower: Boolean);
 var
-  RawConfig: AnsiString;
-  Config: String;
+  ExitCode: Integer;
+  FileName, Params: String;
+  Lines: TArrayOfString;
 begin
-  Result := False;
-  if LoadStringFromFile(ExpandConstant('{autopf}\Computer Host Agent\appsettings.json'), RawConfig) then
-  begin
-    Config := LowerCase(String(RawConfig));
-    StringChangeEx(Config, ' ', '', True);
-    StringChangeEx(Config, #13, '', True);
-    StringChangeEx(Config, #10, '', True);
-    StringChangeEx(Config, #9, '', True);
-    Result := Pos('"enablepowercontrol":true', Config) > 0;
+  PreviousScope := 'unknown';
+  PreviousPower := False;
+  InspectionFailed := True;
+  try
+    ExtractTemporaryFile('Install-WindowsAgent.ps1');
+    FileName := ExpandConstant('{tmp}\computerhost-configuration.txt');
+    DeleteFile(FileName);
+    Params := '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' +
+      ExpandConstant('{tmp}\Install-WindowsAgent.ps1') +
+      '" -InspectConfiguration -ConfigurationPath "' + FileName + '"';
+    if not ExecWithNativeSysDir(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
+      Params, '', SW_HIDE, ewWaitUntilTerminated, ExitCode) or (ExitCode <> 0) then Exit;
+    if not LoadStringsFromFile(FileName, Lines) then Exit;
+    if GetArrayLength(Lines) <> 3 then Exit;
+    if (Lines[0] <> 'upgrade') and (Lines[0] <> 'fresh') then Exit;
+    if (Lines[1] <> 'on') and (Lines[1] <> 'off') then Exit;
+    if (Lines[2] <> 'unknown') and (Lines[2] <> 'LocalSubnet') and
+       not IsValidIPv4(Lines[2]) then Exit;
+    ExistingInstallation := Lines[0] = 'upgrade';
+    PreviousPower := Lines[1] = 'on';
+    PreviousScope := Lines[2];
+    InspectionFailed := False;
+  except
+    InspectionFailed := True;
   end;
 end;
 
@@ -215,7 +233,7 @@ begin
         Count := Count + 1;
       end;
     end;
-    if Count = 1 then
+    if (Count = 1) and not ExistingInstallation then
     begin
       HubSelect.ItemIndex := 0;
       LocalSubnetCheck.Checked := False;
@@ -223,12 +241,13 @@ begin
       SetAdvancedVisible(False);
       HubStatus.Caption := 'Hub found. Its IP address is already selected; click Next to continue.';
     end
-    else if Count > 1 then
+    else if Count > 0 then
     begin
       LocalSubnetCheck.Checked := False;
       HubSelect.Enabled := True;
       SetAdvancedVisible(False);
-      HubStatus.Caption := 'Several hubs found. Choose the one you want to use.';
+      if IsValidIPv4(PreviousInput) then HubSelect.Text := PreviousInput;
+      HubStatus.Caption := 'Choose the hub you want to use.';
     end
     else
     begin
@@ -422,7 +441,8 @@ procedure InitializeWizard;
 var
   LabelText, PowerText: TNewStaticText;
   SearchButton: TNewButton;
-  SilentHub: String;
+  SilentHub, PreviousScope, SubnetParam, PowerParam: String;
+  PreviousPower: Boolean;
 begin
   HubPage := CreateCustomPage(wpWelcome, 'SmartThings hub', 'Find the hub on your local network');
   LabelText := TNewStaticText.Create(HubPage);
@@ -510,7 +530,7 @@ begin
   PowerCheck.Width := PowerPage.SurfaceWidth;
   PowerCheck.Height := ScaleY(22);
   PowerCheck.Caption := 'Enable authenticated shutdown, reboot and suspend';
-  PowerCheck.Checked := WasPowerEnabled();
+  PowerCheck.Checked := False;
 
   PowerText := TNewStaticText.Create(PowerPage);
   PowerText.Parent := PowerPage.Surface;
@@ -642,20 +662,50 @@ begin
   CopyStatus.Height := ScaleY(33);
   CopyStatus.Caption := 'Keep this key private. Never share it in logs or forum posts.';
 
+  InspectPreviousConfiguration(PreviousScope, PreviousPower);
+  PowerCheck.Checked := PreviousPower;
+  if ExistingInstallation then
+  begin
+    Searched := True; // No automatic reselection on upgrade.
+    if IsValidIPv4(PreviousScope) then
+    begin
+      HubSelect.Text := PreviousScope;
+      HubStatus.Caption := 'Keeping previous hub address. Search again to change it.';
+    end
+    else if PreviousScope = 'LocalSubnet' then
+    begin
+      LocalSubnetCheck.Checked := True;
+      HubStatus.Caption := 'Keeping previous Private local-network scope. Change it if needed.';
+      SetAdvancedVisible(True);
+    end
+    else
+    begin
+      HubStatus.Caption := 'Previous firewall scope is missing or ambiguous. Explicitly select a hub or local-network scope.';
+      SetAdvancedVisible(True);
+    end;
+  end;
   SilentHub := ExpandConstant('{param:HUBIP|}');
+  SubnetParam := ExpandConstant('{param:LOCALSUBNET|}');
+  PowerParam := ExpandConstant('{param:ENABLEPOWER|}');
+  InvalidArguments := ((SilentHub <> '') and not IsValidIPv4(SilentHub)) or
+    ((SubnetParam <> '') and (SubnetParam <> '0') and (SubnetParam <> '1')) or
+    ((PowerParam <> '') and (PowerParam <> '0') and (PowerParam <> '1')) or
+    ((SilentHub <> '') and (SubnetParam = '1'));
   if SilentHub <> '' then
   begin
+    LocalSubnetCheck.Checked := False;
     HubSelect.Text := SilentHub;
     HubStatus.Caption := 'Using the supplied hub IP address. You can change it if necessary.';
-  end;
-  if ExpandConstant('{param:LOCALSUBNET|0}') = '1' then
+  end
+  else if SubnetParam = '1' then
   begin
     LocalSubnetCheck.Checked := True;
-    HubSelect.Enabled := False;
     SetAdvancedVisible(True);
-  end;
-  if ExpandConstant('{param:ENABLEPOWER|}') <> '' then
-    PowerCheck.Checked := ExpandConstant('{param:ENABLEPOWER|0}') = '1';
+  end
+  else if SubnetParam = '0' then
+    LocalSubnetCheck.Checked := False;
+  ChangeSubnetScope(nil);
+  if PowerParam <> '' then PowerCheck.Checked := PowerParam = '1';
 end;
 
 procedure CurPageChanged(CurPageID: Integer);
@@ -764,6 +814,11 @@ var
   Details: AnsiString;
 begin
   Result := '';
+  if InspectionFailed or InvalidArguments then
+  begin
+    Result := 'Unable to read existing configuration or conflicting/invalid setup arguments. No installation changes made.';
+    Exit;
+  end;
   if not ValidConfiguration then
   begin
     Result := 'Missing hub address. Use /HUBIP=192.168.1.20 or /LOCALSUBNET=1 in silent mode.';
@@ -808,9 +863,10 @@ begin
     ExpandConstant('{app}\Installer\Install-WindowsAgent.ps1') +
     '" -PublishedDirectory "' + ExpandConstant('{app}') +
     '" -UseExistingFiles -DiagnosticPath "' + DiagnosticFile + '"';
-  if not LocalSubnetCheck.Checked then
-    Params := Params + ' -HubIPv4 ' + SelectedHubIP;
-  if PowerCheck.Checked then Params := Params + ' -EnablePower';
+  if LocalSubnetCheck.Checked then Params := Params + ' -LocalSubnet'
+  else Params := Params + ' -HubIPv4 ' + SelectedHubIP;
+  if PowerCheck.Checked then Params := Params + ' -EnablePower'
+  else Params := Params + ' -DisablePower';
   if not ExecWithNativeSysDir(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
     Params, '', SW_HIDE, ewWaitUntilTerminated, ExitCode) or (ExitCode <> 0) then
   begin
