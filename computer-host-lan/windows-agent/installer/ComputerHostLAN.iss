@@ -69,7 +69,12 @@ const
   EM_GETPASSWORDCHAR = $00D2;
 
 var
-  HubPage, PowerPage, ConnectPage, KeyPage: TWizardPage;
+  UpgradePage, HubPage, PowerPage, ConnectPage, KeyPage: TWizardPage;
+  UpgradeSummary: TNewStaticText;
+  ChangeSettingsCheck, ConfirmPowerCheck: TNewCheckBox;
+  PreviousScope: String;
+  PreviousPower, ExplicitScope, ExplicitPower, ShowUpgradeSummary: Boolean;
+  ScopeConfirmed, PowerConfirmed, InstallWasUpgrade, RetainedPowerKey: Boolean;
   HubSelect: TNewComboBox;
   HubStatus, LocalHelp, NetworkProfileHint: TNewStaticText;
   LocalSubnetCheck: TNewCheckBox;
@@ -123,35 +128,77 @@ begin
 end;
 
 // Ask the same PowerShell implementation used by the ZIP installer.
-procedure InspectPreviousConfiguration(var PreviousScope: String; var PreviousPower: Boolean);
+procedure InspectPreviousConfiguration(var Scope: String; var Power: Boolean);
 var
-  ExitCode: Integer;
-  FileName, Params: String;
-  Lines: TArrayOfString;
+  ExitCode, FirstSep, SecondSep: Integer;
+  FileName, DiagnosticFile, Params, Reply, Kind, PowerValue: String;
+  Raw, Details: AnsiString;
 begin
-  PreviousScope := 'unknown';
-  PreviousPower := False;
+  Scope := 'unknown';
+  Power := False;
   InspectionFailed := True;
   try
     ExtractTemporaryFile('Install-WindowsAgent.ps1');
     FileName := ExpandConstant('{tmp}\computerhost-configuration.txt');
+    DiagnosticFile := ExpandConstant('{tmp}\computerhost-inspect-error.txt');
     DeleteFile(FileName);
+    DeleteFile(DiagnosticFile);
     Params := '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' +
       ExpandConstant('{tmp}\Install-WindowsAgent.ps1') +
-      '" -InspectConfiguration -ConfigurationPath "' + FileName + '"';
+      '" -InspectConfiguration -ConfigurationPath "' + FileName +
+      '" -DiagnosticPath "' + DiagnosticFile + '"';
     if not ExecWithNativeSysDir(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
-      Params, '', SW_HIDE, ewWaitUntilTerminated, ExitCode) or (ExitCode <> 0) then Exit;
-    if not LoadStringsFromFile(FileName, Lines) then Exit;
-    if GetArrayLength(Lines) <> 3 then Exit;
-    if (Lines[0] <> 'upgrade') and (Lines[0] <> 'fresh') then Exit;
-    if (Lines[1] <> 'on') and (Lines[1] <> 'off') then Exit;
-    if (Lines[2] <> 'unknown') and (Lines[2] <> 'LocalSubnet') and
-       not IsValidIPv4(Lines[2]) then Exit;
-    ExistingInstallation := Lines[0] = 'upgrade';
-    PreviousPower := Lines[1] = 'on';
-    PreviousScope := Lines[2];
+      Params, '', SW_HIDE, ewWaitUntilTerminated, ExitCode) then
+    begin
+      Log('Configuration inspection: PowerShell could not be launched (' + IntToStr(ExitCode) + ').');
+      Exit;
+    end;
+    if ExitCode <> 0 then
+    begin
+      Log('Configuration inspection: PowerShell returned ' + IntToStr(ExitCode) + '.');
+      if LoadStringFromFile(DiagnosticFile, Details) then Log(String(Details))
+      else Log('Configuration inspection: no script diagnostic available.');
+      Exit;
+    end;
+    if not LoadStringFromFile(FileName, Raw) then
+    begin
+      Log('Configuration inspection: response file missing or unreadable.');
+      Exit;
+    end;
+    Reply := Trim(String(Raw));
+    FirstSep := Pos('|', Reply);
+    if FirstSep > 0 then
+    begin
+      Kind := Copy(Reply, 1, FirstSep - 1);
+      Delete(Reply, 1, FirstSep);
+    end;
+    SecondSep := Pos('|', Reply);
+    if (FirstSep = 0) or (SecondSep = 0) then
+    begin
+      Log('Configuration inspection: wrong field count.');
+      Exit;
+    end;
+    PowerValue := Copy(Reply, 1, SecondSep - 1);
+    Delete(Reply, 1, SecondSep);
+    if Pos('|', Reply) > 0 then
+    begin
+      Log('Configuration inspection: wrong field count.');
+      Exit;
+    end;
+    if ((Kind <> 'upgrade') and (Kind <> 'fresh')) or
+       ((PowerValue <> 'on') and (PowerValue <> 'off')) or
+       ((Reply <> 'unknown') and (Reply <> 'LocalSubnet') and not IsValidIPv4(Reply)) then
+    begin
+      Log('Configuration inspection: unexpected response values.');
+      Exit;
+    end;
+    ExistingInstallation := Kind = 'upgrade';
+    Power := PowerValue = 'on';
+    Scope := Reply;
     InspectionFailed := False;
+    Log('Configuration inspection: succeeded.');
   except
+    Log('Configuration inspection: exception while extracting, launching or reading response.');
     InspectionFailed := True;
   end;
 end;
@@ -234,7 +281,7 @@ begin
         Count := Count + 1;
       end;
     end;
-    if (Count = 1) and not ExistingInstallation then
+    if (Count = 1) and not ExistingInstallation and not InspectionFailed then
     begin
       HubSelect.ItemIndex := 0;
       LocalSubnetCheck.Checked := False;
@@ -442,10 +489,25 @@ procedure InitializeWizard;
 var
   LabelText, PowerText: TNewStaticText;
   SearchButton: TNewButton;
-  SilentHub, PreviousScope, SubnetParam, PowerParam: String;
-  PreviousPower: Boolean;
+  SilentHub, SubnetParam, PowerParam: String;
 begin
-  HubPage := CreateCustomPage(wpWelcome, 'SmartThings hub', 'Find the hub on your local network');
+  UpgradePage := CreateCustomPage(wpWelcome, 'Upgrade - keep current settings',
+    'Your existing Computer Host Agent configuration');
+  UpgradeSummary := TNewStaticText.Create(UpgradePage);
+  UpgradeSummary.Parent := UpgradePage.Surface;
+  UpgradeSummary.Width := UpgradePage.SurfaceWidth;
+  UpgradeSummary.AutoSize := False;
+  UpgradeSummary.WordWrap := True;
+  UpgradeSummary.Height := ScaleY(95);
+  ChangeSettingsCheck := TNewCheckBox.Create(UpgradePage);
+  ChangeSettingsCheck.Parent := UpgradePage.Surface;
+  ChangeSettingsCheck.Top := UpgradeSummary.Top + UpgradeSummary.Height + ScaleY(12);
+  ChangeSettingsCheck.Width := UpgradePage.SurfaceWidth;
+  ChangeSettingsCheck.Height := ScaleY(22);
+  ChangeSettingsCheck.Caption := 'Change settings';
+  ChangeSettingsCheck.Checked := False;
+
+  HubPage := CreateCustomPage(UpgradePage.ID, 'SmartThings hub', 'Find the hub on your local network');
   LabelText := TNewStaticText.Create(HubPage);
   LabelText.Parent := HubPage.Surface;
   LabelText.Caption := 'SmartThings hub IPv4 (DHCP reservation recommended):';
@@ -541,6 +603,13 @@ begin
   PowerText.WordWrap := True;
   PowerText.AutoSize := False;
   PowerText.Caption := 'Upgrades keep your existing power-control setting. The key is available after installation.';
+  ConfirmPowerCheck := TNewCheckBox.Create(PowerPage);
+  ConfirmPowerCheck.Parent := PowerPage.Surface;
+  ConfirmPowerCheck.Top := PowerText.Top + PowerText.Height + ScaleY(5);
+  ConfirmPowerCheck.Width := PowerPage.SurfaceWidth;
+  ConfirmPowerCheck.Height := ScaleY(22);
+  ConfirmPowerCheck.Caption := 'I confirm the power setting above';
+  ConfirmPowerCheck.Visible := False;
 
   // This page appears only after files and service installation are complete.
   ConnectPage := CreateCustomPage(wpInstalling, 'Connect to SmartThings', 'Complete setup in the SmartThings app');
@@ -667,7 +736,7 @@ begin
   PowerCheck.Checked := PreviousPower;
   if ExistingInstallation then
   begin
-    Searched := True; // No automatic reselection on upgrade.
+    Searched := (PreviousScope <> 'unknown'); // Search only if no valid scope was retained.
     if IsValidIPv4(PreviousScope) then
     begin
       HubSelect.Text := PreviousScope;
@@ -707,6 +776,23 @@ begin
     LocalSubnetCheck.Checked := False;
   ChangeSubnetScope(nil);
   if PowerParam <> '' then PowerCheck.Checked := PowerParam = '1';
+  ExplicitScope := IsValidIPv4(SilentHub) or (SubnetParam = '1');
+  ExplicitPower := (PowerParam = '0') or (PowerParam = '1');
+  ShowUpgradeSummary := ExistingInstallation and not InspectionFailed and
+    (PreviousScope <> 'unknown') and (SilentHub = '') and (SubnetParam = '') and (PowerParam = '');
+  if PreviousScope = 'LocalSubnet' then
+    UpgradeSummary.Caption := 'Network access: Private local network (LocalSubnet)'
+  else
+    UpgradeSummary.Caption := 'SmartThings hub: ' + PreviousScope;
+  if PreviousPower then
+    UpgradeSummary.Caption := UpgradeSummary.Caption + #13#10 + 'Power control: enabled'
+  else
+    UpgradeSummary.Caption := UpgradeSummary.Caption + #13#10 + 'Power control: disabled';
+  UpgradeSummary.Caption := UpgradeSummary.Caption + #13#10#13#10 +
+    'Your existing identity and settings will be kept. If already connected to SmartThings, no new device is needed.';
+  ConfirmPowerCheck.Visible := InspectionFailed and not ExplicitPower;
+  if InspectionFailed then
+    HubStatus.Caption := 'Could not read previous settings. Select a network scope and confirm your power preference.';
 end;
 
 procedure CurPageChanged(CurPageID: Integer);
@@ -733,6 +819,19 @@ begin
     end
     else
     begin
+      if InstallWasUpgrade and InstallCommitted then
+      begin
+        WizardForm.FinishedHeadingLabel.Caption := 'Computer Host LAN upgrade complete';
+        WizardForm.FinishedLabel.Caption :=
+          'The agent passed the local health, version and identity checks. Your existing SmartThings device does not need to be added again if already connected.';
+        if RetainedPowerKey then
+          WizardForm.FinishedLabel.Caption := WizardForm.FinishedLabel.Caption +
+            ' Your existing power key is unchanged; no new key needs to be entered.';
+        WizardForm.FinishedLabel.Caption := WizardForm.FinishedLabel.Caption +
+          ' If you changed your settings, check that SmartThings and the new network scope agree. The setup guide remains available in the Start Menu.';
+      end
+      else
+      begin
       WizardForm.FinishedHeadingLabel.Caption := 'Computer Host LAN is installed';
       if AgentHealthy then
         WizardForm.FinishedLabel.Caption :=
@@ -740,14 +839,19 @@ begin
       else
         WizardForm.FinishedLabel.Caption :=
           'The Windows service was installed but is not responding yet. Check its status and use the Start Menu setup guide to continue.';
+      end;
     end;
   end;
 end;
 
 function ShouldSkipPage(PageID: Integer): Boolean;
 begin
-  Result := (PageID = KeyPage.ID) and
-    (not PowerCheck.Checked or InstallFailed or WizardSilent);
+  Result := ((PageID = UpgradePage.ID) and not ShowUpgradeSummary) or
+    (((PageID = HubPage.ID) or (PageID = PowerPage.ID)) and
+      ShowUpgradeSummary and not ChangeSettingsCheck.Checked) or
+    ((PageID = ConnectPage.ID) and InstallWasUpgrade and InstallCommitted) or
+    ((PageID = KeyPage.ID) and (not PowerCheck.Checked or InstallFailed or WizardSilent or
+      (InstallWasUpgrade and InstallCommitted and RetainedPowerKey)));
 end;
 
 function SelectedHubIP: String;
@@ -768,6 +872,30 @@ begin
     MsgBox('Select or enter your SmartThings hub IP address, or use Advanced options to allow local-network access.',
       mbError, MB_OK);
     Result := False;
+    Exit;
+  end;
+  if CurPageID = UpgradePage.ID then
+  begin
+    if not ChangeSettingsCheck.Checked then
+    begin
+      LocalSubnetCheck.Checked := PreviousScope = 'LocalSubnet';
+      if LocalSubnetCheck.Checked then HubSelect.Text := ''
+      else HubSelect.Text := PreviousScope;
+      SetAdvancedVisible(LocalSubnetCheck.Checked);
+      ChangeSubnetScope(nil);
+      PowerCheck.Checked := PreviousPower;
+    end;
+  end;
+  if CurPageID = HubPage.ID then ScopeConfirmed := True;
+  if CurPageID = PowerPage.ID then
+  begin
+    if InspectionFailed and not ExplicitPower and not ConfirmPowerCheck.Checked then
+    begin
+      MsgBox('Confirm your power preference before continuing.', mbError, MB_OK);
+      Result := False;
+      Exit;
+    end;
+    PowerConfirmed := True;
   end;
 end;
 
@@ -815,9 +943,17 @@ var
   Details: AnsiString;
 begin
   Result := '';
-  if InspectionFailed or InvalidArguments then
+  if InvalidArguments then
   begin
-    Result := 'Unable to read existing configuration or conflicting/invalid setup arguments. No installation changes made.';
+    Result := 'Conflicting or invalid arguments. Use /HUBIP=<IPv4> or /LOCALSUBNET=1, and /ENABLEPOWER=0 or 1. No installation changes made.';
+    Exit;
+  end;
+  if InspectionFailed and
+    ((WizardSilent and (not ExplicitScope or not ExplicitPower)) or
+     (not WizardSilent and ((not ExplicitScope and not ScopeConfirmed) or
+       (not ExplicitPower and not PowerConfirmed)))) then
+  begin
+    Result := 'Unable to read previous settings. Explicitly select network and power settings, or pass /HUBIP=<IPv4> or /LOCALSUBNET=1 together with /ENABLEPOWER=0 or 1. No installation changes made.';
     Exit;
   end;
   if not ValidConfiguration then
@@ -853,17 +989,19 @@ end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
 var
-  Params, DiagnosticFile, FailureMessage: String;
+  Params, DiagnosticFile, FailureMessage, ResultFile, Reply: String;
   ExitCode: Integer;
-  Details: AnsiString;
+  Details, Raw: AnsiString;
 begin
   if CurStep <> ssPostInstall then Exit;
+  ResultFile := ExpandConstant('{tmp}\computerhost-install-result.txt');
+  DeleteFile(ResultFile);
   DiagnosticFile := ExpandConstant('{tmp}\computerhost-service-installation.txt');
   DeleteFile(DiagnosticFile);
   Params := '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' +
     ExpandConstant('{app}\Installer\Install-WindowsAgent.ps1') +
     '" -PublishedDirectory "' + ExpandConstant('{app}') +
-    '" -UseExistingFiles -DiagnosticPath "' + DiagnosticFile + '"';
+    '" -UseExistingFiles -DiagnosticPath "' + DiagnosticFile + '" -InstallResultPath "' + ResultFile + '"';
   if LocalSubnetCheck.Checked then Params := Params + ' -LocalSubnet'
   else Params := Params + ' -HubIPv4 ' + SelectedHubIP;
   if PowerCheck.Checked then Params := Params + ' -EnablePower'
@@ -894,7 +1032,17 @@ begin
           'keep the rollback files and consult the installation guide.', mbError, MB_OK);
       FinishUpgrade('Restore');
     end
-    else if FinishUpgrade('Commit') then InstallCommitted := True
+    else if FinishUpgrade('Commit') then
+    begin
+      InstallCommitted := True;
+      AgentHealthy := True;
+      if LoadStringFromFile(ResultFile, Raw) then
+      begin
+        Reply := Trim(String(Raw));
+        InstallWasUpgrade := (Reply = 'upgrade|key-retained') or (Reply = 'upgrade|key-not-retained');
+        RetainedPowerKey := Reply = 'upgrade|key-retained';
+      end;
+    end
     else
     begin
       InstallFailed := True;
