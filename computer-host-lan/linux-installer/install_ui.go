@@ -488,6 +488,16 @@ func onboardingMode(result privilegedResult) string {
 	return "check_or_discover"
 }
 
+// Print instructions only. Reading or displaying the secret remains an explicit
+// administrator action outside the wizard and its result protocol.
+func showPowerKeyInstructions(w io.Writer) {
+	fmt.Fprintln(w, "If you need the control key, read it privately as administrator on this computer:")
+	fmt.Fprintln(w, "  sudo cat /var/lib/linux-host-agent/control-token")
+	fmt.Fprintln(w, "  or, without sudo: su -c 'cat /var/lib/linux-host-agent/control-token'")
+	fmt.Fprintln(w, "Use a private terminal; do not record, screenshot, log or share the output.")
+	fmt.Fprintln(w, "Enter the 64-character value in controlKey and enable allowPowerCommands in the SmartThings device settings.")
+}
+
 func showInstallationOutcome(w io.Writer, s *liveSelection, req privilegedRequest, result privilegedResult) {
 	fmt.Fprintln(w, "\nComputer Host LAN:", result.Status)
 	showCredentialContinuity(w, result)
@@ -504,16 +514,22 @@ func showInstallationOutcome(w io.Writer, s *liveSelection, req privilegedReques
 		fmt.Fprintln(w, "If you already have a SmartThings computer device, check and refresh it first.")
 		fmt.Fprintln(w, "For first-time onboarding, install the Computer Host LAN Edge driver, then Add device → Scan nearby.")
 	}
+	fmt.Fprintln(w, "If you need the Edge driver, enroll your hub using the channel invitation:")
+	fmt.Fprintln(w, "  https://bestow-regional.api.smartthings.com/invite/1J2Qy7ZkxL20")
+	fmt.Fprintln(w, "Keep the hub and computer on a trusted private LAN; allow incoming TCP 8765 (or your configured agent port) from the hub and mDNS where needed. Never forward the agent port to the Internet.")
 	s.showNetworkWarnings(w)
 	fmt.Fprintln(w, "If discovery or connectivity warnings appear above, resolve those conditions before relying on Scan nearby.")
 	fmt.Fprintln(w, "Automatic hub pairing, firewall changes and persistent WOL configuration were not performed.")
 	switch req.Power {
 	case "enable":
-		fmt.Fprintln(w, "For remote power, enable allowPower and configure controlKey in the SmartThings device if needed.")
+		fmt.Fprintln(w, "For remote power, enable allowPowerCommands and configure controlKey in the SmartThings device if needed.")
 		fmt.Fprintln(w, "If the retained control key is unchanged and already configured, no key update is normally needed. Identity verification alone does not verify key equality.")
 		fmt.Fprintln(w, "The control key is not shown here.")
+		showPowerKeyInstructions(w)
 	case "preserve":
 		fmt.Fprintln(w, "Current/default power choice was retained. If remote power is enabled, an unchanged and already configured control key normally needs no update.")
+		fmt.Fprintln(w, "Only if power is already enabled and the key is needed, use the following instructions:")
+		showPowerKeyInstructions(w)
 	case "disable":
 		fmt.Fprintln(w, "Remote power was disabled on the computer; no control key setup is needed for monitoring.")
 	}
