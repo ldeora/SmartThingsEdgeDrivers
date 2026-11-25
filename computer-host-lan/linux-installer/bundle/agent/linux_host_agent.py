@@ -36,6 +36,7 @@ ALLOWED_ACTIONS = frozenset(("shutdown", "reboot", "suspend"))
 MAX_REPLY_BYTES = 32 * 1024
 CLIENT_IO_TIMEOUT_SECONDS = 4.0
 MAX_CONCURRENT_CLIENTS = 12
+MAX_CONCURRENT_CLIENTS_PER_SOURCE = 4
 MAX_HTTP_HEADER_BYTES = 12 * 1024
 MAX_HTTP_HEADER_SECONDS = 5.0
 CHALLENGE_LIMIT_PER_IP = 20  # per rolling minute; protects nonce allocation
@@ -455,8 +456,10 @@ class HeaderBudgetReader:
 class BoundedHTTPServer(ThreadingHTTPServer):
     """Bound accepted connections, request parsing time and active handlers.
 
-    Excess clients are closed by the accept loop *without* spawning threads;
-    local hub retries can then recover when capacity becomes available.
+    Excess clients are closed by the accept loop *without* spawning threads.
+    A source address can hold at most four of the twelve default handler slots;
+    neither the port nor client-provided headers affect the source identity.
+    This is a resource bound, not authentication or a distributed DoS defense.
     """
     daemon_threads = True
     block_on_close = False
@@ -468,6 +471,8 @@ class BoundedHTTPServer(ThreadingHTTPServer):
                  io_timeout: float = CLIENT_IO_TIMEOUT_SECONDS,
                  header_timeout: float = MAX_HTTP_HEADER_SECONDS):
         self._slots = threading.BoundedSemaphore(max_clients)
+        self._client_lock = threading.Lock()
+        self._active_by_source: dict[str, int] = {}
         self.io_timeout = io_timeout
         self.header_timeout = header_timeout
         super().__init__(server_address, request_handler_class)
@@ -477,21 +482,41 @@ class BoundedHTTPServer(ThreadingHTTPServer):
         sock.settimeout(self.io_timeout)
         return sock, addr
 
+    def _admit_client(self, source: str) -> bool:
+        with self._client_lock:
+            count = self._active_by_source.get(source, 0)
+            if count >= MAX_CONCURRENT_CLIENTS_PER_SOURCE:
+                return False
+            if not self._slots.acquire(blocking=False):
+                return False
+            self._active_by_source[source] = count + 1
+            return True
+
+    def _release_client(self, source: str) -> None:
+        with self._client_lock:
+            count = self._active_by_source[source]
+            if count == 1:
+                del self._active_by_source[source]
+            else:
+                self._active_by_source[source] = count - 1
+            self._slots.release()
+
     def process_request(self, request, client_address):
-        if not self._slots.acquire(blocking=False):
+        source = client_address[0]
+        if not self._admit_client(source):
             self.shutdown_request(request)
             return
         try:
             super().process_request(request, client_address)
         except BaseException:
-            self._slots.release()
+            self._release_client(source)
             raise
 
     def process_request_thread(self, request, client_address):
         try:
             super().process_request_thread(request, client_address)
         finally:
-            self._slots.release()
+            self._release_client(client_address[0])
 
 
 def signature(secret_hex: str, path: str, nonce: str) -> str:
