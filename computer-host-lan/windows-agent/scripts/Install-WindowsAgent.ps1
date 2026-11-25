@@ -8,6 +8,7 @@ param(
   [switch]$DisablePower,
   [switch]$LocalSubnet,
   [switch]$InspectConfiguration,
+  [switch]$ValidateOnly,
   [string]$ConfigurationPath = '',
   [string]$InstallResultPath = '',
   [switch]$UseExistingFiles,
@@ -43,7 +44,7 @@ try {
       ($HubIPv4 -and $LocalSubnet) -or ($SkipFirewall -and ($HubIPv4 -or $LocalSubnet))) {
     throw 'Choose one valid firewall option: -HubIPv4, -LocalSubnet or -SkipFirewall.'
   }
-  if (-not $InspectConfiguration -and -not (Test-Path -LiteralPath $source)) { throw "Published executable not found: $source" }
+  if (-not $InspectConfiguration -and -not $ValidateOnly -and -not (Test-Path -LiteralPath $source)) { throw "Published executable not found: $source" }
   $principal = [Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsIdentity]::GetCurrent())
   if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { throw 'Run PowerShell as Administrator.' }
   $inspectionStage = 'service ownership'
@@ -245,6 +246,9 @@ try {
     Assert-TrustedStateEntry $state 'Directory'
     Assert-ExistingStateFiles
   }
+  # Setup's final read-only validation uses the explicit settings chosen in
+  # the wizard. It does not depend on the earlier preference inspection.
+  if ($ValidateOnly) { return }
   if ($PSCmdlet.ShouldProcess($service, ('Install service; power enabled: ' + $effectivePower))) {
     # Stop the existing agent before changing its persistent-state ACLs.
     if ($existing -and $existing.Status -ne 'Stopped') {

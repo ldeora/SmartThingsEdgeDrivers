@@ -74,7 +74,7 @@ var
   ChangeSettingsCheck, ConfirmPowerCheck: TNewCheckBox;
   PreviousScope: String;
   PreviousPower, ExplicitScope, ExplicitPower, ShowUpgradeSummary: Boolean;
-  ScopeConfirmed, PowerConfirmed, InstallWasUpgrade, RetainedPowerKey: Boolean;
+  ScopeConfirmed, PowerConfirmed, InstallWasUpgrade, RetainedPowerKey, SnapshotRecovered: Boolean;
   HubSelect: TNewComboBox;
   HubStatus, LocalHelp, NetworkProfileHint: TNewStaticText;
   LocalSubnetCheck: TNewCheckBox;
@@ -921,7 +921,8 @@ begin
   Result := ExecWithNativeSysDir(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
     Params, '', SW_HIDE, ewWaitUntilTerminated, ExitCode) and (ExitCode = 0);
   if not Result then MsgBox('Recovery could not be completed. Preserve the rollback snapshot and consult the release recovery instructions.',
-    mbError, MB_OK);
+    mbError, MB_OK)
+  else SnapshotRecovered := True;
 end;
 
 // Require a healthy new agent before removing the last known-good snapshot.
@@ -966,6 +967,33 @@ begin
   if not RecoverAbandonedSnapshot then
   begin
     Result := 'A previous upgrade requires restoration before proceeding. Existing service was not modified. Use interactive recovery or the recovery script from the Windows ZIP.';
+    Exit;
+  end;
+  if SnapshotRecovered then
+  begin
+    Result := 'The previous installation was restored. Restart Setup to read the restored settings before upgrading.';
+    Exit;
+  end;
+  // Validate the actual chosen settings and existing state before stopping
+  // the service. This is separate from the optional initial preference read.
+  ExtractTemporaryFile('Install-WindowsAgent.ps1');
+  DiagnosticFile := ExpandConstant('{tmp}\computerhost-validation-error.txt');
+  DeleteFile(DiagnosticFile);
+  Params := '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' +
+    ExpandConstant('{tmp}\Install-WindowsAgent.ps1') + '" -ValidateOnly -DiagnosticPath "' + DiagnosticFile + '"';
+  if LocalSubnetCheck.Checked then Params := Params + ' -LocalSubnet'
+  else Params := Params + ' -HubIPv4 ' + SelectedHubIP;
+  if PowerCheck.Checked then Params := Params + ' -EnablePower'
+  else Params := Params + ' -DisablePower';
+  if not ExecWithNativeSysDir(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
+    Params, '', SW_HIDE, ewWaitUntilTerminated, ExitCode) or (ExitCode <> 0) then
+  begin
+    Result := 'Existing installation or selected settings failed safety validation. No application files were replaced.';
+    if LoadStringFromFile(DiagnosticFile, Details) then
+    begin
+      Log(String(Details));
+      Result := Result + ' ' + String(Details);
+    end;
     Exit;
   end;
   ExtractTemporaryFile('Prepare-WindowsAgentUpgrade.ps1');

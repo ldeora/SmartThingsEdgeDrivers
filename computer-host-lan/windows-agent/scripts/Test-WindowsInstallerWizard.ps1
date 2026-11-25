@@ -205,7 +205,9 @@ try {
         $powerPattern = if ($ExpectRetainedPower) { 'Power control: enabled' } else { 'Power control: disabled' }
         WaitForWizardText $window.Handle $powerPattern 'summary shows retained power preference'
         CaptureWizardPage $window ('02-upgrade-summary' + $modeSuffix)
-        $change = FindVisibleButton $window.Handle '^Change settings$'
+        $change = VisibleControls $window.Handle | Where-Object {
+            $_.Class -match 'CheckBox|Button' -and $_.Text -eq 'Change settings'
+        } | Select-Object -First 1
         if (-not $change -or [ComputerHostWizardProbe]::IsChecked($change.Handle)) {
             throw 'Change settings must be unchecked by default'
         }
