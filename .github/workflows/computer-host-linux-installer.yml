@@ -42,6 +42,10 @@ jobs:
         run: |
           cd ../scripts/ci
           python3 -B -m unittest -v test_attested_release_gate
+      - name: Test license evidence collection (fixtures only)
+        run: |
+          cd ../scripts/ci
+          python3 -B -m unittest -v test_collect_license_evidence
       - name: Test embedded bundle generator
         run: python3 -B -m unittest -v test_sync_bundle
       - name: Check generated embedded bundle is current
@@ -233,6 +237,25 @@ jobs:
             -o "$RUNNER_TEMP/computer-host-linux-installer-test" .
           cd "$RUNNER_TEMP"
           sha256sum computer-host-linux-installer-test > computer-host-linux-installer-test.sha256
+      - name: Capture linked Go dependency license evidence
+        id: license_evidence
+        continue-on-error: true
+        timeout-minutes: 5
+        run: |
+          set -eu
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 python3 ../scripts/ci/collect_license_evidence.py go \
+            --binary "$RUNNER_TEMP/computer-host-linux-installer-test" \
+            --output "$RUNNER_TEMP/computer-host-linux-license-evidence"
+      - name: Upload Go license review evidence (not a release asset)
+        if: steps.license_evidence.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: 5
+        uses: actions/upload-artifact@v7
+        with:
+          name: computer-host-linux-license-evidence
+          path: ${{ runner.temp }}/computer-host-linux-license-evidence/
+          if-no-files-found: error
+          retention-days: 7
       - name: Upload test-only Linux integration binary (not a release)
         uses: actions/upload-artifact@v7
         with:

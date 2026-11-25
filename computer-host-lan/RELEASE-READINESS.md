@@ -13,7 +13,7 @@
 - [ ] Verify and record actual rc.2 channel-assigned and hub-installed Edge driver version; GitHub publication alone does not assign it.
 - [ ] Complete Windows 11 rc.2 fresh-install/upgrade, GUI first paint, ACL/security handling, monitoring/power and recovery checks.
 - [ ] Complete additional Linux physical platform testing and at least seven days of Windows/Linux unattended hub soak.
-- [ ] Complete licensing/redistribution notices, code-signing decision and final security/platform sign-off before stable v1.0.0.
+- [ ] Complete code-signing decision and final security/platform sign-off before stable v1.0.0. Third-party notice automation (#118) is a non-blocking follow-up; see the current rc.3 readiness record.
 
 ## Earlier beta evidence and historical follow-up
 
@@ -39,12 +39,12 @@
 
 ## Remaining gates before stable v1.0.0
 
-The [stable release gates](docs/release/V1-RELEASE-GATES.md) remain in force. Public rc.2 is for testing; publication does **not** waive Windows/Linux hardware, security, redistribution or soak requirements. The older rc.1 remains downloadable with its documented missing fixes.
+The [stable release gates](docs/release/V1-RELEASE-GATES.md) remain in force. Public rc.2 is for testing; publication does **not** waive Windows/Linux hardware, security or soak requirements or applicable redistribution terms. Completion of #118 notice automation is not a release gate. The older rc.1 remains downloadable with its documented missing fixes.
 
 - [ ] Retest Windows 11 rc.2 installer/upgrade, service recovery, WOL and power controls on real hardware.
 - [ ] Record individual Linux rc.2 power/reconnection cases and test one physical Debian/Ubuntu system.
 - [ ] Check relevant NIC/privilege policies/network profiles and safe recovery edge cases.
-- [ ] Review third-party notices, resolved license obligations and signing; SHA-256 validates bytes, not publisher identity.
+- [ ] Review signing and download integrity; SHA-256 validates bytes, not publisher identity. Track best-effort notice improvements separately in #118.
 - [ ] Finish seven-day soak and retain trusted private LAN/unencrypted HTTP and hardware-specific sleep/WOL caveats.
 
 No PR or CI workflow automatically publishes a GitHub release or assigns a SmartThings driver. Never purge persistent identities or keys to force a failed upgrade.
