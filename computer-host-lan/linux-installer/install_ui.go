@@ -100,11 +100,17 @@ func (s *liveSelection) networkWarnings() []string {
 	observed := observeNetwork(s.inspection, s.firewalldActive)
 	if observed.AvahiPrerequisites != "passed" {
 		warnings = append(warnings,
-			"Avahi discovery is not confirmed. SmartThings Scan nearby may not find this computer until avahi-daemon is running and the agent's _computerhost._tcp service is advertised.")
+			"Avahi discovery is not confirmed. SmartThings Scan nearby may not find this computer. "+
+				"Check: systemctl is-active avahi-daemon.service. Install and start Avahi if needed before installing the agent. "+
+				"After installation, check the advertisement with: avahi-browse -rt _computerhost._tcp (install the Avahi browsing tool if missing). "+
+				"If Avahi was installed later, rerun the verified installer to add the managed service advertisement.")
 	}
 	if observed.Firewalld == "active" {
 		warnings = append(warnings,
-			"firewalld is active. Incoming TCP 8765 may be blocked for the SmartThings hub. Check or explicitly configure a hub-scoped rule before relying on connectivity; this wizard has not changed firewall rules.")
+			"firewalld is active. Incoming TCP 8765 may be blocked for the SmartThings hub (use your configured agent port if different). "+
+				"As administrator, inspect: firewall-cmd --get-active-zones; then firewall-cmd --zone=ZONE --list-all (replace ZONE with the hub-facing zone). "+
+				"Allow the agent port only from the trusted hub as needed, and check local mDNS (UDP 5353). Do not disable the firewall or open the agent port to all sources. "+
+				"This wizard has not changed firewall rules.")
 	}
 	return warnings
 }
@@ -519,7 +525,7 @@ func showInstallationOutcome(w io.Writer, s *liveSelection, req privilegedReques
 	fmt.Fprintln(w, "  https://bestow-regional.api.smartthings.com/invite/1J2Qy7ZkxL20")
 	fmt.Fprintln(w, "Keep the hub and computer on a trusted private LAN; allow incoming TCP 8765 (or your configured agent port) from the hub and mDNS where needed. Never forward the agent port to the Internet.")
 	s.showNetworkWarnings(w)
-	fmt.Fprintln(w, "If discovery or connectivity warnings appear above, resolve those conditions before relying on Scan nearby.")
+	fmt.Fprintln(w, "These are pre-install observations, not proof of discovery or connectivity. If warnings appear above, recheck those conditions before relying on Scan nearby.")
 	fmt.Fprintln(w, "Automatic hub pairing, firewall changes and persistent WOL configuration were not performed.")
 	switch req.Power {
 	case "enable":

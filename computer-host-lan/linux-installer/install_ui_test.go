@@ -118,6 +118,16 @@ func TestInstallationReviewAndCompletionWarnAboutDiscoveryAndFirewall(t *testing
 		"WARNING: Avahi discovery is not confirmed",
 		"WARNING: firewalld is active",
 		"TCP 8765 may be blocked",
+		"systemctl is-active avahi-daemon.service",
+		"avahi-browse -rt _computerhost._tcp",
+		"If Avahi was installed later, rerun the verified installer",
+		"use your configured agent port if different",
+		"firewall-cmd --get-active-zones",
+		"firewall-cmd --zone=ZONE --list-all",
+		"replace ZONE with the hub-facing zone",
+		"only from the trusted hub",
+		"local mDNS (UDP 5353)",
+		"Do not disable the firewall",
 	} {
 		if !strings.Contains(review, phrase) {
 			t.Errorf("Review missing warning %q: %s", phrase, review)
@@ -125,9 +135,15 @@ func TestInstallationReviewAndCompletionWarnAboutDiscoveryAndFirewall(t *testing
 	}
 	var completion bytes.Buffer
 	s.showNetworkWarnings(&completion)
-	if !strings.Contains(completion.String(), "Scan nearby may not find") ||
-		!strings.Contains(completion.String(), "firewalld is active") {
-		t.Fatalf("Completion hid network warnings: %s", completion.String())
+	for _, warning := range s.networkWarnings() {
+		if !strings.Contains(completion.String(), warning) {
+			t.Fatalf("Completion hid network warning %q: %s", warning, completion.String())
+		}
+	}
+	for _, command := range []string{"--add-port", "--add-rich-rule", "--permanent", "systemctl stop", "systemctl disable"} {
+		if strings.Contains(review, command) || strings.Contains(completion.String(), command) {
+			t.Fatalf("Wizard should not suggest firewall mutations: %q", command)
+		}
 	}
 	s.firewalldActive = false
 	for i := range s.inspection.Checks {
@@ -136,7 +152,25 @@ func TestInstallationReviewAndCompletionWarnAboutDiscoveryAndFirewall(t *testing
 		}
 	}
 	if warnings := s.networkWarnings(); len(warnings) != 0 {
-		t.Fatalf("Healthy network should not have warnings: %+v", warnings)
+		t.Fatalf("No negative Avahi or positive firewalld observation: %+v", warnings)
+	}
+}
+
+func TestNetworkWarningsRespectIndependentObservations(t *testing.T) {
+	for _, status := range []string{"", "warning", "not_verified", "passed"} {
+		for _, active := range []bool{false, true} {
+			s := &liveSelection{firewalldActive: active}
+			if status != "" {
+				s.inspection.Checks = []apiCheck{{ID: "avahi_discovery", Status: status}}
+			}
+			text := strings.Join(s.networkWarnings(), "\n")
+			if strings.Contains(text, "avahi-browse -rt _computerhost._tcp") != (status != "passed") {
+				t.Fatalf("Wrong Avahi advice for %q: %s", status, text)
+			}
+			if strings.Contains(text, "firewall-cmd --get-active-zones") != active {
+				t.Fatalf("Wrong firewall advice for active=%t: %s", active, text)
+			}
+		}
 	}
 }
 
@@ -245,7 +279,8 @@ func TestInstallationOutcomeUsesIdentityAndPowerChoices(t *testing.T) {
 				for _, phrase := range []string{"refresh", "Scan nearby", "Avahi discovery is not confirmed",
 					"firewalld is active", "persistent WOL configuration were not performed", "-recover",
 					"https://bestow-regional.api.smartthings.com/invite/1J2Qy7ZkxL20",
-					"Never forward the agent port to the Internet"} {
+					"Never forward the agent port to the Internet",
+					"pre-install observations, not proof of discovery or connectivity"} {
 					if !strings.Contains(text, phrase) {
 						t.Fatalf("missing %q: %s", phrase, text)
 					}
