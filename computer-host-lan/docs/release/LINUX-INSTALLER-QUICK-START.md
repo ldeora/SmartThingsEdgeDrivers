@@ -1,0 +1,100 @@
+# Computer Host LAN — Linux installer Quick Start (planned rc.3)
+
+**Not yet a published release.** The authenticated standalone installer is
+under development. Do not download/elevate a CI artifact or a source build as
+a substitute. For published rc.2, follow the [current Quick Start](QUICK-START.md).
+Release preparation must replace the placeholders below with the independently
+approved release tag and exact source commit; do not treat them as approval.
+
+## 1. Prepare your computer
+
+Use a Linux x86_64 (amd64) computer with systemd, Python 3.10+ and Avahi for
+automatic discovery. Keep your SmartThings hub and computer on a trusted
+private network. TCP 8765 (or your configured agent port) must be reachable
+from the hub, and local multicast DNS (UDP 5353) must be available. Do not
+forward the agent port to the Internet. See
+[Avahi and firewall troubleshooting](../../linux-installer/README.md#troubleshooting-discovery-and-connectivity)
+for distribution-specific instructions. Actual tested distributions will be
+listed with the release.
+
+## 2. Download and verify the installer
+
+Once an eligible release is published, download the Linux executable
+`computer-host-linux-installer` and its matching
+`computer-host-linux-installer.sha256` from that versioned GitHub release.
+Install GitHub CLI (`gh`) from a trusted distribution. Independently obtain
+the approved tag and exact commit from the trusted release announcement or
+verified source record; do not trust values merely supplied with the binary.
+From the download directory, verify publisher/workflow identity and bytes:
+
+```sh
+gh attestation verify ./computer-host-linux-installer \
+  --repo ldeora/SmartThingsEdgeDrivers \
+  --signer-workflow ldeora/SmartThingsEdgeDrivers/.github/workflows/computer-host-linux-attested-release.yml \
+  --source-ref refs/tags/EXPECTED_APPROVED_TAG \
+  --source-digest EXPECTED_APPROVED_SOURCE_COMMIT \
+  --signer-digest EXPECTED_APPROVED_SOURCE_COMMIT \
+  --deny-self-hosted-runners \
+  --predicate-type https://slsa.dev/provenance/v1 &&
+sha256sum -c computer-host-linux-installer.sha256
+```
+
+Stop if either check fails or the approved source cannot be established. Do
+not run an unverified executable, even for a preview. A checksum alone is
+not publisher authentication. Keep the verified file in a private directory
+and do not replace it between verification and execution. See the
+[verification policy](../development/LINUX-INSTALLER-RELEASE-AUTHENTICATION.md)
+for trust assumptions and limitations.
+
+## 3. Run Setup
+
+As your ordinary user (do not prefix the executable with sudo):
+
+```sh
+chmod u+x ./computer-host-linux-installer
+./computer-host-linux-installer
+```
+
+The wizard detects an existing installation automatically. Confirm or enter
+your hub's IPv4, or choose it later. Leave remote power at its default for
+initial monitoring; an existing power preference is retained unless changed.
+Review the plan and type **INSTALL** only if you agree to the changes. The
+wizard then requests administrator authorization. You can cancel before
+consent. The installer does not change firewall rules, start Avahi, pair a
+SmartThings device or configure persistent NIC Wake-on-LAN.
+
+For plain-text prompts, run `./computer-host-linux-installer -accessible`.
+For a real read-only plan, use `./computer-host-linux-installer -live -preview`.
+For a simulated wizard, use `-demo`. The read-only plan and simulated
+wizard never elevate; the accessible installation wizard still requires
+explicit consent and administrator authorization.
+
+## 4. Connect to SmartThings
+
+Refresh an existing Computer Host LAN device first; do not delete or re-pair
+it. For first-time setup, enroll the hub with the
+[driver channel invitation](https://bestow-regional.api.smartthings.com/invite/1J2Qy7ZkxL20),
+install **Computer Host LAN** and select **Add device → Scan nearby**.
+Check CPU, memory, disk, uptime and host status. If discovery fails, follow
+the completion screen's network guidance.
+
+Remote power is optional and requires opt-in on the host and in SmartThings.
+Only if needed, retrieve the private key using the completion instructions;
+enter it in **Power control key (64 hex chars)** and turn on
+**Enable shutdown/reboot/suspend**. Do not share the key. Save your work and
+keep physical access before testing shutdown, reboot or suspend. Wake-on-LAN
+depends on the hardware and existing OS/network configuration.
+
+## 5. Upgrade or recover
+
+To upgrade, verify the newer release and run it over the existing
+installation, including an existing installation made by the published
+rc.2 legacy shell installer. This in-place migration is intended to be
+supported and must pass rc.3 physical acceptance before release. Do not
+uninstall first or delete persistent state or the SmartThings device. Use `-recover` with the verified installer if recovery
+is required; review and explicitly authorize recovery before another
+installation. Use `-uninstall` for normal removal, which retains the
+private identity/key and recovery material. See the
+[installer documentation](../../linux-installer/README.md) for CLI repair,
+recovery, and detailed troubleshooting. Report OS/version and redacted
+results using the [RC checklist](RC-ACCEPTANCE.md); never share credentials.

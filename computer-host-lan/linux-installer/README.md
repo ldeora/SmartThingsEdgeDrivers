@@ -14,27 +14,34 @@ publisher authentication. Do not elevate a downloaded unverified executable.
 
 ## Interactive wizard
 
-Run as an ordinary user. Real installation uses an embedded inspector
+Run as an ordinary user. Launch without arguments to open the real
+installation/upgrade wizard; `-accessible` opens its plain-text variant.
+The previous `-live -install` spelling remains supported.
+Real installation uses an embedded inspector
 by default and requests administrator authorization only after explicit
 confirmation. Power management defaults to off on a new host and is
 preserved on upgrade. Interface pinning is separate from persistent NIC WOL.
 
 ```sh
-# Inert demo
+# Inert demo or simulated plan
+./computer-host-linux-installer-test -demo
 ./computer-host-linux-installer-test -preview
-# Read-only inspection or interactive preview
-./computer-host-linux-installer-test -live -preview -api ../scripts/installer-api.sh
-./computer-host-linux-installer-test -live -api ../scripts/installer-api.sh
-# Supervised installation/upgrade: type INSTALL
-./computer-host-linux-installer-test -live -install
+# Read-only inspection or interactive preview (embedded inspector)
+./computer-host-linux-installer-test -live -preview
+./computer-host-linux-installer-test -live
+# Supervised installation/upgrade: type INSTALL after review
+./computer-host-linux-installer-test
 # Plain-text wizard with terminal su
-./computer-host-linux-installer-test -live -install -accessible -elevation su
+./computer-host-linux-installer-test -accessible -elevation su
 # Explicit recovery: type RECOVER
 ./computer-host-linux-installer-test -recover
 # Journaled uninstall: type UNINSTALL
 ./computer-host-linux-installer-test -uninstall
 ```
 
+For source-checkout diagnostics, explicit `-live` modes may still use
+`-api ../scripts/installer-api.sh` as a trusted unprivileged inspector.
+See the [planned release Quick Start](../docs/release/LINUX-INSTALLER-QUICK-START.md).
 Modifying examples are for supervised development on a reversible test host,
 not production deployment. Authorization supports auto, sudo, doas, run0
 and interactive su; no provider fallback after refusal. Demo and plain live

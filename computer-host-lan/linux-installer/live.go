@@ -690,14 +690,13 @@ func newLiveSelection(api apiClient, info apiInspect, hubs []discoveredHub) *liv
 }
 
 func runLiveInteractive(w io.Writer, api apiClient, info apiInspect) error {
-	stat, err := os.Stdin.Stat()
-	if err != nil || stat.Mode()&os.ModeCharDevice == 0 {
+	if !stdinIsTerminal() {
 		return errors.New("The interactive setup requires a terminal. Try -live -accessible.")
 	}
 	s := newLiveSelection(api, info, discoverHubs())
 	fmt.Fprintln(w, "COMPUTER HOST LAN — SETUP PREVIEW")
 	fmt.Fprintln(w, "No installation or system changes will be made.")
-	err = liveForm(s).Run()
+	err := liveForm(s).Run()
 	if errors.Is(err, huh.ErrUserAborted) {
 		fmt.Fprintln(w, "Setup preview cancelled. No changes made.")
 		return nil
@@ -811,7 +810,11 @@ func runLiveAccessibleWithHubsMode(reader io.Reader, writer io.Writer, api apiCl
 		answer := strings.ToLower(raw)
 		switch answer {
 		case "quit", "exit", "q":
-			fmt.Fprintln(writer, "Setup preview cancelled. No changes made.")
+			if installing {
+				fmt.Fprintln(writer, "Setup cancelled. No changes made.")
+			} else {
+				fmt.Fprintln(writer, "Setup preview cancelled. No changes made.")
+			}
 			return nil
 		case "back":
 			if step > 0 {
@@ -941,6 +944,18 @@ func runLiveAccessibleWithHubsMode(reader io.Reader, writer io.Writer, api apiCl
 }
 
 func runLive(preview, accessible bool, apiPath string, r io.Reader, w io.Writer) error {
+	if !preview && !accessible && !stdinIsTerminal() {
+		return errors.New("The interactive setup requires a terminal. Try -live -accessible.")
+	}
+	if apiPath == "" {
+		var cleanup func()
+		var err error
+		apiPath, cleanup, err = makeEmbeddedReadOnlyAPI()
+		if err != nil {
+			return err
+		}
+		defer cleanup()
+	}
 	client, err := newAPIClient(apiPath)
 	if err != nil {
 		return err
