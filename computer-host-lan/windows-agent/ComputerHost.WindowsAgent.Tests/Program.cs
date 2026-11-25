@@ -14,12 +14,15 @@ static void Assert(bool condition, string message)
 // Compare the fixture's actual ACEs and inheritance protection, not SDDL
 // control flags (Windows can set the auto-inherited flag when writing a DACL).
 [System.Runtime.Versioning.SupportedOSPlatform("windows")]
-static string AccessRules(FileSystemSecurity security) =>
-    (security.AreAccessRulesProtected ? "P|" : "|") + string.Join(";",
-        security.GetAccessRules(true, true, typeof(SecurityIdentifier))
-            .Cast<FileSystemAccessRule>()
-            .Select(rule => $"{rule.IdentityReference}:{rule.AccessControlType}:{(int)rule.FileSystemRights}:{rule.InheritanceFlags}:{rule.PropagationFlags}:{rule.IsInherited}")
-            .OrderBy(value => value, StringComparer.Ordinal));
+static string AccessRules(FileSystemSecurity security)
+{
+    var rules = new List<string>();
+    foreach (FileSystemAccessRule rule in security.GetAccessRules(true, true, typeof(SecurityIdentifier)))
+        rules.Add($"{rule.IdentityReference}:{rule.AccessControlType}:{(int)rule.FileSystemRights}:" +
+                  $"{rule.InheritanceFlags}:{rule.PropagationFlags}:{rule.IsInherited}");
+    rules.Sort(StringComparer.Ordinal);
+    return (security.AreAccessRulesProtected ? "P|" : "|") + string.Join(";", rules);
+}
 
 static void AssertRestoredRules(string expected, string actual, string message)
 {
