@@ -17,6 +17,7 @@ import (
 	"strings"
 
 	"charm.land/huh/v2"
+	"github.com/charmbracelet/x/term"
 )
 
 var cgnat = netip.MustParsePrefix("100.64.0.0/10")
@@ -210,9 +211,14 @@ func interactiveForm(s *selection) *huh.Form {
 	)
 }
 
+// A character device such as /dev/null is not necessarily a terminal.
+// Use the same terminal predicate for interactive UI and elevation selection.
+func stdinIsTerminal() bool {
+	return term.IsTerminal(os.Stdin.Fd())
+}
+
 func runInteractive(w io.Writer) error {
-	info, err := os.Stdin.Stat()
-	if err != nil || (info.Mode()&os.ModeCharDevice) == 0 {
+	if !stdinIsTerminal() {
 		return errors.New("interactive demo needs a terminal; use -demo -accessible for plain prompts or -preview")
 	}
 	s := selection{action: "install", hubChoice: "none", powerChoice: "keep", wolChoice: "keep"}

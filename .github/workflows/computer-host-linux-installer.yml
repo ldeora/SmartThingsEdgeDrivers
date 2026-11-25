@@ -178,10 +178,29 @@ jobs:
               result = subprocess.run([binary, *args], stdin=subprocess.DEVNULL,
                                       capture_output=True, text=True, timeout=10)
               assert result.returncode == 2, (args, result)
-          result = subprocess.run([binary], stdin=subprocess.DEVNULL,
-                                  capture_output=True, text=True, timeout=10)
-          assert result.returncode == 1, result
-          assert "interactive installation needs a terminal" in result.stderr, result
+          # /dev/null is a character device but not a terminal. Check
+          # both it and a pipe; refuse before inspecting or requesting consent.
+          for args, message in (
+              ((), "interactive installation needs a terminal"),
+              (("-live", "-install"), "interactive installation needs a terminal"),
+              (("-demo",), "interactive demo needs a terminal"),
+              (("-live",), "interactive setup requires a terminal"),
+              (("-live", "-api", "/nonexistent"), "interactive setup requires a terminal"),
+              (("-uninstall",), "interactive uninstall needs a terminal"),
+              (("-recover",), "interactive recovery needs a terminal"),
+          ):
+              for stdin in (subprocess.DEVNULL, subprocess.PIPE):
+                  result = subprocess.run([binary, *args], stdin=stdin,
+                                          capture_output=True, text=True, timeout=10)
+                  assert result.returncode == 1, (args, stdin, result)
+                  assert message in result.stderr, (args, stdin, result)
+                  assert not result.stdout, (args, stdin, result)
+
+          # Plain-text setup may accept a pipe or EOF without elevating.
+          result = subprocess.run([binary, "-accessible"], stdin=subprocess.DEVNULL,
+                                  capture_output=True, text=True, timeout=60)
+          assert result.returncode == 0, result
+          assert "Setup cancelled. No changes made." in result.stdout, result
           PY
       - name: Refuse conflicting installation or sudo in preview/test modes
         run: |

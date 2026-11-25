@@ -88,8 +88,10 @@ depends on the hardware and existing OS/network configuration.
 ## 5. Upgrade or recover
 
 To upgrade, verify the newer release and run it over the existing
-installation. Do not uninstall first or delete persistent state or the
-SmartThings device. Use `-recover` with the verified installer if recovery
+installation, including an existing installation made by the published
+rc.2 legacy shell installer. This in-place migration is intended to be
+supported and must pass rc.3 physical acceptance before release. Do not
+uninstall first or delete persistent state or the SmartThings device. Use `-recover` with the verified installer if recovery
 is required; review and explicitly authorize recovery before another
 installation. Use `-uninstall` for normal removal, which retains the
 private identity/key and recovery material. See the

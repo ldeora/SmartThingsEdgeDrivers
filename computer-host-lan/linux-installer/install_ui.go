@@ -565,11 +565,8 @@ func runInstallingWizard(accessible bool, apiPath string, reader io.Reader, writ
 	if os.Geteuid() == 0 {
 		return errors.New("run the wizard as your normal user; sudo is requested only after review")
 	}
-	if !accessible {
-		state, err := os.Stdin.Stat()
-		if err != nil || state.Mode()&os.ModeCharDevice == 0 {
-			return errors.New("interactive installation needs a terminal; use -accessible")
-		}
+	if !accessible && !stdinIsTerminal() {
+		return errors.New("interactive installation needs a terminal; use -accessible")
 	}
 	if apiPath == "" {
 		var cleanup func()
@@ -595,8 +592,7 @@ func runInstallingWizard(accessible bool, apiPath string, reader io.Reader, writ
 		// Accessible/plain-text mode can still run inside a real terminal.
 		// Only use sudo -n when there is no TTY; otherwise allow sudo's
 		// usual /dev/tty password prompt after the plain form completes.
-		stdinInfo, statErr := os.Stdin.Stat()
-		hasTTY := statErr == nil && stdinInfo.Mode()&os.ModeCharDevice != 0
+		hasTTY := stdinIsTerminal()
 		return runLiveAccessibleWithHubsMode(reader, writer, api, info, hubs,
 			true, func(s *liveSelection) error {
 				return installSelection(s, writer, hasTTY, method)
@@ -702,8 +698,7 @@ func runUninstallWizard(reader io.Reader, writer io.Writer, method string) error
 	if os.Geteuid() == 0 {
 		return errors.New("run the wizard as your normal user; administrator authorization follows confirmation")
 	}
-	info, err := os.Stdin.Stat()
-	if err != nil || info.Mode()&os.ModeCharDevice == 0 {
+	if !stdinIsTerminal() {
 		return errors.New("interactive uninstall needs a terminal")
 	}
 	return confirmUninstall(reader, writer, func(request privilegedRequest) (privilegedResult, error) {
@@ -734,8 +729,7 @@ func runRecoveryWizard(reader io.Reader, writer io.Writer, method string) error 
 	if os.Geteuid() == 0 {
 		return errors.New("run the wizard as your normal user; sudo is requested after confirmation")
 	}
-	info, err := os.Stdin.Stat()
-	if err != nil || info.Mode()&os.ModeCharDevice == 0 {
+	if !stdinIsTerminal() {
 		return errors.New("interactive recovery needs a terminal")
 	}
 	fmt.Fprintln(writer, "Computer Host LAN — recover a previously interrupted installer operation.")
