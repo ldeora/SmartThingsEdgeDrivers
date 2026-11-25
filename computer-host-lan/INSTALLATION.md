@@ -124,3 +124,18 @@ The published v0.5.6 beta introduced an interrupted-upgrade recovery option and 
 Reserve the hub's IPv4 in your router's DHCP configuration. To update an existing Windows firewall allow-list without reinstalling, open an elevated PowerShell prompt and run `& "$env:ProgramFiles\Computer Host Agent\Installer\Set-WindowsHubAddress.ps1" -HubIPv4 192.168.1.20`, replacing the example with the hub's actual canonical IPv4. The rule remains Private-profile only. A public or domain-connected network may require an explicit network-profile correction; do not make the rule Public by default.
 
 An abandoned `Computer Host Agent.upgrade-rollback` folder must **never** be deleted casually. Interactive Setup can offer an explicit recovery attempt. On post-rc.2 main, restart Setup after successful recovery so it reads the restored configuration before upgrading. If Setup cannot recover, use `Restore-WindowsAgentUpgrade.ps1 -Mode Restore` from the same-version Windows ZIP in an elevated PowerShell session; preserve the snapshot and host identity in ProgramData. Silent installers refuse abandoned snapshots without stopping the service.
+
+## Troubleshooting power commands
+
+If **Restart** or **Sleep** does nothing, verify that the agent is reachable
+and host-side power control was explicitly enabled. The agent must advertise
+the requested power action in `/v2/info`; host policy or unsupported power
+states can make actions unavailable. In the SmartThings device settings,
+turn on `allowPowerCommands` and enter the matching private 64-character
+`controlKey`. Never publish the key, authentication headers or raw logs.
+If the command is still rejected, inspect redacted driver diagnostics. The
+momentary buttons do not report a separate rejection reason in the app;
+Host Status continues to describe the host, not a command error. During an
+accepted shutdown's grace period, Wake, Restart and Sleep are ignored to
+avoid replacing the shutdown request. Wait for the transition to settle.
+A switch acknowledgement is not proof of a completed boot or shutdown.

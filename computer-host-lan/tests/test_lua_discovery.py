@@ -1,6 +1,6 @@
 """Regression: discovery must not request .local hostnames from IPv6 records."""
 import ctypes
-from ctypes.util import find_library
+from lua_runtime import load_lua
 from pathlib import Path
 import unittest
 
@@ -9,9 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]/'edge-driver'/'src'
 class DiscoveryTests(unittest.TestCase):
     def test_silent_create_drop_retries_only_after_ttl(self):
         """A dropped try_create_device must not permanently suppress scans."""
-        name=find_library('lua5.4') or find_library('lua5.3')
-        if not name: self.skipTest('Lua library unavailable')
-        lib=ctypes.CDLL(name)
+        lib = load_lua(self)
         lib.luaL_newstate.restype=ctypes.c_void_p
         lib.luaL_openlibs.argtypes=[ctypes.c_void_p]
         lib.luaL_loadstring.argtypes=[ctypes.c_void_p,ctypes.c_char_p]
@@ -78,9 +76,7 @@ class DiscoveryTests(unittest.TestCase):
             lib.lua_close(vm)
 
     def test_ipv4_preferred_and_ipv6_hostname_fallback_skipped(self):
-        name=find_library('lua5.4') or find_library('lua5.3')
-        if not name: self.skipTest('Lua library unavailable')
-        lib=ctypes.CDLL(name)
+        lib = load_lua(self)
         lib.luaL_newstate.restype=ctypes.c_void_p
         lib.luaL_openlibs.argtypes=[ctypes.c_void_p]
         lib.luaL_loadstring.argtypes=[ctypes.c_void_p,ctypes.c_char_p]

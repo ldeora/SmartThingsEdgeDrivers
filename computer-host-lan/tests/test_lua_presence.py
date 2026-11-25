@@ -1,15 +1,13 @@
 """Exercise power state failure classification using Lua 5.3/5.4."""
 import ctypes
-from ctypes.util import find_library
+from lua_runtime import load_lua
 from pathlib import Path
 import unittest
 ROOT=Path(__file__).resolve().parents[1]/'edge-driver'/'src'
 
 class ClassifierTests(unittest.TestCase):
     def test_error_classification(self):
-        name=find_library('lua5.4') or find_library('lua5.3')
-        if not name: self.skipTest('Lua library missing')
-        lib=ctypes.CDLL(name)
+        lib = load_lua(self)
         lib.luaL_newstate.restype=ctypes.c_void_p
         lib.luaL_openlibs.argtypes=[ctypes.c_void_p]
         lib.luaL_loadstring.argtypes=[ctypes.c_void_p,ctypes.c_char_p]

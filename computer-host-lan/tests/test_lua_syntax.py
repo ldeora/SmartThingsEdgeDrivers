@@ -1,6 +1,6 @@
 """Syntax check without a Lua CLI, using liblua's parser if available."""
 import ctypes
-from ctypes.util import find_library
+from lua_runtime import load_lua
 from pathlib import Path
 import unittest
 
@@ -9,10 +9,7 @@ ROOT = Path(__file__).resolve().parents[1] / "edge-driver" / "src"
 
 class LuaSyntaxTests(unittest.TestCase):
     def test_all_lua_files_parse(self):
-        libpath = find_library("lua5.3") or find_library("lua5.4")
-        if not libpath:
-            self.skipTest("Lua runtime library unavailable")
-        lib = ctypes.CDLL(libpath)
+        lib = load_lua(self)
         lib.luaL_newstate.restype = ctypes.c_void_p
         lib.luaL_loadfilex.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_char_p]
         lib.luaL_loadfilex.restype = ctypes.c_int

@@ -1,6 +1,6 @@
 """Real Lua VM test of pure Linux Host power-state classification."""
 import ctypes
-from ctypes.util import find_library
+from lua_runtime import load_lua
 from pathlib import Path
 import unittest
 
@@ -8,10 +8,7 @@ ROOT = Path(__file__).resolve().parents[1]/'edge-driver'/'src'
 
 class StateReducerTests(unittest.TestCase):
     def test_failure_and_success_transitions(self):
-        libname = find_library('lua5.4') or find_library('lua5.3')
-        if not libname:
-            self.skipTest('Lua runtime library unavailable')
-        lib=ctypes.CDLL(libname)
+        lib = load_lua(self)
         lib.luaL_newstate.restype=ctypes.c_void_p
         lib.luaL_openlibs.argtypes=[ctypes.c_void_p]
         lib.luaL_loadstring.argtypes=[ctypes.c_void_p,ctypes.c_char_p]

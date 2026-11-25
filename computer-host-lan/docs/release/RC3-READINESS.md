@@ -58,8 +58,8 @@ Each fix requires its own scoped review and relevant behavioral tests.
 
 | Issue | Approved disposition | Scope and rationale |
 | --- | --- | --- |
-| #126 | Fix before rc.3 | Preserve the existing ZIP/PowerShell power preference unless explicitly changed; fresh installs remain off, Setup explicitly communicates its choice. Reject conflicting flags. |
-| #127 | Fix before rc.3 | Reuse only a validated existing Private firewall scope on upgrades, allow explicit changes, and refuse ambiguous or missing scope rather than silently broadening access. Cover GUI and silent paths. |
+| #126 | Merged (#174), needs acceptance | Preserve the existing ZIP/PowerShell power preference unless explicitly changed; fresh installs remain off, Setup explicitly communicates its choice. Reject conflicting flags. |
+| #127 | Merged (#174), needs acceptance | Reuse only a validated existing Private firewall scope on upgrades, allow explicit changes, and refuse ambiguous or missing scope rather than silently broadening access. Cover GUI and silent paths. |
 | #135 | Merged (#173), needs acceptance | A missing, malformed or unreadable key disables optional power without taking down otherwise safe monitoring. Never regenerate a key implicitly. |
 | #121 | Merged (#173), needs acceptance | Check protected state and token ACL/ownership/reparse boundaries before runtime use; keep monitoring only when identity/state can be used safely. Do not create inherited unsafe state or weaken installer checks. Test under the actual service identity. |
 | #134 | Fix before rc.3 | Emit appropriate switch acknowledgements for known command paths without inventing physical state or weakening shutdown grace. Preserve momentary capability/status contracts; document rejection guidance. |
@@ -113,7 +113,7 @@ changes explicitly identified; they are not new hardware certifications. Do not 
   is unsafe. #105 test refactoring and broader feature work remain deferred.
 - The known review fixes have explicit approved dispositions above; they
   are not deferred by the implementation freeze. Remaining #41 security
-  threat-model question, #131 Lua test availability, #133 clock correction
+  threat-model question, #131 mandatory Lua runtime (implementation in PR #175; verify candidate CI; broader harness refactoring deferred), #133 clock correction
   heuristic and older low-priority issues remain tracked. Confirm Lua tests
   actually run in candidate CI. Escalate concrete security, data-loss,
   upgrade, duplicate-device or persistent state defects. No blanket risk
@@ -138,6 +138,7 @@ credential corruption or unsafe power transitions.
 | Windows 11 host A | fresh install/upgrade, initial and repeated search, manual IP, monitoring, service restart, optional power, retained state | NOT TESTED |
 | Windows 11 host B (different NIC) | same checks; unsafe ProgramData fixture only on disposable test system; Private/Public restrictions | NOT TESTED |
 | Real hub | same channel/driver identity; exact installed driver; no duplicate on upgrade; state after shutdown/reboot/suspend/Wake and failed Wake | NOT TESTED |
+| Power refusal diagnostics | disposable test installation only: temporarily set a valid-format nonmatching key in SmartThings (never change the host key); OFF is rejected, switch returns ON, Host Status remains running and redacted log names key/opt-in settings; restore matching preference and verify monitoring. No physical power action should occur; NOT TESTED if not safe. | NOT TESTED |
 | Network | hub restart, agent restart, router interruption, host DHCP change and separate hub IP change | NOT TESTED |
 | Windows + Linux soak | >=7 days each on exact candidate with real hub, dates and anomalies; record unsupported hardware separately | NOT TESTED |
 | Release sign-off | signing decision, security caveats, final documentation, approval | NOT TESTED |

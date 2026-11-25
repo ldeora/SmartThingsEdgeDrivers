@@ -1,5 +1,5 @@
 #!/usr/bin/env sh
-# Requires Python >=3.10, PyYAML, and common systemd/shadow command-line tools.
+# Requires Python >=3.10, PyYAML, Lua 5.4/5.3 shared runtime, and common systemd/shadow tools.
 # This script runs safely inside unprivileged/non-systemd CI containers.
 set -eu
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)

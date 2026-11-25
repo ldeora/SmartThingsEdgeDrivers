@@ -1,6 +1,6 @@
 """Exercise real discovery + WOL modules with a mocked Edge device and network."""
 import ctypes
-from ctypes.util import find_library
+from lua_runtime import load_lua
 from pathlib import Path
 import unittest
 
@@ -8,10 +8,7 @@ ROOT = Path(__file__).resolve().parents[1] / 'edge-driver' / 'src'
 
 class MetadataRecoveryTests(unittest.TestCase):
     def test_wol_recovery_uses_matching_agent_uuid_and_persists_mac(self):
-        library = find_library('lua5.4') or find_library('lua5.3')
-        if not library:
-            self.skipTest('Lua shared library unavailable')
-        lib = ctypes.CDLL(library)
+        lib = load_lua(self)
         lib.luaL_newstate.restype = ctypes.c_void_p
         lib.luaL_openlibs.argtypes = [ctypes.c_void_p]
         lib.luaL_loadstring.argtypes = [ctypes.c_void_p, ctypes.c_char_p]
