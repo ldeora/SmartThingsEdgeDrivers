@@ -419,10 +419,10 @@ class LuaDriverTests(unittest.TestCase):
             expect_on_command('on')
             assert(wakes==wake_count)
             -- Busy poll: acknowledge known state, do not start another poll.
-            fields.computerhost_in_progress=true
+            fields.computerhost_poll_busy=true
             expect_on_command('on')
-            assert(fields.computerhost_in_progress==true)
-            fields.computerhost_in_progress=false
+            assert(fields.computerhost_poll_busy==true)
+            fields.computerhost_poll_busy=false
             -- Fresh check fails below threshold: reassert only known state.
             healthy=false
             error_message='HTTP transport failed: timeout'
