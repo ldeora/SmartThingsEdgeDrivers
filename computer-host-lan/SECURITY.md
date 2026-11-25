@@ -21,6 +21,17 @@ The Windows installer offers a Private-profile firewall rule scoped to the selec
 
 The unauthenticated read-only endpoints `/v2/info`, `/v2/health`, and `/v2/metrics` can disclose hostname, installation UUID, OS and system telemetry to any client that can reach the listening port. HMAC authentication for power operations **does not encrypt or authenticate the monitoring channel**, and it does not authenticate mDNS advertisements. An attacker with sufficient LAN access could observe or interfere with monitoring or disrupt connectivity; network isolation remains necessary.
 
+**Post-rc.2 Linux implementation (intended rc.3):** In addition to the existing
+12-handler global limit and absolute five-second header deadline, a single
+source IP can hold at most four active HTTP handlers. Excess connections are
+closed before a handler thread is started. Source IPs shared by several
+clients share this limit; ordinary serial requests and up to four concurrent
+connections remain supported. This mitigates one source monopolizing the
+global handler pool, not distributed saturation, listen-backlog pressure or
+other LAN interference. No authentication, rate guarantee or firewall
+policy is added. The published rc.2 packages do not contain this per-source
+limit.
+
 ## Power commands and credentials
 
 - **Monitoring only by default.** Shutdown, reboot and suspend are optional and require enabling power control on the host *and* setting `allowPowerCommands` plus the matching control key on the SmartThings device.

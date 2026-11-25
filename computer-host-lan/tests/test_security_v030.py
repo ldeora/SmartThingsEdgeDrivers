@@ -213,5 +213,120 @@ class LiveHTTPSecurityTests(unittest.TestCase):
         self.assertEqual(self.request('/v2/health')[0], 200)
 
 
+class ConnectionAdmissionTests(unittest.TestCase):
+    """Real loopback connections; no power operations or external network."""
+    def setUp(self):
+        state = agent.AgentState('33333333-3333-4333-8333-333333333333', '02'*32,
+                                 False, '/nonexistent/power.sock', None, None)
+        self.server = agent.BoundedHTTPServer(('127.0.0.1', 0), agent.make_handler(state),
+                                              io_timeout=10, header_timeout=10)
+        self.worker = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.worker.start()
+        self.connections = []
+
+    def tearDown(self):
+        for conn in self.connections:
+            conn.close()
+        try:
+            self.wait_counts({})
+        finally:
+            self.server.shutdown()
+            self.server.server_close()
+            self.worker.join(timeout=3)
+
+    def counts(self):
+        with self.server._client_lock:
+            return dict(self.server._active_by_source)
+
+    def wait_counts(self, expected):
+        end = time.monotonic() + 3
+        while time.monotonic() < end:
+            if self.counts() == expected:
+                return
+            time.sleep(0.01)
+        self.assertEqual(self.counts(), expected)
+
+    def connect(self, source):
+        return socket.create_connection(('127.0.0.1', self.server.server_port),
+                                        timeout=2, source_address=(source, 0))
+
+    def hold(self, source):
+        conn = self.connect(source)
+        self.connections.append(conn)
+        conn.sendall(b'GET /v2/health HTTP/1.1\r\nHost: ')
+        return conn
+
+    def refused(self, source):
+        with self.connect(source) as conn:
+            try:
+                self.assertEqual(conn.recv(1), b'')
+            except ConnectionResetError:
+                pass
+
+    def health(self, source):
+        conn = http.client.HTTPConnection('127.0.0.1', self.server.server_port,
+                                          timeout=2, source_address=(source, 0))
+        try:
+            conn.request('GET', '/v2/health')
+            response = conn.getresponse()
+            self.assertEqual(response.status, 200)
+            self.assertEqual(json.loads(response.read())['status'], 'running')
+        finally:
+            conn.close()
+
+    def test_one_source_reconnects_cannot_exclude_another(self):
+        source, hub = '127.0.0.2', '127.0.0.3'
+        held = [self.hold(source) for _ in range(4)]
+        self.wait_counts({source: 4})
+        for _ in range(8):
+            self.refused(source)
+            self.health(hub)
+            self.wait_counts({source: 4})
+        # A shared source can still use all four slots; ordinary serial
+        # requests resume immediately after one connection is released.
+        held[0].close()
+        self.wait_counts({source: 3})
+        self.health(source)
+        self.wait_counts({source: 3})
+        self.hold(source)
+        self.wait_counts({source: 4})
+        self.refused(source)
+
+    def test_global_cap_and_source_map_cleanup(self):
+        sources = ['127.0.0.2', '127.0.0.3', '127.0.0.4']
+        held = [self.hold(source) for source in sources for _ in range(4)]
+        self.wait_counts(dict.fromkeys(sources, 4))
+        self.refused('127.0.0.5')  # global capacity still enforced
+        self.assertNotIn('127.0.0.5', self.counts())
+        for conn in held[:4]:
+            conn.close()
+        self.wait_counts(dict.fromkeys(sources[1:], 4))
+        self.health('127.0.0.5')
+        self.wait_counts(dict.fromkeys(sources[1:], 4))
+
+    def test_thread_start_failure_releases_both_limits(self):
+        # Force the handoff to fail before a handler thread is started.
+        with mock.patch.object(agent.ThreadingHTTPServer, 'process_request',
+                               side_effect=RuntimeError('thread start failed')):
+            with self.assertRaisesRegex(RuntimeError, 'thread start failed'):
+                self.server.process_request(mock.Mock(), ('127.0.0.2', 1234))
+        self.assertEqual(self.counts(), {})
+        held = [self.hold(source) for source in ('127.0.0.2', '127.0.0.3', '127.0.0.4')
+                for _ in range(4)]
+        self.wait_counts({'127.0.0.2': 4, '127.0.0.3': 4, '127.0.0.4': 4})
+        self.refused('127.0.0.5')
+
+    def test_handler_failure_releases_source_slot(self):
+        source = '127.0.0.2'
+        with mock.patch.object(self.server, 'finish_request', side_effect=RuntimeError('handler failed')), \
+                mock.patch.object(self.server, 'handle_error') as error:
+            with self.connect(source) as conn:
+                self.assertEqual(conn.recv(1), b'')
+            self.wait_counts({})
+            error.assert_called_once()
+        self.health(source)
+        self.wait_counts({})
+
+
 if __name__ == '__main__':
     unittest.main()
