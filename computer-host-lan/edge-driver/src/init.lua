@@ -23,6 +23,7 @@ local function switch_state(device,new_state,force)
   device:set_field(C.FIELD_SWITCH_PUBLISHED,true)
   device:emit_event(caps.switch.switch(new_state))
   log.info(string.format("Computer Host %s switch -> %s",tostring(device.label),new_state))
+  return true
 end
 
 local function host_status(device,new_status)
@@ -77,7 +78,7 @@ local function clear_pending(device)
   device:set_field(C.FIELD_PENDING_AT,nil,{persist=true})
 end
 
-local function failure(driver,device,reason)
+local function failure(driver,device,reason,publish_switch)
   local previous_failures=device:get_field(C.FIELD_FAILURES)
   local n=(tonumber(previous_failures) or 0)+1
   device:set_field(C.FIELD_FAILURES,n)
@@ -100,7 +101,7 @@ local function failure(driver,device,reason)
     local status,new_switch,confirmed=State.failure(action,kind,n,host_failures,
       U.failure_threshold(device),U.assume_off_when_unreachable(device),
       device:get_field(C.FIELD_SETTLED))
-    if new_switch then switch_state(device,new_switch) end
+    if new_switch then publish_switch(new_switch) end
     host_status(device,status)
     if confirmed then
       log.info("Computer Host "..tostring(device.label).." inferred "..status..
@@ -121,17 +122,21 @@ end
 poll=function(driver,device,reason)
   if device:get_field(C.FIELD_IN_PROGRESS) then return end
   device:set_field(C.FIELD_IN_PROGRESS,true)
+  local switch_emitted=false
+  local function publish_switch(value)
+    if switch_state(device,value) then switch_emitted=true end
+  end
   local ok,err=pcall(function()
     local host,port=get_address(device)
     if not host then
       local found,find_err=D.rediscover(driver,device)
-      if not found then failure(driver,device,"unknown address: "..tostring(find_err)); return end
+      if not found then failure(driver,device,"unknown address: "..tostring(find_err),publish_switch); return end
       host,port=get_address(device)
     end
     local health,health_err=API.fetch_health(host,port)
-    if not health then failure(driver,device,health_err); return end
+    if not health then failure(driver,device,health_err,publish_switch); return end
     if health.id~=U.uuid_from_dni(device.device_network_id) then
-      failure(driver,device,"unexpected installation ID at known address")
+      failure(driver,device,"unexpected installation ID at known address",publish_switch)
       return
     end
     local previous_boot=device:get_field(C.FIELD_LAST_BOOT)
@@ -154,7 +159,7 @@ poll=function(driver,device,reason)
     -- Keep commanded OFF during shutdown grace, except when a different boot
     -- ID proves the host has restarted. In that case clear the stale action.
     if boot_changed or not State.shutdown_in_progress(action,action_age) then
-      switch_state(device,"on")
+      publish_switch("on")
     end
     if failed_polls>0 then
       log.info(string.format("Computer Host %s connection restored after %d failed check(s)",
@@ -185,6 +190,7 @@ poll=function(driver,device,reason)
   -- Lua/runtime defects are not evidence of host/network unavailability.
   -- HTTP failures are counted inside the protected polling body above.
   if not ok then log.error("Computer Host polling exception: "..tostring(err)) end
+  return switch_emitted
 end
 
 metrics_poll=function(driver,device,reason)
@@ -296,12 +302,20 @@ local function turn_on(driver,device)
   local action,age=pending_age(device)
   if State.shutdown_in_progress(action,age) then
     -- Do not replace the persisted shutdown action with a Wake request while
-    -- the host is still powering down. Command-ack UX remains deferred.
+    -- the host is still powering down. Reassert the accepted OFF request
+    -- so the app does not wait for an acknowledgement of its optimistic ON.
     log.info("Computer Host switch ON ignored: shutdown still in progress")
+    switch_state(device,"off",true)
     return
   end
   if device:get_field(C.FIELD_LAST_OK) then
-    poll(driver,device,"on command: already reachable")
+    -- A fresh poll can already emit a real transition (including inferred
+    -- OFF on failure). Only acknowledge again when it did not emit one.
+    -- Never manufacture ON from a stale reachability flag.
+    if not poll(driver,device,"on command: already reachable") then
+      local known=device:get_field(C.FIELD_LAST_SWITCH)
+      if known then switch_state(device,known,true) end
+    end
     return
   end
   local ok,err=Power.wake(device)
@@ -318,7 +332,7 @@ local function turn_on(driver,device)
   -- A successfully transmitted magic packet acknowledges the requested ON,
   -- not a completed boot. Host Status remains 'starting' until health confirms
   -- 'running'; existing timeout/inference may later restore OFF.
-  switch_state(device,"on")
+  switch_state(device,"on",true)
   schedule_poll(driver,device,5)
 end
 local function turn_off(driver,device)

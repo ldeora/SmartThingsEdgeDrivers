@@ -58,8 +58,8 @@ Each fix requires its own scoped review and relevant behavioral tests.
 
 | Issue | Approved disposition | Scope and rationale |
 | --- | --- | --- |
-| #126 | Fix before rc.3 | Preserve the existing ZIP/PowerShell power preference unless explicitly changed; fresh installs remain off, Setup explicitly communicates its choice. Reject conflicting flags. |
-| #127 | Fix before rc.3 | Reuse only a validated existing Private firewall scope on upgrades, allow explicit changes, and refuse ambiguous or missing scope rather than silently broadening access. Cover GUI and silent paths. |
+| #126 | Merged (#174), needs acceptance | Preserve the existing ZIP/PowerShell power preference unless explicitly changed; fresh installs remain off, Setup explicitly communicates its choice. Reject conflicting flags. |
+| #127 | Merged (#174), needs acceptance | Reuse only a validated existing Private firewall scope on upgrades, allow explicit changes, and refuse ambiguous or missing scope rather than silently broadening access. Cover GUI and silent paths. |
 | #135 | Merged (#173), needs acceptance | A missing, malformed or unreadable key disables optional power without taking down otherwise safe monitoring. Never regenerate a key implicitly. |
 | #121 | Merged (#173), needs acceptance | Check protected state and token ACL/ownership/reparse boundaries before runtime use; keep monitoring only when identity/state can be used safely. Do not create inherited unsafe state or weaken installer checks. Test under the actual service identity. |
 | #134 | Fix before rc.3 | Emit appropriate switch acknowledgements for known command paths without inventing physical state or weakening shutdown grace. Preserve momentary capability/status contracts; document rejection guidance. |

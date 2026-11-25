@@ -231,10 +231,16 @@ class LuaDriverTests(unittest.TestCase):
             -- ON while the agent still answers must not replace the pending
             -- shutdown or send a Wake request.
             local wakes_before=wakes
+            local grace_at=fields.computerhost_pending_at
             TEMPLATE.capability_handlers.switch.on(driver,device)
             assert(wakes==wakes_before)
             assert(fields.computerhost_pending_action=='shutdown')
+            assert(fields.computerhost_pending_at==grace_at)
             assert(fields.computerhost_last_switch=='off')
+            assert(device.last_status=='stopping')
+            assert(#device.events==previous_events+1)
+            assert(device.events[#device.events].value=='off')
+            assert(device.events[#device.events].state_change==nil)
             -- The separate momentary controls must also be unable to replace
             -- the shutdown with Wake, reboot or suspend.
             local actions_before_momentary=#actions
@@ -290,10 +296,15 @@ class LuaDriverTests(unittest.TestCase):
             timers['Computer Host health'].fn()
             assert(fields.computerhost_last_ok==false)
             wakes_before=wakes
+            previous_events=#device.events
+            grace_at=fields.computerhost_pending_at
             TEMPLATE.capability_handlers.switch.on(driver,device)
             assert(wakes==wakes_before)
             assert(fields.computerhost_pending_action=='shutdown')
+            assert(fields.computerhost_pending_at==grace_at)
             assert(fields.computerhost_last_switch=='off')
+            assert(#device.events==previous_events+1)
+            assert(device.events[#device.events].value=='off')
             for i=1,3 do timers['Computer Host health'].fn() end
             assert(fields.computerhost_last_switch=='off')
             assert(device.last_status=='stopping')
@@ -384,6 +395,77 @@ class LuaDriverTests(unittest.TestCase):
             for i=1,3 do timers['Computer Host health'].fn() end
             assert(device.last_status=='unknown')
             assert(fields.computerhost_last_switch=='on')
+
+            -- #134: count command acknowledgements, not only state changes.
+            local function expect_on_command(value)
+              local before=#device.events
+              TEMPLATE.capability_handlers.switch.on(driver,device)
+              assert(#device.events==before+1,'expected exactly one switch event')
+              assert(device.events[#device.events].value==value)
+              assert(device.events[#device.events].state_change==nil)
+            end
+            healthy=true
+            timers['Computer Host health'].fn()
+            local wake_count=wakes
+            local action_count=#actions
+            expect_on_command('on') -- already running, no WOL
+            assert(wakes==wake_count and #actions==action_count)
+            assert(device.last_status=='running')
+            previous_events=#device.events
+            timers['Computer Host health'].fn()
+            assert(#device.events==previous_events) -- regular polls still deduplicate
+            -- A valid poll that changes the switch already acknowledges ON.
+            fields.computerhost_last_switch='off'
+            expect_on_command('on')
+            assert(wakes==wake_count)
+            -- Busy poll: acknowledge known state, do not start another poll.
+            fields.computerhost_in_progress=true
+            expect_on_command('on')
+            assert(fields.computerhost_in_progress==true)
+            fields.computerhost_in_progress=false
+            -- Fresh check fails below threshold: reassert only known state.
+            healthy=false
+            error_message='HTTP transport failed: timeout'
+            expect_on_command('on')
+            assert(fields.computerhost_last_ok==false)
+            assert(wakes==wake_count)
+            -- A failure reaching threshold can emit OFF itself: don't emit ON
+            -- or duplicate OFF just to acknowledge the command.
+            fields.computerhost_last_ok=true
+            fields.computerhost_failures=2
+            fields.computerhost_host_failures=2
+            expect_on_command('off')
+            assert(device.last_status=='unreachable')
+            assert(wakes==wake_count)
+            -- With OFF inference disabled, an unreachable host may still show
+            -- ON. Accepted WOL must nevertheless emit one ON acknowledgement.
+            healthy=true
+            timers['Computer Host health'].fn()
+            device.preferences.assumeOffWhenUnreachable=false
+            healthy=false
+            for i=1,3 do timers['Computer Host health'].fn() end
+            assert(fields.computerhost_last_switch=='on')
+            expect_on_command('on')
+            assert(wakes==wake_count+1)
+            assert(#actions==action_count)
+            assert(device.last_status=='starting')
+            assert(fields.computerhost_pending_action=='wake')
+            previous_events=#device.events
+            timers['Computer Host health'].fn()
+            assert(#device.events==previous_events)
+            assert(device.last_status=='starting')
+            healthy=true
+            timers['Computer Host health'].fn()
+            assert(#device.events==previous_events)
+            assert(device.last_status=='running')
+            -- Without a known state a failed Wake must not fabricate one.
+            fields.computerhost_last_ok=false
+            fields.computerhost_last_switch=nil
+            wake_failure=true
+            previous_events=#device.events
+            TEMPLATE.capability_handlers.switch.on(driver,device)
+            assert(#device.events==previous_events)
+            assert(fields.computerhost_last_switch==nil)
 
         '''
         script=script%(repr(str(ROOT)),repr(str(ROOT)))
