@@ -33,6 +33,8 @@ Use a trusted private LAN and a SmartThings hub that supports LAN Edge drivers. 
 
 **Runtime refusal (post-rc.2 main, intended rc.3):** The agent also refuses startup if the protected state directory is missing or unsafe, or if the access rules or ownership of `installation-id` or `boot-session.json` are unsafe, including reparse-point redirects. Have an administrator inspect and restore trusted state before retrying the installer or restarting the service; the installer itself refuses unsafe retained state rather than blindly repairing it. Never delete the installation identity or reset the SmartThings device. If only the power credential is missing, unreadable, malformed or unsafe, monitoring continues when the remaining state is safe, but power is disabled. Use the existing credential recovery guidance above and restart the service after remediation. These runtime checks are not included in the published rc.2 agent.
 
+**Upgrade configuration (post-rc.2 main, intended rc.3):** Setup prefills the validated existing hub address or Private LocalSubnet choice and power setting without initial discovery. If the old scope is missing or ambiguous, select a valid replacement explicitly. Silent Setup supports `/HUBIP=192.168.1.20` (replace with the hub's actual IPv4), `/LOCALSUBNET=1`, and `/ENABLEPOWER=0` or `1`. With no overrides it preserves valid upgrade settings; missing scope or conflicting choices refuse before stopping the service. Fresh silent installs require an explicit scope. These changes are not in the published rc.2 installer.
+
 **Upgrading:** Launch the new Setup.exe over the existing ZIP- or Setup-installed agent. Do not first uninstall, delete the SmartThings device or purge `%ProgramData%\ComputerHostAgent`. Inno Setup preserves the installation ID, control token, custom `appsettings.json` and previous power selection. Normal removal through Windows **Installed apps** removes the service, application files and firewall rule, but intentionally retains ProgramData state. Windows ARM64 is not supported by this x64 installer.
 
 ### Fallback: ZIP and elevated PowerShell
@@ -48,7 +50,7 @@ Get-Service ComputerHostAgent
 Invoke-RestMethod http://127.0.0.1:8765/v2/metrics
 ```
 
-Omit `-HubIPv4` to allow LocalSubnet on Private Windows profiles. **Unlike Setup.exe, PowerShell upgrades require `-EnablePower` again if you want to retain remote power actions.** Without that flag, the script disables them; persistent identity and key remain unchanged. Private key inspection: `Get-Content "$env:ProgramData\ComputerHostAgent\control-token"`. For the script installation use `.\scripts\Uninstall-WindowsAgent.ps1` without `-PurgeState` when preserving your identity.
+**Published rc.2:** omitting `-HubIPv4` selects LocalSubnet; PowerShell upgrades require `-EnablePower` again. **Post-rc.2 main (intended rc.3):** fresh installations require `-HubIPv4` or explicit `-LocalSubnet` (Private only), and default to monitoring only. Upgrades preserve a validated previous scope and boolean power preference unless explicitly changed. Use `-EnablePower` or `-DisablePower` to change power; use `-HubIPv4` or `-LocalSubnet` to change scope. Missing or ambiguous prior scope requires an explicit valid replacement before mutation. Conflicting options are refused. Persistent identity and key remain unchanged. Private key inspection: `Get-Content "$env:ProgramData\ComputerHostAgent\control-token"`. For the script installation use `.\scripts\Uninstall-WindowsAgent.ps1` without `-PurgeState` when preserving your identity.
 
 
 ## Linux (systemd) — published rc.2 only
@@ -113,7 +115,7 @@ A GitHub Actions artifact is temporary and is **not** a permanent published prer
 
 The v0.5.5 Windows 11 tester confirmed a successful in-place GUI upgrade, preserved SmartThings device/settings, accurate CPU/RAM/disk statistics, service stop/restart recovery and functioning WOL. This does not validate the v0.5.6 hardening or the v1.0.0 RC on physical Windows hardware.
 
-Run the version-matched newer Setup.exe over the existing installation. Do not uninstall, delete the SmartThings device or purge the persistent UUID and control token. Setup preserves the prior power preference; ZIP/PowerShell upgrades require -EnablePower again. Install only from a **published release** after checking SHA-256 hashes, not from temporary PR artifacts.
+Run the version-matched newer Setup.exe over the existing installation. Do not uninstall, delete the SmartThings device or purge the persistent UUID and control token. Published rc.2 Setup preserves the prior power preference; its ZIP/PowerShell upgrades require -EnablePower again. Post-rc.2 main preserves both validated firewall scope and power preference across all upgrade paths. Install only from a **published release** after checking SHA-256 hashes, not from temporary PR artifacts.
 
 The published v0.5.6 beta introduced an interrupted-upgrade recovery option and checks health, version and existing identity before committing. Never delete the rollback snapshot or ProgramData files to bypass a failure. Keep a router DHCP reservation for the SmartThings hub. Review the [published beta release notes](docs/beta/RELEASE-NOTES-v0.5.6-beta.1.md) before any new hardware tests.
 

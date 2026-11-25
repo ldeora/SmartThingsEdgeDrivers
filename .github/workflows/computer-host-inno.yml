@@ -335,8 +335,10 @@ jobs:
           Write-Host 'PASS installed onboarding guide and Start Menu shortcut'
           # Next upgrade must retain power without asking to re-enable it.
           Write-Host 'TEST: preserve power setting during a subsequent silent upgrade'
-          RunSetup "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /HUBIP=$hub"
+          RunSetup "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART"
           $upgraded = WaitAgentReady 'silent Setup-to-Setup upgrade'
+          $scope = @((Get-NetFirewallRule -Name 'ComputerHostAgent-TCP8765' | Get-NetFirewallAddressFilter).RemoteAddress)
+          if ($scope.Count -ne 1 -or $scope[0] -ne $hub) { throw 'Silent upgrade lost validated hub scope' }
           AssertServiceDescription 'Setup-to-Setup upgrade'
           if ($upgraded.id -ne $old.id) { throw 'Upgrade changed UUID' }
           $keptConfig = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json
@@ -349,6 +351,18 @@ jobs:
           }
           $upgradeConfig = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json
           if ($upgradeConfig.HostAgent.EnablePowerControl -ne $true) { throw 'Upgrade lost requested power opt-in' }
+          RunSetup "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /LOCALSUBNET=1 /ENABLEPOWER=0"
+          $null = WaitAgentReady 'explicit LocalSubnet and power opt-out'
+          $scope = @((Get-NetFirewallRule -Name 'ComputerHostAgent-TCP8765' | Get-NetFirewallAddressFilter).RemoteAddress)
+          if ($scope.Count -ne 1 -or $scope[0] -ne 'LocalSubnet') { throw 'Explicit LocalSubnet change failed' }
+          RunSetup "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART"
+          $keptSubnet = WaitAgentReady 'silent LocalSubnet preservation'
+          $scope = @((Get-NetFirewallRule -Name 'ComputerHostAgent-TCP8765' | Get-NetFirewallAddressFilter).RemoteAddress)
+          if ($scope.Count -ne 1 -or $scope[0] -ne 'LocalSubnet' -or $keptSubnet.id -ne $old.id -or
+              (Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json).HostAgent.EnablePowerControl -ne $false -or
+              (Get-FileHash $key -Algorithm SHA256).Hash -ne $oldKeyHash) {
+            throw 'Silent upgrade lost LocalSubnet, disabled preference or retained credentials'
+          }
           Write-Host 'TEST: uninstall removes service/firewall but retains state'
           $uninstaller = Join-Path (Join-Path $env:ProgramFiles 'Computer Host Agent') 'unins000.exe'
           if (-not (Test-Path $uninstaller)) { throw 'Inno uninstall entry missing' }
