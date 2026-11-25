@@ -811,7 +811,11 @@ func runLiveAccessibleWithHubsMode(reader io.Reader, writer io.Writer, api apiCl
 		answer := strings.ToLower(raw)
 		switch answer {
 		case "quit", "exit", "q":
-			fmt.Fprintln(writer, "Setup preview cancelled. No changes made.")
+			if installing {
+				fmt.Fprintln(writer, "Setup cancelled. No changes made.")
+			} else {
+				fmt.Fprintln(writer, "Setup preview cancelled. No changes made.")
+			}
 			return nil
 		case "back":
 			if step > 0 {

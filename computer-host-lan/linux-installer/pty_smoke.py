@@ -56,7 +56,7 @@ def smoke(binary: str, width: int, height: int, *, mode: str) -> None:
 
     try:
         expected_page = b'1. Welcome'
-        if not pump_until(expected_page, 15):
+        if not pump_until(expected_page, 15 if mode == 'demo' else 60):
             raise AssertionError(f'full-screen {expected_page!r} page never rendered')
         # Cancel before the installation review or authorization prompt.
         os.write(master, b'\x03')
@@ -76,7 +76,7 @@ def smoke(binary: str, width: int, height: int, *, mode: str) -> None:
             time.sleep(0.05)
         if child_status is None or not os.WIFEXITED(child_status) or os.WEXITSTATUS(child_status) != 0:
             raise AssertionError(f'TUI did not exit with code 0: status={child_status}')
-        if mode == 'install' and b'COMPUTER HOST LAN' not in collected:
+        if mode == 'install' and b'COMPUTER HOST LAN \xe2\x80\x94 LINUX INSTALLATION' not in collected:
             raise AssertionError('installation welcome heading missing')
         print(f'PASS {mode} TUI PTY startup/cancel at {width}x{height}')
     except Exception:

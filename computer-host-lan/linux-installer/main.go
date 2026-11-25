@@ -1,7 +1,7 @@
-// Computer Host LAN Linux installer UX spike.
+// Computer Host LAN Linux installer: consent-gated setup and explicit diagnostics.
 //
 // Demo mode performs no installation, inspection, network discovery or writes.
-// Live preview still cannot install or elevate, but may explicitly browse local
+// Live preview cannot install or elevate, but may explicitly browse local
 // mDNS via Avahi for SmartThings hub candidates. No endpoint is contacted.
 // The demo IPs are reserved documentation addresses and are never contacted.
 package main

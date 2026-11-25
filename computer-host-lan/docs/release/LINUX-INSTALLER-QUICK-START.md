@@ -35,7 +35,7 @@ gh attestation verify ./computer-host-linux-installer \
   --source-digest EXPECTED_APPROVED_SOURCE_COMMIT \
   --signer-digest EXPECTED_APPROVED_SOURCE_COMMIT \
   --deny-self-hosted-runners \
-  --predicate-type https://slsa.dev/provenance/v1
+  --predicate-type https://slsa.dev/provenance/v1 &&
 sha256sum -c computer-host-linux-installer.sha256
 ```
 
@@ -65,7 +65,9 @@ SmartThings device or configure persistent NIC Wake-on-LAN.
 
 For plain-text prompts, run `./computer-host-linux-installer -accessible`.
 For a real read-only plan, use `./computer-host-linux-installer -live -preview`.
-For a simulated wizard, use `-demo`. These diagnostic modes never elevate.
+For a simulated wizard, use `-demo`. The read-only plan and simulated
+wizard never elevate; the accessible installation wizard still requires
+explicit consent and administrator authorization.
 
 ## 4. Connect to SmartThings
 
