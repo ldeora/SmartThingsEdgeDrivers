@@ -70,7 +70,7 @@ const
 
 var
   UpgradePage, HubPage, PowerPage, ConnectPage, KeyPage: TWizardPage;
-  UpgradeSummary: TNewStaticText;
+  UpgradeSummary, UpgradeDeviceHint: TNewStaticText;
   ChangeSettingsCheck, ConfirmPowerCheck: TNewCheckBox;
   PreviousScope: String;
   PreviousPower, ExplicitScope, ExplicitPower, ShowUpgradeSummary: Boolean;
@@ -495,12 +495,22 @@ var
 begin
   UpgradePage := CreateCustomPage(wpWelcome, 'Upgrade - keep current settings',
     'Your existing Computer Host Agent configuration');
+  UpgradeDeviceHint := TNewStaticText.Create(UpgradePage);
+  UpgradeDeviceHint.Parent := UpgradePage.Surface;
+  UpgradeDeviceHint.Width := UpgradePage.SurfaceWidth;
+  UpgradeDeviceHint.AutoSize := False;
+  UpgradeDeviceHint.WordWrap := True;
+  UpgradeDeviceHint.Height := ScaleY(42);
+  UpgradeDeviceHint.Font.Style := [fsBold];
+  UpgradeDeviceHint.Caption := 'If already connected to SmartThings, no new device is needed.';
+
   UpgradeSummary := TNewStaticText.Create(UpgradePage);
   UpgradeSummary.Parent := UpgradePage.Surface;
+  UpgradeSummary.Top := UpgradeDeviceHint.Top + UpgradeDeviceHint.Height + ScaleY(8);
   UpgradeSummary.Width := UpgradePage.SurfaceWidth;
   UpgradeSummary.AutoSize := False;
   UpgradeSummary.WordWrap := True;
-  UpgradeSummary.Height := ScaleY(95);
+  UpgradeSummary.Height := ScaleY(75);
   ChangeSettingsCheck := TNewCheckBox.Create(UpgradePage);
   ChangeSettingsCheck.Parent := UpgradePage.Surface;
   ChangeSettingsCheck.Top := UpgradeSummary.Top + UpgradeSummary.Height + ScaleY(12);
@@ -791,7 +801,7 @@ begin
   else
     UpgradeSummary.Caption := UpgradeSummary.Caption + #13#10 + 'Power control: disabled';
   UpgradeSummary.Caption := UpgradeSummary.Caption + #13#10#13#10 +
-    'Your existing identity and settings will be kept. If already connected to SmartThings, no new device is needed.';
+    'Your existing identity and settings will be kept.';
   ConfirmPowerCheck.Visible := InspectionFailed and not ExplicitPower;
   if InspectionFailed then
     HubStatus.Caption := 'Could not read previous settings. Select a network scope and confirm your power preference.';

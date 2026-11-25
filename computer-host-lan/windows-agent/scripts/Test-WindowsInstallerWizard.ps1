@@ -204,6 +204,7 @@ try {
         WaitForWizardText $window.Handle $scopePattern 'summary shows retained network scope'
         $powerPattern = if ($ExpectRetainedPower) { 'Power control: enabled' } else { 'Power control: disabled' }
         WaitForWizardText $window.Handle $powerPattern 'summary shows retained power preference'
+        WaitForWizardText $window.Handle 'If already connected to SmartThings, no new device is needed\.' 'summary confirms existing SmartThings device is retained'
         CaptureWizardPage $window ('02-upgrade-summary' + $modeSuffix)
         $change = VisibleControls $window.Handle | Where-Object {
             $_.Class -match 'CheckBox|Button' -and $_.Text -eq 'Change settings'

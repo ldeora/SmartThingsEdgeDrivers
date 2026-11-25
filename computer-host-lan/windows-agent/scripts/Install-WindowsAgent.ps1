@@ -2,7 +2,7 @@
 # Power is strictly opt-in. Never changes sleep/fast-startup/WOL settings or firmware.
 [CmdletBinding(SupportsShouldProcess=$true)]
 param(
-  [string]$PublishedDirectory = (Join-Path (Split-Path $PSScriptRoot -Parent) 'publish/win-x64'),
+  [string]$PublishedDirectory = '',
   [switch]$SkipFirewall,
   [switch]$EnablePower,
   [switch]$DisablePower,
@@ -30,7 +30,6 @@ try {
   $programs = Join-Path $programRoot 'Computer Host Agent'
   $state = Join-Path $env:ProgramData 'ComputerHostAgent'
   $exe = Join-Path $programs 'ComputerHost.WindowsAgent.exe'
-  $source = Join-Path $PublishedDirectory 'ComputerHost.WindowsAgent.exe'
   function Test-HubIPv4([string]$Address) {
     $addr = $null
     return ([Net.IPAddress]::TryParse($Address, [ref]$addr) -and
@@ -44,7 +43,16 @@ try {
       ($HubIPv4 -and $LocalSubnet) -or ($SkipFirewall -and ($HubIPv4 -or $LocalSubnet))) {
     throw 'Choose one valid firewall option: -HubIPv4, -LocalSubnet or -SkipFirewall.'
   }
-  if (-not $InspectConfiguration -and -not $ValidateOnly -and -not (Test-Path -LiteralPath $source)) { throw "Published executable not found: $source" }
+  if (-not $InspectConfiguration -and -not $ValidateOnly) {
+    # Windows PowerShell 5.1 -File can evaluate parameter defaults before
+    # PSScriptRoot is populated. Resolve the ZIP default inside the body;
+    # neither read-only operation needs a published executable.
+    if (-not $PublishedDirectory) {
+      $PublishedDirectory = Join-Path (Split-Path -Parent $PSScriptRoot) 'publish/win-x64'
+    }
+    $source = Join-Path $PublishedDirectory 'ComputerHost.WindowsAgent.exe'
+    if (-not (Test-Path -LiteralPath $source)) { throw "Published executable not found: $source" }
+  }
   $principal = [Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsIdentity]::GetCurrent())
   if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { throw 'Run PowerShell as Administrator.' }
   $inspectionStage = 'service ownership'
