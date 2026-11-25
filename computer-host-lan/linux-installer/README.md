@@ -90,9 +90,12 @@ start the installed daemon with
 `sudo systemctl enable --now avahi-daemon.service`.
 Install the prerequisites before running the agent installer: it only
 installs the managed Avahi service file when `/etc/avahi/services` exists.
-If you installed Avahi afterward, rerun the verified installer in the
-normal install/upgrade flow (resolve any pending recovery first). Do not
-delete the retained identity or SmartThings device.
+If you installed Avahi afterward, resolve any pending recovery first, then
+rerun the verified installer. The interactive wizard automatically chooses
+upgrade when it detects an existing installation. Alternatively, use the
+documented `cli repair --confirm REPAIR` action with an already-authorized
+noninteractive elevation provider (see below). Do not delete the retained
+identity or SmartThings device.
 
 After installation, verify the agent advertisement on the local network:
 
@@ -128,10 +131,20 @@ sudo firewall-cmd --zone=home --add-rich-rule='rule family="ipv4" source address
 ```
 
 The rule expires after five minutes. If hub connectivity works, add
-the same reviewed rule to the permanent configuration using
-`--permanent` instead of `--timeout=5m`, and apply the change according to
-your normal firewall administration procedure. Check runtime and
-permanent policy separately; avoid copying unrelated runtime rules
+the same reviewed rule to the permanent configuration. Replace the zone,
+hub IPv4 and port just as for the temporary rule:
+
+```sh
+sudo firewall-cmd --permanent --zone=home --add-rich-rule='rule family="ipv4" source address="192.0.2.20/32" port port="8765" protocol="tcp" accept'
+sudo firewall-cmd --reload
+```
+
+Before reloading, review the permanent configuration and any unrelated
+runtime-only rules: reloading replaces runtime policy with permanent policy,
+which can remove other temporary rules and affect connectivity. Do not reload
+until it is safe for your host. The temporary test rule is replaced by the
+permanent rule, as intended. Verify hub connectivity again. Check runtime
+and permanent policy separately; avoid copying unrelated runtime rules
 into permanent policy. Reserve the hub's IP or update the rule if it changes.
 
 Check mDNS separately on the trusted LAN (firewalld's `mdns` service may be

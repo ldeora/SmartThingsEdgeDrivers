@@ -135,12 +135,38 @@ func TestInstallationReviewAndCompletionWarnAboutDiscoveryAndFirewall(t *testing
 	}
 	var completion bytes.Buffer
 	s.showNetworkWarnings(&completion)
-	for _, warning := range s.networkWarnings() {
+	for _, warning := range s.networkWarnings(true) {
 		if !strings.Contains(completion.String(), warning) {
 			t.Fatalf("Completion hid network warning %q: %s", warning, completion.String())
 		}
 	}
-	for _, command := range []string{"--add-port", "--add-rich-rule", "--permanent", "systemctl stop", "systemctl disable"} {
+	for _, phrase := range []string{
+		"Avahi discovery is not confirmed",
+		"systemctl is-active avahi-daemon.service",
+		"avahi-browse -rt _computerhost._tcp",
+		"firewall-cmd --get-active-zones",
+		"firewall-cmd --zone=ZONE --list-all",
+		"If Avahi was installed later, rerun the verified installer",
+	} {
+		if !strings.Contains(completion.String(), phrase) {
+			t.Fatalf("Completion missing %q: %s", phrase, completion.String())
+		}
+	}
+	if !strings.Contains(review, "before installing the agent.\n") ||
+		!strings.Contains(completion.String(), "Now check the advertisement:\n") ||
+		strings.Contains(completion.String(), "before installing the agent") {
+		t.Fatal("Avahi instructions must reflect the current installation phase")
+	}
+	for _, completed := range []bool{false, true} {
+		for _, warning := range s.networkWarnings(completed) {
+			for _, line := range strings.Split(warning, "\n") {
+				if len(line) > 80 {
+					t.Fatalf("Network warning line exceeds 80 characters: %q", line)
+				}
+			}
+		}
+	}
+	for _, command := range []string{"--add-port", "--add-rich-rule", "--permanent", "--reload", "systemctl stop", "systemctl disable"} {
 		if strings.Contains(review, command) || strings.Contains(completion.String(), command) {
 			t.Fatalf("Wizard should not suggest firewall mutations: %q", command)
 		}
@@ -151,7 +177,7 @@ func TestInstallationReviewAndCompletionWarnAboutDiscoveryAndFirewall(t *testing
 			s.inspection.Checks[i].Status = "passed"
 		}
 	}
-	if warnings := s.networkWarnings(); len(warnings) != 0 {
+	if warnings := s.networkWarnings(false); len(warnings) != 0 {
 		t.Fatalf("No negative Avahi or positive firewalld observation: %+v", warnings)
 	}
 }
@@ -163,7 +189,7 @@ func TestNetworkWarningsRespectIndependentObservations(t *testing.T) {
 			if status != "" {
 				s.inspection.Checks = []apiCheck{{ID: "avahi_discovery", Status: status}}
 			}
-			text := strings.Join(s.networkWarnings(), "\n")
+			text := strings.Join(s.networkWarnings(false), "\n")
 			if strings.Contains(text, "avahi-browse -rt _computerhost._tcp") != (status != "passed") {
 				t.Fatalf("Wrong Avahi advice for %q: %s", status, text)
 			}
