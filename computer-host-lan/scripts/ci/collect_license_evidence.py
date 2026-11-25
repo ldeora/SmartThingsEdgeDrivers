@@ -53,6 +53,8 @@ def package_record(package: str, roots: list[Path], output: Path) -> dict:
     if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.+-]+", package):
         raise ValueError("Unexpected package identity")
     name, version = package.split("/")
+    if name in (".", "..") or version in (".", ".."):
+        raise ValueError("Invalid package path component")
     relative = Path(name.lower()) / version.lower()
     candidates = [root / relative for root in roots if (root / relative).is_dir()]
     if not candidates:
