@@ -236,12 +236,17 @@ jobs:
             # before the next installer operation, even if the test fails.
             $unsafeTokenAcl = Get-Acl -LiteralPath $secretPath
             $everyone = [Security.Principal.SecurityIdentifier]::new('S-1-1-0')
-            $unsafeTokenAcl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new($everyone, 'Read', 'Allow'))
+            $originalTokenDacl = $unsafeTokenAcl.GetSecurityDescriptorSddlForm([Security.AccessControl.AccessControlSections]::Access)
+            $injectedTokenRule = [Security.AccessControl.FileSystemAccessRule]::new($everyone, 'Read', 'Allow')
+            $unsafeTokenAcl.AddAccessRule($injectedTokenRule)
             Set-Acl -LiteralPath $secretPath -AclObject $unsafeTokenAcl
             try { Assert-DegradedServicePower }
             finally {
               Stop-Service ComputerHostAgent -ErrorAction SilentlyContinue
-              Set-Acl -LiteralPath $secretPath -AclObject $tokenAcl
+              $unsafeTokenAcl.RemoveAccessRuleSpecific($injectedTokenRule)
+              Set-Acl -LiteralPath $secretPath -AclObject $unsafeTokenAcl
+              $restoredTokenDacl = (Get-Acl -LiteralPath $secretPath).GetSecurityDescriptorSddlForm([Security.AccessControl.AccessControlSections]::Access)
+              if ($restoredTokenDacl -cne $originalTokenDacl) { throw 'Service test did not restore original token DACL' }
             }
             if ((Get-Content -LiteralPath $secretPath -Raw).Trim() -cne $secret) { throw 'Service changed unsafe token' }
             Start-Service ComputerHostAgent

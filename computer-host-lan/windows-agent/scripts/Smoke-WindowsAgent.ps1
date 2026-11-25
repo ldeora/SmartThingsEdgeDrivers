@@ -102,9 +102,16 @@ try {
   [IO.File]::WriteAllText($keyPath, ([BitConverter]::ToString($keyBytes)).Replace('-', '').ToLowerInvariant())
   $unsafeAcl = Get-Acl -LiteralPath $keyPath
   $everyone = [Security.Principal.SecurityIdentifier]::new('S-1-1-0')
-  $unsafeAcl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new($everyone, 'Read', 'Allow'))
+  $originalDacl = $unsafeAcl.GetSecurityDescriptorSddlForm([Security.AccessControl.AccessControlSections]::Access)
+  $injectedRule = [Security.AccessControl.FileSystemAccessRule]::new($everyone, 'Read', 'Allow')
+  $unsafeAcl.AddAccessRule($injectedRule)
   Set-Acl -LiteralPath $keyPath -AclObject $unsafeAcl
-  try { Assert-MonitoringWithoutPower } finally { Set-Acl -LiteralPath $keyPath -AclObject $keyAcl }
+  try { Assert-MonitoringWithoutPower } finally {
+    $unsafeAcl.RemoveAccessRuleSpecific($injectedRule)
+    Set-Acl -LiteralPath $keyPath -AclObject $unsafeAcl
+    $restoredDacl = (Get-Acl -LiteralPath $keyPath).GetSecurityDescriptorSddlForm([Security.AccessControl.AccessControlSections]::Access)
+    if ($restoredDacl -cne $originalDacl) { throw 'Console smoke did not restore original token DACL' }
+  }
   Write-Host 'PASS missing, malformed and unsafe token leave HTTP monitoring active and power denied'
   $p = Start-Agent
   try {

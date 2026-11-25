@@ -110,10 +110,11 @@ try
         Assert(!new PowerConfiguration(powerCfg, id1).Enabled, "unexpected token allow ACE disables power");
         Assert(File.ReadAllText(keyPath) == key, "unsafe token is not replaced");
         var directory = new DirectoryInfo(temp);
-        var original = directory.GetAccessControl();
         var unsafeAcl = directory.GetAccessControl();
-        unsafeAcl.AddAccessRule(new FileSystemAccessRule(new SecurityIdentifier(WellKnownSidType.WorldSid, null),
-            FileSystemRights.Read, AccessControlType.Allow));
+        var original = unsafeAcl.GetSecurityDescriptorSddlForm(AccessControlSections.Access);
+        var directoryRule = new FileSystemAccessRule(new SecurityIdentifier(WellKnownSidType.WorldSid, null),
+            FileSystemRights.Read, AccessControlType.Allow);
+        unsafeAcl.AddAccessRule(directoryRule);
         directory.SetAccessControl(unsafeAcl);
         try
         {
@@ -121,13 +122,22 @@ try
             try { _ = new PersistentIdentity(cfg); } catch (InvalidDataException) { rejected = true; }
             Assert(rejected, "unexpected state directory allow ACE refuses identity startup");
         }
-        finally { directory.SetAccessControl(original); }
+        finally
+        {
+            // SetAccessControl persists modified sections only. Remove the
+            // injected rule explicitly, then check the on-disk DACL.
+            unsafeAcl.RemoveAccessRuleSpecific(directoryRule);
+            directory.SetAccessControl(unsafeAcl);
+            Assert(directory.GetAccessControl().GetSecurityDescriptorSddlForm(AccessControlSections.Access) == original,
+                "test restored original state directory DACL");
+        }
 
         var identityFile = new FileInfo(Path.Combine(temp, "installation-id"));
-        var identityAcl = identityFile.GetAccessControl();
         var unsafeIdentityAcl = identityFile.GetAccessControl();
-        unsafeIdentityAcl.AddAccessRule(new FileSystemAccessRule(new SecurityIdentifier(WellKnownSidType.WorldSid, null),
-            FileSystemRights.Write, AccessControlType.Allow));
+        var identityAcl = unsafeIdentityAcl.GetSecurityDescriptorSddlForm(AccessControlSections.Access);
+        var identityRule = new FileSystemAccessRule(new SecurityIdentifier(WellKnownSidType.WorldSid, null),
+            FileSystemRights.Write, AccessControlType.Allow);
+        unsafeIdentityAcl.AddAccessRule(identityRule);
         identityFile.SetAccessControl(unsafeIdentityAcl);
         try
         {
@@ -135,7 +145,14 @@ try
             try { _ = new PersistentIdentity(cfg); } catch (InvalidDataException) { rejected = true; }
             Assert(rejected, "unsafe persistent identity is refused, not replaced");
         }
-        finally { identityFile.SetAccessControl(identityAcl); }
+        finally
+        {
+            unsafeIdentityAcl.RemoveAccessRuleSpecific(identityRule);
+            identityFile.SetAccessControl(unsafeIdentityAcl);
+            Assert(identityFile.GetAccessControl().GetSecurityDescriptorSddlForm(AccessControlSections.Access) == identityAcl,
+                "test restored original identity file DACL");
+        }
+        Assert(new PersistentIdentity(cfg).Id == id1.Id, "restored state remains usable with original identity");
     }
     File.Delete(keyPath);
     Directory.CreateDirectory(keyPath);
