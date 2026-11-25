@@ -224,7 +224,7 @@ func runInteractive(w io.Writer) error {
 	s := selection{action: "install", hubChoice: "none", powerChoice: "keep", wolChoice: "keep"}
 	fmt.Fprintln(w, "COMPUTER HOST LAN — LINUX WIZARD EXPERIMENT")
 	fmt.Fprintln(w, "DEMO ONLY: no probing, discovery, installation, key access or system changes.")
-	err = interactiveForm(&s).Run()
+	err := interactiveForm(&s).Run()
 	if errors.Is(err, huh.ErrUserAborted) {
 		fmt.Fprintln(w, "Cancelled; no changes made.")
 		return nil
