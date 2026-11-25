@@ -153,6 +153,9 @@ jobs:
             $serviceSidMatch = [regex]::Match($serviceSidOutput, 'S-1-5-80-(?:\d+-){4}\d+')
             if (-not $serviceSidMatch.Success) { throw 'Service SID was not returned in CI' }
             $serviceSid = $serviceSidMatch.Value
+            if ($serviceSid -ne 'S-1-5-80-3087533459-2037897677-1353449284-3397642928-3366244619') {
+              throw 'Windows service SID differs from runtime policy'
+            }
             $expectedDirectorySids = @($admins,'S-1-5-18',$serviceSid)
             foreach ($rule in $permissions.Access) {
               if ($rule.AccessControlType -ne [Security.AccessControl.AccessControlType]::Allow) { continue }

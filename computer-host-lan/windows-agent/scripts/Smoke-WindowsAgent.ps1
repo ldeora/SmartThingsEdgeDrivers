@@ -92,14 +92,14 @@ try {
   Assert-MonitoringWithoutPower
   if (Test-Path -LiteralPath $keyPath) { throw 'Missing token was generated' }
   [IO.File]::WriteAllText($keyPath, 'malformed')
-  Assert-MonitoringWithoutPower
-  if ([IO.File]::ReadAllText($keyPath) -ne 'malformed') { throw 'Invalid token changed' }
-  [IO.File]::WriteAllText($keyPath, ([BitConverter]::ToString($keyBytes)).Replace('-', '').ToLowerInvariant())
   $keyAcl = Get-Acl -LiteralPath $keyPath
   $keyAcl.SetAccessRuleProtection($true, $false)
   $keyAcl.SetOwner($owner)
   $keyAcl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new($owner, 'FullControl', 'Allow'))
   Set-Acl -LiteralPath $keyPath -AclObject $keyAcl
+  Assert-MonitoringWithoutPower
+  if ([IO.File]::ReadAllText($keyPath) -ne 'malformed') { throw 'Invalid token changed' }
+  [IO.File]::WriteAllText($keyPath, ([BitConverter]::ToString($keyBytes)).Replace('-', '').ToLowerInvariant())
   $unsafeAcl = Get-Acl -LiteralPath $keyPath
   $everyone = [Security.Principal.SecurityIdentifier]::new('S-1-1-0')
   $unsafeAcl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new($everyone, 'Read', 'Allow'))

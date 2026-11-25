@@ -78,10 +78,23 @@ try
     Assert(!new PowerConfiguration(powerCfg, id1).Enabled, "missing token disables power without startup exception");
     var keyPath = Path.Combine(temp, "control-token");
     File.WriteAllText(keyPath, "invalid");
+    if (OperatingSystem.IsWindows())
+    {
+        using var current = WindowsIdentity.GetCurrent();
+        var owner = current.User!;
+        var privateAcl = new FileSecurity();
+        privateAcl.SetOwner(owner);
+        privateAcl.SetAccessRuleProtection(true, false);
+        privateAcl.AddAccessRule(new FileSystemAccessRule(owner, FileSystemRights.FullControl, AccessControlType.Allow));
+        new FileInfo(keyPath).SetAccessControl(privateAcl);
+    }
     Assert(!new PowerConfiguration(powerCfg, id1).Enabled, "malformed token disables power");
     Assert(File.ReadAllText(keyPath) == "invalid", "invalid token is not replaced");
     File.WriteAllText(keyPath, new string('a', 257));
     Assert(!new PowerConfiguration(powerCfg, id1).Enabled, "oversized token disables power");
+    File.WriteAllText(keyPath, key);
+    using (var lockedToken = new FileStream(keyPath, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        Assert(!new PowerConfiguration(powerCfg, id1).Enabled, "unreadable token disables power");
     if (OperatingSystem.IsWindows())
     {
         using var current = WindowsIdentity.GetCurrent();
@@ -109,8 +122,25 @@ try
             Assert(rejected, "unexpected state directory allow ACE refuses identity startup");
         }
         finally { directory.SetAccessControl(original); }
+
+        var identityFile = new FileInfo(Path.Combine(temp, "installation-id"));
+        var identityAcl = identityFile.GetAccessControl();
+        var unsafeIdentityAcl = identityFile.GetAccessControl();
+        unsafeIdentityAcl.AddAccessRule(new FileSystemAccessRule(new SecurityIdentifier(WellKnownSidType.WorldSid, null),
+            FileSystemRights.Write, AccessControlType.Allow));
+        identityFile.SetAccessControl(unsafeIdentityAcl);
+        try
+        {
+            bool rejected = false;
+            try { _ = new PersistentIdentity(cfg); } catch (InvalidDataException) { rejected = true; }
+            Assert(rejected, "unsafe persistent identity is refused, not replaced");
+        }
+        finally { identityFile.SetAccessControl(identityAcl); }
     }
     File.Delete(keyPath);
+    Directory.CreateDirectory(keyPath);
+    Assert(!new PowerConfiguration(powerCfg, id1).Enabled, "directory in place of token disables power");
+    Directory.Delete(keyPath);
     var id2 = new PersistentIdentity(cfg);
     Assert(id1.Id == id2.Id && Guid.TryParse(id1.Id, out _), "persistent identity survives process reinitialization");
     Assert(!Directory.EnumerateFiles(temp, "installation-id.*.tmp").Any(), "atomic identity leaves no temporary file after success");
