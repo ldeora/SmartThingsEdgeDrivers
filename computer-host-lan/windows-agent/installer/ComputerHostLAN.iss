@@ -879,6 +879,10 @@ end;
 function NextButtonClick(CurPageID: Integer): Boolean;
 begin
   Result := True;
+  // In silent mode Inno still calls this event. Returning False would
+  // strand the hidden wizard on a page with no user to correct the input.
+  // PrepareToInstall validates every silent choice and aborts with an error.
+  if WizardSilent then Exit;
   if (CurPageID = HubPage.ID) and not ValidConfiguration then
   begin
     MsgBox('Select or enter your SmartThings hub IP address, or use Advanced options to allow local-network access.',

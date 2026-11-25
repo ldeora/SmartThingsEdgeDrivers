@@ -281,10 +281,11 @@ jobs:
             }
             throw "Agent did not serve /v2/info after $stage"
           }
-          function RunSetup([string]$setupArgs, [switch]$ExpectRefusal) {
+          function RunSetup([string]$setupArgs, [switch]$ExpectRefusal, [string]$ExpectedReason = '') {
             # Do not wait indefinitely for descendant processes of a self-
             # elevating installer. Bound the setup process and keep diagnostics.
             $log = Join-Path $env:RUNNER_TEMP 'computerhost-setup.log'
+            Remove-Item -LiteralPath $log -ErrorAction SilentlyContinue
             Write-Host "Running setup with silent arguments: $setupArgs"
             $p = Start-Process -FilePath $setup -ArgumentList ($setupArgs + ' /LOG="' + $log + '"') -PassThru
             try {
@@ -295,6 +296,14 @@ jobs:
               }
               if ($ExpectRefusal) {
                 if ($p.ExitCode -eq 0) { throw 'Invalid Setup unexpectedly succeeded' }
+                if ($ExpectedReason) {
+                  if (-not (Test-Path -LiteralPath $log) -or
+                      (Get-Content -LiteralPath $log -Raw) -notmatch ('PrepareToInstall failed: ' + [regex]::Escape($ExpectedReason))) {
+                    if (Test-Path -LiteralPath $log) { Get-Content -LiteralPath $log -Tail 35 }
+                    throw 'Setup did not refuse at the expected pre-install validation'
+                  }
+                }
+                Write-Host "PASS silent Setup refused (exit $($p.ExitCode)): $ExpectedReason"
                 return
               }
               if ($p.ExitCode -ne 0) {
@@ -384,11 +393,11 @@ jobs:
           }
           $before = (Get-CimInstance Win32_Service -Filter "Name='ComputerHostAgent'").ProcessId
           $beforeConfig = (Get-FileHash -LiteralPath $configPath).Hash
-          RunSetup "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /HUBIP=$hub /LOCALSUBNET=1" -ExpectRefusal
+          RunSetup "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /HUBIP=$hub /LOCALSUBNET=1" -ExpectRefusal -ExpectedReason 'Conflicting or invalid arguments.'
           Set-NetFirewallRule -Name 'ComputerHostAgent-TCP8765' -RemoteAddress Any
-          RunSetup "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART" -ExpectRefusal
+          RunSetup "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART" -ExpectRefusal -ExpectedReason 'Missing hub address.'
           Remove-NetFirewallRule -Name 'ComputerHostAgent-TCP8765'
-          RunSetup "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART" -ExpectRefusal
+          RunSetup "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART" -ExpectRefusal -ExpectedReason 'Missing hub address.'
           if ((Get-CimInstance Win32_Service -Filter "Name='ComputerHostAgent'").ProcessId -ne $before -or
               (Get-FileHash -LiteralPath $configPath).Hash -ne $beforeConfig) {
             throw 'Invalid silent upgrades changed service or configuration'
@@ -405,7 +414,10 @@ jobs:
             $invalidConfig.HostAgent.EnablePowerControl = 'invalid'
             $invalidConfig | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $configPath -Encoding utf8
             $invalidHash = (Get-FileHash -LiteralPath $configPath).Hash
-            RunSetup "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /HUBIP=$hub /ENABLEPOWER=0" -ExpectRefusal
+            # Missing explicit power preference after failed inspection must
+            # also exit, not get stuck on the hidden power confirmation page.
+            RunSetup "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /HUBIP=$hub" -ExpectRefusal -ExpectedReason 'Unable to read previous settings.'
+            RunSetup "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /HUBIP=$hub /ENABLEPOWER=0" -ExpectRefusal -ExpectedReason 'Existing installation or selected settings failed safety validation.'
             if ((Get-CimInstance Win32_Service -Filter "Name='ComputerHostAgent'").ProcessId -ne $runningPid -or
                 (Get-FileHash -LiteralPath $configPath).Hash -ne $invalidHash) {
               throw 'Explicit Setup arguments bypassed actual configuration validation'
