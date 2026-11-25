@@ -32,12 +32,13 @@ RestartApplications=no
 ChangesEnvironment=no
 
 [Files]
+; Extract the small inspection script before the solid-compressed payload.
+Source: "..\scripts\Install-WindowsAgent.ps1"; DestDir: "{app}\Installer"; Flags: ignoreversion
 ; Inno owns Program Files; the PowerShell script reuses already-installed files.
 ; Preserve existing host-side settings on ZIP-to-Setup and Setup-to-Setup upgrades.
 ; The PowerShell service installer updates only EnablePowerControl after copy.
 Source: "..\publish\win-x64\*"; DestDir: "{app}"; Excludes: "appsettings.json"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "..\publish\win-x64\appsettings.json"; DestDir: "{app}"; Flags: onlyifdoesntexist
-Source: "..\scripts\Install-WindowsAgent.ps1"; DestDir: "{app}\Installer"; Flags: ignoreversion
 Source: "..\scripts\Uninstall-WindowsAgent.ps1"; DestDir: "{app}\Installer"; Flags: ignoreversion
 Source: "..\scripts\Prepare-WindowsAgentUpgrade.ps1"; Flags: dontcopy
 Source: "..\scripts\Restore-WindowsAgentUpgrade.ps1"; Flags: dontcopy
@@ -711,7 +712,7 @@ end;
 procedure CurPageChanged(CurPageID: Integer);
 begin
   if (CurPageID = HubPage.ID) and (not Searched) and (not WizardSilent) and
-     (HubSelect.Text = '') then
+     (HubSelect.Text = '') and not LocalSubnetCheck.Checked then
   begin
     // CurPageChanged runs as the page becomes active; without this repaint,
     // waiting for the discovery process can leave the title/controls half drawn.

@@ -331,7 +331,7 @@ jobs:
             Assert-ZipScope 'LocalSubnet'
             & $install -PublishedDirectory $publish -HubIPv4 '192.0.2.21'
             Assert-ZipScope '192.0.2.21'
-            function Assert-ZipRefusal([string[]]$extra) {
+            function Assert-ZipRefusal([hashtable]$extra) {
               $before = (Get-CimInstance Win32_Service -Filter "Name='ComputerHostAgent'").ProcessId
               $configHash = (Get-FileHash -LiteralPath $appConfig).Hash
               $rejected = $false
@@ -341,12 +341,12 @@ jobs:
                 throw 'Invalid ZIP upgrade did not refuse before mutation'
               }
             }
-            Assert-ZipRefusal @('-EnablePower','-DisablePower')
-            Assert-ZipRefusal @('-HubIPv4','192.0.2.21','-LocalSubnet')
+            Assert-ZipRefusal @{EnablePower=$true; DisablePower=$true}
+            Assert-ZipRefusal @{HubIPv4='192.0.2.21'; LocalSubnet=$true}
             Set-NetFirewallRule -Name 'ComputerHostAgent-TCP8765' -RemoteAddress Any
-            Assert-ZipRefusal @()
+            Assert-ZipRefusal @{}
             Remove-NetFirewallRule -Name 'ComputerHostAgent-TCP8765'
-            Assert-ZipRefusal @()
+            Assert-ZipRefusal @{}
             & $install -PublishedDirectory $publish -HubIPv4 '192.0.2.21'
             Assert-ZipScope '192.0.2.21'
             Write-Host 'PASS ZIP scope preservation, explicit replacement and pre-mutation refusal'

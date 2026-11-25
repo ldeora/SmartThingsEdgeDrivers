@@ -27,7 +27,7 @@ From the version-matched ZIP use elevated PowerShell (replace the hub IP):
 
 ```powershell
 .\scripts\Verify-Package.ps1
-.\scripts\Install-WindowsAgent.ps1 -WhatIf
+.\scripts\Install-WindowsAgent.ps1 -WhatIf -HubIPv4 192.168.1.20
 .\scripts\Install-WindowsAgent.ps1 -HubIPv4 192.168.1.20
 Get-Service ComputerHostAgent
 Invoke-RestMethod http://127.0.0.1:8765/v2/info

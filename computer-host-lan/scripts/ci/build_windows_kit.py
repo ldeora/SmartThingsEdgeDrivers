@@ -108,7 +108,7 @@ Use only on a trusted PRIVATE LAN; never forward TCP 8765 to the Internet.
 2. From the extracted directory run in Windows PowerShell:
    .\\scripts\\Verify-Package.ps1
 3. Open PowerShell as Administrator. Preview, then install:
-   .\\scripts\\Install-WindowsAgent.ps1 -WhatIf
+   .\\scripts\\Install-WindowsAgent.ps1 -WhatIf -HubIPv4 YOUR_HUB_IPV4
    .\\scripts\\Install-WindowsAgent.ps1 -HubIPv4 YOUR_HUB_IPV4
    Get-Service ComputerHostAgent
    Invoke-RestMethod http://127.0.0.1:8765/v2/info

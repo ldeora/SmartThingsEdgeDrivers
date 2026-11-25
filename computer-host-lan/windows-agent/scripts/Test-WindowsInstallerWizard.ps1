@@ -6,7 +6,9 @@
 param([Parameter(Mandatory)][string]$SetupExecutable,
       [switch]$FullInstall,
       [switch]$MonitoringOnly,
-      [switch]$SubnetFallback)
+      [switch]$SubnetFallback,
+      [string]$ExpectRetainedScope = '',
+      [switch]$ExpectRetainedPower)
 $ErrorActionPreference = 'Stop'
 
 Add-Type -TypeDefinition @'
@@ -223,6 +225,28 @@ try {
         throw "Hub IPv4 input falls outside the Setup window: $input"
     }
     Write-Host "PASS visible, on-screen, editable hub address selector: $input"
+    if ($ExpectRetainedScope) {
+        if ($ExpectRetainedScope -eq 'LocalSubnet') {
+            $scopeCheck = $children | Where-Object {
+                $_.Visible -and $_.Text -eq 'Allow connections from devices on my local network'
+            } | Select-Object -First 1
+            if (-not $scopeCheck -or -not [ComputerHostWizardProbe]::IsChecked($scopeCheck.Handle)) {
+                throw 'Existing LocalSubnet choice not prefilled'
+            }
+        } elseif ([ComputerHostWizardProbe]::TextOf($input.Handle) -ne $ExpectRetainedScope) {
+            throw 'Existing hub scope not prefilled'
+        }
+        ClickWizardButton $window.Handle 'Next'
+        WaitForWizardText $window.Handle 'Enable authenticated shutdown, reboot and suspend' 'retained power page'
+        $power = VisibleControls $window.Handle | Where-Object {
+            $_.Class -match 'CheckBox' -and $_.Text -match 'Enable authenticated shutdown'
+        } | Select-Object -First 1
+        if (-not $power -or [ComputerHostWizardProbe]::IsChecked($power.Handle) -ne [bool]$ExpectRetainedPower) {
+            throw 'Existing power preference not prefilled'
+        }
+        Write-Host 'PASS graphical upgrade prefilled retained scope and power without command-line overrides'
+        return
+    }
     if (-not [ComputerHostWizardProbe]::SetWindowText($input.Handle, '192.0.2.20')) {
         throw 'Hub IPv4 selector refused manual text entry'
     }

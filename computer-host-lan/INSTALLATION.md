@@ -44,7 +44,7 @@ If graphical Setup fails, download the version-matched **Windows x64 unsigned ZI
 ```powershell
 $hubIPv4 = '192.168.1.20'  # Replace with your actual SmartThings hub IPv4
 .\scripts\Verify-Package.ps1
-.\scripts\Install-WindowsAgent.ps1 -WhatIf
+.\scripts\Install-WindowsAgent.ps1 -WhatIf -HubIPv4 $hubIPv4
 .\scripts\Install-WindowsAgent.ps1 -HubIPv4 $hubIPv4
 Get-Service ComputerHostAgent
 Invoke-RestMethod http://127.0.0.1:8765/v2/metrics

@@ -281,7 +281,7 @@ jobs:
             }
             throw "Agent did not serve /v2/info after $stage"
           }
-          function RunSetup([string]$setupArgs) {
+          function RunSetup([string]$setupArgs, [switch]$ExpectRefusal) {
             # Do not wait indefinitely for descendant processes of a self-
             # elevating installer. Bound the setup process and keep diagnostics.
             $log = Join-Path $env:RUNNER_TEMP 'computerhost-setup.log'
@@ -292,6 +292,10 @@ jobs:
                 Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
                 if (Test-Path $log) { Get-Content -LiteralPath $log -Tail 35 }
                 throw 'Inno Setup timed out after 120 seconds'
+              }
+              if ($ExpectRefusal) {
+                if ($p.ExitCode -eq 0) { throw 'Invalid Setup unexpectedly succeeded' }
+                return
               }
               if ($p.ExitCode -ne 0) {
                 if (Test-Path $log) { Get-Content -LiteralPath $log -Tail 35 }
@@ -363,6 +367,20 @@ jobs:
               (Get-FileHash $key -Algorithm SHA256).Hash -ne $oldKeyHash) {
             throw 'Silent upgrade lost LocalSubnet, disabled preference or retained credentials'
           }
+          $before = (Get-CimInstance Win32_Service -Filter "Name='ComputerHostAgent'").ProcessId
+          $beforeConfig = (Get-FileHash -LiteralPath $configPath).Hash
+          RunSetup "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /HUBIP=$hub /LOCALSUBNET=1" -ExpectRefusal
+          Set-NetFirewallRule -Name 'ComputerHostAgent-TCP8765' -RemoteAddress Any
+          RunSetup "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART" -ExpectRefusal
+          Remove-NetFirewallRule -Name 'ComputerHostAgent-TCP8765'
+          RunSetup "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART" -ExpectRefusal
+          if ((Get-CimInstance Win32_Service -Filter "Name='ComputerHostAgent'").ProcessId -ne $before -or
+              (Get-FileHash -LiteralPath $configPath).Hash -ne $beforeConfig) {
+            throw 'Invalid silent upgrades changed service or configuration'
+          }
+          RunSetup "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /HUBIP=$hub"
+          $null = WaitAgentReady 'explicit replacement of missing scope'
+          Write-Host 'PASS silent Setup conflict/ambiguous/missing scope refusal before mutation'
           Write-Host 'TEST: uninstall removes service/firewall but retains state'
           $uninstaller = Join-Path (Join-Path $env:ProgramFiles 'Computer Host Agent') 'unins000.exe'
           if (-not (Test-Path $uninstaller)) { throw 'Inno uninstall entry missing' }
@@ -403,7 +421,9 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $setup = (Get-ChildItem windows-agent/installer/output -Filter '*setup.exe' -File | Select-Object -First 1).FullName
+          & ./windows-agent/scripts/Test-WindowsInstallerWizard.ps1 -SetupExecutable $setup -ExpectRetainedScope LocalSubnet
           & ./windows-agent/scripts/Test-WindowsInstallerWizard.ps1 -SetupExecutable $setup -FullInstall
+          & ./windows-agent/scripts/Test-WindowsInstallerWizard.ps1 -SetupExecutable $setup -ExpectRetainedScope '192.0.2.20' -ExpectRetainedPower
       - name: Exercise graphical monitoring-only mode and explicit local-network fallback
         shell: pwsh
         timeout-minutes: 5
