@@ -9,12 +9,14 @@ param(
   [switch]$LocalSubnet,
   [switch]$InspectConfiguration,
   [string]$ConfigurationPath = '',
+  [string]$InstallResultPath = '',
   [switch]$UseExistingFiles,
   [string]$HubIPv4 = '',
   [string]$DiagnosticPath = ''
 )
 $ErrorActionPreference = 'Stop'
 try {
+  $inspectionStage = 'initialization'
   $service = 'ComputerHostAgent'
   # Inno Setup invokes Windows PowerShell from a 32-bit bootstrapper on some
   # systems. ProgramFiles in that process may mean Program Files (x86).
@@ -44,6 +46,74 @@ try {
   if (-not $InspectConfiguration -and -not (Test-Path -LiteralPath $source)) { throw "Published executable not found: $source" }
   $principal = [Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsIdentity]::GetCurrent())
   if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { throw 'Run PowerShell as Administrator.' }
+  $inspectionStage = 'service ownership'
+  $existing = Get-Service -Name $service -ErrorAction SilentlyContinue
+  if ($existing) {
+    $installedService = Get-CimInstance Win32_Service -Filter "Name='$service'"
+    if ($installedService.StartName -ne 'NT AUTHORITY\LocalService' -or
+        -not [string]::Equals($installedService.PathName.Trim().Trim('"'), $exe,
+          [StringComparison]::OrdinalIgnoreCase)) {
+      throw 'Existing service has unexpected binary/account; refusing to replace it.'
+    }
+  }
+  # Read only; never assume that absence, malformed configuration or a
+  # foreign firewall rule is consent to widen access or enable power.
+  $inspectionStage = 'existing configuration'
+  $configPath = Join-Path $programs 'appsettings.json'
+  $previousPower = $false
+  if ($existing) {
+    if (-not (Test-Path -LiteralPath $configPath -PathType Leaf)) { throw 'Existing agent configuration is missing.' }
+    try { $previousConfig = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json }
+    catch { throw 'Existing agent configuration cannot be read as JSON.' }
+    if ($null -eq $previousConfig.HostAgent) { throw 'Existing HostAgent configuration is invalid.' }
+    $storedPower = $previousConfig.HostAgent.PSObject.Properties['EnablePowerControl']
+    if ($null -ne $storedPower) {
+      if ($storedPower.Value -isnot [bool]) { throw 'Existing power preference is not a JSON boolean.' }
+      $previousPower = $storedPower.Value
+    }
+  }
+  function Get-PreviousFirewallScope {
+    try {
+      $rules = @(Get-NetFirewallRule -PolicyStore PersistentStore -Name 'ComputerHostAgent-TCP8765' -ErrorAction Stop)
+      if ($rules.Count -ne 1) { return 'unknown' }
+      $rule = $rules[0]
+      if ([string]$rule.Enabled -ne 'True' -or [string]$rule.Profile -ne 'Private' -or
+          [string]$rule.Direction -ne 'Inbound' -or [string]$rule.Action -ne 'Allow') { return 'unknown' }
+      $app = @($rule | Get-NetFirewallApplicationFilter -ErrorAction Stop)
+      $port = @($rule | Get-NetFirewallPortFilter -ErrorAction Stop)
+      $address = @($rule | Get-NetFirewallAddressFilter -ErrorAction Stop)
+      $serviceFilter = @($rule | Get-NetFirewallServiceFilter -ErrorAction Stop)
+      if ($app.Count -ne 1 -or $port.Count -ne 1 -or $address.Count -ne 1 -or $serviceFilter.Count -ne 1 -or
+          -not [string]::Equals($app[0].Program, $exe, [StringComparison]::OrdinalIgnoreCase) -or
+          [string]$port[0].Protocol -notin @('TCP','6') -or
+          @($port[0].LocalPort).Count -ne 1 -or [string]$port[0].LocalPort -notmatch '^\d+$' -or
+          [string]$port[0].RemotePort -ne 'Any' -or [string]$address[0].LocalAddress -ne 'Any' -or
+          [string]$serviceFilter[0].Service -ne 'Any') { return 'unknown' }
+      $remote = @($address[0].RemoteAddress)
+      if ($remote.Count -ne 1) { return 'unknown' }
+      if ($remote[0] -eq 'LocalSubnet') { return 'LocalSubnet' }
+      if (Test-HubIPv4 $remote[0]) { return [string]$remote[0] }
+    } catch { }
+    return 'unknown'
+  }
+  $inspectionStage = 'firewall scope'
+  $previousScope = if ($existing -and ($InspectConfiguration -or (-not $SkipFirewall -and -not $HubIPv4 -and -not $LocalSubnet))) {
+    Get-PreviousFirewallScope
+  } else { 'unknown' }
+  if ($InspectConfiguration) {
+    if (-not $ConfigurationPath) { throw 'Inspection requires -ConfigurationPath.' }
+    $kind = if ($existing) { 'upgrade' } else { 'fresh' }
+    $power = if ($previousPower) { 'on' } else { 'off' }
+    $inspectionStage = 'write inspection response'
+    # One ASCII record, with no trailing line or BOM ambiguity in Setup.
+    [IO.File]::WriteAllText($ConfigurationPath, "$kind|$power|$previousScope", [Text.Encoding]::ASCII)
+    return
+  }
+  $effectivePower = if ($EnablePower) { $true } elseif ($DisablePower) { $false } else { $previousPower }
+  $remoteScope = if ($HubIPv4) { $HubIPv4 } elseif ($LocalSubnet) { 'LocalSubnet' } else { $previousScope }
+  if (-not $SkipFirewall -and $remoteScope -eq 'unknown') {
+    throw 'No validated firewall scope. Specify -HubIPv4 or explicitly choose -LocalSubnet before installation.'
+  }
   # ProgramData permits standard users to create subdirectories. The state
   # directory must therefore be created with its final protected DACL in the
   # CreateDirectory call; never create it first and tighten permissions later.
@@ -171,68 +241,6 @@ try {
       $sid, 'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow'))
   }
 
-  $existing = Get-Service -Name $service -ErrorAction SilentlyContinue
-  if ($existing) {
-    $installedService = Get-CimInstance Win32_Service -Filter "Name='$service'"
-    if ($installedService.StartName -ne 'NT AUTHORITY\LocalService' -or
-        -not [string]::Equals($installedService.PathName.Trim().Trim('"'), $exe,
-          [StringComparison]::OrdinalIgnoreCase)) {
-      throw 'Existing service has unexpected binary/account; refusing to replace it.'
-    }
-  }
-  # Read only; never assume that absence, malformed configuration or a
-  # foreign firewall rule is consent to widen access or enable power.
-  $configPath = Join-Path $programs 'appsettings.json'
-  $previousPower = $false
-  if ($existing) {
-    if (-not (Test-Path -LiteralPath $configPath -PathType Leaf)) { throw 'Existing agent configuration is missing.' }
-    $previousConfig = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json
-    if ($null -eq $previousConfig.HostAgent) { throw 'Existing HostAgent configuration is invalid.' }
-    $storedPower = $previousConfig.HostAgent.PSObject.Properties['EnablePowerControl']
-    if ($null -ne $storedPower) {
-      if ($storedPower.Value -isnot [bool]) { throw 'Existing power preference is not a JSON boolean.' }
-      $previousPower = $storedPower.Value
-    }
-  }
-  function Get-PreviousFirewallScope {
-    try {
-      $rules = @(Get-NetFirewallRule -PolicyStore PersistentStore -Name 'ComputerHostAgent-TCP8765' -ErrorAction Stop)
-      if ($rules.Count -ne 1) { return 'unknown' }
-      $rule = $rules[0]
-      if ([string]$rule.Enabled -ne 'True' -or [string]$rule.Profile -ne 'Private' -or
-          [string]$rule.Direction -ne 'Inbound' -or [string]$rule.Action -ne 'Allow') { return 'unknown' }
-      $app = @($rule | Get-NetFirewallApplicationFilter -ErrorAction Stop)
-      $port = @($rule | Get-NetFirewallPortFilter -ErrorAction Stop)
-      $address = @($rule | Get-NetFirewallAddressFilter -ErrorAction Stop)
-      $serviceFilter = @($rule | Get-NetFirewallServiceFilter -ErrorAction Stop)
-      if ($app.Count -ne 1 -or $port.Count -ne 1 -or $address.Count -ne 1 -or $serviceFilter.Count -ne 1 -or
-          -not [string]::Equals($app[0].Program, $exe, [StringComparison]::OrdinalIgnoreCase) -or
-          [string]$port[0].Protocol -notin @('TCP','6') -or
-          @($port[0].LocalPort).Count -ne 1 -or [string]$port[0].LocalPort -notmatch '^\d+$' -or
-          [string]$port[0].RemotePort -ne 'Any' -or [string]$address[0].LocalAddress -ne 'Any' -or
-          [string]$serviceFilter[0].Service -ne 'Any') { return 'unknown' }
-      $remote = @($address[0].RemoteAddress)
-      if ($remote.Count -ne 1) { return 'unknown' }
-      if ($remote[0] -eq 'LocalSubnet') { return 'LocalSubnet' }
-      if (Test-HubIPv4 $remote[0]) { return [string]$remote[0] }
-    } catch { }
-    return 'unknown'
-  }
-  $previousScope = if ($existing -and ($InspectConfiguration -or (-not $SkipFirewall -and -not $HubIPv4 -and -not $LocalSubnet))) {
-    Get-PreviousFirewallScope
-  } else { 'unknown' }
-  if ($InspectConfiguration) {
-    if (-not $ConfigurationPath) { throw 'Inspection requires -ConfigurationPath.' }
-    $kind = if ($existing) { 'upgrade' } else { 'fresh' }
-    $power = if ($previousPower) { 'on' } else { 'off' }
-    [IO.File]::WriteAllLines($ConfigurationPath, [string[]]@($kind, $power, $previousScope), [Text.Encoding]::ASCII)
-    return
-  }
-  $effectivePower = if ($EnablePower) { $true } elseif ($DisablePower) { $false } else { $previousPower }
-  $remoteScope = if ($HubIPv4) { $HubIPv4 } elseif ($LocalSubnet) { 'LocalSubnet' } else { $previousScope }
-  if (-not $SkipFirewall -and $remoteScope -eq 'unknown') {
-    throw 'No validated firewall scope. Specify -HubIPv4 or explicitly choose -LocalSubnet before installation.'
-  }
   if (Test-Path -LiteralPath $state) {
     Assert-TrustedStateEntry $state 'Directory'
     Assert-ExistingStateFiles
@@ -291,8 +299,10 @@ try {
     # immediately before any existing control key can be read.
     Assert-TrustedStateEntry $state 'Directory'
     Assert-ExistingStateFiles
+    $retainedPowerKey = $false
     if ($effectivePower) {
       $tokenPath = Join-Path $state 'control-token'
+      $retainedPowerKey = [bool]($existing -and $previousPower -and (Test-Path -LiteralPath $tokenPath -PathType Leaf))
       if (-not (Test-Path -LiteralPath $tokenPath)) {
         # Publish the complete secret atomically. The state directory is
         # already protected, so no standard user can plant the destination.
@@ -419,13 +429,23 @@ try {
     Write-Host "Identity/state kept in $state. Power commands enabled: $effectivePower"
     if ($effectivePower) { Write-Warning 'Privileged commands are enabled. Keep control-token secret; put it in SmartThings device preferences only over a trusted channel. Never share it in logs.' }
     Write-Warning 'Unsigned development build: use only on a test PC and do not distribute as a trusted public installer.'
+    # Advisory UI result only. Never include a key, key hash or host identity.
+    # The actual health/version/identity gate remains mandatory in Setup.
+    if ($InstallResultPath) {
+      try {
+        $kind = if ($existing) { 'upgrade' } else { 'fresh' }
+        $keyStatus = if ($retainedPowerKey) { 'key-retained' } else { 'key-not-retained' }
+        [IO.File]::WriteAllText($InstallResultPath, "$kind|$keyStatus", [Text.Encoding]::ASCII)
+      } catch { Write-Warning 'Unable to write installation UI result; Setup will show standard onboarding.' }
+    }
   }
   
 } catch {
   if ($DiagnosticPath) {
     try {
       # The diagnostic captures the exception type and message, not token contents.
-      $message = 'ComputerHostAgent service installation failed: ' +
+      $operation = if ($InspectConfiguration) { "configuration inspection ($inspectionStage)" } else { 'service installation' }
+      $message = "ComputerHostAgent $operation failed: " +
         $_.Exception.GetType().Name + ': ' + $_.Exception.Message
       [System.IO.File]::WriteAllText(
         [System.IO.Path]::GetFullPath($DiagnosticPath), $message,
