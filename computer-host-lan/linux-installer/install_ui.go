@@ -95,22 +95,44 @@ func observeNetwork(info apiInspect, firewallActive bool) networkObservation {
 	return result
 }
 
-func (s *liveSelection) networkWarnings() []string {
+func (s *liveSelection) networkWarnings(completed bool) []string {
 	var warnings []string
 	observed := observeNetwork(s.inspection, s.firewalldActive)
 	if observed.AvahiPrerequisites != "passed" {
+		timing := "Install and start Avahi if needed before installing the agent.\n" +
+			"After installation, check the advertisement:"
+		if completed {
+			timing = "If Avahi is missing or stopped, install or start it as needed.\n" +
+				"Now check the advertisement:"
+		}
 		warnings = append(warnings,
-			"Avahi discovery is not confirmed. SmartThings Scan nearby may not find this computer until avahi-daemon is running and the agent's _computerhost._tcp service is advertised.")
+			"Avahi discovery is not confirmed.\n"+
+				"SmartThings Scan nearby may not find this computer.\n"+
+				"Check: systemctl is-active avahi-daemon.service\n"+
+				timing+"\n"+
+				"  avahi-browse -rt _computerhost._tcp\n"+
+				"Install the Avahi browsing tool if missing.\n"+
+				"If Avahi was installed later, rerun the verified installer\n"+
+				"to add the managed service advertisement (resolve pending recovery first).")
 	}
 	if observed.Firewalld == "active" {
 		warnings = append(warnings,
-			"firewalld is active. Incoming TCP 8765 may be blocked for the SmartThings hub. Check or explicitly configure a hub-scoped rule before relying on connectivity; this wizard has not changed firewall rules.")
+			"firewalld is active. Incoming TCP 8765 may be blocked for the hub\n"+
+				"(use your configured agent port if different).\n"+
+				"As administrator, inspect:\n"+
+				"  firewall-cmd --get-active-zones\n"+
+				"  firewall-cmd --zone=ZONE --list-all\n"+
+				"(replace ZONE with the hub-facing zone).\n"+
+				"Allow the agent port only from the trusted hub as needed.\n"+
+				"Check local mDNS (UDP 5353) separately.\n"+
+				"Do not disable the firewall or open the agent port to all sources.\n"+
+				"This wizard has not changed firewall rules.")
 	}
 	return warnings
 }
 
 func (s *liveSelection) showNetworkWarnings(w io.Writer) {
-	for _, warning := range s.networkWarnings() {
+	for _, warning := range s.networkWarnings(true) {
 		fmt.Fprintln(w, "WARNING:", warning)
 	}
 }
@@ -127,7 +149,7 @@ func (s *liveSelection) installPreview() string {
 	preview = strings.Replace(preview,
 		"Preview only — your Linux agent, SmartThings devices and settings\nwill remain unchanged. No installation or pairing will happen.",
 		"After confirmation, the wizard will request administrator permission\nand install or upgrade the Linux agent. No SmartThings pairing or firewall\nchanges will happen automatically.", 1)
-	for _, warning := range s.networkWarnings() {
+	for _, warning := range s.networkWarnings(false) {
 		preview += "\n\nWARNING: " + warning
 	}
 	return preview
@@ -519,7 +541,7 @@ func showInstallationOutcome(w io.Writer, s *liveSelection, req privilegedReques
 	fmt.Fprintln(w, "  https://bestow-regional.api.smartthings.com/invite/1J2Qy7ZkxL20")
 	fmt.Fprintln(w, "Keep the hub and computer on a trusted private LAN; allow incoming TCP 8765 (or your configured agent port) from the hub and mDNS where needed. Never forward the agent port to the Internet.")
 	s.showNetworkWarnings(w)
-	fmt.Fprintln(w, "If discovery or connectivity warnings appear above, resolve those conditions before relying on Scan nearby.")
+	fmt.Fprintln(w, "These are pre-install observations, not proof of discovery or connectivity. If warnings appear above, recheck those conditions before relying on Scan nearby.")
 	fmt.Fprintln(w, "Automatic hub pairing, firewall changes and persistent WOL configuration were not performed.")
 	switch req.Power {
 	case "enable":
