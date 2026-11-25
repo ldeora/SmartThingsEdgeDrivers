@@ -20,18 +20,18 @@ authentication, in-place migration and physical acceptance remain open.
 
 | Gate / issue | Status at baseline | Next evidence or action |
 | --- | --- | --- |
-| #84 Linux authenticity | Implemented policy, not exercised | Maintainer configures reviewed-main/tag protections and independently approved environment; exact-candidate main CI, reproducible build, attestation, independent positive/negative verification. Do not elevate unverified CI binaries. |
+| #84 Linux authenticity / #171 release approval | Implemented policy, not exercised; approver not yet confirmed | Continue pre-candidate work now. Current gate remains mandatory unless a separately reviewed prerelease-only policy is approved. Exact-candidate main CI, reproducible build, attestation and independent positive/negative verification remain required; no unverified elevated binaries. |
 | #101 Linux engine cutover | Implementation merged, acceptance pending | Verified release candidate; clean install, legacy rc.2 in-place upgrade, repair, recovery, removal/reinstall, old entry-point refusal and identity continuity on real Gentoo and Debian/Ubuntu hosts. |
 | #155 retained credentials | Narrow schema-1 implementation merged (#159); preliminary hydra metadata evidence in issue | Real-host upgrade, service restart, authorized rollback on reversible hosts; check redacted UUID/key metadata outcomes. Interrupted-process continuity remains not_verified, not a claim of equality. |
 | #118 Windows redistribution | Open P0 | Collect exact resolved self-contained runtime and NuGet licenses/notices from release build, assess Inno Setup distribution terms, include required texts in ZIP and Setup, test presence, publisher sign-off. Do not invent licenses or infer compliance from inventory. Also inventory bundled Go installer dependencies for the new Linux deliverable. |
-| #117 Windows signing | Owner decision pending | Record whether v1 remains unsigned with explicit warnings/limits, or use a separately approved signing route. Checksums are not publisher authentication. Do not bypass SmartScreen or Smart App Control. |
+| #117 Windows signing | Maintainer decision: retain unsigned packages for v1.0.0 | Document unsigned status, checksum limitations, SmartScreen/Smart App Control and machine-readable release metadata before publication. Defer formal signing integration; do not bypass platform protections. |
 | #120 / #23 Windows hub-page rendering | Physical confirmation pending; synchronous search remains a reported risk | Ask reporting Windows 11 tester to exercise first search, retry, manual selection and navigation. If reproduced, isolate a bounded UI fix and test; no speculative full installer redesign. |
-| #31 Linux connection saturation | Partial fix in rc.2; residual per-source/reconnect risk open | Absolute header deadline implemented (#56); global cap remains. Decide whether to mitigate before rc.3 or explicitly accept bounded trusted-LAN availability risk for 1.0 with disclosure. No waiver yet. A per-address cap must preserve ordinary hub and shared-source behavior. |
+| #31 Linux connection saturation | Maintainer agrees to evaluate targeted mitigation before rc.3 | Absolute header deadline implemented (#56); global cap remains. Implement a narrow per-source limit if compatibility and bounded-resource tests support it, including ordinary hub and shared-source behavior. Otherwise obtain explicit risk acceptance with disclosure before freezing rc.3. No waiver yet. |
 | #129 / #130 release docs | Quick Start implementation merged, wider docs still stale | Update version-matched primary docs, current state model, protocol freeze and security disclosures during prep. Preserve historical files/immutable release notes and distinguish current published vs proposed release. |
 | #119 hardware/soak | Open | Record exact-version evidence in one rc.3 acceptance record (below); two independent Windows 11 x64 hosts, Gentoo and Debian/Ubuntu, minimum seven-day real-hub Windows/Linux soak before stable. |
 | Candidate identity and channel | Not prepared | Final versions, all five exact-main workflows, matching release assets, exact expected tag/SHA via independently trusted release record; separate explicit Edge upload/assignment and real installed version check. |
 
-Order: settle owner decisions and remaining pre-candidate implementation,
+Order: complete the pre-candidate fixes below and settle remaining owner decisions,
 prepare versions/docs/packages, verify exact-candidate release artifacts,
 perform supervised physical checks, publish rc.3 only with explicit approval
 and appropriate entry-gate evidence, soak and decide stable. No tag, dispatch,
@@ -39,17 +39,56 @@ publication or driver deployment is authorized by this record. The expected
 source commit cannot be embedded in its own source commit as a self-reference;
 publish the approved SHA in an independently trusted release record.
 
+## Maintainer decisions and proposed review-fix disposition (2026-11-25)
+
+The maintainer has chosen to retain unsigned Windows packages for now,
+continue development while looking for an independent GitHub environment
+approver, and evaluate a narrowly scoped #31 mitigation before rc.3.
+Issue #171 tracks the requested consideration of a prerelease-only approval
+policy. The merged attestation gate is unchanged: no independent approver
+means no eligible attestation dispatch under the current policy. Any rc.3
+exception must be separately designed, reviewed and explicitly approved,
+with no stable exception or unsigned Linux installer fallback. Ordinary CI,
+code review and packaging preparation do not require that environment approval.
+
+The following dispositions are proposed for maintainer approval in #170.
+They explicitly preserve the roadmap rule that known in-scope production
+fixes must land before the rc.3 freeze, not be postponed until soak.
+Each fix requires its own scoped review and relevant behavioral tests.
+
+| Issue | Proposed disposition | Scope and rationale |
+| --- | --- | --- |
+| #126 | Fix before rc.3 | Preserve the existing ZIP/PowerShell power preference unless explicitly changed; fresh installs remain off, Setup explicitly communicates its choice. Reject conflicting flags. |
+| #127 | Fix before rc.3 | Reuse only a validated existing Private firewall scope on upgrades, allow explicit changes, and refuse ambiguous or missing scope rather than silently broadening access. Cover GUI and silent paths. |
+| #135 | Fix before rc.3 | A missing, malformed or unreadable key disables optional power without taking down otherwise safe monitoring. Never regenerate a key implicitly. |
+| #121 | Fix before rc.3, coordinated with #135 | Check protected state and token ACL/ownership/reparse boundaries before runtime use; keep monitoring only when identity/state can be used safely. Do not create inherited unsafe state or weaken installer checks. Test under the actual service identity. |
+| #134 | Fix before rc.3 | Emit appropriate switch acknowledgements for known command paths without inventing physical state or weakening shutdown grace. Preserve momentary capability/status contracts; document rejection guidance. |
+| #123 | Fix before rc.3 | Bound Edge HTTP requests with an actual cumulative deadline supported by the cosock/LuaSocket transport; prove slow in-call reads cannot bypass it, preserve existing timeout classification and normal response behavior. No protocol change. |
+| #125 | Accept current best-effort behavior for v1.0 with disclosure; improve in v1.0.1 | Hardware/OS-dependent suspend is already a declared limitation. S3 absence alone does not prove Modern Standby is unsupported. Do not add an unreliable capability filter. Document advertisement vs successful transition and qualify supported paths. |
+| #124 | Fix before rc.3 | Prefer a still-responsive known endpoint over a competing same-UUID candidate; preserve manual override and WOL identity, test genuine address migration. This mitigates unnecessary redirection, not unauthenticated discovery itself. No new authentication protocol. |
+| #132 | Fix before rc.3 | Address the known asynchronous registration failure with bounded retry and safe native callback lifetime; verify host-IP change/resume on real Windows. Add network-change re-registration only if needed, with bounded allocation/lifetime and debounce tests. |
+
+Prioritize #118 licensing work and group #135/#121 and #126/#127 where
+shared implementation boundaries justify it. No need to merge unrelated
+changes in one PR. #31 follows its agreed evaluation gate above. If a
+proposed fix proves substantially more invasive than expected, bring a
+revised disposition to the maintainer rather than silently defer it.
+After the candidate freeze, any production-code change invalidates the
+affected candidate evidence and restarts the seven-day qualification soak
+on the replacement candidate. No previously reported hardware PASS is
+transferred automatically.
+
 ## Previously addressed rc.1 findings (#136)
 
 Implementation statuses below are grounded in the published
-[rc.2 release notes](RELEASE-NOTES-v1.0.0-rc.2.md); they are not new hardware
-certifications. Do not close issues automatically.
+[rc.2 release notes](RELEASE-NOTES-v1.0.0-rc.2.md), with later main-only
+changes explicitly identified; they are not new hardware certifications. Do not close issues automatically.
 
 | Issue | Implemented | Remaining |
 | --- | --- | --- |
 | #32 | #58 protected ProgramData creation and retained-state checks | Real Windows refusal/valid upgrade; agent runtime ACL question tracked separately in #121 |
 | #34 | #59 pending creation TTL | Real-hub duplicate/retry acceptance where safely reproducible |
-| #37 | #59 failed Wake restores last known switch state; later #63/#64 state improvements | Real-hub state transition acceptance |
+| #37 | #59 failed Wake restores last known switch state in rc.2; #63/#64 state improvements are on post-rc.2 main only | Real-hub state transition acceptance |
 | #44 | #57 fixed-path systemctl validation and delayed attempt semantics | Physical response delivery and actual host transition separately |
 | #46 | #59 Private-only hint / Public warning | Real Windows profile and connectivity check |
 | #47 | #59 redacted RC version/custom-port reporting | Verify against exact candidate |
@@ -71,14 +110,13 @@ certifications. Do not close issues automatically.
   limitations; no automatic deletion of suspicious evidence. Promote to
   release blockers if reproduced on supported normal paths or if recovery
   is unsafe. #105 test refactoring and broader feature work remain deferred.
-- Other open findings are not silently resolved: #121/#124/#41 security
-  threat-model questions; #123/#132 transport/discovery; #127/#126 Windows
-  upgrade behavior; #134 switch command rejection; #131 Lua test availability;
-  #125/#135/#133 and older low-priority issues. Review actual supported
-  behavior against the stable contract during targeted qualification; do not
-  widen scope solely because a ticket is open. Escalate reproduced security,
-  data-loss, upgrade, duplicate-device or persistent state defects. No blanket
-  risk acceptance or issue closure.
+- The known review fixes have explicit proposed dispositions above; they
+  are not deferred by the implementation freeze. Remaining #41 security
+  threat-model question, #131 Lua test availability, #133 clock correction
+  heuristic and older low-priority issues remain tracked. Confirm Lua tests
+  actually run in candidate CI. Escalate concrete security, data-loss,
+  upgrade, duplicate-device or persistent state defects. No blanket risk
+  acceptance or issue closure.
 
 ## rc.3 acceptance evidence (#119)
 
@@ -93,7 +131,7 @@ credential corruption or unsafe power transitions.
 | Group | Required observations | Status |
 | --- | --- | --- |
 | Build and trust | final main SHA, five workflows, independent provenance and downloaded bytes, complete matched asset set | NOT TESTED |
-| Linux Gentoo | verified installer; rc.2 migration, monitoring, same device, private state, service recovery, optional power/WOL; protected handoff | NOT TESTED |
+| Linux Gentoo | verified installer; rc.2 migration, monitoring, same device, private state, service recovery, optional power/WOL; protected handoff via su and run0 (su preliminary evidence exists; run0 requires working authorization on a suitably configured host, not necessarily hydra) | NOT TESTED |
 | Linux Debian/Ubuntu | clean install, upgrade/repair, removal/retained-state reinstall, authorized recovery, metadata stability, supported elevation | NOT TESTED |
 | Linux diagnostics | terminal and accessible behavior, missing Avahi and firewalld guidance, custom port, no network mutations, legacy refusals | NOT TESTED |
 | Windows 11 host A | fresh install/upgrade, initial and repeated search, manual IP, monitoring, service restart, optional power, retained state | NOT TESTED |
