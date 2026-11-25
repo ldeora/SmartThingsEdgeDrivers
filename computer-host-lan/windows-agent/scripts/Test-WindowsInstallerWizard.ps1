@@ -38,11 +38,15 @@ public static class ComputerHostWizardProbe {
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetClassName(IntPtr h, StringBuilder text, int max);
     [DllImport("user32.dll")] private static extern bool GetWindowRect(IntPtr h, out RECT rect);
     [DllImport("user32.dll")] private static extern bool IsWindowVisible(IntPtr h);
-    [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern bool SetWindowText(IntPtr h, string value);
     [DllImport("user32.dll")] private static extern IntPtr SendMessage(IntPtr h, uint m, IntPtr w, IntPtr l);
     [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     private static extern IntPtr SendMessageTimeout(IntPtr h, uint m, UIntPtr w, StringBuilder text,
         uint flags, uint timeout, out UIntPtr result);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern IntPtr SendMessageTimeout(IntPtr h, uint m, UIntPtr w, string text,
+        uint flags, uint timeout, out UIntPtr result);
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern bool PostMessage(IntPtr h, uint m, IntPtr w, IntPtr l);
     [DllImport("user32.dll", SetLastError=true)] private static extern bool OpenClipboard(IntPtr h);
     [DllImport("user32.dll")] private static extern bool CloseClipboard();
     [DllImport("user32.dll")] private static extern IntPtr GetClipboardData(uint format);
@@ -78,15 +82,24 @@ public static class ComputerHostWizardProbe {
     }
     public static void Click(IntPtr hwnd) { SendMessage(hwnd, 0x00F5, IntPtr.Zero, IntPtr.Zero); }
     public static bool IsChecked(IntPtr hwnd) { return SendMessage(hwnd, 0x00F0, IntPtr.Zero, IntPtr.Zero).ToInt64() == 1; }
-    // Only read the visible hub selector, never an arbitrary edit control
-    // (the private key page also contains an edit). GetWindowText can read
-    // stale/empty caption text for controls owned by another process.
-    public static string HubAddressOf(IntPtr hwnd) {
+    // Only access the visible hub selector, never an arbitrary edit control
+    // (the private key page also contains an edit). GetWindowText/SetWindowText
+    // are not reliable cross-process control-text APIs.
+    private static void RequireHubSelector(IntPtr hwnd) {
         var cls = new StringBuilder(256);
         GetClassName(hwnd, cls, cls.Capacity);
         if (!IsWindowVisible(hwnd) ||
             cls.ToString().IndexOf("ComboBox", StringComparison.OrdinalIgnoreCase) < 0)
             throw new InvalidOperationException("Expected visible hub combo box");
+    }
+    public static bool SetHubAddress(IntPtr hwnd, string value) {
+        RequireHubSelector(hwnd);
+        UIntPtr accepted;
+        return SendMessageTimeout(hwnd, 0x000C, UIntPtr.Zero, value,
+            0x0002, 2000, out accepted) != IntPtr.Zero && accepted != UIntPtr.Zero;
+    }
+    public static string HubAddressOf(IntPtr hwnd) {
+        RequireHubSelector(hwnd);
         var text = new StringBuilder(512);
         UIntPtr copied;
         if (SendMessageTimeout(hwnd, 0x000D, new UIntPtr((uint)text.Capacity), text,
@@ -180,7 +193,8 @@ try {
     }
     $wasUpgrade = [bool](Get-Service ComputerHostAgent -ErrorAction SilentlyContinue)
     $args = if ($FullInstall -and -not $KeepSettings) {
-        if ($MonitoringOnly) { '/ENABLEPOWER=0' } else { '/HUBIP=192.0.2.20 /ENABLEPOWER=1' }
+        # Exercise genuine manual hub configuration, not a pre-filled /HUBIP.
+        if ($MonitoringOnly) { '/ENABLEPOWER=0' } else { '/ENABLEPOWER=1' }
     } else { '' }
     $modeSuffix = if ($MonitoringOnly) { '-monitoring-only' } else { '-power-enabled' }
     $proc = Start-Process -FilePath $setup -ArgumentList $args -PassThru
@@ -312,11 +326,12 @@ try {
         Write-Host 'PASS graphical upgrade prefilled retained scope and power without command-line overrides'
         return
     }
-    if (-not [ComputerHostWizardProbe]::SetWindowText($input.Handle, '192.0.2.20')) {
-        throw 'Hub IPv4 selector refused manual text entry'
+    if (-not [ComputerHostWizardProbe]::SetHubAddress($input.Handle, '192.0.2.20')) {
+        throw 'Hub IPv4 selector refused manual text entry (WM_SETTEXT)'
     }
-    if ([ComputerHostWizardProbe]::HubAddressOf($input.Handle) -ne '192.0.2.20') {
-        throw 'Hub IPv4 selector did not retain manually entered address'
+    $manualAddress = [ComputerHostWizardProbe]::HubAddressOf($input.Handle)
+    if ($manualAddress -ne '192.0.2.20') {
+        throw "Hub IPv4 selector did not retain manually entered address: expected '192.0.2.20', observed '$manualAddress'"
     }
     Write-Host 'PASS manual hub-IP entry accepts and displays IPv4 text'
     # Windows CI has no discoverable hub. Test the real manual-entry path
@@ -331,8 +346,9 @@ try {
     } | Select-Object -First 1
     if (-not $rescanInput) { throw 'Hub selector disappeared after retry' }
     if ($rescanStatus) {
-        if ([ComputerHostWizardProbe]::HubAddressOf($rescanInput.Handle) -ne '192.0.2.20') {
-            throw 'Failed hub rediscovery lost previously entered valid IPv4 address'
+        $rescanAddress = [ComputerHostWizardProbe]::HubAddressOf($rescanInput.Handle)
+        if ($rescanAddress -ne '192.0.2.20') {
+            throw "Failed hub rediscovery lost previously entered valid IPv4 address: expected '192.0.2.20', observed '$rescanAddress'"
         }
         Write-Host 'PASS failed rediscovery preserves manually entered hub IPv4 address'
     } else {
@@ -352,8 +368,12 @@ try {
     ClickWizardButton $window.Handle 'Advanced options'
     Write-Host 'PASS Advanced options shows/hides the local-network firewall fallback'
     if ($SubnetFallback) {
-        if (-not [ComputerHostWizardProbe]::SetWindowText($input.Handle, '')) {
-            throw 'Could not clear manual hub address to test LocalSubnet fallback'
+        if (-not [ComputerHostWizardProbe]::SetHubAddress($rescanInput.Handle, '')) {
+            throw 'Could not clear manual hub address to test LocalSubnet fallback (WM_SETTEXT)'
+        }
+        $clearedAddress = [ComputerHostWizardProbe]::HubAddressOf($rescanInput.Handle)
+        if ($clearedAddress -ne '') {
+            throw "Hub field was not cleared before LocalSubnet selection: observed '$clearedAddress'"
         }
         # Discovery failure expands Advanced options automatically, whereas
         # successful discovery initially collapses it. Do not toggle blindly.
@@ -378,9 +398,17 @@ try {
     if (-not $rescan) { throw 'Search again button not visible' }
     Write-Host 'PASS Search again button visible'
     Write-Host 'PASS graphical Welcome and hub selector smoke test'
+    # Post the click so a validation dialog cannot block the test thread.
+    # The navigation-only smoke also proves Setup accepts the manual choice.
+    $next = FindVisibleButton $window.Handle 'Next'
+    if (-not $next -or -not [ComputerHostWizardProbe]::PostMessage($next.Handle, 0x00F5, [IntPtr]::Zero, [IntPtr]::Zero)) {
+        throw 'Could not advance from hub configuration page'
+    }
+    WaitForWizardText $window.Handle 'Enable authenticated shutdown, reboot and suspend' 'power-management page after hub selection'
+    if ($rescanStatus -and -not $SubnetFallback) {
+        Write-Host 'PASS manual hub selection accepted after failed discovery'
+    }
     if ($FullInstall) {
-        ClickWizardButton $window.Handle 'Next'
-        WaitForWizardText $window.Handle 'Enable authenticated shutdown, reboot and suspend' 'power-management page'
         $cb = VisibleControls $window.Handle |
             Where-Object { $_.Class -match 'CheckBox' -and $_.Text -match 'Enable authenticated shutdown' } |
             Select-Object -First 1
@@ -481,6 +509,14 @@ try {
                 }
             }
             Write-Host 'PASS graphical monitoring-only setup, no key page and LocalSubnet firewall'
+        }
+        if (-not $SubnetFallback) {
+            $addresses = @((Get-NetFirewallRule -Name 'ComputerHostAgent-TCP8765' |
+                Get-NetFirewallAddressFilter).RemoteAddress)
+            if ($addresses.Count -ne 1 -or $addresses[0] -ne '192.0.2.20') {
+                throw "Graphical install did not apply manually entered hub scope: observed '$($addresses -join ',')'"
+            }
+            Write-Host 'PASS installed firewall uses manually entered hub address'
         }
         Write-Host 'PASS complete native Windows GUI installation and onboarding workflow'
     }
