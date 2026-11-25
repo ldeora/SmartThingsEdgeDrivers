@@ -195,6 +195,54 @@ jobs:
             if (@($infoPower.power_actions).Count -eq 0) {
               Write-Host 'PASS Windows security policy refused privilege; power was not advertised'
             }
+            # Run the degraded-credential checks under the actual installed
+            # LocalService + service SID, not only under the console CI user.
+            function Assert-DegradedServicePower {
+              Start-Service ComputerHostAgent
+              $checked = $false
+              for ($attempt = 0; $attempt -lt 30; $attempt++) {
+                try {
+                  $observed = Invoke-RestMethod 'http://127.0.0.1:8765/v2/info' -TimeoutSec 2
+                  $health = Invoke-RestMethod 'http://127.0.0.1:8765/v2/health' -TimeoutSec 2
+                  $metrics = Invoke-RestMethod 'http://127.0.0.1:8765/v2/metrics' -TimeoutSec 2
+                } catch { Start-Sleep -Milliseconds 500; continue }
+                if ($observed.id -ne $installedId -or $health.id -ne $installedId -or
+                    $metrics.id -ne $installedId -or @($observed.power_actions).Count -ne 0) {
+                  throw 'Unsafe power credential changed identity or enabled power'
+                }
+                $checked = $true
+                break
+              }
+              if (-not $checked) { throw 'Degraded power configuration stopped monitoring' }
+              try {
+                Invoke-WebRequest 'http://127.0.0.1:8765/v2/challenge' -TimeoutSec 3 -ErrorAction Stop | Out-Null
+                throw 'Degraded power configuration allowed challenge'
+              } catch { if ($_.Exception.Response.StatusCode.value__ -ne 403) { throw } }
+            }
+            Stop-Service ComputerHostAgent
+            $savedToken = Join-Path $state 'control-token.ci-saved'
+            Move-Item -LiteralPath $secretPath -Destination $savedToken
+            try {
+              Assert-DegradedServicePower
+              if (Test-Path -LiteralPath $secretPath) { throw 'Service generated missing control-token' }
+            } finally {
+              Stop-Service ComputerHostAgent -ErrorAction SilentlyContinue
+              Move-Item -LiteralPath $savedToken -Destination $secretPath
+            }
+            # The token is synthetic CI state only. Restore its original DACL
+            # before the next installer operation, even if the test fails.
+            $unsafeTokenAcl = Get-Acl -LiteralPath $secretPath
+            $everyone = [Security.Principal.SecurityIdentifier]::new('S-1-1-0')
+            $unsafeTokenAcl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new($everyone, 'Read', 'Allow'))
+            Set-Acl -LiteralPath $secretPath -AclObject $unsafeTokenAcl
+            try { Assert-DegradedServicePower }
+            finally {
+              Stop-Service ComputerHostAgent -ErrorAction SilentlyContinue
+              Set-Acl -LiteralPath $secretPath -AclObject $tokenAcl
+            }
+            if ((Get-Content -LiteralPath $secretPath -Raw).Trim() -cne $secret) { throw 'Service changed unsafe token' }
+            Start-Service ComputerHostAgent
+            Write-Host 'PASS LocalService monitoring remains active with missing or unsafe power credential'
             & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $install -PublishedDirectory $publish -SkipFirewall
             if ($LASTEXITCODE -ne 0) { throw 'Windows PowerShell 5.1 power-disable upgrade failed' }
             $infoOff = Invoke-RestMethod 'http://127.0.0.1:8765/v2/info' -TimeoutSec 3
