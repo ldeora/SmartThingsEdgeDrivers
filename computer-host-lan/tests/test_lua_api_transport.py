@@ -5,7 +5,7 @@ custom create callback. This test executes the real api.lua module with a
 small socket.http double that reproduces that ordering.
 """
 import ctypes
-from ctypes.util import find_library
+from lua_runtime import load_lua
 from pathlib import Path
 import unittest
 
@@ -14,11 +14,7 @@ ROOT = Path(__file__).resolve().parents[1] / "edge-driver" / "src"
 
 class LuaHTTPTransportTests(unittest.TestCase):
     def test_module_timeout_is_not_overwritten_by_luasocket(self):
-        library = find_library("lua5.4") or find_library("lua5.3")
-        if not library:
-            self.skipTest("Lua runtime library unavailable")
-
-        lib = ctypes.CDLL(library)
+        lib = load_lua(self)
         lib.luaL_newstate.restype = ctypes.c_void_p
         lib.luaL_openlibs.argtypes = [ctypes.c_void_p]
         lib.luaL_loadstring.argtypes = [ctypes.c_void_p, ctypes.c_char_p]
@@ -38,6 +34,7 @@ class LuaHTTPTransportTests(unittest.TestCase):
             local socket_http = { TIMEOUT = 60 }
             local socket_object = {}
             local created_timeout, effective_timeout, request_count
+            local challenge_code, power_code=200,202
 
             function socket_object:settimeout(seconds)
                 self.timeout = seconds
@@ -63,7 +60,8 @@ class LuaHTTPTransportTests(unittest.TestCase):
                         api_version = 2,
                         id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
                         platform = 'linux',
-                        status = 'running'
+                        status = 'running',
+                        nonce = string.rep('a',48), accepted=true, action='shutdown'
                     }
                 end
             }
@@ -94,7 +92,10 @@ class LuaHTTPTransportTests(unittest.TestCase):
                 sock:settimeout(socket_http.TIMEOUT)
                 effective_timeout = sock.timeout
                 request.sink('{}')
-                return 1, 200, {}, 'HTTP/1.1 200 OK'
+                local code=200
+                if request.url:find('/v2/challenge',1,true) then code=challenge_code end
+                if request.url:find('/v2/power/',1,true) then code=power_code end
+                return 1, code, {}, 'HTTP response'
             end
 
             local api = require 'computerhost.api'
@@ -108,6 +109,22 @@ class LuaHTTPTransportTests(unittest.TestCase):
             assert(effective_timeout == 4,
                    'LuaSocket overwrote the socket timeout with a different value')
             assert(request_count == 1)
+            local uuid='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+            local key=string.rep('0',64)
+            challenge_code=403
+            local ok, err, status=api.control('127.0.0.1',8765,uuid,key,'shutdown')
+            assert(not ok and status==403 and err:find('HTTP status 403',1,true))
+            assert(request_count==2) -- no POST after challenge refusal
+            challenge_code=200
+            power_code=403
+            ok,err,status=api.control('127.0.0.1',8765,uuid,key,'shutdown')
+            assert(not ok and status==403 and err:find('HTTP status 403',1,true))
+            assert(request_count==4)
+            power_code=409
+            ok,err,status=api.control('127.0.0.1',8765,uuid,key,'shutdown')
+            assert(not ok and status==409)
+            power_code=202
+            assert(api.control('127.0.0.1',8765,uuid,key,'shutdown'))
         """ % (repr(str(ROOT)), repr(str(ROOT)))
 
         vm = lib.luaL_newstate()

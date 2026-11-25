@@ -1,6 +1,6 @@
 """Exercise the custom SmartThings telemetry events and update thresholds."""
 import ctypes
-from ctypes.util import find_library
+from lua_runtime import load_lua
 from pathlib import Path
 import unittest
 
@@ -9,10 +9,7 @@ ROOT = Path(__file__).resolve().parents[1] / 'edge-driver' / 'src'
 
 class LuaTelemetryTests(unittest.TestCase):
     def test_custom_metrics_status_formatting_and_visibility(self):
-        library = find_library('lua5.4') or find_library('lua5.3')
-        if not library:
-            self.skipTest('Lua shared library unavailable')
-        lib = ctypes.CDLL(library)
+        lib = load_lua(self)
         lib.luaL_newstate.restype = ctypes.c_void_p
         lib.luaL_openlibs.argtypes = [ctypes.c_void_p]
         lib.luaL_loadstring.argtypes = [ctypes.c_void_p, ctypes.c_char_p]

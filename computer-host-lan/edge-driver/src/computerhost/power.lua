@@ -56,8 +56,8 @@ function M.action(device,action)
   local host,port=address(device)
   if not host then return false,"unknown agent address" end
   local uuid=U.uuid_from_dni(device.device_network_id)
-  local ok,err=API.control(host,port,uuid,key,action)
-  if not ok then return false,err end
+  local ok,err,status=API.control(host,port,uuid,key,action)
+  if not ok then return false,err,status end
   device:set_field(C.FIELD_PENDING_ACTION,action,{persist=true})
   device:set_field(C.FIELD_PENDING_AT,os.time(),{persist=true})
   log.info("Computer Host accepted "..action.." command for "..tostring(device.label))

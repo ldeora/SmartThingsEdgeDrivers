@@ -1,16 +1,13 @@
 """Execute pure-Lua SHA256/HMAC and WOL vector tests with a system Lua library."""
 import ctypes
-from ctypes.util import find_library
+from lua_runtime import load_lua
 from pathlib import Path
 import unittest
 ROOT = Path(__file__).resolve().parents[1] / 'edge-driver' / 'src'
 
 class LuaTests(unittest.TestCase):
     def test_crypto_and_wol_vectors(self):
-        library = find_library('lua5.3') or find_library('lua5.4')
-        if not library:
-            self.skipTest('No Lua library installed')
-        lib = ctypes.CDLL(library)
+        lib = load_lua(self)
         lib.luaL_newstate.restype = ctypes.c_void_p
         lib.luaL_openlibs.argtypes=[ctypes.c_void_p]
         lib.luaL_loadstring.argtypes=[ctypes.c_void_p,ctypes.c_char_p]

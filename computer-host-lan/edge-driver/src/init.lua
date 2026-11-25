@@ -335,12 +335,23 @@ local function turn_on(driver,device)
   switch_state(device,"on",true)
   schedule_poll(driver,device,5)
 end
+local function log_power_rejection(label,err,status)
+  if status==401 or status==403 then
+    -- Refusal can also mean host power is disabled or the nonce expired.
+    -- Do not log response content, key, nonce or signature.
+    log.error("Computer Host "..label.." rejected (HTTP "..status..
+      "): check host power opt-in, allowPowerCommands and the matching controlKey (Power control key)")
+  else
+    log.error("Computer Host "..label.." rejected: "..tostring(err))
+  end
+end
 local function turn_off(driver,device)
   local action,age=pending_age(device)
   if State.shutdown_in_progress(action,age) then
     -- Idempotent: never send a second request while the accepted shutdown is
     -- in progress. A rejection (e.g. Windows 409) must not flip the switch ON.
     log.info("Computer Host switch OFF ignored: shutdown already in progress")
+    switch_state(device,"off",true)
     return
   end
   if not device:get_field(C.FIELD_LAST_OK) then
@@ -350,9 +361,9 @@ local function turn_off(driver,device)
     if known then switch_state(device,known,true) end
     return
   end
-  local ok,err=Power.action(device,"shutdown")
+  local ok,err,status=Power.action(device,"shutdown")
   if not ok then
-    log.error("Computer Host switch OFF rejected: "..tostring(err))
+    log_power_rejection("switch OFF",err,status)
     switch_state(device,"on",true) -- reject optimistic OFF
     return
   end
@@ -360,7 +371,7 @@ local function turn_off(driver,device)
   -- Acknowledge the command: without a switch event the app waits until its
   -- command timeout and shows a generic network/server error. The switch shows
   -- the commanded state; host status shows stopping -> stopped (inferred).
-  switch_state(device,"off")
+  switch_state(device,"off",true)
   schedule_poll(driver,device,5)
 end
 local function momentary(driver,device,command)
@@ -387,8 +398,8 @@ local function momentary(driver,device,command)
     log.warn("Computer Host "..action.." not sent: agent unreachable")
     return
   end
-  local ok,err=Power.action(device,action)
-  if not ok then log.error("Computer Host "..action.." rejected: "..tostring(err)); return end
+  local ok,err,status=Power.action(device,action)
+  if not ok then log_power_rejection(action,err,status); return end
   host_status(device,action=="reboot" and "rebooting" or "suspending")
   schedule_poll(driver,device,5)
 end

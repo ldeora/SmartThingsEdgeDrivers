@@ -1,6 +1,6 @@
 """Mocked SmartThings Lua driver lifecycle/command state-machine tests."""
 import ctypes
-from ctypes.util import find_library
+from lua_runtime import load_lua
 from pathlib import Path
 import unittest
 
@@ -8,9 +8,7 @@ ROOT = Path(__file__).resolve().parents[1]/'edge-driver'/'src'
 
 class LuaDriverTests(unittest.TestCase):
     def test_switch_wol_shutdown_and_network_failure(self):
-        libname=find_library('lua5.4') or find_library('lua5.3')
-        if not libname: self.skipTest('Lua library missing')
-        lib=ctypes.CDLL(libname)
+        lib = load_lua(self)
         lib.luaL_newstate.restype=ctypes.c_void_p
         lib.luaL_openlibs.argtypes=[ctypes.c_void_p]
         lib.luaL_loadstring.argtypes=[ctypes.c_void_p,ctypes.c_char_p]
@@ -22,7 +20,8 @@ class LuaDriverTests(unittest.TestCase):
         lib.lua_close.argtypes=[ctypes.c_void_p]
         script=r'''
             package.path=%s .. '/?.lua;' .. %s .. '/?/init.lua;' .. package.path
-            package.loaded['log']={info=function() end, warn=function() end, error=function() end, debug=function() end}
+            local errors={}
+            package.loaded['log']={info=function() end, warn=function() end, error=function(message) errors[#errors+1]=message end, debug=function() end}
             package.loaded['st.driver']=function(name,template)
               _G.TEMPLATE=template
               return {run=function() end}
@@ -66,7 +65,7 @@ class LuaDriverTests(unittest.TestCase):
             }
             package.loaded['computerhost.telemetry']={status=function(dev,status) dev.last_status=status; return true end,metrics=function() end}
             local wakes,actions=0,{}
-            local action_error=nil
+            local action_error,action_status=nil,nil
             local wake_failure=false
             package.loaded['computerhost.power']={
               wake=function(device)
@@ -77,7 +76,7 @@ class LuaDriverTests(unittest.TestCase):
                 return true
               end,
               action=function(device,action)
-                if action_error then return false,action_error end
+                if action_error then return false,action_error,action_status end
                 actions[#actions+1]=action;device:set_field('computerhost_pending_action',action);device:set_field('computerhost_pending_at',os.time());return true end,
             }
             require 'init'
@@ -223,11 +222,16 @@ class LuaDriverTests(unittest.TestCase):
             assert(device.last_status=='stopping')
             assert(#device.events==previous_events)
             -- A duplicate OFF while stopping is a no-op: no second request
-            -- (Windows would answer 409) and no switch transition.
+            -- (Windows would answer 409) but reassert commanded OFF.
+            local duplicate_at=fields.computerhost_pending_at
             TEMPLATE.capability_handlers.switch.off(driver,device)
             assert(#actions==sent_actions+1)
             assert(fields.computerhost_last_switch=='off')
-            assert(#device.events==previous_events)
+            assert(fields.computerhost_pending_at==duplicate_at)
+            assert(#device.events==previous_events+1)
+            assert(device.events[#device.events].value=='off')
+            assert(device.events[#device.events].state_change==nil)
+            previous_events=#device.events
             -- ON while the agent still answers must not replace the pending
             -- shutdown or send a Wake request.
             local wakes_before=wakes
@@ -418,6 +422,10 @@ class LuaDriverTests(unittest.TestCase):
             fields.computerhost_last_switch='off'
             expect_on_command('on')
             assert(wakes==wake_count)
+            -- An unpublished device with a successful fresh health check
+            -- receives ON from the poll itself, exactly once.
+            fields.computerhost_last_switch=nil
+            expect_on_command('on')
             -- Busy poll: acknowledge known state, do not start another poll.
             fields.computerhost_poll_busy=true
             expect_on_command('on')
@@ -458,6 +466,39 @@ class LuaDriverTests(unittest.TestCase):
             timers['Computer Host health'].fn()
             assert(#device.events==previous_events)
             assert(device.last_status=='running')
+            -- Successful OFF also acknowledges a pre-existing OFF value.
+            fields.computerhost_last_switch='off'
+            previous_events=#device.events
+            TEMPLATE.capability_handlers.switch.off(driver,device)
+            assert(#device.events==previous_events+1)
+            assert(device.events[#device.events].value=='off')
+            assert(#actions==action_count+1)
+            assert(device.last_status=='stopping')
+            boot_id='boot-four'
+            timers['Computer Host health'].fn()
+            assert(device.last_status=='running')
+            -- Refused power commands preserve the running state and give
+            -- actionable, credential-free guidance rather than a false success.
+            action_error='HTTP status 403 (untrusted reason)'
+            action_status=403
+            previous_events=#device.events
+            TEMPLATE.capability_handlers.switch.off(driver,device)
+            assert(#device.events==previous_events+1)
+            assert(device.events[#device.events].value=='on')
+            assert(device.last_status=='running')
+            assert(fields.computerhost_pending_action==nil)
+            assert(errors[#errors]:find('controlKey',1,true))
+            assert(errors[#errors]:find('allowPowerCommands',1,true))
+            assert(not errors[#errors]:find('untrusted reason',1,true))
+            for _,component in ipairs({'reboot','suspend'}) do
+              TEMPLATE.capability_handlers.momentary.push(driver,device,{component=component})
+              assert(errors[#errors]:find('controlKey',1,true))
+              assert(fields.computerhost_pending_action==nil)
+              assert(device.last_status=='running')
+            end
+            assert(#actions==action_count+1)
+            assert(#device.events==previous_events+1)
+            action_error,action_status=nil,nil
             -- Without a known state a failed Wake must not fabricate one.
             fields.computerhost_last_ok=false
             fields.computerhost_last_switch=nil

@@ -44,7 +44,7 @@ local function request_json(host,port,path,method,headers)
   if not success then return nil,"HTTP transport failed: "..tostring(code) end
   response_code=tonumber(code)
   if response_code~=200 and response_code~=202 then
-    return nil,"HTTP status "..tostring(code).." ("..tostring(status)..")"
+    return nil,"HTTP status "..tostring(code).." ("..tostring(status)..")",response_code
   end
   local valid,data=pcall(json.decode,table.concat(chunks))
   if not valid or type(data)~="table" then return nil,"invalid JSON" end
@@ -62,8 +62,8 @@ local function validate(data)
   return data
 end
 local function fetch(host,port,path)
-  local data,err=request_json(host,port,path)
-  if not data then return nil,err end
+  local data,err,status=request_json(host,port,path)
+  if not data then return nil,err,status end
   return validate(data)
 end
 function M.fetch_info(host,port) return fetch(host,port,"/v2/info") end
@@ -77,8 +77,8 @@ function M.fetch_metrics(host,port) return fetch(host,port,"/v2/metrics") end
 function M.control(host,port,uuid,key,action)
   if action~="shutdown" and action~="suspend" and action~="reboot" then return nil,"invalid power action" end
   if not SHA.hmac_hex(key,"") then return nil,"missing/invalid 256-bit control key" end
-  local challenge,err=fetch(host,port,"/v2/challenge")
-  if not challenge then return nil,err end
+  local challenge,err,challenge_status=fetch(host,port,"/v2/challenge")
+  if not challenge then return nil,err,challenge_status end
   if challenge.id~=uuid then return nil,"ID mismatch at challenge endpoint" end
   local nonce=challenge.nonce
   if type(nonce)~="string" or #nonce~=48 or not nonce:match("^[0-9a-f]+$") then
@@ -89,7 +89,7 @@ function M.control(host,port,uuid,key,action)
   local answer,post_err,status=request_json(host,port,path,"POST",{
     ["Content-Length"]="0",["X-ComputerHost-Nonce"]=nonce,["X-ComputerHost-Signature"]=proof,
   })
-  if not answer then return nil,post_err end
+  if not answer then return nil,post_err,status end
   local ok,validation_err=validate(answer)
   if not ok then return nil,validation_err end
   if answer.id~=uuid or answer.accepted~=true or answer.action~=action or status~=202 then

@@ -113,7 +113,7 @@ changes explicitly identified; they are not new hardware certifications. Do not 
   is unsafe. #105 test refactoring and broader feature work remain deferred.
 - The known review fixes have explicit approved dispositions above; they
   are not deferred by the implementation freeze. Remaining #41 security
-  threat-model question, #131 Lua test availability, #133 clock correction
+  threat-model question, #131 mandatory Lua runtime (implementation in PR #175; verify candidate CI; broader harness refactoring deferred), #133 clock correction
   heuristic and older low-priority issues remain tracked. Confirm Lua tests
   actually run in candidate CI. Escalate concrete security, data-loss,
   upgrade, duplicate-device or persistent state defects. No blanket risk
@@ -138,6 +138,7 @@ credential corruption or unsafe power transitions.
 | Windows 11 host A | fresh install/upgrade, initial and repeated search, manual IP, monitoring, service restart, optional power, retained state | NOT TESTED |
 | Windows 11 host B (different NIC) | same checks; unsafe ProgramData fixture only on disposable test system; Private/Public restrictions | NOT TESTED |
 | Real hub | same channel/driver identity; exact installed driver; no duplicate on upgrade; state after shutdown/reboot/suspend/Wake and failed Wake | NOT TESTED |
+| Power refusal diagnostics | disposable test installation only: temporarily set a valid-format nonmatching key in SmartThings (never change the host key); OFF is rejected, switch returns ON, Host Status remains running and redacted log names key/opt-in settings; restore matching preference and verify monitoring. No physical power action should occur; NOT TESTED if not safe. | NOT TESTED |
 | Network | hub restart, agent restart, router interruption, host DHCP change and separate hub IP change | NOT TESTED |
 | Windows + Linux soak | >=7 days each on exact candidate with real hub, dates and anomalies; record unsupported hardware separately | NOT TESTED |
 | Release sign-off | signing decision, security caveats, final documentation, approval | NOT TESTED |
