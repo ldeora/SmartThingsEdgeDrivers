@@ -243,7 +243,9 @@ func TestInstallationOutcomeUsesIdentityAndPowerChoices(t *testing.T) {
 					privilegedResult{Status: "installed_cleanup_required", IdentityPreserved: identity})
 				text := out.String()
 				for _, phrase := range []string{"refresh", "Scan nearby", "Avahi discovery is not confirmed",
-					"firewalld is active", "persistent WOL configuration were not performed", "-recover"} {
+					"firewalld is active", "persistent WOL configuration were not performed", "-recover",
+					"https://bestow-regional.api.smartthings.com/invite/1J2Qy7ZkxL20",
+					"Never forward the agent port to the Internet"} {
 					if !strings.Contains(text, phrase) {
 						t.Fatalf("missing %q: %s", phrase, text)
 					}
@@ -258,9 +260,21 @@ func TestInstallationOutcomeUsesIdentityAndPowerChoices(t *testing.T) {
 					strings.Contains(text, "Existing agent identity verified.") {
 					t.Fatal(text)
 				}
+				if power != "disable" {
+					for _, phrase := range []string{"sudo cat /var/lib/linux-host-agent/control-token",
+						"run0 cat /var/lib/linux-host-agent/control-token",
+						"su -c 'cat /var/lib/linux-host-agent/control-token' (requires the root password)",
+						"do not record, screenshot, log or share",
+						"Enable shutdown/reboot/suspend (allowPowerCommands)",
+						"Power control key (64 hex chars) [controlKey]"} {
+						if !strings.Contains(text, phrase) {
+							t.Fatalf("missing private key guidance %q: %s", phrase, text)
+						}
+					}
+				}
 				switch power {
 				case "enable":
-					if !strings.Contains(text, "allowPower") || !strings.Contains(text, "controlKey") ||
+					if !strings.Contains(text, "allowPowerCommands") || !strings.Contains(text, "controlKey") ||
 						!strings.Contains(text, "does not verify key equality") {
 						t.Fatal(text)
 					}
@@ -269,7 +283,10 @@ func TestInstallationOutcomeUsesIdentityAndPowerChoices(t *testing.T) {
 						t.Fatal(text)
 					}
 				case "disable":
-					if !strings.Contains(text, "no control key setup is needed") || strings.Contains(text, "allowPower") {
+					if !strings.Contains(text, "no control key setup is needed") || strings.Contains(text, "allowPower") ||
+						strings.Contains(text, "/var/lib/linux-host-agent/control-token") ||
+						strings.Contains(text, "Power control key (64 hex chars)") ||
+						strings.Contains(text, "Enable shutdown/reboot/suspend") {
 						t.Fatal(text)
 					}
 				}
