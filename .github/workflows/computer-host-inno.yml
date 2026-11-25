@@ -281,10 +281,11 @@ jobs:
             }
             throw "Agent did not serve /v2/info after $stage"
           }
-          function RunSetup([string]$setupArgs) {
+          function RunSetup([string]$setupArgs, [switch]$ExpectRefusal, [string]$ExpectedReason = '') {
             # Do not wait indefinitely for descendant processes of a self-
             # elevating installer. Bound the setup process and keep diagnostics.
             $log = Join-Path $env:RUNNER_TEMP 'computerhost-setup.log'
+            Remove-Item -LiteralPath $log -ErrorAction SilentlyContinue
             Write-Host "Running setup with silent arguments: $setupArgs"
             $p = Start-Process -FilePath $setup -ArgumentList ($setupArgs + ' /LOG="' + $log + '"') -PassThru
             try {
@@ -292,6 +293,18 @@ jobs:
                 Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
                 if (Test-Path $log) { Get-Content -LiteralPath $log -Tail 35 }
                 throw 'Inno Setup timed out after 120 seconds'
+              }
+              if ($ExpectRefusal) {
+                if ($p.ExitCode -eq 0) { throw 'Invalid Setup unexpectedly succeeded' }
+                if ($ExpectedReason) {
+                  if (-not (Test-Path -LiteralPath $log) -or
+                      (Get-Content -LiteralPath $log -Raw) -notmatch ('PrepareToInstall failed: ' + [regex]::Escape($ExpectedReason))) {
+                    if (Test-Path -LiteralPath $log) { Get-Content -LiteralPath $log -Tail 35 }
+                    throw 'Setup did not refuse at the expected pre-install validation'
+                  }
+                }
+                Write-Host "PASS silent Setup refused (exit $($p.ExitCode)): $ExpectedReason"
+                return
               }
               if ($p.ExitCode -ne 0) {
                 if (Test-Path $log) { Get-Content -LiteralPath $log -Tail 35 }
@@ -303,6 +316,21 @@ jobs:
               }
             } finally { $p.Dispose() }
           }
+          # Exercise the exact read-only script under native Windows PowerShell,
+          # independently of Inno's output parser. This is an existing install.
+          $inspectScript = (Resolve-Path windows-agent/scripts/Install-WindowsAgent.ps1).Path
+          $inspectResult = Join-Path $env:RUNNER_TEMP 'computerhost-inspection-ci.txt'
+          $inspectError = Join-Path $env:RUNNER_TEMP 'computerhost-inspection-ci-error.txt'
+          Remove-Item -LiteralPath $inspectResult,$inspectError -ErrorAction SilentlyContinue
+          & "$env:WINDIR/System32/WindowsPowerShell/v1.0/powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $inspectScript -InspectConfiguration -ConfigurationPath $inspectResult -DiagnosticPath $inspectError
+          if ($LASTEXITCODE -ne 0) {
+            if (Test-Path -LiteralPath $inspectError) { Get-Content -LiteralPath $inspectError }
+            throw 'Native Windows PowerShell configuration inspection failed'
+          }
+          if ([IO.File]::ReadAllText($inspectResult) -cne "upgrade|on|$hub") {
+            throw 'Native Windows PowerShell inspection did not return the expected settings'
+          }
+          Write-Host 'PASS native Windows PowerShell inspection of the existing ZIP installation'
           Write-Host 'TEST: ZIP-to-Setup migration'
           # Simulate a legacy installation lacking the current service metadata.
           & sc.exe description ComputerHostAgent 'Legacy description for migration test' | Out-Null
@@ -335,8 +363,10 @@ jobs:
           Write-Host 'PASS installed onboarding guide and Start Menu shortcut'
           # Next upgrade must retain power without asking to re-enable it.
           Write-Host 'TEST: preserve power setting during a subsequent silent upgrade'
-          RunSetup "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /HUBIP=$hub"
+          RunSetup "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART"
           $upgraded = WaitAgentReady 'silent Setup-to-Setup upgrade'
+          $scope = @((Get-NetFirewallRule -Name 'ComputerHostAgent-TCP8765' | Get-NetFirewallAddressFilter).RemoteAddress)
+          if ($scope.Count -ne 1 -or $scope[0] -ne $hub) { throw 'Silent upgrade lost validated hub scope' }
           AssertServiceDescription 'Setup-to-Setup upgrade'
           if ($upgraded.id -ne $old.id) { throw 'Upgrade changed UUID' }
           $keptConfig = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json
@@ -349,6 +379,53 @@ jobs:
           }
           $upgradeConfig = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json
           if ($upgradeConfig.HostAgent.EnablePowerControl -ne $true) { throw 'Upgrade lost requested power opt-in' }
+          RunSetup "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /LOCALSUBNET=1 /ENABLEPOWER=0"
+          $null = WaitAgentReady 'explicit LocalSubnet and power opt-out'
+          $scope = @((Get-NetFirewallRule -Name 'ComputerHostAgent-TCP8765' | Get-NetFirewallAddressFilter).RemoteAddress)
+          if ($scope.Count -ne 1 -or $scope[0] -ne 'LocalSubnet') { throw 'Explicit LocalSubnet change failed' }
+          RunSetup "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART"
+          $keptSubnet = WaitAgentReady 'silent LocalSubnet preservation'
+          $scope = @((Get-NetFirewallRule -Name 'ComputerHostAgent-TCP8765' | Get-NetFirewallAddressFilter).RemoteAddress)
+          if ($scope.Count -ne 1 -or $scope[0] -ne 'LocalSubnet' -or $keptSubnet.id -ne $old.id -or
+              (Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json).HostAgent.EnablePowerControl -ne $false -or
+              (Get-FileHash $key -Algorithm SHA256).Hash -ne $oldKeyHash) {
+            throw 'Silent upgrade lost LocalSubnet, disabled preference or retained credentials'
+          }
+          $before = (Get-CimInstance Win32_Service -Filter "Name='ComputerHostAgent'").ProcessId
+          $beforeConfig = (Get-FileHash -LiteralPath $configPath).Hash
+          RunSetup "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /HUBIP=$hub /LOCALSUBNET=1" -ExpectRefusal -ExpectedReason 'Conflicting or invalid arguments.'
+          Set-NetFirewallRule -Name 'ComputerHostAgent-TCP8765' -RemoteAddress Any
+          RunSetup "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART" -ExpectRefusal -ExpectedReason 'Missing hub address.'
+          Remove-NetFirewallRule -Name 'ComputerHostAgent-TCP8765'
+          RunSetup "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART" -ExpectRefusal -ExpectedReason 'Missing hub address.'
+          if ((Get-CimInstance Win32_Service -Filter "Name='ComputerHostAgent'").ProcessId -ne $before -or
+              (Get-FileHash -LiteralPath $configPath).Hash -ne $beforeConfig) {
+            throw 'Invalid silent upgrades changed service or configuration'
+          }
+          RunSetup "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /HUBIP=$hub"
+          $null = WaitAgentReady 'explicit replacement of missing scope'
+          Write-Host 'PASS silent Setup conflict/ambiguous/missing scope refusal before mutation'
+          # Explicit settings bypass failed preference inspection, NOT real
+          # configuration validation. Reject malformed old config before stop.
+          $savedConfig = [IO.File]::ReadAllBytes($configPath)
+          $runningPid = (Get-CimInstance Win32_Service -Filter "Name='ComputerHostAgent'").ProcessId
+          try {
+            $invalidConfig = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json
+            $invalidConfig.HostAgent.EnablePowerControl = 'invalid'
+            $invalidConfig | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $configPath -Encoding utf8
+            $invalidHash = (Get-FileHash -LiteralPath $configPath).Hash
+            # Missing explicit power preference after failed inspection must
+            # also exit, not get stuck on the hidden power confirmation page.
+            RunSetup "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /HUBIP=$hub" -ExpectRefusal -ExpectedReason 'Unable to read previous settings.'
+            RunSetup "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /HUBIP=$hub /ENABLEPOWER=0" -ExpectRefusal -ExpectedReason 'Existing installation or selected settings failed safety validation.'
+            if ((Get-CimInstance Win32_Service -Filter "Name='ComputerHostAgent'").ProcessId -ne $runningPid -or
+                (Get-FileHash -LiteralPath $configPath).Hash -ne $invalidHash) {
+              throw 'Explicit Setup arguments bypassed actual configuration validation'
+            }
+          } finally {
+            [IO.File]::WriteAllBytes($configPath, $savedConfig)
+          }
+          Write-Host 'PASS explicit overrides do not bypass existing configuration safety validation'
           Write-Host 'TEST: uninstall removes service/firewall but retains state'
           $uninstaller = Join-Path (Join-Path $env:ProgramFiles 'Computer Host Agent') 'unins000.exe'
           if (-not (Test-Path $uninstaller)) { throw 'Inno uninstall entry missing' }
@@ -389,7 +466,25 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $setup = (Get-ChildItem windows-agent/installer/output -Filter '*setup.exe' -File | Select-Object -First 1).FullName
+          & ./windows-agent/scripts/Test-WindowsInstallerWizard.ps1 -SetupExecutable $setup -ExpectRetainedScope LocalSubnet
+          # Restore a genuinely fresh synthetic installation for the full
+          # onboarding/key-copy test; an ordinary upgrade must skip these pages.
+          $uninstaller = Join-Path $env:ProgramFiles 'Computer Host Agent/unins000.exe'
+          $p = Start-Process -FilePath $uninstaller -ArgumentList '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART' -Wait -PassThru
+          if ($p.ExitCode -ne 0 -or (Get-Service ComputerHostAgent -ErrorAction SilentlyContinue)) {
+            throw 'CI uninstall before fresh graphical test failed'
+          }
+          $state = Join-Path $env:ProgramData 'ComputerHostAgent'
+          if (Test-Path -LiteralPath $state) { Remove-Item -LiteralPath $state -Recurse -Force }
           & ./windows-agent/scripts/Test-WindowsInstallerWizard.ps1 -SetupExecutable $setup -FullInstall
+          & ./windows-agent/scripts/Test-WindowsInstallerWizard.ps1 -SetupExecutable $setup -ExpectRetainedScope '192.0.2.20' -ExpectRetainedPower
+      - name: Exercise unchanged graphical upgrade through retained-settings summary
+        shell: pwsh
+        timeout-minutes: 5
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $setup = (Get-ChildItem windows-agent/installer/output -Filter '*setup.exe' -File | Select-Object -First 1).FullName
+          & ./windows-agent/scripts/Test-WindowsInstallerWizard.ps1 -SetupExecutable $setup -FullInstall -KeepSettings -ExpectRetainedScope '192.0.2.20' -ExpectRetainedPower
       - name: Exercise graphical monitoring-only mode and explicit local-network fallback
         shell: pwsh
         timeout-minutes: 5

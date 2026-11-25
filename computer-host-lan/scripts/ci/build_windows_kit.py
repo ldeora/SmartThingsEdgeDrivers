@@ -108,11 +108,12 @@ Use only on a trusted PRIVATE LAN; never forward TCP 8765 to the Internet.
 2. From the extracted directory run in Windows PowerShell:
    .\\scripts\\Verify-Package.ps1
 3. Open PowerShell as Administrator. Preview, then install:
-   .\\scripts\\Install-WindowsAgent.ps1 -WhatIf
+   .\\scripts\\Install-WindowsAgent.ps1 -WhatIf -HubIPv4 YOUR_HUB_IPV4
    .\\scripts\\Install-WindowsAgent.ps1 -HubIPv4 YOUR_HUB_IPV4
    Get-Service ComputerHostAgent
    Invoke-RestMethod http://127.0.0.1:8765/v2/info
-   Omit -HubIPv4 to allow the LocalSubnet on Private profiles.
+   Fresh installations require -HubIPv4 or explicit -LocalSubnet (Private only).
+   Upgrades keep a validated existing scope and power preference unless explicitly changed.
 4. Open the verified SmartThings Edge channel invitation:
    https://bestow-regional.api.smartthings.com/invite/1J2Qy7ZkxL20
    Sign in, accept, enroll your hub and install Computer Host LAN under Available

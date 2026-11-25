@@ -2,15 +2,22 @@
 # Power is strictly opt-in. Never changes sleep/fast-startup/WOL settings or firmware.
 [CmdletBinding(SupportsShouldProcess=$true)]
 param(
-  [string]$PublishedDirectory = (Join-Path (Split-Path $PSScriptRoot -Parent) 'publish/win-x64'),
+  [string]$PublishedDirectory = '',
   [switch]$SkipFirewall,
   [switch]$EnablePower,
+  [switch]$DisablePower,
+  [switch]$LocalSubnet,
+  [switch]$InspectConfiguration,
+  [switch]$ValidateOnly,
+  [string]$ConfigurationPath = '',
+  [string]$InstallResultPath = '',
   [switch]$UseExistingFiles,
   [string]$HubIPv4 = '',
   [string]$DiagnosticPath = ''
 )
 $ErrorActionPreference = 'Stop'
 try {
+  $inspectionStage = 'initialization'
   $service = 'ComputerHostAgent'
   # Inno Setup invokes Windows PowerShell from a 32-bit bootstrapper on some
   # systems. ProgramFiles in that process may mean Program Files (x86).
@@ -23,20 +30,99 @@ try {
   $programs = Join-Path $programRoot 'Computer Host Agent'
   $state = Join-Path $env:ProgramData 'ComputerHostAgent'
   $exe = Join-Path $programs 'ComputerHost.WindowsAgent.exe'
-  $source = Join-Path $PublishedDirectory 'ComputerHost.WindowsAgent.exe'
-  if ($HubIPv4) {
+  function Test-HubIPv4([string]$Address) {
     $addr = $null
-    if (-not [Net.IPAddress]::TryParse($HubIPv4, [ref]$addr) -or
-        $addr.ToString() -cne $HubIPv4 -or
-        $addr.AddressFamily -ne [Net.Sockets.AddressFamily]::InterNetwork -or
-        $addr.Equals([Net.IPAddress]::Any) -or $addr.Equals([Net.IPAddress]::Broadcast) -or
-        $addr.GetAddressBytes()[0] -ge 224) {
-      throw 'HubIPv4 must be a valid unicast IPv4 address.'
-    }
+    return ([Net.IPAddress]::TryParse($Address, [ref]$addr) -and
+      $addr.ToString() -ceq $Address -and
+      $addr.AddressFamily -eq [Net.Sockets.AddressFamily]::InterNetwork -and
+      $addr.GetAddressBytes()[0] -gt 0 -and $addr.GetAddressBytes()[0] -ne 127 -and
+      $addr.GetAddressBytes()[0] -lt 224)
   }
-  if (-not (Test-Path -LiteralPath $source)) { throw "Published executable not found: $source" }
+  if ($EnablePower -and $DisablePower) { throw 'Choose either -EnablePower or -DisablePower, not both.' }
+  if (($PSBoundParameters.ContainsKey('HubIPv4') -and -not (Test-HubIPv4 $HubIPv4)) -or
+      ($HubIPv4 -and $LocalSubnet) -or ($SkipFirewall -and ($HubIPv4 -or $LocalSubnet))) {
+    throw 'Choose one valid firewall option: -HubIPv4, -LocalSubnet or -SkipFirewall.'
+  }
+  if (-not $InspectConfiguration -and -not $ValidateOnly) {
+    # Windows PowerShell 5.1 -File can evaluate parameter defaults before
+    # PSScriptRoot is populated. Resolve the ZIP default inside the body;
+    # neither read-only operation needs a published executable.
+    if (-not $PublishedDirectory) {
+      $PublishedDirectory = Join-Path (Split-Path -Parent $PSScriptRoot) 'publish/win-x64'
+    }
+    $source = Join-Path $PublishedDirectory 'ComputerHost.WindowsAgent.exe'
+    if (-not (Test-Path -LiteralPath $source)) { throw "Published executable not found: $source" }
+  }
   $principal = [Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsIdentity]::GetCurrent())
   if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { throw 'Run PowerShell as Administrator.' }
+  $inspectionStage = 'service ownership'
+  $existing = Get-Service -Name $service -ErrorAction SilentlyContinue
+  if ($existing) {
+    $installedService = Get-CimInstance Win32_Service -Filter "Name='$service'"
+    if ($installedService.StartName -ne 'NT AUTHORITY\LocalService' -or
+        -not [string]::Equals($installedService.PathName.Trim().Trim('"'), $exe,
+          [StringComparison]::OrdinalIgnoreCase)) {
+      throw 'Existing service has unexpected binary/account; refusing to replace it.'
+    }
+  }
+  # Read only; never assume that absence, malformed configuration or a
+  # foreign firewall rule is consent to widen access or enable power.
+  $inspectionStage = 'existing configuration'
+  $configPath = Join-Path $programs 'appsettings.json'
+  $previousPower = $false
+  if ($existing) {
+    if (-not (Test-Path -LiteralPath $configPath -PathType Leaf)) { throw 'Existing agent configuration is missing.' }
+    try { $previousConfig = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json }
+    catch { throw 'Existing agent configuration cannot be read as JSON.' }
+    if ($null -eq $previousConfig.HostAgent) { throw 'Existing HostAgent configuration is invalid.' }
+    $storedPower = $previousConfig.HostAgent.PSObject.Properties['EnablePowerControl']
+    if ($null -ne $storedPower) {
+      if ($storedPower.Value -isnot [bool]) { throw 'Existing power preference is not a JSON boolean.' }
+      $previousPower = $storedPower.Value
+    }
+  }
+  function Get-PreviousFirewallScope {
+    try {
+      $rules = @(Get-NetFirewallRule -PolicyStore PersistentStore -Name 'ComputerHostAgent-TCP8765' -ErrorAction Stop)
+      if ($rules.Count -ne 1) { return 'unknown' }
+      $rule = $rules[0]
+      if ([string]$rule.Enabled -ne 'True' -or [string]$rule.Profile -ne 'Private' -or
+          [string]$rule.Direction -ne 'Inbound' -or [string]$rule.Action -ne 'Allow') { return 'unknown' }
+      $app = @($rule | Get-NetFirewallApplicationFilter -ErrorAction Stop)
+      $port = @($rule | Get-NetFirewallPortFilter -ErrorAction Stop)
+      $address = @($rule | Get-NetFirewallAddressFilter -ErrorAction Stop)
+      $serviceFilter = @($rule | Get-NetFirewallServiceFilter -ErrorAction Stop)
+      if ($app.Count -ne 1 -or $port.Count -ne 1 -or $address.Count -ne 1 -or $serviceFilter.Count -ne 1 -or
+          -not [string]::Equals($app[0].Program, $exe, [StringComparison]::OrdinalIgnoreCase) -or
+          [string]$port[0].Protocol -notin @('TCP','6') -or
+          @($port[0].LocalPort).Count -ne 1 -or [string]$port[0].LocalPort -notmatch '^\d+$' -or
+          [string]$port[0].RemotePort -ne 'Any' -or [string]$address[0].LocalAddress -ne 'Any' -or
+          [string]$serviceFilter[0].Service -ne 'Any') { return 'unknown' }
+      $remote = @($address[0].RemoteAddress)
+      if ($remote.Count -ne 1) { return 'unknown' }
+      if ($remote[0] -eq 'LocalSubnet') { return 'LocalSubnet' }
+      if (Test-HubIPv4 $remote[0]) { return [string]$remote[0] }
+    } catch { }
+    return 'unknown'
+  }
+  $inspectionStage = 'firewall scope'
+  $previousScope = if ($existing -and ($InspectConfiguration -or (-not $SkipFirewall -and -not $HubIPv4 -and -not $LocalSubnet))) {
+    Get-PreviousFirewallScope
+  } else { 'unknown' }
+  if ($InspectConfiguration) {
+    if (-not $ConfigurationPath) { throw 'Inspection requires -ConfigurationPath.' }
+    $kind = if ($existing) { 'upgrade' } else { 'fresh' }
+    $power = if ($previousPower) { 'on' } else { 'off' }
+    $inspectionStage = 'write inspection response'
+    # One ASCII record, with no trailing line or BOM ambiguity in Setup.
+    [IO.File]::WriteAllText($ConfigurationPath, "$kind|$power|$previousScope", [Text.Encoding]::ASCII)
+    return
+  }
+  $effectivePower = if ($EnablePower) { $true } elseif ($DisablePower) { $false } else { $previousPower }
+  $remoteScope = if ($HubIPv4) { $HubIPv4 } elseif ($LocalSubnet) { 'LocalSubnet' } else { $previousScope }
+  if (-not $SkipFirewall -and $remoteScope -eq 'unknown') {
+    throw 'No validated firewall scope. Specify -HubIPv4 or explicitly choose -LocalSubnet before installation.'
+  }
   # ProgramData permits standard users to create subdirectories. The state
   # directory must therefore be created with its final protected DACL in the
   # CreateDirectory call; never create it first and tighten permissions later.
@@ -164,20 +250,14 @@ try {
       $sid, 'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow'))
   }
 
-  $existing = Get-Service -Name $service -ErrorAction SilentlyContinue
-  if ($existing) {
-    $installedService = Get-CimInstance Win32_Service -Filter "Name='$service'"
-    if ($installedService.StartName -ne 'NT AUTHORITY\LocalService' -or
-        -not [string]::Equals($installedService.PathName.Trim().Trim('"'), $exe,
-          [StringComparison]::OrdinalIgnoreCase)) {
-      throw 'Existing service has unexpected binary/account; refusing to replace it.'
-    }
-  }
   if (Test-Path -LiteralPath $state) {
     Assert-TrustedStateEntry $state 'Directory'
     Assert-ExistingStateFiles
   }
-  if ($PSCmdlet.ShouldProcess($service, ('Install service; power enabled: ' + [bool]$EnablePower))) {
+  # Setup's final read-only validation uses the explicit settings chosen in
+  # the wizard. It does not depend on the earlier preference inspection.
+  if ($ValidateOnly) { return }
+  if ($PSCmdlet.ShouldProcess($service, ('Install service; power enabled: ' + $effectivePower))) {
     # Stop the existing agent before changing its persistent-state ACLs.
     if ($existing -and $existing.Status -ne 'Stopped') {
       Stop-Service -Name $service -ErrorAction Stop
@@ -218,10 +298,10 @@ try {
         [IO.File]::WriteAllBytes($configPath, $preservedConfig)
       }
     }
-    # A service upgrade never enables power by accident. -EnablePower must be explicit.
+    # Preserve the valid previous preference unless explicitly changed.
     if (-not (Test-Path -LiteralPath $configPath)) { throw "Missing $configPath" }
     $config = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json
-    $config.HostAgent | Add-Member -NotePropertyName EnablePowerControl -NotePropertyValue ([bool]$EnablePower) -Force
+    $config.HostAgent | Add-Member -NotePropertyName EnablePowerControl -NotePropertyValue $effectivePower -Force
     # Windows PowerShell 5.1's Set-Content -Encoding utf8 adds a BOM.
   # Write BOM-less UTF-8 consistently from either 32- or 64-bit PowerShell.
   $json = $config | ConvertTo-Json -Depth 10
@@ -231,8 +311,10 @@ try {
     # immediately before any existing control key can be read.
     Assert-TrustedStateEntry $state 'Directory'
     Assert-ExistingStateFiles
-    if ($EnablePower) {
+    $retainedPowerKey = $false
+    if ($effectivePower) {
       $tokenPath = Join-Path $state 'control-token'
+      $retainedPowerKey = [bool]($existing -and $previousPower -and (Test-Path -LiteralPath $tokenPath -PathType Leaf))
       if (-not (Test-Path -LiteralPath $tokenPath)) {
         # Publish the complete secret atomically. The state directory is
         # already protected, so no standard user can plant the destination.
@@ -305,7 +387,6 @@ try {
     }
     if (-not $SkipFirewall) {
       Get-NetFirewallRule -Name 'ComputerHostAgent-TCP8765' -ErrorAction SilentlyContinue | Remove-NetFirewallRule
-      $remoteScope = if ($HubIPv4) { $HubIPv4 } else { 'LocalSubnet' }
       New-NetFirewallRule -Name 'ComputerHostAgent-TCP8765' -DisplayName 'Computer Host Agent (trusted LAN)' `
         -Direction Inbound -Action Allow -Protocol TCP -LocalPort $listenPort -Program $exe -Profile Private `
         -RemoteAddress $remoteScope | Out-Null
@@ -357,16 +438,26 @@ try {
       Assert-TrustedStateEntry $bootSessionPath 'AgentFile'
     }
     Get-Service -Name $service | Format-Table Name,Status,StartType
-    Write-Host "Identity/state kept in $state. Power commands enabled: $([bool]$EnablePower)"
-    if ($EnablePower) { Write-Warning 'Privileged commands are enabled. Keep control-token secret; put it in SmartThings device preferences only over a trusted channel. Never share it in logs.' }
+    Write-Host "Identity/state kept in $state. Power commands enabled: $effectivePower"
+    if ($effectivePower) { Write-Warning 'Privileged commands are enabled. Keep control-token secret; put it in SmartThings device preferences only over a trusted channel. Never share it in logs.' }
     Write-Warning 'Unsigned development build: use only on a test PC and do not distribute as a trusted public installer.'
+    # Advisory UI result only. Never include a key, key hash or host identity.
+    # The actual health/version/identity gate remains mandatory in Setup.
+    if ($InstallResultPath) {
+      try {
+        $kind = if ($existing) { 'upgrade' } else { 'fresh' }
+        $keyStatus = if ($retainedPowerKey) { 'key-retained' } else { 'key-not-retained' }
+        [IO.File]::WriteAllText($InstallResultPath, "$kind|$keyStatus", [Text.Encoding]::ASCII)
+      } catch { Write-Warning 'Unable to write installation UI result; Setup will show standard onboarding.' }
+    }
   }
   
 } catch {
   if ($DiagnosticPath) {
     try {
       # The diagnostic captures the exception type and message, not token contents.
-      $message = 'ComputerHostAgent service installation failed: ' +
+      $operation = if ($InspectConfiguration) { "configuration inspection ($inspectionStage)" } else { 'service installation' }
+      $message = "ComputerHostAgent $operation failed: " +
         $_.Exception.GetType().Name + ': ' + $_.Exception.Message
       [System.IO.File]::WriteAllText(
         [System.IO.Path]::GetFullPath($DiagnosticPath), $message,

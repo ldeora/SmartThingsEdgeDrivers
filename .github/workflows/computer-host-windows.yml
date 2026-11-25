@@ -267,7 +267,16 @@ jobs:
             Start-Service ComputerHostAgent
             Write-Host 'PASS LocalService monitoring remains active with missing or unsafe power credential'
             & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $install -PublishedDirectory $publish -SkipFirewall
+            if ($LASTEXITCODE -ne 0) { throw 'Windows PowerShell 5.1 implicit power preservation failed' }
+            $appConfig = Join-Path $env:ProgramFiles 'Computer Host Agent/appsettings.json'
+            if ((Get-Content -LiteralPath $appConfig -Raw | ConvertFrom-Json).HostAgent.EnablePowerControl -ne $true) {
+              throw 'ZIP upgrade lost power preference'
+            }
+            & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $install -PublishedDirectory $publish -SkipFirewall -DisablePower
             if ($LASTEXITCODE -ne 0) { throw 'Windows PowerShell 5.1 power-disable upgrade failed' }
+            if ((Get-Content -LiteralPath $appConfig -Raw | ConvertFrom-Json).HostAgent.EnablePowerControl -ne $false) {
+              throw 'ZIP explicit opt-out was not persisted'
+            }
             $infoOff = Invoke-RestMethod 'http://127.0.0.1:8765/v2/info' -TimeoutSec 3
             if (@($infoOff.power_actions).Count -ne 0) { throw 'Power remained enabled after opt-out' }
             if ((Get-Content -LiteralPath $secretPath -Raw).Trim() -cne $secret -or
@@ -307,6 +316,40 @@ jobs:
               }
             }
             Write-Host 'PASS Windows PowerShell config preservation, custom-port firewall and token ACL'
+            function Assert-ZipScope([string]$expected) {
+              $rules = @(Get-NetFirewallRule -Name 'ComputerHostAgent-TCP8765' -ErrorAction Stop)
+              $addresses = @($rules | Get-NetFirewallAddressFilter | Select-Object -ExpandProperty RemoteAddress)
+              if ($rules.Count -ne 1 -or [string]$rules[0].Profile -ne 'Private' -or
+                  $addresses.Count -ne 1 -or $addresses[0] -ne $expected) { throw 'ZIP firewall scope mismatch' }
+            }
+            & $install -PublishedDirectory $publish
+            Assert-ZipScope '192.0.2.20'
+            if ((Get-Content -LiteralPath $appConfig -Raw | ConvertFrom-Json).HostAgent.EnablePowerControl -ne $false) { throw 'Implicit upgrade enabled power' }
+            & $install -PublishedDirectory $publish -LocalSubnet
+            Assert-ZipScope 'LocalSubnet'
+            & $install -PublishedDirectory $publish
+            Assert-ZipScope 'LocalSubnet'
+            & $install -PublishedDirectory $publish -HubIPv4 '192.0.2.21'
+            Assert-ZipScope '192.0.2.21'
+            function Assert-ZipRefusal([hashtable]$extra) {
+              $before = (Get-CimInstance Win32_Service -Filter "Name='ComputerHostAgent'").ProcessId
+              $configHash = (Get-FileHash -LiteralPath $appConfig).Hash
+              $rejected = $false
+              try { & $install -PublishedDirectory $publish @extra } catch { $rejected = $true }
+              if (-not $rejected -or (Get-CimInstance Win32_Service -Filter "Name='ComputerHostAgent'").ProcessId -ne $before -or
+                  (Get-FileHash -LiteralPath $appConfig).Hash -ne $configHash) {
+                throw 'Invalid ZIP upgrade did not refuse before mutation'
+              }
+            }
+            Assert-ZipRefusal @{EnablePower=$true; DisablePower=$true}
+            Assert-ZipRefusal @{HubIPv4='192.0.2.21'; LocalSubnet=$true}
+            Set-NetFirewallRule -Name 'ComputerHostAgent-TCP8765' -RemoteAddress Any
+            Assert-ZipRefusal @{}
+            Remove-NetFirewallRule -Name 'ComputerHostAgent-TCP8765'
+            Assert-ZipRefusal @{}
+            & $install -PublishedDirectory $publish -HubIPv4 '192.0.2.21'
+            Assert-ZipScope '192.0.2.21'
+            Write-Host 'PASS ZIP scope preservation, explicit replacement and pre-mutation refusal'
 
             # The uninstaller deliberately retains ProgramData for reinstallation.
             # A stricter owner/DACL preflight must not reject that legitimate state

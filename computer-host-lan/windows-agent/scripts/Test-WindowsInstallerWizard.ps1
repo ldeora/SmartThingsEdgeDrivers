@@ -6,7 +6,10 @@
 param([Parameter(Mandatory)][string]$SetupExecutable,
       [switch]$FullInstall,
       [switch]$MonitoringOnly,
-      [switch]$SubnetFallback)
+      [switch]$SubnetFallback,
+      [string]$ExpectRetainedScope = '',
+      [switch]$ExpectRetainedPower,
+      [switch]$KeepSettings)
 $ErrorActionPreference = 'Stop'
 
 Add-Type -TypeDefinition @'
@@ -35,8 +38,15 @@ public static class ComputerHostWizardProbe {
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetClassName(IntPtr h, StringBuilder text, int max);
     [DllImport("user32.dll")] private static extern bool GetWindowRect(IntPtr h, out RECT rect);
     [DllImport("user32.dll")] private static extern bool IsWindowVisible(IntPtr h);
-    [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern bool SetWindowText(IntPtr h, string value);
     [DllImport("user32.dll")] private static extern IntPtr SendMessage(IntPtr h, uint m, IntPtr w, IntPtr l);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern IntPtr SendMessageTimeout(IntPtr h, uint m, UIntPtr w, StringBuilder text,
+        uint flags, uint timeout, out UIntPtr result);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern IntPtr SendMessageTimeout(IntPtr h, uint m, UIntPtr w, string text,
+        uint flags, uint timeout, out UIntPtr result);
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern bool PostMessage(IntPtr h, uint m, IntPtr w, IntPtr l);
     [DllImport("user32.dll", SetLastError=true)] private static extern bool OpenClipboard(IntPtr h);
     [DllImport("user32.dll")] private static extern bool CloseClipboard();
     [DllImport("user32.dll")] private static extern IntPtr GetClipboardData(uint format);
@@ -72,9 +82,29 @@ public static class ComputerHostWizardProbe {
     }
     public static void Click(IntPtr hwnd) { SendMessage(hwnd, 0x00F5, IntPtr.Zero, IntPtr.Zero); }
     public static bool IsChecked(IntPtr hwnd) { return SendMessage(hwnd, 0x00F0, IntPtr.Zero, IntPtr.Zero).ToInt64() == 1; }
-    public static string TextOf(IntPtr hwnd) {
+    // Only access the visible hub selector, never an arbitrary edit control
+    // (the private key page also contains an edit). GetWindowText/SetWindowText
+    // are not reliable cross-process control-text APIs.
+    private static void RequireHubSelector(IntPtr hwnd) {
+        var cls = new StringBuilder(256);
+        GetClassName(hwnd, cls, cls.Capacity);
+        if (!IsWindowVisible(hwnd) ||
+            cls.ToString().IndexOf("ComboBox", StringComparison.OrdinalIgnoreCase) < 0)
+            throw new InvalidOperationException("Expected visible hub combo box");
+    }
+    public static bool SetHubAddress(IntPtr hwnd, string value) {
+        RequireHubSelector(hwnd);
+        UIntPtr accepted;
+        return SendMessageTimeout(hwnd, 0x000C, UIntPtr.Zero, value,
+            0x0002, 2000, out accepted) != IntPtr.Zero && accepted != UIntPtr.Zero;
+    }
+    public static string HubAddressOf(IntPtr hwnd) {
+        RequireHubSelector(hwnd);
         var text = new StringBuilder(512);
-        GetWindowText(hwnd, text, text.Capacity);
+        UIntPtr copied;
+        if (SendMessageTimeout(hwnd, 0x000D, new UIntPtr((uint)text.Capacity), text,
+                0x0002, 2000, out copied) == IntPtr.Zero)
+            throw new InvalidOperationException("Hub selector WM_GETTEXT failed or timed out");
         return text.ToString();
     }
     public static int PasswordMask(IntPtr hwnd) {
@@ -158,8 +188,13 @@ function WaitForClipboard([string]$expected, [string]$stage) {
 $proc = $null
 $window = $null
 try {
-    $args = if ($FullInstall) {
-        if ($MonitoringOnly) { '/ENABLEPOWER=0' } else { '/HUBIP=192.0.2.20 /ENABLEPOWER=1' }
+    if ($KeepSettings -and (-not $FullInstall -or -not $ExpectRetainedScope)) {
+        throw '-KeepSettings requires -FullInstall and -ExpectRetainedScope'
+    }
+    $wasUpgrade = [bool](Get-Service ComputerHostAgent -ErrorAction SilentlyContinue)
+    $args = if ($FullInstall -and -not $KeepSettings) {
+        # Exercise genuine manual hub configuration, not a pre-filled /HUBIP.
+        if ($MonitoringOnly) { '/ENABLEPOWER=0' } else { '/ENABLEPOWER=1' }
     } else { '' }
     $modeSuffix = if ($MonitoringOnly) { '-monitoring-only' } else { '-power-enabled' }
     $proc = Start-Process -FilePath $setup -ArgumentList $args -PassThru
@@ -191,6 +226,47 @@ try {
     if (-not $next) { throw 'Welcome Next button is not visible' }
     [ComputerHostWizardProbe]::Click($next.Handle)
 
+    if ($ExpectRetainedScope) {
+        WaitForWizardText $window.Handle 'Upgrade - keep current settings' 'retained-settings summary'
+        $scopePattern = if ($ExpectRetainedScope -eq 'LocalSubnet') { 'LocalSubnet' } else { [regex]::Escape($ExpectRetainedScope) }
+        WaitForWizardText $window.Handle $scopePattern 'summary shows retained network scope'
+        $powerPattern = if ($ExpectRetainedPower) { 'Power control: enabled' } else { 'Power control: disabled' }
+        WaitForWizardText $window.Handle $powerPattern 'summary shows retained power preference'
+        WaitForWizardText $window.Handle 'If already connected to SmartThings, no new device is needed\.' 'summary confirms existing SmartThings device is retained'
+        CaptureWizardPage $window ('02-upgrade-summary' + $modeSuffix)
+        $change = VisibleControls $window.Handle | Where-Object {
+            $_.Class -match 'CheckBox|Button' -and $_.Text -eq 'Change settings'
+        } | Select-Object -First 1
+        if (-not $change -or [ComputerHostWizardProbe]::IsChecked($change.Handle)) {
+            throw 'Change settings must be unchecked by default'
+        }
+        if ($KeepSettings) {
+            $before = Invoke-RestMethod http://127.0.0.1:8765/v2/info -TimeoutSec 3
+            $keyPath = Join-Path $env:ProgramData 'ComputerHostAgent/control-token'
+            $keyHash = if (Test-Path -LiteralPath $keyPath) { (Get-FileHash -LiteralPath $keyPath).Hash } else { '' }
+            ClickWizardButton $window.Handle 'Next'
+            WaitForWizardText $window.Handle 'Ready to Install' 'keep settings skips hub and power pages'
+            ClickWizardButton $window.Handle 'Install'
+            WaitForWizardText $window.Handle 'Computer Host LAN upgrade complete' 'upgrade skips first-install onboarding and retained key page' 240
+            if ($ExpectRetainedPower -and $keyHash) {
+                WaitForWizardText $window.Handle 'existing power key is unchanged' 'retained-key guidance'
+            }
+            $after = Invoke-RestMethod http://127.0.0.1:8765/v2/info -TimeoutSec 3
+            $afterKeyHash = if (Test-Path -LiteralPath $keyPath) { (Get-FileHash -LiteralPath $keyPath).Hash } else { '' }
+            $config = Get-Content -LiteralPath (Join-Path $env:ProgramFiles 'Computer Host Agent/appsettings.json') -Raw | ConvertFrom-Json
+            $scope = @((Get-NetFirewallRule -Name 'ComputerHostAgent-TCP8765' | Get-NetFirewallAddressFilter).RemoteAddress)
+            if ($after.id -ne $before.id -or $keyHash -cne $afterKeyHash -or
+                $config.HostAgent.EnablePowerControl -ne [bool]$ExpectRetainedPower -or
+                $scope.Count -ne 1 -or $scope[0] -ne $ExpectRetainedScope) {
+                throw 'Keep-settings upgrade changed identity, key or settings'
+            }
+            ClickWizardButton $window.Handle 'Finish'
+            Write-Host 'PASS complete unchanged graphical upgrade preserves UUID, key and settings'
+            return
+        }
+        [ComputerHostWizardProbe]::Click($change.Handle)
+        ClickWizardButton $window.Handle 'Next'
+    }
     $onHub = $false
     for ($attempt = 0; $attempt -lt 70; $attempt++) {
         $children = @([ComputerHostWizardProbe]::Children($window.Handle))
@@ -223,11 +299,39 @@ try {
         throw "Hub IPv4 input falls outside the Setup window: $input"
     }
     Write-Host "PASS visible, on-screen, editable hub address selector: $input"
-    if (-not [ComputerHostWizardProbe]::SetWindowText($input.Handle, '192.0.2.20')) {
-        throw 'Hub IPv4 selector refused manual text entry'
+    if ($ExpectRetainedScope) {
+        if ($ExpectRetainedScope -eq 'LocalSubnet') {
+            $scopeCheck = $children | Where-Object {
+                $_.Visible -and $_.Text -eq 'Allow connections from devices on my local network'
+            } | Select-Object -First 1
+            if (-not $scopeCheck -or -not [ComputerHostWizardProbe]::IsChecked($scopeCheck.Handle)) {
+                throw 'Existing LocalSubnet choice not prefilled'
+            }
+        } else {
+            $observedScope = [ComputerHostWizardProbe]::HubAddressOf($input.Handle)
+            CaptureWizardPage $window '02-hub-retained-ipv4'
+            if ($observedScope -ne $ExpectRetainedScope) {
+                # Log only the synthetic hub field, never the key page.
+                throw "Existing hub scope not prefilled: expected '$ExpectRetainedScope', observed '$observedScope'"
+            }
+        }
+        ClickWizardButton $window.Handle 'Next'
+        WaitForWizardText $window.Handle 'Enable authenticated shutdown, reboot and suspend' 'retained power page'
+        $power = VisibleControls $window.Handle | Where-Object {
+            $_.Class -match 'CheckBox' -and $_.Text -match 'Enable authenticated shutdown'
+        } | Select-Object -First 1
+        if (-not $power -or [ComputerHostWizardProbe]::IsChecked($power.Handle) -ne [bool]$ExpectRetainedPower) {
+            throw 'Existing power preference not prefilled'
+        }
+        Write-Host 'PASS graphical upgrade prefilled retained scope and power without command-line overrides'
+        return
     }
-    if ([ComputerHostWizardProbe]::TextOf($input.Handle) -ne '192.0.2.20') {
-        throw 'Hub IPv4 selector did not retain manually entered address'
+    if (-not [ComputerHostWizardProbe]::SetHubAddress($input.Handle, '192.0.2.20')) {
+        throw 'Hub IPv4 selector refused manual text entry (WM_SETTEXT)'
+    }
+    $manualAddress = [ComputerHostWizardProbe]::HubAddressOf($input.Handle)
+    if ($manualAddress -ne '192.0.2.20') {
+        throw "Hub IPv4 selector did not retain manually entered address: expected '192.0.2.20', observed '$manualAddress'"
     }
     Write-Host 'PASS manual hub-IP entry accepts and displays IPv4 text'
     # Windows CI has no discoverable hub. Test the real manual-entry path
@@ -242,8 +346,9 @@ try {
     } | Select-Object -First 1
     if (-not $rescanInput) { throw 'Hub selector disappeared after retry' }
     if ($rescanStatus) {
-        if ([ComputerHostWizardProbe]::TextOf($rescanInput.Handle) -ne '192.0.2.20') {
-            throw 'Failed hub rediscovery lost previously entered valid IPv4 address'
+        $rescanAddress = [ComputerHostWizardProbe]::HubAddressOf($rescanInput.Handle)
+        if ($rescanAddress -ne '192.0.2.20') {
+            throw "Failed hub rediscovery lost previously entered valid IPv4 address: expected '192.0.2.20', observed '$rescanAddress'"
         }
         Write-Host 'PASS failed rediscovery preserves manually entered hub IPv4 address'
     } else {
@@ -263,8 +368,12 @@ try {
     ClickWizardButton $window.Handle 'Advanced options'
     Write-Host 'PASS Advanced options shows/hides the local-network firewall fallback'
     if ($SubnetFallback) {
-        if (-not [ComputerHostWizardProbe]::SetWindowText($input.Handle, '')) {
-            throw 'Could not clear manual hub address to test LocalSubnet fallback'
+        if (-not [ComputerHostWizardProbe]::SetHubAddress($rescanInput.Handle, '')) {
+            throw 'Could not clear manual hub address to test LocalSubnet fallback (WM_SETTEXT)'
+        }
+        $clearedAddress = [ComputerHostWizardProbe]::HubAddressOf($rescanInput.Handle)
+        if ($clearedAddress -ne '') {
+            throw "Hub field was not cleared before LocalSubnet selection: observed '$clearedAddress'"
         }
         # Discovery failure expands Advanced options automatically, whereas
         # successful discovery initially collapses it. Do not toggle blindly.
@@ -289,9 +398,17 @@ try {
     if (-not $rescan) { throw 'Search again button not visible' }
     Write-Host 'PASS Search again button visible'
     Write-Host 'PASS graphical Welcome and hub selector smoke test'
+    # Post the click so a validation dialog cannot block the test thread.
+    # The navigation-only smoke also proves Setup accepts the manual choice.
+    $next = FindVisibleButton $window.Handle 'Next'
+    if (-not $next -or -not [ComputerHostWizardProbe]::PostMessage($next.Handle, 0x00F5, [IntPtr]::Zero, [IntPtr]::Zero)) {
+        throw 'Could not advance from hub configuration page'
+    }
+    WaitForWizardText $window.Handle 'Enable authenticated shutdown, reboot and suspend' 'power-management page after hub selection'
+    if ($rescanStatus -and -not $SubnetFallback) {
+        Write-Host 'PASS manual hub selection accepted after failed discovery'
+    }
     if ($FullInstall) {
-        ClickWizardButton $window.Handle 'Next'
-        WaitForWizardText $window.Handle 'Enable authenticated shutdown, reboot and suspend' 'power-management page'
         $cb = VisibleControls $window.Handle |
             Where-Object { $_.Class -match 'CheckBox' -and $_.Text -match 'Enable authenticated shutdown' } |
             Select-Object -First 1
@@ -305,6 +422,18 @@ try {
         ClickWizardButton $window.Handle 'Next'
         WaitForWizardText $window.Handle 'Ready to Install' 'confirmation page'
         ClickWizardButton $window.Handle 'Install'
+        if ($wasUpgrade -and $MonitoringOnly) {
+            WaitForWizardText $window.Handle 'Computer Host LAN upgrade complete' 'monitoring-only upgrade skips onboarding and key page' 240
+            ClickWizardButton $window.Handle 'Finish'
+            $info = Invoke-RestMethod http://127.0.0.1:8765/v2/info -TimeoutSec 3
+            if (@($info.power_actions).Count -ne 0) { throw 'Monitoring-only upgrade left power enabled' }
+            if ($SubnetFallback) {
+                $scope = @((Get-NetFirewallRule -Name 'ComputerHostAgent-TCP8765' | Get-NetFirewallAddressFilter).RemoteAddress)
+                if ($scope.Count -ne 1 -or $scope[0] -ne 'LocalSubnet') { throw 'Graphical scope change failed' }
+            }
+            Write-Host 'PASS graphical upgrade changes settings without first-install onboarding'
+            return
+        }
         WaitForWizardText $window.Handle 'Open driver channel' 'post-install SmartThings connection page' 240
         WaitForWizardText $window.Handle 'Scan nearby' 'SmartThings device discovery guidance'
         $status = @(VisibleControls $window.Handle | Where-Object {
@@ -380,6 +509,14 @@ try {
                 }
             }
             Write-Host 'PASS graphical monitoring-only setup, no key page and LocalSubnet firewall'
+        }
+        if (-not $SubnetFallback) {
+            $addresses = @((Get-NetFirewallRule -Name 'ComputerHostAgent-TCP8765' |
+                Get-NetFirewallAddressFilter).RemoteAddress)
+            if ($addresses.Count -ne 1 -or $addresses[0] -ne '192.0.2.20') {
+                throw "Graphical install did not apply manually entered hub scope: observed '$($addresses -join ',')'"
+            }
+            Write-Host 'PASS installed firewall uses manually entered hub address'
         }
         Write-Host 'PASS complete native Windows GUI installation and onboarding workflow'
     }

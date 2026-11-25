@@ -27,13 +27,13 @@ From the version-matched ZIP use elevated PowerShell (replace the hub IP):
 
 ```powershell
 .\scripts\Verify-Package.ps1
-.\scripts\Install-WindowsAgent.ps1 -WhatIf
+.\scripts\Install-WindowsAgent.ps1 -WhatIf -HubIPv4 192.168.1.20
 .\scripts\Install-WindowsAgent.ps1 -HubIPv4 192.168.1.20
 Get-Service ComputerHostAgent
 Invoke-RestMethod http://127.0.0.1:8765/v2/info
 ```
 
-Power commands are disabled by default and require explicit -EnablePower and a 64-character private key entered in the SmartThings device preferences. A PowerShell upgrade requires -EnablePower again to retain consent; the graphical installer preserves the previous selection. If Windows policy denies shutdown privileges, the agent keeps monitoring available but does not advertise power commands. The new Windows kit also includes Set-WindowsHubAddress.ps1 and Restore-WindowsAgentUpgrade.ps1 for guarded reconfiguration and recovery.
+Power commands are disabled by default and require explicit -EnablePower and a 64-character private key entered in the SmartThings device preferences. Published rc.2 PowerShell upgrades require -EnablePower again. Post-rc.2 main preserves the valid prior preference and Private firewall scope in both installers; use -DisablePower for explicit opt-out and -LocalSubnet for explicit local-network access. If Windows policy denies shutdown privileges, the agent keeps monitoring available but does not advertise power commands. The new Windows kit also includes Set-WindowsHubAddress.ps1 and Restore-WindowsAgentUpgrade.ps1 for guarded reconfiguration and recovery.
 
 Do not expose the HTTP agent to the Internet or share the key. Real Windows WOL depends on NIC, firmware, and sleep/power state; one successful Windows 11 test is not a universal guarantee. Read [installation](../INSTALLATION.md), [installer details](installer/README.md), [test matrix](docs/HARDWARE-TEST-MATRIX.md) and [security notes](../docs/beta/SECURITY-AND-PRIVACY.md).
 
