@@ -104,10 +104,10 @@ func TestDefaultHubAndReviewUseBeginnerFriendlyWords(t *testing.T) {
 func TestSuggestedNICRejectsWirelessHardware(t *testing.T) {
 	root := t.TempDir()
 	addNICFixture(t, root, "wlan0", "up")
-	if err := os.Mkdir(filepath.Join(root,"wlan0","wireless"), 0o755); err != nil {
+	if err := os.Mkdir(filepath.Join(root, "wlan0", "wireless"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if got := suggestedNICAt(root,"192.168.1.103",func(string) string { return "wlan0" }); got != "" {
+	if got := suggestedNICAt(root, "192.168.1.103", func(string) string { return "wlan0" }); got != "" {
 		t.Fatalf("Wireless route was suggested: %q", got)
 	}
 }

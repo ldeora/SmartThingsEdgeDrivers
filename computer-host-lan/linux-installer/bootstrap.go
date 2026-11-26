@@ -40,7 +40,7 @@ type privilegedRequest struct {
 	Action        string  `json:"action"`
 	Power         string  `json:"power,omitempty"`
 	WOLInterface  *string `json:"wol_interface,omitempty"`
-	WOLPlanDigest string `json:"wol_plan_digest,omitempty"`
+	WOLPlanDigest string  `json:"wol_plan_digest,omitempty"`
 }
 
 type privilegedResult struct {

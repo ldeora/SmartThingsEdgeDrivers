@@ -18,16 +18,16 @@ func wiredNICName(name string) bool {
 }
 
 type wolPolicy struct {
-	Action string `json:"action"`
-	Interface string `json:"interface"`
-	MAC string `json:"mac"`
-	Backend string `json:"backend"`
-	Profile *string `json:"profile"`
-	Previous *string `json:"previous"`
-	LinkName *string `json:"link_name"`
-	LinkText *string `json:"link_text"`
-	Digest string `json:"digest"`
-	Capability string `json:"capability"`
+	Action     string  `json:"action"`
+	Interface  string  `json:"interface"`
+	MAC        string  `json:"mac"`
+	Backend    string  `json:"backend"`
+	Profile    *string `json:"profile"`
+	Previous   *string `json:"previous"`
+	LinkName   *string `json:"link_name"`
+	LinkText   *string `json:"link_text"`
+	Digest     string  `json:"digest"`
+	Capability string  `json:"capability"`
 }
 
 func (p wolPolicy) valid(nic string) bool {

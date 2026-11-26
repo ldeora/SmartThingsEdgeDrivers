@@ -281,8 +281,8 @@ var approvedPaths = map[string]bool{
 }
 
 type planOptions struct {
-	power  string // "keep", "enabled", "disabled"
-	wolNIC string // empty = retain current, non-empty = pin chosen interface
+	power        string // "keep", "enabled", "disabled"
+	wolNIC       string // empty = retain current, non-empty = pin chosen interface
 	configureWOL bool
 }
 

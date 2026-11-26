@@ -366,13 +366,13 @@ func TestPersistentWOLCLIRequiresReviewedDigest(t *testing.T) {
 	if err != nil || p.plan == nil || p.plan.WOLPolicy == nil {
 		t.Fatalf("Missing reviewed WOL plan: %+v (%v)", p, err)
 	}
-	for _, digest := range []string{strings.Repeat("a",64), strings.Repeat("b",64)} {
+	for _, digest := range []string{strings.Repeat("a", 64), strings.Repeat("b", 64)} {
 		o, err := parseCLI([]string{"upgrade", "--confirm", "UPGRADE", "--wol", "configure", "--wol-interface", "LAN0", "--wol-plan-digest", digest})
 		if err != nil {
 			t.Fatal(err)
 		}
 		prepared, err := cliInstallPreflight(o, api, info, false)
-		if digest == strings.Repeat("a",64) {
+		if digest == strings.Repeat("a", 64) {
 			if err != nil || prepared.request.WOLPlanDigest != digest {
 				t.Fatalf("Approved digest lost: %+v (%v)", prepared, err)
 			}
@@ -381,10 +381,10 @@ func TestPersistentWOLCLIRequiresReviewedDigest(t *testing.T) {
 		}
 	}
 	for _, args := range [][]string{
-		{"upgrade","--confirm","UPGRADE","--wol","configure","--wol-interface","LAN0"},
-		{"upgrade","--confirm","UPGRADE","--wol","configure","--wol-interface","lo","--wol-plan-digest",strings.Repeat("a",64)},
-		{"upgrade","--confirm","UPGRADE","--wol","keep","--wol-interface","LAN0"},
-		{"wol-remove","--wol-interface","LAN0"},
+		{"upgrade", "--confirm", "UPGRADE", "--wol", "configure", "--wol-interface", "LAN0"},
+		{"upgrade", "--confirm", "UPGRADE", "--wol", "configure", "--wol-interface", "lo", "--wol-plan-digest", strings.Repeat("a", 64)},
+		{"upgrade", "--confirm", "UPGRADE", "--wol", "keep", "--wol-interface", "LAN0"},
+		{"wol-remove", "--wol-interface", "LAN0"},
 	} {
 		if _, err := parseCLI(args); err == nil {
 			t.Fatalf("Unsafe invocation accepted: %v", args)

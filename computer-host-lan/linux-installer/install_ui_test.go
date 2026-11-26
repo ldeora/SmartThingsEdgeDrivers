@@ -440,7 +440,7 @@ func TestPersistentWOLWizardReviewAndConsent(t *testing.T) {
 func TestWOLManagementRequiresSeparateRemovalConsent(t *testing.T) {
 	for _, tc := range []struct {
 		input string
-		want int
+		want  int
 	}{
 		{"LAN0\nn\n", 1},
 		{"LAN0\ny\nno\n", 1},
@@ -454,10 +454,10 @@ func TestWOLManagementRequiresSeparateRemovalConsent(t *testing.T) {
 				t.Fatalf("Invalid WOL request: %+v", req)
 			}
 			if calls == 1 && req.Action == "wol-check" {
-				return privilegedResult{Status:"passed", WOLStatus:"managed"}, nil
+				return privilegedResult{Status: "passed", WOLStatus: "managed"}, nil
 			}
 			if calls == 2 && req.Action == "wol-remove" {
-				return privilegedResult{Status:"passed", WOLStatus:"removed"}, nil
+				return privilegedResult{Status: "passed", WOLStatus: "removed"}, nil
 			}
 			t.Fatalf("Unexpected WOL request: %+v", req)
 			return privilegedResult{}, nil
