@@ -3,8 +3,9 @@
 Decision record, 2026-11-25; reviewed source baseline `352b7b7c2fb30df4e423fbb0c11cefaa743b06ba` (after #169).
 This is a qualification plan, **not an approved candidate or release**.
 Published rc.2 and its immutable assets remain unchanged. The existing
-[stable gates](V1-RELEASE-GATES.md) remain authoritative. No gate is waived,
-and no hardware result is inferred from a merged PR.
+[stable gates](V1-RELEASE-GATES.md) remain authoritative, as revised by the
+maintainer's subsequent release-scope decision. No hardware result is inferred
+from a merged PR.
 
 ## Implementation freeze
 
@@ -13,23 +14,25 @@ schema-1 engine. Protected handoff (#164), attestation workflow (#165),
 legacy mutation retirement (#166), onboarding/key guidance (#167),
 network guidance (#168), ordinary-user default launch and prospective
 [Linux Quick Start](LINUX-INSTALLER-QUICK-START.md) (#169) are merged.
-Freeze installer features; fix only concrete release defects. Release
-authentication, in-place migration and physical acceptance remain open.
+The parity fixes #183–#185 (persistent WOL), #186 (explicit rc.2 state reuse),
+#187 (historical restore) and #188 (maintenance menu) are merged. Freeze
+installer features; fix only concrete release defects. The normal release
+binary, exact-version migration and physical acceptance remain open.
 
 ## Remaining critical path
 
 | Gate / issue | Status at baseline | Next evidence or action |
 | --- | --- | --- |
-| #84 Linux authenticity / #171 release approval | Implemented policy, not exercised; approver not yet confirmed | Continue pre-candidate work now. Current gate remains mandatory unless a separately reviewed prerelease-only policy is approved. Exact-candidate main CI, reproducible build, attestation and independent positive/negative verification remain required; no unverified elevated binaries. |
+| #84 Linux authenticity / #171 release approval | Formal signing/independent attestation deferred to v1.2; #182 closed | Release PR must add reproducible Linux binary build and SHA-256/build metadata to normal release workflow. Exact main CI and downloaded-byte verification remain required. Existing optional attestation workflow stays separate; disclose unsigned status and checksum limitations. |
 | #101 Linux engine cutover | Implementation merged, acceptance pending | Verified release candidate; clean install, legacy rc.2 in-place upgrade, repair, recovery, removal/reinstall, old entry-point refusal and identity continuity on real Gentoo and Debian/Ubuntu hosts. |
 | #155 retained credentials | Narrow schema-1 implementation merged (#159); preliminary hydra metadata evidence in issue | Real-host upgrade, service restart, authorized rollback on reversible hosts; check redacted UUID/key metadata outcomes. Interrupted-process continuity remains not_verified, not a claim of equality. |
-| #118 Third-party notice automation | Open follow-up (non-blocking for v1.0) | Best-effort evidence collection and notice-bundle improvements for Windows and Linux. Collection/upload failures do not block candidate CI or attestation. Preserve existing notices; the publisher remains responsible for applicable redistribution terms. An incomplete inventory is not a compliance sign-off. |
+| #118 Third-party notice automation | Non-blocking follow-up, formal automation deferred to v1.2 | Preserve notices and satisfy applicable redistribution obligations; automation/approval is not a release blocker, nor is incomplete evidence legal sign-off. |
 | #117 Windows signing | Maintainer decision: retain unsigned packages for v1.0.0 | Document unsigned status, checksum limitations, SmartScreen/Smart App Control and machine-readable release metadata before publication. Defer formal signing integration; do not bypass platform protections. |
 | #120 / #23 Windows hub-page rendering | Physical confirmation pending; synchronous search remains a reported risk | Ask reporting Windows 11 tester to exercise first search, retry, manual selection and navigation. If reproduced, isolate a bounded UI fix and test; no speculative full installer redesign. |
 | #31 Linux connection saturation | Merged (#176), needs acceptance | Absolute header deadline implemented (#56). Preserve 12 global handlers and add four concurrent handlers per source IP. Loopback tests verify distinct-source health, repeated excess connections, shared-source operation, global exhaustion and cleanup. Document residual distributed saturation, backlog pressure and shared-source limits. No waiver or physical-hub PASS claimed. |
-| #129 / #130 release docs | Quick Start implementation merged, wider docs still stale | Update version-matched primary docs, current state model, protocol freeze and security disclosures during prep. Document that a generic network/server error after a rejected power command can reflect refusal; check host power opt-in, matching key, allowPowerCommands and redacted logs. Do not imply every network error is refusal. Preserve historical files/immutable release notes and distinguish current published vs proposed release. |
+| #129 / #130 release docs | Reconciled with implemented journeys in #181, pending review and final asset/version substitutions | Keep published rc.2 links immutable; finalize rc.3 links, versions and known limitations in release PR. |
 | #119 hardware/soak | Open | Record exact-version evidence in one rc.3 acceptance record (below); two independent Windows 11 x64 hosts, Gentoo and Debian/Ubuntu, minimum seven-day real-hub Windows/Linux soak before stable. |
-| Candidate identity and channel | Not prepared | Final versions, all five exact-main workflows, matching release assets, exact expected tag/SHA via independently trusted release record; separate explicit Edge upload/assignment and real installed version check. |
+| Candidate identity and channel | Not prepared | Final versions, all five exact-main workflows, matching release assets, exact expected tag/SHA via trusted release record; separate explicit Edge upload/assignment and real installed version check. |
 
 Order: complete the pre-candidate fixes below and settle remaining owner decisions,
 prepare versions/docs/packages, verify exact-candidate release artifacts,
@@ -41,15 +44,17 @@ publish the approved SHA in an independently trusted release record.
 
 ## Maintainer decisions and approved review-fix disposition (2026-11-25)
 
-The maintainer has chosen to retain unsigned Windows packages for now,
-continue development while looking for an independent GitHub environment
-approver, and evaluate a narrowly scoped #31 mitigation before rc.3.
-Issue #171 tracks the requested consideration of a prerelease-only approval
-policy. The merged attestation gate is unchanged: no independent approver
-means no eligible attestation dispatch under the current policy. Any rc.3
-exception must be separately designed, reviewed and explicitly approved,
-with no stable exception or unsigned Linux installer fallback. Ordinary CI,
-code review and packaging preparation do not require that environment approval.
+The maintainer's later decision (2026-11-26) supersedes the earlier mandatory
+independent approver/attestation policy for rc.3 and v1.0.0: use unsigned
+release packages, reproducible exact-source Linux binary builds, checksum and
+build metadata, exact-main CI, and physical acceptance. Formal signing,
+independent attestation/approval and notice automation are deferred to v1.2.
+This is not a waiver of redistribution obligations or authorization to
+publish. #182 is closed; the normal release workflow must build the Linux
+asset. The optional existing attestation workflow is unchanged and retains
+its own requirements when used. Checksums do not independently authenticate
+a publisher. The release PR must implement the revised asset/gate contract;
+no ordinary CI artifact is a release download.
 
 The following dispositions were approved by the maintainer by merging #170.
 They explicitly preserve the roadmap rule that known in-scope production
@@ -135,7 +140,7 @@ credential corruption or unsafe power transitions.
 
 | Group | Required observations | Status |
 | --- | --- | --- |
-| Build and trust | final main SHA, five workflows, independent provenance and downloaded bytes, complete matched asset set | NOT TESTED |
+| Build and trust | final main SHA, five workflows, reproducible Linux build, exact build metadata and downloaded-byte checksums, complete matched asset set | NOT TESTED |
 | Linux Gentoo | verified installer; rc.2 migration, monitoring, same device, private state, service recovery, optional power/WOL; protected handoff via su and run0 (su preliminary evidence exists; run0 requires working authorization on a suitably configured host, not necessarily hydra) | NOT TESTED |
 | Linux Debian/Ubuntu | clean install, upgrade/repair, removal/retained-state reinstall, authorized recovery, metadata stability, supported elevation | NOT TESTED |
 | Linux diagnostics | terminal and accessible behavior, missing Avahi and firewalld guidance, custom port, no network mutations, legacy refusals | NOT TESTED |
@@ -153,7 +158,7 @@ Use this record to consolidate evidence as it arrives; do not mark an
 unperformed check PASS. Any narrowing of supported platforms or deferral
 requires an explicit maintainer decision and user-facing limitation.
 
-### Retained rc.2 state reuse (implementation draft)
+### Retained rc.2 state reuse (#186 merged; acceptance pending)
 
 A read-only orphan-only plan identifies a candidate, not eligibility. The
 wizard asks for REUSE instead of INSTALL; CLI requires --confirm REUSE.
@@ -166,7 +171,7 @@ both files are unchanged. No new journal fields or credential copies.
 A normal rc.3 uninstall with a valid owner marker keeps its existing path.
 Physical rc.2 uninstall/reinstall acceptance and independent review remain.
 
-### Historical local restoration (implementation draft)
+### Historical local restoration (#187 merged; acceptance pending)
 
 Restore is a distinct schema-1 operation, not a resumption of a historical
 journal. The operator chooses a root-private local installed-state v2 backup
@@ -179,3 +184,18 @@ verified (including runtime version and identity when active), and both current
 credentials must remain unchanged. Persistent NIC WOL is never restored or
 removed by this action. Existing recovery undoes an interrupted restore.
 Physical rc.2 -> rc.3 -> rc.2 restore -> rc.3 upgrade acceptance remains.
+
+### Remaining parity and candidate acceptance
+
+| Journey / environment | Evidence required | Status |
+| --- | --- | --- |
+| Linux release binary | Build in normal release workflow; version-matched binary, SHA-256 and BUILD-INFO; clean host installs from approved draft candidate | NOT TESTED |
+| Gentoo hydra | Ordinary-user preview; menu; upgrade rc.2; restore older snapshot; upgrade again; configure power/WOL; shutdown/wake; reboot and repeat; uninstall/reinstall; same identity, port and key | NOT TESTED against rc.3 |
+| Second Linux system or VM | Install rc.2, rc.2 uninstall, rc.3 REUSE (J5), refresh same device, explicitly enable power again if needed; VM not physical WOL evidence | NOT TESTED |
+| Physical NetworkManager host | Configure magic-packet WOL, shutdown/wake, reboot/repeat, normal uninstall retains WOL, explicit removal restores prior policy, reinstall | NOT TESTED |
+| Minimal Linux host | Fresh install without ethtool completes monitoring with warning; add ethtool and retry only if desired | NOT TESTED |
+| Private hub/channel | rc.3 driver alongside rc.2 and rc.3 agents; no duplicate, metrics and power behavior, exact installed versions, no public assignment | NOT TESTED |
+
+See [user journeys](UPGRADE.md). Record the actual described test paths and original
+review references when recording J2/J3/J5/J6/J9/J10/J11 results. Backup
+retention/pruning is deferred to v1.1; normal uninstall keeps backups.

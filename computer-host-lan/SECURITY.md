@@ -108,3 +108,22 @@ active connections per remote IP (IPv4-mapped IPv6 normalized to IPv4).
 Excess connections are aborted, not queued by this middleware. This reduces
 single-source saturation; it is not authentication or protection against
 distributed saturation, shared-source contention or transport backlog pressure.
+
+### Planned rc.3 Linux distribution and maintenance
+
+The standalone installer uses a fixed embedded trusted payload and protected
+transaction engine. It requires explicit confirmation before modifying agent
+files or installer-owned NIC policy. Retained rc.2 state requires explicit
+reuse consent and validation; historical restoration validates root-private
+local backups and keeps current credentials. A local backup digest is not a
+publisher signature. Normal uninstall preserves identity/key and backups.
+See [maintenance journeys](docs/release/UPGRADE.md). These are implemented
+on main, not a claim of physical rc.3 acceptance.
+
+The maintainer's November 26 release-scope decision retains unsigned packages
+for rc.3 and v1.0 and defers formal signing/independent attestation approval
+and notice automation to v1.2. Use exact-source release assets, SHA-256 and
+build metadata; checksums do not independently authenticate the publisher.
+Do not disable platform protections or substitute ordinary CI artifacts.
+Applicable third-party redistribution obligations remain. No release or
+security acceptance is implied by this decision.
