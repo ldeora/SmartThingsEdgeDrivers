@@ -25,6 +25,35 @@ _MODES = re.compile(r"(?:d|[pumbagfs]+)")
 _PROPERTY = "802-3-ethernet.wake-on-lan"
 
 
+def parse_nm_value(output):
+    """Normalize documented NM wired WOL flags without losing their bits.
+
+    Accept numeric, numeric-with-description, and symbolic representations.
+    Actual nmcli read/write round trips are separately checked in CI.
+    """
+    flags = {"none": 0, "default": 1, "phy": 2, "unicast": 4,
+             "multicast": 8, "broadcast": 16, "arp": 32, "magic": 64,
+             "all": 126, "ignore": 32768}
+    output = output.strip()
+    match = re.fullmatch(
+        r"(0[xX][0-9a-fA-F]{1,8}|[0-9]{1,10})(?: \([A-Za-z0-9_, -]+\))?",
+        output)
+    if match:
+        raw = match[1]
+        value = int(raw, 16 if raw.lower().startswith("0x") else 10)
+    else:
+        words = re.split(r"[,\s]+", output)
+        if (not words or any(word not in flags for word in words) or
+                (len(words) > 1 and set(words) & {"none", "default", "ignore", "all"})):
+            raise WolError("unknown NetworkManager WOL value")
+        value = 0
+        for word in words:
+            value |= flags[word]
+    if value not in (0, 1, 32768) and value & ~126:
+        raise WolError("NetworkManager WOL value not round-trippable")
+    return str(value)
+
+
 def command(args):
     """Fixed argv only; no shell, inherited environment or interactive input."""
     try:
@@ -56,11 +85,22 @@ class Plan:
     profile: str | None
     previous: str | None
     link_name: str | None
+    link_text: str | None = None
 
     @property
     def owns_change(self):
-        return ((self.backend == "nm" and self.previous != "64") or
+        return ((self.backend == "nm" and not int(self.previous) & 64) or
                 self.backend == "link-create")
+
+    @property
+    def nm_after(self):
+        if self.backend != "nm":
+            return None
+        return self.previous if int(self.previous) & 64 else "64"
+
+    @property
+    def runtime_after(self):
+        return self.adapter.runtime if "g" in self.adapter.runtime else "g"
 
 
 class Backend:
@@ -128,17 +168,7 @@ class Backend:
     def _nm_value(self, profile):
         output = self.run(("nmcli", "--wait", "5", "-g", _PROPERTY,
                            "connection", "show", "uuid", profile)).strip()
-        # nmcli prints a numeric flags value, optionally with a textual
-        # description. Only round-trippable, non-SecureOn values are accepted.
-        match = re.fullmatch(r"([0-9]{1,10})(?: \([A-Za-z0-9_, -]+\))?", output)
-        if not match:
-            raise WolError("unknown NetworkManager WOL value")
-        value = int(match[1])
-        # NMSettingWiredWakeOnLan: default=1, ignore=32768,
-        # phy/unicast/multicast/broadcast/arp/magic=2..64.
-        if value not in (1, 32768) and (value & ~126 or value == 0):
-            raise WolError("NetworkManager WOL value not round-trippable")
-        return str(value)
+        return parse_nm_value(output)
 
     def _directory(self, path):
         """Check root-controlled directory ancestry; no symlink traversal."""
@@ -168,10 +198,22 @@ class Backend:
             raise WolError("cannot inspect existing link rule") from exc
 
     @staticmethod
-    def link_content(mac):
-        return ("[Match]\nMACAddress=" + mac +
-                "\n\n[Link]\nNamePolicy=keep kernel database onboard slot path\n"
-                "WakeOnLan=magic\n")
+    def link_content(mac, selected_text):
+        """Retain the vendor default's Link settings; override only WOL."""
+        sections = re.split(r"(?m)^[ \t]*\[([^\]\r\n]+)\][ \t]*\r?$",
+                            selected_text)
+        names = sections[1::2]
+        if names.count("Link") != 1 or any(name not in ("Match", "Link")
+                                          for name in names):
+            raise WolError("default link policy requires manual configuration")
+        body = sections[names.index("Link") * 2 + 2]
+        if (any(line.rstrip().endswith("\\") for line in body.splitlines()) or
+                re.search(r"(?mi)^[ \t]*WakeOnLanPassword[ \t]*=", body)):
+            raise WolError("default link policy requires manual configuration")
+        lines = [line for line in body.strip("\r\n").splitlines()
+                 if not re.match(r"^[ \t]*WakeOnLan[ \t]*=", line, re.I)]
+        return ("[Match]\nMACAddress=" + mac + "\n\n[Link]\n" +
+                "\n".join(lines).rstrip() + "\nWakeOnLan=magic\n")
 
     def _link_plan(self, adapter):
         name = "10-linux-host-wol-" + adapter.mac.replace(":", "") + ".link"
@@ -197,7 +239,9 @@ class Backend:
         if (selected_path.name != "99-default.link" or
                 selected_path.parent not in (self.root / "usr/lib/systemd/network",
                                              self.root / "usr/local/lib/systemd/network")):
-            raise WolError("existing link policy requires manual configuration")
+            raise WolError("existing link policy " + selected[0] +
+                           " requires manual configuration: set WakeOnLan=magic "
+                           "in its [Link] section (or generator source), retaining other settings")
         for directory in dirs:
             folder = self.root / directory
             self._directory(folder)
@@ -205,15 +249,21 @@ class Backend:
                 continue
             for path in folder.iterdir():
                 if path.name.endswith(".link.d") or path.name == "link.d":
-                    raise WolError("link drop-ins require manual configuration")
+                    raise WolError("link drop-ins require manual configuration: "
+                                   "review the effective [Link] policy and set WakeOnLan=magic "
+                                   "in the administrator configuration")
                 if path.name.endswith(".link"):
                     # Do not shadow existing rules or assume that a generic
                     # earlier rule is irrelevant. Also refuse masked rules.
                     text = self._read_link(path)
                     if (path.name <= name or adapter.mac in text.lower()
                             or path == target):
-                        raise WolError("existing link rule requires manual configuration")
-        return Plan(adapter, "link-create", None, None, name)
+                        raise WolError("existing link rule " + "/" +
+                                       str(path.relative_to(self.root)) +
+                                       " requires manual configuration: review its [Match] "
+                                       "and set WakeOnLan=magic in the appropriate [Link] section")
+        return Plan(adapter, "link-create", None, None, name,
+                    self.link_content(adapter.mac, selected_text))
 
     def inspect(self, interface):
         adapter = self.adapter(interface)
@@ -244,7 +294,7 @@ class Backend:
         try:
             with os.fdopen(fd, "wb") as stream:
                 os.fchmod(stream.fileno(), 0o644)
-                stream.write(self.link_content(plan.adapter.mac).encode("ascii"))
+                stream.write(plan.link_text.encode("utf-8"))
                 stream.flush()
                 os.fsync(stream.fileno())
             # Atomic no-clobber. Never replace an administrator file.
@@ -265,19 +315,20 @@ class Backend:
         """Caller MUST have durably journaled plan before invoking."""
         if self.inspect(plan.adapter.interface) != plan:
             raise WolError("WOL plan changed before application")
-        if plan.backend == "nm" and plan.previous != "64":
+        if plan.backend == "nm" and plan.previous != plan.nm_after:
             self.run(("nmcli", "--wait", "5", "connection", "modify", "uuid",
                       plan.profile, _PROPERTY, "magic"))
         elif plan.backend == "link-create":
             self._create(plan)
-        self.run(("ethtool", "-s", plan.adapter.interface, "wol", "g"))
+        if plan.adapter.runtime != plan.runtime_after:
+            self.run(("ethtool", "-s", plan.adapter.interface, "wol", "g"))
         now = self._same_adapter(plan)
-        if now.runtime != "g":
+        if now.runtime != plan.runtime_after:
             raise WolError("runtime WOL verification failed")
-        if plan.backend == "nm" and self._nm_value(plan.profile) != "64":
+        if plan.backend == "nm" and self._nm_value(plan.profile) != plan.nm_after:
             raise WolError("persistent WOL verification failed")
         if (plan.backend == "link-create" and
-                self._read_link(self._target(plan)) != self.link_content(plan.adapter.mac)):
+                self._read_link(self._target(plan)) != plan.link_text):
             raise WolError("persistent WOL verification failed")
 
     def restore(self, plan):
@@ -289,13 +340,13 @@ class Backend:
         the same current adapter identity.
         """
         now = self._same_adapter(plan)
-        if now.runtime not in (plan.adapter.runtime, "g"):
+        if now.runtime not in (plan.adapter.runtime, plan.runtime_after):
             raise WolError("runtime WOL changed externally")
         if plan.backend == "nm":
             if not self._nm_active() or self._profile(now.interface) != plan.profile:
                 raise WolError("active NetworkManager profile changed")
             current = self._nm_value(plan.profile)
-            if current not in (plan.previous, "64"):
+            if current not in (plan.previous, plan.nm_after):
                 raise WolError("NetworkManager WOL changed externally")
             if current != plan.previous:
                 self.run(("nmcli", "--wait", "5", "connection", "modify", "uuid",
@@ -305,7 +356,7 @@ class Backend:
         elif plan.backend == "link-create":
             target = self._target(plan)
             if os.path.lexists(target):
-                if self._read_link(target) != self.link_content(plan.adapter.mac):
+                if self._read_link(target) != plan.link_text:
                     raise WolError("owned link rule changed externally")
                 target.unlink()
                 self._sync_dir(target.parent)

@@ -39,7 +39,8 @@ configure-wol.sh paths, not the experimental wol_* modules.
   do not silently override admin settings. No network restart.
 * Physical tests: hydra (systemd-networkd) and a NetworkManager physical
   Ubuntu/Fedora desktop. Fresh installation, shutdown/wake, reboot,
-  shutdown/wake, uninstall restores installer-owned configuration.
+  shutdown/wake, normal uninstall retains WOL; explicit removal restores
+  the installer-owned configuration.
   VM can validate NM property changes but cannot prove physical wake.
 * Completion and quick start: BIOS/UEFI support required; this setup does
   not support Wi-Fi WOL or routed-subnet WOL. Do not advertise a PASS before
@@ -70,14 +71,18 @@ purge/factory-reset operation is required by this decision.
   preserve the original before-state of installer-owned WOL, not replace it
   with the already-configured state. Do not accumulate files, records or
   unnecessary network changes.
-- Normal uninstall removes agent/services and reverses only verified
-  installer-owned WOL changes. Preserve unrelated administrator settings,
-  UUID, control key and recovery backups. A conflict or uncertain ownership
-  must be reported, not resolved by deleting/replacing unknown configuration.
+- Normal uninstall removes agent/services but retains WOL configuration and
+  its protected ownership record, like rc.2. Preserve unrelated administrator
+  settings, UUID, control key and recovery backups. Offer an explicit,
+  unchecked "Also remove the Wake-on-LAN setting this installer made" option
+  during uninstall and in Configure. Only verified installer-owned changes
+  can be reversed. Conflicts or uncertain ownership must be reported, not
+  resolved by deleting/replacing unknown configuration.
 - Reinstall after normal uninstall must reuse legitimate retained identity
-  and key, after the appropriate confirmation, and allow WOL configuration
-  again with a fresh ownership baseline. Never reuse stale ownership as
-  authorization to mutate a new interface or profile.
+  and key, after the appropriate confirmation, and retain the original WOL
+  ownership baseline. If explicitly removed and configured again, capture
+  a fresh before-state. Never reuse stale ownership as authorization to
+  mutate a new interface or profile.
 - Preserve ownership and rollback across reboot and repeated upgrades;
   check stable adapter/profile identity rather than relying on an old
   ifindex. Recovery of an interrupted uninstall or reinstall must be
@@ -86,11 +91,12 @@ purge/factory-reset operation is required by this decision.
   or changes to another computer. Existing rc.2 WOL configuration stays
   administrator-owned unless independently established otherwise.
 - Add fake-command/fixture regression tests for fresh configure, rc.2
-  preconfigured upgrade, repeated upgrade/repair, uninstall and reinstall
+  preconfigured upgrade, repeated upgrade/repair, normal uninstall/reinstall,
+  explicit WOL removal
   on both persistence backends; verify original baseline restoration,
   external edits, crash recovery and absence of duplicate ownership.
-  Include cases where a different adapter/profile is selected; never
-  abandon earlier managed changes silently. Keep/leave must not erase
+  Include cases where a different adapter/profile is selected; require explicit
+  confirmation for a new record and retain existing ownership until explicit removal. Keep/leave must not erase
   ownership or silently undo configuration.
 
 ### Physical lifecycle matrix (all NOT TESTED)
@@ -99,10 +105,10 @@ purge/factory-reset operation is required by this decision.
 | --- | --- |
 | hydra existing installation | Record baseline agent/driver, locally compare identity/key without exporting them, existing device/routines, WOL policy and runtime; private candidate driver against old agent first |
 | hydra in-place upgrade | Same device, settings, key and routines; existing WOL preserved; monitoring, reboot, suspend, shutdown and wake where supported |
-| hydra normal uninstall | Agent/services removed; owned WOL restored where applicable, preexisting policy untouched; identity/key/backups retained |
+| hydra normal uninstall | Agent/services removed; WOL and ownership retained by default, preexisting policy untouched; identity/key/backups retained; explicit removal tested separately |
 | hydra reinstall | Reuse retained identity; original device resumes without re-pairing; configure WOL if selected; repeat monitoring and power tests |
 | hydra repeated install/repair | No duplicate devices or accumulated configuration; verify WOL after reboot |
-| Genuine first install (.link) | On suitable clean or disposable physical environment: configure WOL, shutdown/wake, reboot, shutdown/wake, uninstall and verify reversal |
+| Genuine first install (.link) | On suitable clean or disposable physical environment: configure WOL, shutdown/wake, reboot, shutdown/wake, normal uninstall retains WOL; explicit removal verifies reversal |
 | Genuine first install (NetworkManager) | Same physical sequence; VM property/rollback evidence is supplemental only |
 | rc.2 uninstall then rc.3 install | Separate retained-state parity gate: same identity/key/device after explicit validated reuse |
 | Historical restore then upgrade | Separate historical-restore parity gate: managed files/services restored, identity/key/WOL preserved |
@@ -123,3 +129,39 @@ must explicitly cover normal uninstall/reinstall, retained device identity
 and installing additional computers. No public driver deployment before
 private mixed-version acceptance. No issue closure or publication is
 authorized by this document.
+
+## Review follow-up: bounded rc.3 implementation
+
+Normal uninstall retains WOL by default, superseding the initial automatic
+restoration requirement. Explicit removal satisfies #49 without introducing
+network configuration changes into every uninstall. Use a small protected
+root-owned ownership record next to the existing installer owner marker,
+containing the backend, validated adapter MAC, profile UUID or fixed .link
+name, previous value and written-state evidence (file digest/identity where
+applicable). Persist intended before/after state with the existing schema-1
+snapshot before APPLYING; do not treat intent alone as proof that a write
+succeeded. Confirm ownership only when the write and verification establish
+it. If a crash/collision leaves ownership ambiguous, do not delete an
+unproven file or overwrite a changed NM profile. No new schema-2 engine,
+research modules or exhaustive combinatorial crash matrix. Cover meaningful
+failure boundaries and retain old-journal recovery.
+
+Upgrade/repair retain the original record. A new adapter/profile requires
+explicit confirmation and a separate bounded record; never silently discard
+the earlier baseline. Reinstall after normal uninstall reuses the record.
+Explicit removal is opt-in and independently verifies the owned state.
+Keep the controller, wizard/CLI, preview, bundle and sync changes focused.
+
+Backend review follow-ups:
+- Parse documented numeric and symbolic NetworkManager flags; preserve
+  values containing magic (including other bits), and do not run ethtool
+  when runtime already includes magic. Real nmcli read/write evidence is
+  still required. The Ubuntu CI smoke uses only a disposable, inactive
+  Ethernet connection profile, never activates a connection, and reports
+  actual output and numeric round-trip.
+- Preserve the selected vendor default's Link settings when creating the
+  per-MAC rule; refuse complex/default drop-in conflicts rather than
+  changing unrelated policy. Give actionable guidance for manual rules,
+  including generated netplan policies. Ubuntu Server networkd/netplan
+  acceptance remains pending.
+- No physical acceptance is inferred from fixture or profile-only smoke.
