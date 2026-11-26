@@ -425,3 +425,56 @@ func TestFreshWOLPreviewPTY(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestFreshWizardFallsBackOnlyOnWOLPreviewFailure(t *testing.T) {
+	for _, code := range []string{"wol_preview_unavailable", "prerequisite_missing"} {
+		t.Run(code, func(t *testing.T) {
+			source := `#!/bin/sh
+case "$1" in
+inspect)
+cat <<'JSON'
+` + fixtureInspect + `
+JSON
+;;
+plan)
+shift
+if [ "$#" -gt 0 ]; then
+printf '{"schema_version":1,"operation":"plan","mode":"read_only","error":{"code":"%s"}}\n' '` + code + `' >&2
+exit 2
+fi
+printf '` + fixturePlan + `\n' preserve false
+;;
+*) exit 2 ;;
+esac
+`
+			api := scriptClient(t, source)
+			info, err := api.inspect()
+			if err != nil {
+				t.Fatal(err)
+			}
+			info.Installation.Detected = false
+			s := newLiveSelectionWithNIC(api, info, nil, func(string) string { return "LAN0" })
+			plan, err := s.currentPlan()
+			if code != "wol_preview_unavailable" {
+				if err == nil {
+					t.Fatal("Unrelated prerequisite error was suppressed")
+				}
+				return
+			}
+			if err != nil || !plan.WOLPreviewSkipped || plan.WOLInterfaceRequested || plan.WOLPolicy != nil {
+				t.Fatalf("No safe fallback: %+v (%v)", plan, err)
+			}
+			if !strings.Contains(s.installPreview(), "network policy could not be safely checked") {
+				t.Fatal("Fallback was not disclosed in review")
+			}
+			req, err := approvedRootRequest(s)
+			if err != nil || req.WOLInterface != nil || req.WOLPlanDigest != "" {
+				t.Fatalf("Fallback authorized WOL: %+v (%v)", req, err)
+			}
+			s = &liveSelection{api: api, inspection: info, powerChoice: "keep", wolChoice: "configure", wolNIC: "LAN0"}
+			if _, err := s.currentPlan(); err == nil {
+				t.Fatal("Strict request silently downgraded")
+			}
+		})
+	}
+}

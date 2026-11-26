@@ -254,3 +254,8 @@ Ordinary-user hydra evidence (2026-11-26): ethtool enp1s0f0 reports
 netlink Operation not permitted, and ethtool --disable-netlink reports
 Cannot get wake-on-lan settings: Operation not permitted. Neither exposes
 Supports Wake-on or Wake-on. This confirms unknown is not unsupported.
+
+PTY acceptance: existing-install fixture accepts Keep and skips NIC page;
+fresh-install fixture supplies a deterministic wired NIC suggestion through
+the Go test binary, accepts preselected Configure using Enter, reviews the
+unknown-capability policy and cancels. No elevation or host changes.
