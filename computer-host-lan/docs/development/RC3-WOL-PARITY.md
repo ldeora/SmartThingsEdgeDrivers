@@ -177,3 +177,23 @@ failed commands still raise. Added zero-flags restoration and failed-query
 regressions. The full real round-trip including zero restoration is pending
 CI on the corrected head; no physical wake or netplan acceptance implied.
 Jobs: 139865220471 and 139865195723.
+
+
+### Controller integration increment (draft)
+
+The internal InstallRequest.wol_plan_digest field binds a reviewed plan to
+root re-inspection. It is deliberately not accepted by the public request
+router yet. The schema-1 snapshot records the intended change and boot ID.
+The controller applies WOL only after managed-file/service and credential
+verification, before COMMITTED. A root-private per-adapter record is
+published before mutation and confirmed after persistent verification,
+before runtime mutation. On rollback, a missing record means the WOL step
+was not reached; an unconfirmed changed value or colliding link fails closed.
+Confirmed links require the planned text and original inode; same-boot
+rollback checks the interface MAC and ifindex. After reboot rollback restores
+persistent policy without rewriting current runtime state. Normal uninstall
+does not touch the record. Existing records are never overwritten by a
+second configure; changed profiles, uncertain state, and reconfiguration
+requiring explicit removal are refused. The public consent flow, explicit
+removal, runtime-only record lifecycle, recovery ergonomics and additional
+fixture/physical tests remain required before activation.

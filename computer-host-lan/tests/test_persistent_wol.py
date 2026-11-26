@@ -7,6 +7,7 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 from persistent_wol import Backend, WolError, parse_nm_value
+from wol_ownership import Ownership, plan_digest
 
 NIC = "enp1s0"
 MAC = "02:11:22:33:44:55"
@@ -56,6 +57,87 @@ class WolTests(unittest.TestCase):
                 return PROFILE
             return self.value + "\n"
         raise AssertionError(args)
+
+    def owned(self):
+        boot = self.root / "proc/sys/kernel/random/boot_id"
+        boot.parent.mkdir(parents=True, exist_ok=True)
+        boot.write_text("aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee\n")
+        (self.root / "var/lib/linux-host-agent-installer").mkdir(parents=True, exist_ok=True)
+        return Ownership(root=self.root, owner_uid=os.getuid(), backend=self.backend)
+
+    def test_protected_link_ownership_and_rollback(self):
+        owned = self.owned()
+        plan = self.backend.inspect(NIC)
+        intent = owned.prepare(NIC, plan_digest(plan), "test-transaction")
+        self.assertIsNone(owned._read(plan))
+        owned.apply(intent, "test-transaction")
+        target = self.root / "etc/systemd/network" / plan.link_name
+        self.assertEqual(owned._read(plan)["state"], "confirmed")
+        self.assertEqual(owned._read(plan)["inode"], target.stat().st_ino)
+        owned.rollback(intent, "test-transaction")
+        self.assertFalse(target.exists())
+        self.assertIsNone(owned._read(plan))
+        owned.rollback(intent, "test-transaction")
+        self.assertEqual(self.runtime, "d")
+
+    def test_protected_collision_never_removed(self):
+        owned = self.owned()
+        plan = self.backend.inspect(NIC)
+        intent = owned.prepare(NIC, plan_digest(plan), "test-transaction")
+        target = self.root / "etc/systemd/network" / plan.link_name
+        target.parent.mkdir(parents=True)
+        target.write_text(plan.link_text)
+        with self.assertRaises(WolError):
+            owned.apply(intent, "test-transaction")
+        with self.assertRaisesRegex(WolError, "unconfirmed"):
+            owned.rollback(intent, "test-transaction")
+        self.assertEqual(target.read_text(), plan.link_text)
+        self.assertEqual(owned._read(plan)["state"], "pending")
+
+    def test_protected_nm_keeps_original_baseline(self):
+        owned = self.owned()
+        self.nm = True
+        self.value = "1"
+        plan = self.backend.inspect(NIC)
+        intent = owned.prepare(NIC, plan_digest(plan), "first")
+        owned.apply(intent, "first")
+        original = owned._read(plan)
+        second = self.backend.inspect(NIC)
+        self.assertIsNone(owned.prepare(NIC, plan_digest(second), "second"))
+        self.assertEqual(owned._read(plan), original)
+        owned.rollback(intent, "first")
+        self.assertEqual(self.value, "1")
+        self.assertEqual(self.runtime, "d")
+
+    def test_protected_nm_failure_after_persistent_write_rolls_back(self):
+        owned = self.owned()
+        self.nm = True
+        plan = self.backend.inspect(NIC)
+        intent = owned.prepare(NIC, plan_digest(plan), "first")
+        run = self.backend.run
+
+        def fail_runtime(args):
+            if args[:2] == ("ethtool", "-s"):
+                raise WolError("runtime write failed")
+            return run(args)
+
+        self.backend.run = fail_runtime
+        with self.assertRaisesRegex(WolError, "runtime write failed"):
+            owned.apply(intent, "first")
+        self.assertEqual(self.value, "64")
+        self.assertEqual(owned._read(plan)["state"], "confirmed")
+        self.backend.run = run
+        owned.rollback(intent, "first")
+        self.assertEqual(self.value, "1")
+        self.assertIsNone(owned._read(plan))
+
+    def test_protected_rejects_changed_plan_digest(self):
+        owned = self.owned()
+        plan = self.backend.inspect(NIC)
+        self.runtime = "g"
+        with self.assertRaisesRegex(WolError, "plan changed"):
+            owned.prepare(NIC, plan_digest(plan), "first")
+        self.assertEqual(self.writes, [])
 
     def test_link_apply_restore(self):
         plan = self.backend.inspect(NIC)

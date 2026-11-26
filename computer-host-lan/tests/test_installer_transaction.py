@@ -181,6 +181,44 @@ class InstallerBackendTests(unittest.TestCase):
         token.chmod(0o600)
         return target, token
 
+    def test_internal_wol_plan_is_applied_after_verification(self):
+        intent = {"fixture": "WOL intent"}
+        calls = []
+
+        def prepare(interface, digest, transaction):
+            calls.append(("prepare", self.store.public_status()["privileged_transaction_state"]))
+            self.assertEqual(interface, "enp1s0")
+            return intent
+
+        def apply(value, transaction):
+            self.assertEqual(value, intent)
+            calls.append(("apply", self.services.states.copy()))
+            snapshot = next((self.root / core.BACKUP_BASE.lstrip("/")).glob("snapshot-*"))
+            data = json.loads((snapshot / "manifest.json").read_text())
+            self.assertEqual(data["previous"]["persistent_wol"], intent)
+
+        with mock.patch.object(self.backend._wol, "prepare", side_effect=prepare), \
+                mock.patch.object(self.backend._wol, "apply", side_effect=apply):
+            result = self.backend.run(self.request(wol_interface="enp1s0",
+                                                   wol_plan_digest="a" * 64),
+                                      ROOT, self.hashes)
+        self.assertEqual(result.status, "installed")
+        self.assertEqual([x[0] for x in calls], ["prepare", "apply"])
+
+    def test_internal_wol_failure_uses_existing_rollback(self):
+        intent = {"fixture": "WOL intent"}
+        with mock.patch.object(self.backend._wol, "prepare", return_value=intent), \
+                mock.patch.object(self.backend._wol, "apply", side_effect=RuntimeError("fixture failure")), \
+                mock.patch.object(self.backend._wol, "rollback") as rollback:
+            with self.assertRaises(installer.ControllerError) as caught:
+                self.backend.run(self.request(wol_interface="enp1s0",
+                                              wol_plan_digest="a" * 64),
+                                 ROOT, self.hashes)
+        self.assertEqual(caught.exception.code, "rolled_back")
+        rollback.assert_called_once()
+        self.assertEqual(rollback.call_args.args[0], intent)
+        self.assertEqual(self.store.public_status()["privileged_transaction_state"], "none")
+
     def test_continuity_rejects_token_rewrite_during_active_upgrade(self):
         target, token = self.continuity_fixture()
         activate = self.services.activate

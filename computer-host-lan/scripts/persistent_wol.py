@@ -315,7 +315,7 @@ class Backend:
         finally:
             os.close(fd)
 
-    def apply(self, plan):
+    def apply(self, plan, *, persisted=None):
         """Caller MUST have durably journaled plan before invoking."""
         if self.inspect(plan.adapter.interface) != plan:
             raise WolError("WOL plan changed before application")
@@ -324,6 +324,15 @@ class Backend:
                       plan.profile, _PROPERTY, "magic"))
         elif plan.backend == "link-create":
             self._create(plan)
+        # Confirm the persistent change separately, before any runtime write.
+        # The protected caller can durably record ownership at this boundary.
+        if plan.backend == "nm" and self._nm_value(plan.profile) != plan.nm_after:
+            raise WolError("persistent WOL verification failed")
+        if (plan.backend == "link-create" and
+                self._read_link(self._target(plan)) != plan.link_text):
+            raise WolError("persistent WOL verification failed")
+        if persisted is not None:
+            persisted()
         if plan.adapter.runtime != plan.runtime_after:
             self.run(("ethtool", "-s", plan.adapter.interface, "wol", "g"))
         now = self._same_adapter(plan)

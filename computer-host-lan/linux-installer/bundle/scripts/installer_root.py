@@ -35,6 +35,8 @@ _TRUSTED_MODULES = (
     'installer-entry.sh',
     'installer_transaction.py',
     'credential_continuity.py',
+    'persistent_wol.py',
+    'wol_ownership.py',
     'install_core.py',
     'payload_staging.py',
     'transaction_journal.py',

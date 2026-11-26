@@ -32,6 +32,8 @@ ASSETS = {
     'scripts/installer_root.py': 0o644,
     'scripts/installer_transaction.py': 0o644,
     'scripts/credential_continuity.py': 0o644,
+    'scripts/persistent_wol.py': 0o644,
+    'scripts/wol_ownership.py': 0o644,
     'scripts/payload_staging.py': 0o644,
     'scripts/python-selector.sh': 0o755,
     'scripts/runtime_verify.py': 0o644,
