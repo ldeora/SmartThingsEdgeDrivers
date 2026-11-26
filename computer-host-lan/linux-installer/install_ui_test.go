@@ -506,6 +506,10 @@ func TestUnknownWOLCompletion(t *testing.T) {
 
 func TestRetainedStateRequiresExplicitReuseConsent(t *testing.T) {
 	inspect := strings.Replace(fixtureInspect, `"detected":true`, `"detected":false,"retained_state_present":true`, 1)
+	inspect = strings.Replace(inspect, `"service_file":"present"`, `"service_file":"absent"`, 1)
+	inspect = strings.Replace(inspect, `"power_dropin":"present"`, `"power_dropin":"absent"`, 1)
+	inspect = strings.Replace(inspect, `"agent_service_state":"active"`, `"agent_service_state":"unknown"`, 1)
+	inspect = strings.Replace(inspect, `"agent_service_enabled":"enabled"`, `"agent_service_enabled":"unknown"`, 1)
 	plan := strings.Replace(fixturePlan, `"secrets_included":false`, `"retained_state_candidate":true,"secrets_included":false`, 1)
 	client := scriptClient(t, `#!/bin/sh
 case "$1" in

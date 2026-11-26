@@ -105,9 +105,11 @@ changes explicitly identified; they are not new hardware certifications. Do not 
   #160 implemented the narrow missing-helper evidence guard; do not claim
   that cross-schema compatibility has been delivered. Same-schema failures
   found in physical acceptance still block as appropriate.
-- #128 automatic Linux inbound policy, #88 persistent WOL, #49 WOL reset:
-  no new network or NIC mutation for v1.0. Existing #168 manual guidance
-  stays; revisit only a concrete supported-path failure.
+- #128 automatic Linux inbound policy remains deferred. The maintainer's
+  subsequent rc.2 parity decision supersedes the earlier WOL deferral:
+  #183–#185 implement persistent wired WOL and explicit owned removal;
+  physical acceptance remains pending. The narrow schema-1 retained-state
+  reuse path below does not activate the experimental schema-2 engine.
 - #79 residual local lock availability, #161 clean-host status/recover message,
   #163 unsafe obsolete artifact cleanup, #81 progress hints: retain tracked
   limitations; no automatic deletion of suspicious evidence. Promote to

@@ -1936,6 +1936,25 @@ class InstallerBackendTests(unittest.TestCase):
         self.assertEqual(self.services.user_preflights, 0)
         self.assertEqual(self.store.public_status()['privileged_transaction_state'], 'none')
 
+    def test_reuse_requires_quiescence_and_legacy_backup_evidence(self):
+        import retained_state_eligibility as adoption
+        state, backup = self.retained_rc2_fixture()
+        original = {p.name: p.read_bytes() for p in state.iterdir()}
+        with mock.patch.object(adoption, '_account', return_value=(self.uid, os.getegid())):
+            self.services.power_helper_active = True
+            with self.assertRaises(installer.ControllerError) as caught:
+                self.backend.run(self.request(reuse_retained=True), ROOT, self.hashes)
+            self.assertEqual(caught.exception.code, 'adoption_required')
+            self.services.power_helper_active = False
+            backup.rename(backup.with_name('not-a-snapshot'))
+            with self.assertRaises(installer.ControllerError) as caught:
+                self.backend.run(self.request(reuse_retained=True), ROOT, self.hashes)
+            self.assertEqual(caught.exception.code, 'adoption_required')
+        self.assertEqual(original, {p.name: p.read_bytes() for p in state.iterdir()})
+        self.assertFalse(core.owner_record_exists(self.root))
+        self.assertEqual(self.services.user_preflights, 0)
+        self.assertEqual(self.store.public_status()['privileged_transaction_state'], 'none')
+
     def test_reuse_refuses_clean_host(self):
         with self.assertRaises(installer.ControllerError) as caught:
             self.backend.run(self.request(reuse_retained=True), ROOT, self.hashes)
