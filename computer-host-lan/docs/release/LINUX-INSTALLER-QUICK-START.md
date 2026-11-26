@@ -1,10 +1,9 @@
 # Computer Host LAN — Linux installer Quick Start (planned rc.3)
 
-**Not yet a published release.** The authenticated standalone installer is
-under development. Do not download/elevate a CI artifact or a source build as
-a substitute. For published rc.2, follow the [current Quick Start](QUICK-START.md).
-Release preparation must replace the placeholders below with the independently
-approved release tag and exact source commit; do not treat them as approval.
+**Not yet a published release.** The standalone installer is implemented on
+main; the rc.3 release binary and physical qualification are pending.
+Do not download/elevate an ordinary CI artifact or source build as a substitute.
+For published rc.2, follow the [current Quick Start](QUICK-START.md).
 
 ## 1. Prepare your computer
 
@@ -19,32 +18,28 @@ listed with the release.
 
 ## 2. Download and verify the installer
 
-Once an eligible release is published, download the Linux executable
-`computer-host-linux-installer` and its matching
-`computer-host-linux-installer.sha256` from that versioned GitHub release.
-Install GitHub CLI (`gh`) from a trusted distribution. Independently obtain
-the approved tag and exact commit from the trusted release announcement or
-verified source record; do not trust values merely supplied with the binary.
-From the download directory, verify publisher/workflow identity and bytes:
+Once rc.3 is published, open its fixed, versioned GitHub release from the
+[project README](../../README.md). Download the Linux x86_64 installer and
+`SHA256SUMS.txt` from that same release. The release PR will confirm the
+exact asset filename, source SHA and component versions. Do not use a
+development or temporary test artifact.
+
+In your download directory, calculate the SHA-256 of the downloaded installer:
 
 ```sh
-gh attestation verify ./computer-host-linux-installer \
-  --repo ldeora/SmartThingsEdgeDrivers \
-  --signer-workflow ldeora/SmartThingsEdgeDrivers/.github/workflows/computer-host-linux-attested-release.yml \
-  --source-ref refs/tags/EXPECTED_APPROVED_TAG \
-  --source-digest EXPECTED_APPROVED_SOURCE_COMMIT \
-  --signer-digest EXPECTED_APPROVED_SOURCE_COMMIT \
-  --deny-self-hosted-runners \
-  --predicate-type https://slsa.dev/provenance/v1 &&
-sha256sum -c computer-host-linux-installer.sha256
+sha256sum ./computer-host-linux-installer
 ```
 
-Stop if either check fails or the approved source cannot be established. Do
-not run an unverified executable, even for a preview. A checksum alone is
-not publisher authentication. Keep the verified file in a private directory
-and do not replace it between verification and execution. See the
-[verification policy](../development/LINUX-INSTALLER-RELEASE-AUTHENTICATION.md)
-for trust assumptions and limitations.
+Compare the entire hash with the exact matching filename in SHA256SUMS.txt.
+If the release uses a versioned filename, use that filename in the command
+and subsequent examples. Stop if the hash differs or the release source
+cannot be established. Check the release announcement and recorded source
+commit through a trusted channel. The binary is planned to be **unsigned**:
+a matching checksum checks bytes, not independent publisher identity.
+Only execute a file from a release you trust. Keep it in a private download
+directory and do not replace it between verification and execution.
+Formal signing/independent attestation integration is deferred to v1.2;
+the existing optional attestation workflow is not the ordinary release route.
 
 ## 3. Run Setup
 
@@ -55,10 +50,11 @@ chmod u+x ./computer-host-linux-installer
 ./computer-host-linux-installer
 ```
 
-The wizard detects an existing installation automatically. Confirm or enter
+A clean host opens setup directly. On an existing installation choose
+**1 — Upgrade**; for retained data choose **1 — Install / reinstall**. Confirm or enter
 your hub's IPv4, or choose it later. Leave remote power at its default for
 initial monitoring; an existing power preference is retained unless changed.
-Review the plan and type **INSTALL** only if you agree to the changes. The
+Review the plan and type **INSTALL** (or **REUSE** for eligible retained rc.2 state) only if you agree to the changes. The
 wizard then requests administrator authorization. You can cancel before
 consent. The installer does not change firewall rules, start Avahi or pair
 a SmartThings device. On a new installation with a suggested wired adapter,
@@ -92,8 +88,8 @@ enter it in **Power control key (64 hex chars)** and turn on
 keep physical access before testing shutdown, reboot or suspend. Wake-on-LAN
 depends on wired Ethernet, BIOS/UEFI support and the network. Test shutdown
 from SmartThings and switch on again, then reboot and repeat. To enable
-Wake-on-LAN later, run the installer again (upgrade/repair) and choose
-Configure in the Wake-on-LAN step. Use `-configure` to check or remove an
+Wake-on-LAN later, choose maintenance **2 — Configure**, then change power
+or WOL settings and select Configure in the Wake-on-LAN step. Use `-configure` to check or remove an
 installer-owned WOL setting. Normal uninstall keeps WOL unless you separately
 confirm its removal.
 
@@ -116,7 +112,8 @@ results using the [RC checklist](RC-ACCEPTANCE.md); never share credentials.
 If setup finds retained installation data without a current agent, it offers
 reuse of your existing identity and control key. Review the plan and type
 **REUSE** only if it is your previous Computer Host LAN v2 installation.
-Keep your original private files and backups intact. The installer checks
+Keep your original private files and backups intact. If reuse is refused,
+see [reinstall and start completely fresh](UPGRADE.md#start-completely-fresh-j8). The installer checks
 eligibility after authorization and refuses ambiguous or unsafe state; it
 will not reset the identity or key. Refresh the existing SmartThings device
 rather than creating a duplicate. Select remote power again if you want it;
@@ -126,7 +123,10 @@ use the existing control key. Existing WOL settings are kept by default.
 
 Run `./computer-host-linux-installer -restore` as an ordinary user. Authorize
 listing the private local backups, select the desired agent version, review
-its saved service and power state, then type **RESTORE**. Older software can
+its saved service and power state, then type **RESTORE**. Latest backup
+means the saved state before the most recent eligible operation, not
+necessarily an older version. After an rc.2 uninstall, reinstall with
+REUSE first; historical restore requires recognized v2 state. Older software can
 have defects fixed in the current release. The installer saves the current
 managed files and service state first, restores the selected backup, and
 retains the current identity, key and persistent NIC WOL. A saved interface
@@ -138,12 +138,20 @@ CLI users can review `cli backups` and then use `cli restore --backup NAME
 
 ### Maintenance menu
 
-Run `./computer-host-linux-installer` again as your normal user. An existing
-installation opens Maintenance. Choose Upgrade, Configure, Repair, Restore,
-Recover, Inspect, or Uninstall. Configure offers changing power or WOL settings
-by rerunning setup with the bundled agent version, or checking/removing the
-installer-owned WOL setting separately. Each operation still asks for its own
-confirmation. Inspect is read-only; protected journal status remains available
-through `cli status`. Restore shows the current installed file version (if
-readable) and labels the latest eligible backup. For a fresh installation the
-usual setup opens directly. All existing command-line flags still work.
+Run `./computer-host-linux-installer` again as your normal user. The menu
+uses fixed keys; options not shown do not apply to the observed state.
+
+| Key | Action |
+| --- | --- |
+| 1 | Upgrade / install bundled version, or install / reinstall if absent |
+| 2 | Configure power or WOL through setup, or separately check/remove installer-owned WOL |
+| 3 | Repair using the bundled version (existing agent) |
+| 4 | Restore an earlier eligible backup |
+| 5 | Recover an interrupted operation |
+| 6 | Inspect installation status, read-only |
+| 7 | Uninstall agent (existing agent); keep private state and backups |
+| 0 / Enter | Exit without changes |
+
+Selecting a task is not authorization. Follow its separate confirmation.
+Inspect does not verify the protected journal; use `cli status` for that.
+All existing flags remain available. See [all maintenance journeys](UPGRADE.md).

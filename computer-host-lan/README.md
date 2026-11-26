@@ -5,8 +5,8 @@
 **Development source is not the published rc.2 package.** The legacy
 Linux mutating source entry points are retired in main. Use the published
 version-matched release for rc.2 instructions; do not elevate a main
-checkout or development source archive. The future authenticated Linux
-wizard/CLI still requires release qualification.
+checkout or development source archive. The standalone Linux installer and maintenance menu are implemented on main,
+but the rc.3 release binary and physical qualification are still pending.
 
 ## Published rc.2 versus older rc.1
 
@@ -31,7 +31,11 @@ Windows system metrics include CPU, RAM, system-drive usage and uptime. Both age
 ## Documentation
 
 - [Installation (both platforms)](INSTALLATION.md)
-- [v1.0 RC quick start](docs/release/QUICK-START.md)
+- [Published rc.2 quick start](docs/release/QUICK-START.md)
+- [Linux standalone installer Quick Start — planned rc.3](docs/release/LINUX-INSTALLER-QUICK-START.md)
+- [Windows Setup Quick Start — planned rc.3](docs/release/WINDOWS-QUICK-START.md)
+- [Upgrade, reinstall, recovery and fresh start — planned rc.3](docs/release/UPGRADE.md)
+- [Troubleshooting — planned rc.3](docs/release/TROUBLESHOOTING.md)
 - [Published rc.2 release notes](docs/release/RELEASE-NOTES-v1.0.0-rc.2.md)
 - [Published rc.1 release notes (historical)](docs/release/RELEASE-NOTES-v1.0.0-rc.1.md)
 - [Previously published beta guide](docs/beta/START-HERE.md)
@@ -46,4 +50,4 @@ Windows system metrics include CPU, RAM, system-drive usage and uptime. Both age
 
 **SmartThings installation:** [ARoedl SmartThings Edge Drivers](https://bestow-regional.api.smartthings.com/invite/1J2Qy7ZkxL20). Enroll the existing hub and install the Computer Host LAN driver; do not re-pair existing computer devices during upgrades.
 
-**Release status:** [rc.2](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v1.0.0-rc.2) is published from immutable commit `72e4a99c4b2e8f958ce771152826319318d0d537`. The tag and four release assets plus checksum manifest remain unchanged by this documentation PR. GitHub publication does **not** prove SmartThings channel assignment or hub installation, which must be verified separately. Windows 11 hardware tests, further Linux checks and seven-day soak remain open; do not delete/re-pair existing devices during upgrades.
+**Release status:** [rc.2](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v1.0.0-rc.2) is published from immutable commit `72e4a99c4b2e8f958ce771152826319318d0d537`. The tag and four release assets plus checksum manifest remain unchanged. GitHub publication does **not** prove SmartThings channel assignment or hub installation, which must be verified separately. Windows 11 hardware tests, further Linux checks and seven-day soak remain open; do not delete/re-pair existing devices during upgrades.
