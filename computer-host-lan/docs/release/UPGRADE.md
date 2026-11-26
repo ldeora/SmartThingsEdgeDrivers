@@ -1,12 +1,13 @@
 # Upgrade, reinstall and maintenance — planned rc.3
 
+**Upgrading? Run the new installer over your existing installation. Your device, settings, routines and key are kept; nothing needs to be changed in SmartThings.**
+
 **rc.3 is not yet published.** Use the [published rc.2 instructions](QUICK-START.md)
 until the matching release is available. The following workflows are implemented
 on main; exact-candidate physical acceptance is pending. Use the
 [Linux Quick Start](LINUX-INSTALLER-QUICK-START.md) or
 [Windows Quick Start](WINDOWS-QUICK-START.md) to verify the matching package.
 Do not elevate a development source archive or ordinary CI artifact.
-Successful supported upgrades preserve the UUID, key, device and routines.
 Never delete a working device or private state to repair an upgrade.
 
 ## Fresh installation on a new computer
@@ -52,7 +53,7 @@ Windows: use Setup's recovery offer or the matching ZIP's
 `Restore-WindowsAgentUpgrade.ps1 -Mode Restore` as documented in the
 [installation guide](../../INSTALLATION.md). Restart Setup after recovery.
 
-## Reinstall after an rc.2 uninstall (J5)
+## Reinstall after an rc.2 uninstall
 
 rc.2 removed the managed agent files, including its power and WOL interface
 drop-ins, but retained the private state directory and backup. The persistent
@@ -100,7 +101,7 @@ apps likewise retains ProgramData state; run Setup again without purging.
 Keep the SmartThings device if returning to the same installation. Verify
 that the device resumes reporting rather than creating a duplicate.
 
-## Start completely fresh (J8)
+## Start completely fresh
 
 **Only if you deliberately want a new identity**, or recovery is impossible
 and you accept losing device continuity. This is not a workaround for an

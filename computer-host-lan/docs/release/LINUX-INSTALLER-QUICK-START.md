@@ -1,7 +1,8 @@
 # Computer Host LAN — Linux installer Quick Start (planned rc.3)
 
 **Not yet a published release.** The standalone installer is implemented on
-main; the rc.3 release binary and physical qualification are pending.
+main; the rc.3 candidate release workflow builds the executable. Final build
+verification and physical qualification are pending.
 Do not download/elevate an ordinary CI artifact or source build as a substitute.
 For published rc.2, follow the [current Quick Start](QUICK-START.md).
 
@@ -115,7 +116,7 @@ If setup finds retained installation data without a current agent, it offers
 reuse of your existing identity and control key. Review the plan and type
 **REUSE** only if it is your previous Computer Host LAN v2 installation.
 Keep your original private files and backups intact. If reuse is refused,
-see [reinstall and start completely fresh](UPGRADE.md#start-completely-fresh-j8). The installer checks
+see [reinstall and start completely fresh](UPGRADE.md#start-completely-fresh). The installer checks
 eligibility after authorization and refuses ambiguous or unsafe state; it
 will not reset the identity or key. Refresh the existing SmartThings device
 rather than creating a duplicate. Select remote power again if you want it;

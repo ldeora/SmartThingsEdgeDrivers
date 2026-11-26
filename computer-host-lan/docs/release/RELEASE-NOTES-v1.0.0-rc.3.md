@@ -1,5 +1,7 @@
 # Computer Host LAN v1.0.0-rc.3 — release candidate
 
+**Upgrading? Run the new installer over your existing installation. Your device, settings, routines and key are kept; nothing needs to be changed in SmartThings.**
+
 **Candidate, NOT published by this preparation PR.** Intended release:
 https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v1.0.0-rc.3.
 The candidate tag/name and these notes are not evidence that the release exists;
@@ -59,12 +61,13 @@ Linux replicas with Go 1.25.14, linux/amd64, CGO disabled and trimmed paths,
 checks exact VCS revision, compares bytes and emits matching build metadata.
 
 - `computer-host-lan-v1.0.0-rc.3-linux-x64-unsigned-installer`
-- `computer-host-lan-v1.0.0-rc.3-linux-x64-unsigned-installer.build-info.json`
+- `computer-host-lan-v1.0.0-rc.3-linux-x64-unsigned-installer.sha256` — executable checksum
+- `computer-host-lan-v1.0.0-rc.3-linux-x64-unsigned-installer.build-info.json` — exact source, component versions, toolchain and digest
 - `computer-host-lan-v1.0.0-rc.3-windows-x64-unsigned-setup.exe`
 - `computer-host-lan-v1.0.0-rc.3-windows-x64-unsigned.zip`
-- `computer-host-lan-v1.0.0-rc.3-source.zip`
+- `computer-host-lan-v1.0.0-rc.3-source.zip` — **source only**, not an installer
 - `computer-host-lan-v1.0.0-rc.3-documentation.zip`
-- `SHA256SUMS.txt`
+- `SHA256SUMS.txt` — covers all distributable assets except itself
 
 Verify the full SHA-256 of each downloaded asset against the same versioned
 release's checksum manifest. Check the trusted release announcement/source
@@ -86,6 +89,9 @@ computer gets a separate identity. Power actions remain opt-in.
 
 ## Known limitations and acceptance
 
+- A refused power command can still show the generic SmartThings network or server error. Check host power opt-in and matching key; do not blindly retry a request with uncertain acceptance.
+- Both platform binaries are unsigned. The normal Linux candidate workflow does not generate independent artifact attestation. SHA-256 checks bytes, not publisher identity. Do not bypass platform protections.
+- Automated Linux WOL setup supports wired Ethernet only; Wi-Fi wake is not supported by this installer.
 - WOL depends on wired NIC, firmware, network and OS power state. The installer
   cannot promise wake from every sleep/shutdown state. Windows NIC WOL setup
   is manual. Linux refuses ambiguous administrator network policy.

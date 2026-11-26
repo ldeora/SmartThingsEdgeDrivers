@@ -1,14 +1,48 @@
 # Computer Host LAN — SmartThings for Linux and Windows
 
-**Development candidate v1.0.0-rc.3 — not published.** Linux/Edge 0.4.7-rc.3, Windows 0.2.8-rc.3, protocol v2. Release preparation and physical acceptance are pending; rc.2 remains the latest published release. See the [rc.3 release notes](docs/release/RELEASE-NOTES-v1.0.0-rc.3.md).
+**Upgrading? Run the new installer over your existing installation. Your device, settings, routines and key are kept; nothing needs to be changed in SmartThings.**
 
-**Latest published prerelease: [v1.0.0-rc.2](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v1.0.0-rc.2)** (November 21, 2026 UTC, immutable source commit `72e4a99c4b2e8f958ce771152826319318d0d537`). Linux/Edge **0.4.6-rc.2**, Windows agent **0.2.7-rc.2**, protocol **v2 unchanged**. Obtain version-matched unsigned Windows Setup/ZIP or Linux source and checksums from the release rather than CI artifacts. [v0.5.5-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.5-beta.1) remains the last independently Windows 11 hardware-tested rollback baseline; rc.2 Windows 11 acceptance remains pending.
+Monitor and control your computer in SmartThings, using your trusted local
+network. See CPU, RAM, disk usage, uptime and host status; optionally wake,
+shut down, reboot or suspend your computer, including through routines.
+The Edge driver communicates locally with your computer; no separate cloud
+service is required. SmartThings itself still uses its platform services.
 
-**Development source is not the published rc.2 package.** The legacy
-Linux mutating source entry points are retired in main. Use the published
-version-matched release for rc.2 instructions; do not elevate a main
-checkout or development source archive. The standalone Linux installer and maintenance menu are implemented on main,
-but the rc.3 release binary and physical qualification are still pending.
+**v1.0.0-rc.3 candidate — not published.** The current download is
+[v1.0.0-rc.2](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v1.0.0-rc.2).
+Use the matching published instructions until rc.3 is available.
+
+## Get started
+
+- [Linux installer Quick Start — rc.3](docs/release/LINUX-INSTALLER-QUICK-START.md)
+- [Windows Setup Quick Start — rc.3](docs/release/WINDOWS-QUICK-START.md)
+- [SmartThings driver invitation](https://bestow-regional.api.smartthings.com/invite/1J2Qy7ZkxL20) — enroll your hub and install Computer Host LAN.
+
+For the current published version see the [rc.2 Quick Start](docs/release/QUICK-START.md).
+New computer? Scan nearby once. Existing computer? Refresh its device; do
+not delete or re-pair it. Monitoring is enabled by default. Remote power is
+optional and requires opt-in on both sides. Use a trusted private LAN; never
+forward the agent's HTTP port to the Internet. WOL depends on hardware and
+firmware. Verify downloads against the same trusted versioned release.
+Packages are unsigned; checksums verify bytes, not publisher identity.
+
+## Maintenance and support
+
+[Upgrade, reinstall, recovery and fresh start](docs/release/UPGRADE.md) ·
+[Troubleshooting](docs/release/TROUBLESHOOTING.md) ·
+[Detailed installation](INSTALLATION.md) · [Security](SECURITY.md) ·
+[Protocol v2](PROTOCOL.md) · [rc.3 release notes](docs/release/RELEASE-NOTES-v1.0.0-rc.3.md)
+
+The rc.3 Linux installer supports setup, power/WOL configuration, repair,
+historical restore, interrupted-operation recovery and normal uninstall.
+The source ZIP is **source only**, not a Linux installation package.
+
+## Versions and evidence
+
+Candidate integration **1.0.0-rc.3**, Linux agent and Edge **0.4.7-rc.3**,
+Windows agent **0.2.8-rc.3**, protocol v2 unchanged. Exact candidate CI and
+physical acceptance must pass before publication. GitHub publication and
+SmartThings driver assignment are separate.
 
 ## Published rc.2 versus older rc.1
 
@@ -30,26 +64,10 @@ Computer Host LAN is a **separate** project from [Linux Host LAN](../linux-host-
 
 Windows system metrics include CPU, RAM, system-drive usage and uptime. Both agents now report **Usage %, Total GiB, Used GiB, Available GiB** for RAM and their root/system filesystem. The new byte fields are optional protocol-v2 additions; old agents remain supported. On Linux, reserved filesystem blocks mean Used + Available may differ from Total. CPU temperature and Linux load averages are not invented on Windows. Shutdown/reboot/suspend are opt-in, best-effort and HMAC-authenticated. WOL is sent by the hub and depends on the NIC, firmware, network topology and Windows power state.
 
-## Documentation
-
-- [Installation (both platforms)](INSTALLATION.md)
-- [Published rc.2 quick start](docs/release/QUICK-START.md)
-- [Linux standalone installer Quick Start — planned rc.3](docs/release/LINUX-INSTALLER-QUICK-START.md)
-- [Windows Setup Quick Start — planned rc.3](docs/release/WINDOWS-QUICK-START.md)
-- [Upgrade, reinstall, recovery and fresh start — planned rc.3](docs/release/UPGRADE.md)
-- [Troubleshooting — planned rc.3](docs/release/TROUBLESHOOTING.md)
-- [Published rc.2 release notes](docs/release/RELEASE-NOTES-v1.0.0-rc.2.md)
-- [Published rc.1 release notes (historical)](docs/release/RELEASE-NOTES-v1.0.0-rc.1.md)
-- [Previously published beta guide](docs/beta/START-HERE.md)
-- [Tester checklist](docs/beta/TESTER-CHECKLIST.md)
-- [Feedback and privacy](docs/beta/FEEDBACK-AND-SUPPORT.md)
-- [Supported / unverified environments](docs/beta/COMPATIBILITY-STATUS.md)
-- [Protocol v2](PROTOCOL.md)
-- [Security and responsible use](SECURITY.md)
-- [Short beta security and privacy guidance](docs/beta/SECURITY-AND-PRIVACY.md)
-- [Release gates](docs/beta/PUBLICATION-GATES.md)
-- [First stable release acceptance gates](docs/release/V1-RELEASE-GATES.md)
-
-**SmartThings installation:** [ARoedl SmartThings Edge Drivers](https://bestow-regional.api.smartthings.com/invite/1J2Qy7ZkxL20). Enroll the existing hub and install the Computer Host LAN driver; do not re-pair existing computer devices during upgrades.
-
-**Release status:** [rc.2](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v1.0.0-rc.2) is published from immutable commit `72e4a99c4b2e8f958ce771152826319318d0d537`. The tag and four release assets plus checksum manifest remain unchanged. GitHub publication does **not** prove SmartThings channel assignment or hub installation, which must be verified separately. Windows 11 hardware tests, further Linux checks and seven-day soak remain open; do not delete/re-pair existing devices during upgrades.
+See [rc.3 readiness and physical acceptance](docs/release/RC3-READINESS.md),
+[stable release gates](docs/release/V1-RELEASE-GATES.md) and
+[older rc.2 acceptance](docs/release/RC-ACCEPTANCE.md). Published rc.2 source
+commit: `72e4a99c4b2e8f958ce771152826319318d0d537`. Earlier hardware results
+are not rc.3 acceptance. Keep the existing Computer Host LAN driver/channel
+and devices. The v0.5.5-beta.1 release remains an earlier independently
+Windows 11 hardware-tested fallback; it is not evidence for rc.3.
