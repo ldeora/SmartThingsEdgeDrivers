@@ -32,6 +32,25 @@ other LAN interference. No authentication, rate guarantee or firewall
 policy is added. The published rc.2 packages do not contain this per-source
 limit.
 
+**Post-rc.2 Edge implementation (intended rc.3):** The existing four-second
+socket inactivity timeout is supplemented by an eight-second budget per
+HTTP request. The driver bounds each cooperative cosock readiness wait,
+including repeated waits inside a single read or write, and closes its
+owned connection on expiry. Agent responses are still capped at 32 KiB;
+redirects are not followed. Challenge and signed POST have separate
+budgets, and an expired power request may already have been accepted.
+Do not blindly retry. This is a cooperative transport deadline, not a
+preemptive limit on synchronous DNS resolution or other non-yielding
+runtime work, nor a monotonic real-time guarantee under clock changes.
+A detected incompatible scheduler yield is relayed unchanged to finish the
+same request; a one-time error records that the cumulative budget is disabled
+until driver restart, with the original inactivity timeout retained. An
+unavailable initial deadline clock/select also triggers the compatibility
+path. There is no automatic retry, including for signed POST. This is a
+limited compatibility safeguard, not protection against arbitrary runtime
+incompatibility; fallback is a failed qualification. Real upstream runtime CI
+and physical SmartThings hub qualification are required before merging #177.
+
 ## Power commands and credentials
 
 - **Monitoring only by default.** Shutdown, reboot and suspend are optional and require enabling power control on the host *and* setting `allowPowerCommands` plus the matching control key on the SmartThings device.
