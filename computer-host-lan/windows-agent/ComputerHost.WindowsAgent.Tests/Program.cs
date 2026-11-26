@@ -271,4 +271,5 @@ Assert(suspendDispatcher.TrySchedule("reboot") == PowerDispatchResult.Busy,
 suspendGate.SetResult(true);
 await suspendExecuted.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
+await MdnsRetryTests.Run();
 Console.WriteLine("All Windows Host Agent contract tests passed.");

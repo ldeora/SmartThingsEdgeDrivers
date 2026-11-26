@@ -25,3 +25,9 @@ Do not collect personally identifying data or control keys.
 Always test sleep and reboot before shutdown, with physical recovery available.
 Run read-only `scripts/Get-WolDiagnostics.ps1` and redact network details before
 sharing feedback. Do not publish private keys.
+
+12. DNS-SD recovery (#132/#124): after a DHCP address change or resume, restore
+    LAN connectivity and verify hub rediscovery of the same device within 180 s,
+    without agent restart or re-pairing. Repeat after adapter reconnect; record
+    elapsed time and redacted registration status. Failure blocks rc.3 pending
+    bounded, debounced network-change re-registration. CI is not hardware evidence.
