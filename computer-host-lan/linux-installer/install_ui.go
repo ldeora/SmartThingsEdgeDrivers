@@ -265,6 +265,10 @@ func validatedPrivilegedReply(data []byte, action string) (privilegedResult, err
 		if action != "install" && action != "upgrade" && action != "repair" {
 			return privilegedResult{}, errors.New("unexpected installation outcome")
 		}
+	case "restored", "restored_cleanup_required":
+		if action != "restore" || reply.IdentityPreserved != "verified" || reply.CredentialContinuity != "verified" {
+			return privilegedResult{}, errors.New("invalid historical restore outcome")
+		}
 	case "uninstalled", "uninstalled_cleanup_required":
 		if action != "uninstall" {
 			return privilegedResult{}, errors.New("unexpected uninstall outcome")
@@ -273,7 +277,7 @@ func validatedPrivilegedReply(data []byte, action string) (privilegedResult, err
 			return privilegedResult{}, errors.New("invalid uninstall identity outcome")
 		}
 	case "passed":
-		if action != "status" && action != "recover" && action != "wol-check" && action != "wol-remove" {
+		if action != "status" && action != "recover" && action != "wol-check" && action != "wol-remove" && action != "backups" {
 			return privilegedResult{}, errors.New("unexpected status outcome")
 		}
 	default:
@@ -300,13 +304,16 @@ func validatedPrivilegedReply(data []byte, action string) (privilegedResult, err
 		return privilegedResult{}, errors.New("invalid recovery outcome")
 	}
 	switch reply.RecoveryOperation {
-	case "", "install", "upgrade", "repair", "uninstall":
+	case "", "install", "upgrade", "repair", "uninstall", "restore":
 	default:
 		return privilegedResult{}, errors.New("invalid recovery operation")
 	}
 	if reply.RecoveryOperation != "" && (action != "recover" || reply.Status != "passed" ||
 		reply.RecoveryStatus == "" || reply.RecoveryStatus == "nothing_to_recover") {
 		return privilegedResult{}, errors.New("unexpected recovery operation")
+	}
+	if !validBackupReply(reply, action) {
+		return privilegedResult{}, errors.New("invalid backup list")
 	}
 	if !validWOLStatus(reply, action) {
 		return privilegedResult{}, errors.New("invalid WOL outcome")
@@ -343,7 +350,7 @@ func knownPrivilegedError(code string) bool {
 		"recovery_required", "unsupported_environment", "adoption_required",
 		"unsupported_python", "untrusted_root_launcher",
 		"invalid_trusted_manifest", "duplicate_key", "bootstrap_failed",
-		"unsafe_lock", "not_installed", "recovery_helper_missing", "wol_review_required":
+		"unsafe_lock", "not_installed", "recovery_helper_missing", "wol_review_required", "invalid_backup":
 		return true
 	}
 	return false
@@ -357,6 +364,8 @@ func userFacingPrivilegeFailure(reply privilegedResult) error {
 		return errors.New("credential continuity could not be verified; preserve retained private state and recovery evidence. Run -recover for managed-state recovery; it cannot verify continuity with the interrupted transaction")
 	}
 	switch reply.ErrorCode {
+	case "invalid_backup":
+		return errors.New("the selected local backup is unavailable, changed or unsuitable. List backups again; do not edit the backup or retained credentials")
 	case "wol_review_required":
 		return errors.New("Wake-on-LAN ownership or network policy needs review. Open Configure (-configure) to check or remove the installer setting; existing administrator configuration is not overwritten")
 	case "installation_busy":
@@ -366,6 +375,9 @@ func userFacingPrivilegeFailure(reply privilegedResult) error {
 	case "rolled_back":
 		if reply.WOLReviewRequired {
 			return errors.New("previous agent files and service state were restored. The Wake-on-LAN setting needs a manual check; open Configure (-configure) to check or remove the installer setting. Do not repeat recovery for WOL alone")
+		}
+		if reply.Operation == "restore" {
+			return errors.New("historical restore was undone; previous files and service state were restored")
 		}
 		if reply.Operation == "uninstall" {
 			return errors.New("uninstall was undone; previous files and service state were restored. Check prerequisites and run -uninstall again if desired")
@@ -385,6 +397,9 @@ func userFacingPrivilegeFailure(reply privilegedResult) error {
 	case "unsupported_environment":
 		return errors.New("the existing installation or operating environment needs attention. Check the read-only inspection before retrying")
 	case "aborted":
+		if reply.Operation == "restore" {
+			return errors.New("historical restore was aborted before applying changes; check the current installation and selected backup")
+		}
 		if reply.Operation == "uninstall" {
 			return errors.New("uninstall was aborted before applying changes; inspect the existing installation and snapshot prerequisites before retrying")
 		}

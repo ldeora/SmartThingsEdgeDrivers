@@ -54,7 +54,7 @@ func validateContinuityReply(reply *privilegedResult, action string) bool {
 		}
 		return reply.ContinuityReason == "" && (reply.ErrorCode == "rolled_back" || id == "not_verified")
 	}
-	if action == "uninstall" && (id == "newly_present" || token == "newly_present") {
+	if (action == "uninstall" || action == "restore") && (id == "newly_present" || token == "newly_present") {
 		return false
 	}
 	return reply.ContinuityReason == ""

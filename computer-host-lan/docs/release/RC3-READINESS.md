@@ -165,3 +165,17 @@ operator confirms ownership. Existing credential continuity checks ensure
 both files are unchanged. No new journal fields or credential copies.
 A normal rc.3 uninstall with a valid owner marker keeps its existing path.
 Physical rc.2 uninstall/reinstall acceptance and independent review remain.
+
+### Historical local restoration (implementation draft)
+
+Restore is a distinct schema-1 operation, not a resumption of a historical
+journal. The operator chooses a root-private local installed-state v2 backup
+from a bounded list and confirms its exact selection digest. The digest binds
+consent, not publisher authenticity. Legacy rc.2 partial snapshots are allowed
+when all required agent and unit files are present; omitted optional paths
+stay unchanged. Current before-state is a fresh protected snapshot. Existing
+InstallTransaction.restore restores recorded bytes and modes, service state is
+verified (including runtime version and identity when active), and both current
+credentials must remain unchanged. Persistent NIC WOL is never restored or
+removed by this action. Existing recovery undoes an interrupted restore.
+Physical rc.2 -> rc.3 -> rc.2 restore -> rc.3 upgrade acceptance remains.

@@ -19,6 +19,8 @@ Usage:
   installer cli uninstall --confirm UNINSTALL [--elevation auto|sudo|doas|run0]
   installer cli recover   --confirm RECOVER   [--elevation auto|sudo|doas|run0]
   installer cli status                         [--elevation auto|sudo|doas|run0]
+  installer cli backups                        [--elevation auto|sudo|doas|run0]
+  installer cli restore --backup NAME --backup-digest DIGEST --confirm RESTORE [--elevation auto|sudo|doas|run0]
   installer cli wol-check  --wol-interface IFNAME [--elevation auto|sudo|doas|run0]
   installer cli wol-remove --confirm WOL-REMOVE --wol-interface IFNAME [--elevation auto|sudo|doas|run0]
 
@@ -30,6 +32,8 @@ then pass its wol_policy.digest as --wol-plan-digest to install/upgrade/repair.
 Keep/leave preserve network policy. A bare --wol-interface pins the interface only.
 To reinstall over retained rc.2 state, review cli plan --action install,
 then use cli install --confirm REUSE (not INSTALL). No credential is reset.
+Review cli backups before restoring a local backup. Restore preserves the current
+identity and key, and creates a new recovery snapshot. It may install older code.
 Status/recovery use the existing protected helper.
 Use an independently authenticated executable for any eventual release.
 Except for --help, stdout contains a single JSON result.
@@ -38,14 +42,16 @@ Exit: 0 completed, 1 failed/unknown, 2 invalid invocation,
 `
 
 type cliOptions struct {
-	action    string
-	target    string
-	power     string
-	nic       string
-	wol       string
-	wolDigest string
-	elevation string
-	reuse     bool
+	action       string
+	target       string
+	power        string
+	nic          string
+	wol          string
+	wolDigest    string
+	elevation    string
+	reuse        bool
+	backup       string
+	backupDigest string
 }
 
 func (o cliOptions) isInstall() bool {
@@ -62,7 +68,7 @@ func parseCLI(args []string) (cliOptions, error) {
 	}
 	o.action = args[0]
 	switch o.action {
-	case "install", "upgrade", "repair", "uninstall", "recover", "status", "plan", "wol-check", "wol-remove":
+	case "install", "upgrade", "repair", "uninstall", "recover", "status", "plan", "wol-check", "wol-remove", "backups", "restore":
 	default:
 		return cliOptions{}, invalid
 	}
@@ -78,6 +84,16 @@ func parseCLI(args []string) (cliOptions, error) {
 		switch name {
 		case "--confirm":
 			confirm = value
+		case "--backup":
+			if o.action != "restore" || !backupNamePattern.MatchString(value) {
+				return cliOptions{}, invalid
+			}
+			o.backup = value
+		case "--backup-digest":
+			if o.action != "restore" || !wolDigestPattern.MatchString(value) {
+				return cliOptions{}, invalid
+			}
+			o.backupDigest = value
 		case "--action":
 			if o.action != "plan" || (value != "install" && value != "upgrade" && value != "repair") {
 				return cliOptions{}, invalid
@@ -123,11 +139,14 @@ func parseCLI(args []string) (cliOptions, error) {
 		((o.action == "wol-check" || o.action == "wol-remove") && !wiredNICName(o.nic)) {
 		return cliOptions{}, invalid
 	}
+	if o.action == "restore" && (o.backup == "" || o.backupDigest == "") {
+		return cliOptions{}, invalid
+	}
 	if o.action == "plan" {
 		if !seen["--action"] || seen["--confirm"] {
 			return cliOptions{}, invalid
 		}
-	} else if o.action == "status" || o.action == "wol-check" {
+	} else if o.action == "status" || o.action == "wol-check" || o.action == "backups" {
 		if seen["--confirm"] {
 			return cliOptions{}, invalid
 		}
@@ -224,10 +243,10 @@ func cliInstallPreflight(o cliOptions, api apiClient, info apiInspect, firewallA
 func prepareCLIRequest(o cliOptions) (cliPrepared, error) {
 	if !o.isInstall() && o.action != "plan" {
 		version := 1
-		if o.action == "uninstall" || o.action == "wol-check" || o.action == "wol-remove" {
+		if o.action == "uninstall" || o.action == "wol-check" || o.action == "wol-remove" || o.action == "backups" || o.action == "restore" {
 			version = 2
 		}
-		req := privilegedRequest{SchemaVersion: version, Action: o.action}
+		req := privilegedRequest{SchemaVersion: version, Action: o.action, Backup: o.backup, BackupDigest: o.backupDigest}
 		if o.action == "wol-check" || o.action == "wol-remove" {
 			req.WOLInterface = &o.nic
 		}
@@ -317,7 +336,7 @@ func executeCLI(args []string, root bool,
 		}
 		return result, 1
 	}
-	if o.isInstall() {
+	if o.isInstall() || o.action == "restore" {
 		result.Onboarding = onboardingMode(safe)
 	}
 	if strings.HasSuffix(safe.Status, "_cleanup_required") {
