@@ -21,6 +21,10 @@ class WolError(RuntimeError):
     pass
 
 
+class WolUnsupported(WolError):
+    """A successful hardware query explicitly reports no magic support."""
+
+
 _IFACE = re.compile(r"[A-Za-z0-9_.-]{1,15}")
 _MAC = re.compile(r"[0-9a-f]{2}(?::[0-9a-f]{2}){5}")
 _MODES = re.compile(r"(?:d|[pumbagfs]+)")
@@ -132,7 +136,20 @@ def preview_policy(interface, *, root=Path("/"), backend=None):
             (ord(ch) < 32 and ch not in "\n\t") or 127 <= ord(ch) <= 159 for ch in text):
         raise WolError("link policy too complex for preview")
     policy["digest"] = policy_digest(plan)
-    policy["capability"] = "supported" if plan.adapter.supported else "unknown"
+    policy["capability"] = ("supported" if "g" in plan.adapter.supported else
+                            "unsupported" if plan.adapter.supported else "unknown")
+    if plan.backend == "nm":
+        try:
+            # The UUID remains the stable consent/mutation identity. The
+            # connection name is an ordinary-user display label only.
+            name = backend.run(("nmcli", "--wait", "5", "--escape", "no", "-g",
+                                "connection.id", "connection", "show", "uuid",
+                                plan.profile)).rstrip("\n")
+            if (name and len(name.encode("utf-8")) <= 256 and
+                    all(ch.isprintable() for ch in name)):
+                policy["connection_name"] = name
+        except WolError:
+            pass
     return policy
 
 
@@ -170,7 +187,9 @@ class Backend:
             if (len(supported) == len(runtime) == 1 and
                     _MODES.fullmatch(supported[0]) and _MODES.fullmatch(runtime[0])):
                 if "g" not in supported[0]:
-                    raise WolError("magic-packet WOL unsupported")
+                    if preview:
+                        return Adapter(interface, mac, index, supported[0], runtime[0])
+                    raise WolUnsupported("magic-packet WOL unsupported")
                 # SecureOn passwords cannot be captured/restored by this contract.
                 if "s" in runtime[0]:
                     raise WolError("SecureOn runtime policy requires manual configuration")

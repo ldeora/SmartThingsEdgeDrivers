@@ -421,7 +421,7 @@ func TestPersistentWOLWizardReviewAndConsent(t *testing.T) {
 	}
 	s.wolChoice, s.wolNIC = "configure", "LAN0"
 	preview := s.installPreview()
-	for _, want := range []string{"LAN0", "02:11:22:33:44:55", "NetworkManager profile", "existing WOL flags 1"} {
+	for _, want := range []string{"LAN0", "02:11:22:33:44:55", "NetworkManager connection", "Wired connection 1", "Hardware support is checked after authorization"} {
 		if !strings.Contains(preview, want) {
 			t.Fatalf("Preview missing %q: %s", want, preview)
 		}
@@ -465,5 +465,25 @@ func TestWOLManagementRequiresSeparateRemovalConsent(t *testing.T) {
 		if err != nil || calls != tc.want {
 			t.Fatalf("Consent mismatch: %d / %d (%v)", calls, tc.want, err)
 		}
+	}
+}
+
+func TestFreshWOLDefaultAndUnsupportedCompletion(t *testing.T) {
+	if defaultWOLChoice(false, "LAN0") != "configure" || defaultWOLChoice(true, "LAN0") != "keep" ||
+		defaultWOLChoice(false, "") != "keep" {
+		t.Fatal("Incorrect fresh/upgrade WOL default")
+	}
+	reply, err := validatedPrivilegedReply([]byte(`{"schema_version":1,"operation":"install","status":"installed","wol_status":"unsupported","secrets_included":false}`), "install")
+	if err != nil || reply.WOLStatus != "unsupported" {
+		t.Fatalf("Unsupported warning lost: %+v (%v)", reply, err)
+	}
+	var out bytes.Buffer
+	showInstallationOutcome(&out, &liveSelection{}, privilegedRequest{Action: "install", WOLPlanDigest: strings.Repeat("a", 64)}, reply)
+	if !strings.Contains(out.String(), "Wake-on-LAN is not supported by this adapter") ||
+		strings.Contains(out.String(), "Persistent WOL configuration was verified") {
+		t.Fatal(out.String())
+	}
+	if _, err := validatedPrivilegedReply([]byte(`{"schema_version":1,"operation":"status","status":"passed","wol_status":"unsupported","secrets_included":false}`), "status"); err == nil {
+		t.Fatal("Unsupported warning accepted for an unrelated operation")
 	}
 }

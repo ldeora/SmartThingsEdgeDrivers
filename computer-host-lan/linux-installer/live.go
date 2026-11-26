@@ -410,6 +410,9 @@ func (p apiPlan) brief() string {
 	fmt.Fprintln(&b, "No runtime check, root recovery inspection or privileged action.")
 	if p.WOLPolicy != nil {
 		fmt.Fprintln(&b, p.WOLPolicy.description())
+		if p.WOLPolicy.LinkText != nil {
+			fmt.Fprintln(&b, *p.WOLPolicy.LinkText)
+		}
 	}
 	fmt.Fprintln(&b, "No hardware or firewall change, or hub discovery, has occurred.")
 	return strings.TrimSpace(b.String())
@@ -653,7 +656,7 @@ func liveFormMode(s *liveSelection, installing bool) *huh.Form {
 				Value(&s.powerChoice),
 			huh.NewSelect[string]().
 				Title("Wake-on-LAN").
-				Description("Keep is recommended for upgrades. Configure persistent magic-packet WOL on wired Ethernet; BIOS/UEFI support is required.").
+				Description("Configure is recommended for new wired computers; Keep for upgrades. Hardware support is checked after authorization.").
 				Options(
 					huh.NewOption("Keep existing WOL configuration (recommended)", "keep"),
 					huh.NewOption("Configure persistent Wake-on-LAN", "configure"),
@@ -692,6 +695,13 @@ func liveFormMode(s *liveSelection, installing bool) *huh.Form {
 	)
 }
 
+func defaultWOLChoice(existing bool, wiredNIC string) string {
+	if !existing && wiredNIC != "" {
+		return "configure"
+	}
+	return "keep"
+}
+
 func newLiveSelection(api apiClient, info apiInspect, hubs []discoveredHub) *liveSelection {
 	s := &liveSelection{
 		api: api, inspection: info, hubs: hubs,
@@ -704,15 +714,10 @@ func newLiveSelection(api apiClient, info apiInspect, hubs []discoveredHub) *liv
 	} else {
 		s.wolNIC = suggestedNIC("")
 	}
-	// Fresh installs default to Configure only if a real read-only probe
-	// established support and a complete reviewable persistent policy.
-	// Unknown capability and all upgrades remain Keep.
-	if !info.Installation.Detected && s.wolNIC != "" {
-		if p, err := api.plan(planOptions{power: "keep", wolNIC: s.wolNIC, configureWOL: true}); err == nil &&
-			p.WOLPolicy != nil && p.WOLPolicy.Capability == "supported" {
-			s.wolChoice = "configure"
-		}
-	}
+	// The suggested NIC is already checked for physical wired Ethernet.
+	// An ordinary user may be unable to query ethtool; don't require
+	// that privilege-dependent observation to select the useful default.
+	s.wolChoice = defaultWOLChoice(info.Installation.Detected, s.wolNIC)
 	return s
 }
 

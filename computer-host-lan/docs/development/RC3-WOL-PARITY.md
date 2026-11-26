@@ -228,10 +228,12 @@ Removal is retryable using the retained record, without agent/service writes.
 Normal uninstall retains WOL. No hardware acceptance is inferred from CI.
 
 Wizard: choose Configure persistent Wake-on-LAN, select the wired interface,
-review the policy and confirm INSTALL. Fresh installs default to Configure
-only when the ordinary-user probe proves magic support and previews the
-policy; upgrades/repair default to Keep. Unknown capability is not declared
-unsupported. Keep and leave do not change persistent or runtime WOL.
+review the policy and confirm INSTALL. Fresh installs default to Configure when a physical wired adapter is
+suggested, even if ordinary-user hardware capability is unknown.
+Upgrades/repair default to Keep. A positive root-side observation of no magic
+support skips WOL and the interface pin, completes agent installation and
+returns wol_status=unsupported. Unknown capability and unsafe/changed policy
+still refuse rather than silently authorizing a different change. Keep and leave do not change persistent or runtime WOL.
 CLI: run cli plan --action upgrade --wol configure --wol-interface IFNAME,
 then cli upgrade --confirm UPGRADE --wol configure --wol-interface IFNAME
 --wol-plan-digest DIGEST using the reviewed digest (install/repair analogous).

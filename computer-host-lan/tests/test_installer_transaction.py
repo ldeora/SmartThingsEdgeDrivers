@@ -205,6 +205,31 @@ class InstallerBackendTests(unittest.TestCase):
         self.assertEqual(result.status, "installed")
         self.assertEqual([x[0] for x in calls], ["prepare", "apply"])
 
+    def test_unsupported_wol_installs_agent_without_network_changes(self):
+        with mock.patch.object(self.backend._wol, "prepare",
+                               side_effect=installer.WolUnsupported("unsupported")), \
+                mock.patch.object(self.backend._wol, "apply") as apply:
+            result = self.backend.run(self.request(wol_interface="enp1s0",
+                                                   wol_plan_digest="a" * 64),
+                                      ROOT, self.hashes)
+        self.assertEqual(result.status, "installed")
+        self.assertEqual(result.wol_status, "unsupported")
+        apply.assert_not_called()
+        self.assertFalse(self.installed_paths().location(core.WOL_DROPIN).exists())
+        self.assertEqual(self.store.public_status()["privileged_transaction_state"], "none")
+
+    def test_unknown_wol_does_not_authorize_changed_policy(self):
+        with mock.patch.object(self.backend._wol, "prepare",
+                               side_effect=installer.WolError("unknown capability")), \
+                mock.patch.object(self.backend._wol, "apply") as apply:
+            with self.assertRaises(installer.ControllerError) as caught:
+                self.backend.run(self.request(wol_interface="enp1s0",
+                                              wol_plan_digest="a" * 64),
+                                 ROOT, self.hashes)
+        self.assertEqual(caught.exception.code, "aborted")
+        self.assertEqual(caught.exception.failure_stage, "plan")
+        apply.assert_not_called()
+
     def test_internal_wol_failure_uses_existing_rollback(self):
         intent = {"fixture": "WOL intent"}
         with mock.patch.object(self.backend._wol, "prepare", return_value=intent), \

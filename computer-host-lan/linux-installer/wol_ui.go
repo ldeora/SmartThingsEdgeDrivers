@@ -18,23 +18,32 @@ func wiredNICName(name string) bool {
 }
 
 type wolPolicy struct {
-	Action     string  `json:"action"`
-	Interface  string  `json:"interface"`
-	MAC        string  `json:"mac"`
-	Backend    string  `json:"backend"`
-	Profile    *string `json:"profile"`
-	Previous   *string `json:"previous"`
-	LinkName   *string `json:"link_name"`
-	LinkText   *string `json:"link_text"`
-	Digest     string  `json:"digest"`
-	Capability string  `json:"capability"`
+	Action         string  `json:"action"`
+	Interface      string  `json:"interface"`
+	MAC            string  `json:"mac"`
+	Backend        string  `json:"backend"`
+	Profile        *string `json:"profile"`
+	Previous       *string `json:"previous"`
+	LinkName       *string `json:"link_name"`
+	LinkText       *string `json:"link_text"`
+	Digest         string  `json:"digest"`
+	Capability     string  `json:"capability"`
+	ConnectionName string  `json:"connection_name,omitempty"`
 }
 
 func (p wolPolicy) valid(nic string) bool {
 	if p.Action != "configure" || p.Interface != nic || !wiredNICName(nic) ||
 		!wolMACPattern.MatchString(p.MAC) || !wolDigestPattern.MatchString(p.Digest) ||
-		(p.Capability != "supported" && p.Capability != "unknown") {
+		(p.Capability != "supported" && p.Capability != "unknown" && p.Capability != "unsupported") {
 		return false
+	}
+	if len(p.ConnectionName) > 256 || (p.Backend != "nm" && p.ConnectionName != "") {
+		return false
+	}
+	for _, ch := range p.ConnectionName {
+		if !unicode.IsPrint(ch) {
+			return false
+		}
 	}
 	switch p.Backend {
 	case "nm":
@@ -65,22 +74,32 @@ func (p wolPolicy) description() string {
 	fmt.Fprintf(&b, "Wake-on-LAN: configure %s (%s)\n", p.Interface, p.MAC)
 	switch p.Backend {
 	case "nm":
-		fmt.Fprintf(&b, "NetworkManager profile %s: existing WOL flags %s; enable magic if missing, otherwise retain flags.\n", *p.Profile, *p.Previous)
+		name := p.ConnectionName
+		if name == "" {
+			name = "selected wired connection"
+		}
+		fmt.Fprintf(&b, "Keep Wake-on-LAN enabled after restarts. NetworkManager connection %q will enable magic packets if not already enabled.\n", name)
 	case "link-create":
-		fmt.Fprintf(&b, "Create /etc/systemd/network/%s without overwriting existing files:\n%s\n", *p.LinkName, *p.LinkText)
+		fmt.Fprintf(&b, "Create /etc/systemd/network/%s (Wake-on-LAN after restarts; preserve other default link settings).\n", *p.LinkName)
+		fmt.Fprintln(&b, "Full rule is available in the CLI plan JSON.")
 	case "link-existing":
 		fmt.Fprintln(&b, "Existing matching administrator .link policy: retain unchanged.")
 	}
-	fmt.Fprintln(&b, "Runtime: enable magic packets if missing; no network restart.")
-	if p.Capability == "unknown" {
-		fmt.Fprintln(&b, "Hardware capability unknown without authorization; checked again before installation.")
+	fmt.Fprintln(&b, "Hardware support is checked after authorization. No network restart.")
+	if p.Capability == "unsupported" {
+		fmt.Fprintln(&b, "This adapter currently reports no magic-packet support. If confirmed, the agent will install without Wake-on-LAN.")
 	}
 	return strings.TrimSpace(b.String())
 }
 
 func validWOLStatus(r privilegedResult, action string) bool {
 	if action != "wol-check" && action != "wol-remove" {
-		return r.WOLStatus == ""
+		if r.WOLStatus == "" {
+			return true
+		}
+		return r.WOLStatus == "unsupported" &&
+			(action == "install" || action == "upgrade" || action == "repair") &&
+			(r.Status == "installed" || r.Status == "installed_cleanup_required")
 	}
 	if r.Status == "error" {
 		return r.WOLStatus == ""
@@ -100,9 +119,9 @@ func showWOLStatus(w io.Writer, r privilegedResult) {
 	case "managed":
 		fmt.Fprintln(w, "Wake-on-LAN is configured by Computer Host LAN.")
 	case "runtime_only":
-		fmt.Fprintln(w, "Persistent policy was already configured independently; only installer runtime state is recorded.")
+		fmt.Fprintln(w, "Wake-on-LAN was already set up on this computer. Computer Host LAN did not change its persistent setting.")
 	case "review_required":
-		fmt.Fprintln(w, "Wake-on-LAN ownership needs a manual check. Remove only if the saved setting can be verified; do not delete the ownership record.")
+		fmt.Fprintln(w, "The Wake-on-LAN setting could not be verified and is left as it is. Check it in NetworkManager or /etc/systemd/network if waking does not work. Keep the saved installer record.")
 	case "not_managed":
 		fmt.Fprintln(w, "No installer-owned Wake-on-LAN setting for this interface. Administrator settings are unchanged.")
 	case "removed":
@@ -118,7 +137,7 @@ func runWOLManagement(reader io.Reader, writer io.Writer, method string, remove 
 
 func manageWOL(reader io.Reader, writer io.Writer, remove bool, authorize func(privilegedRequest) (privilegedResult, error)) error {
 	fmt.Fprintln(writer, "Configure — Wake-on-LAN")
-	fmt.Fprintln(writer, "Check or remove only settings previously recorded by Computer Host LAN. To configure WOL, run the installation/upgrade wizard and select Configure.")
+	fmt.Fprintln(writer, "Check or remove only settings previously recorded by Computer Host LAN. To enable Wake-on-LAN later, run the installer again and choose Configure in the Wake-on-LAN step.")
 	nic := suggestedNIC("")
 	fmt.Fprintf(writer, "Wired interface [%s] (or quit): ", nic)
 	value, err := readConfirmationLine(reader)

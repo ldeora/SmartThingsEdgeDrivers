@@ -55,6 +55,8 @@ class WolTests(unittest.TestCase):
                 return ""
             if "GENERAL.CON-UUID" in args:
                 return PROFILE
+            if "connection.id" in args:
+                return "Wired connection 1\n"
             return self.value + "\n"
         raise AssertionError(args)
 
@@ -185,6 +187,17 @@ class WolTests(unittest.TestCase):
         self.assertEqual(result["capability"], "unknown")
         self.assertEqual(result["digest"], plan_digest(plan))
         self.backend.run = run
+
+    def test_unsupported_adapter_is_distinct_from_unknown(self):
+        from persistent_wol import WolUnsupported, preview_policy
+        self.nm = True
+        self.supported = "d"
+        preview = preview_policy(NIC, backend=self.backend)
+        self.assertEqual(preview["capability"], "unsupported")
+        self.assertEqual(preview["connection_name"], "Wired connection 1")
+        with self.assertRaises(WolUnsupported):
+            self.backend.inspect(NIC)
+        self.assertEqual(self.writes, [])
 
     def test_explicit_owned_nm_removal_preserves_original_policy(self):
         owned = self.owned()

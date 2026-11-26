@@ -29,7 +29,7 @@ import payload_staging as staging
 import runtime_verify
 import credential_continuity as continuity
 import wol_ownership
-from persistent_wol import WolError
+from persistent_wol import WolError, WolUnsupported
 from transaction_journal import ProtectedJournal, JournalConflict, _staged_payload_remains
 
 _MANUAL_LOCK = Path('/run/lock/linux-host-agent-install.lock')
@@ -135,6 +135,7 @@ class InstallOutcome:
     identity_preserved: str  # 'verified' or 'not_verified'
     source_verified: bool = True
     credential_result: continuity.Result = continuity.Result()
+    wol_status: str = ''  # optional, fixed 'unsupported' warning
 
 
 @dataclass(frozen=True)
@@ -1093,6 +1094,7 @@ class InstallerBackend:
             backup = None
             previous = None
             failure_stage = 'payload'
+            wol_status = ''
             try:
                 receipt = staging.stage_payload(source, trusted_hashes, journal,
                                                 root=self.root, owner_uid=self.owner_uid)
@@ -1126,16 +1128,25 @@ class InstallerBackend:
                     existing_power and not request.disable_power)
                 failure_stage = 'plan'
                 if request.wol_plan_digest is not None:
-                    intent = self._wol.prepare(request.wol_interface,
-                                               request.wol_plan_digest,
-                                               journal._record()['transaction_id'])
-                    if intent is not None:
-                        previous['persistent_wol'] = intent
+                    try:
+                        intent = self._wol.prepare(request.wol_interface,
+                                                   request.wol_plan_digest,
+                                                   journal._record()['transaction_id'])
+                    except WolUnsupported:
+                        # Only a positive hardware observation qualifies.
+                        # Unknown support, ownership and policy conflicts
+                        # keep the existing pre-apply refusal behavior.
+                        wol_status = 'unsupported'
+                        effective_request = replace(effective_request, wol_interface=None,
+                                                    wol_plan_digest=None)
+                    else:
+                        if intent is not None:
+                            previous['persistent_wol'] = intent
                 changes = core.generate_plan(
                     verified_source, request.python_bin,
                     enable_power=request.enable_power,
                     disable_power=request.disable_power,
-                    wol_interface=request.wol_interface,
+                    wol_interface=effective_request.wol_interface,
                     is_existing_power=existing_power,
                     avahi_dir=(self.root / 'etc/avahi/services').is_dir(),
                 )
@@ -1185,7 +1196,8 @@ class InstallerBackend:
                                               request.operation,
                                               identity_state if previous is not None and
                                               'identity_state' in locals() else 'not_verified',
-                                              credential_result=credential_check.result)
+                                              credential_result=credential_check.result,
+                                              wol_status=wol_status)
                     wol_review_required = False
                     if phase in _PREAPPLY:
                         # This controller has not touched managed targets.
@@ -1227,9 +1239,11 @@ class InstallerBackend:
                 journal.clear_finished()
             except Exception:
                 return InstallOutcome('installed_cleanup_required', request.operation,
-                                      identity_state, credential_result=credential_check.result)
+                                      identity_state, credential_result=credential_check.result,
+                                      wol_status=wol_status)
         return InstallOutcome('installed', request.operation,
-                              identity_state, credential_result=credential_check.result)
+                              identity_state, credential_result=credential_check.result,
+                              wol_status=wol_status)
 
     def _restore_snapshot(self, journal, transaction: core.InstallTransaction,
                           backup: Path, *,

@@ -561,8 +561,11 @@ func showInstallationOutcome(w io.Writer, s *liveSelection, req privilegedReques
 	s.showNetworkWarnings(w)
 	fmt.Fprintln(w, "These are pre-install observations, not proof of discovery or connectivity. If warnings appear above, recheck those conditions before relying on Scan nearby.")
 	fmt.Fprintln(w, "Automatic hub pairing and firewall changes were not performed.")
-	if req.WOLPlanDigest != "" {
-		fmt.Fprintln(w, "Persistent WOL configuration was verified for the selected wired interface. Enable WOL in BIOS/UEFI and test shutdown/wake after reboot; Wi-Fi and routed-subnet WOL are not supported by this setup.")
+	if result.WOLStatus == "unsupported" {
+		fmt.Fprintln(w, "Wake-on-LAN is not supported by this adapter; the agent is installed without configuring it.")
+	} else if req.WOLPlanDigest != "" {
+		fmt.Fprintln(w, "Persistent WOL configuration was verified for the selected wired interface. Enable WOL in BIOS/UEFI. Test: shut down from SmartThings, then switch on again. Reboot and repeat the test.")
+		fmt.Fprintln(w, "Wi-Fi and routed-subnet WOL are not supported by this setup.")
 	} else {
 		fmt.Fprintln(w, "Persistent WOL configuration was left unchanged.")
 	}

@@ -82,6 +82,18 @@ class RootProtocolTests(unittest.TestCase):
             self.assertEqual(result["wol_status"], "not_managed")
             self.backend.wol_action.assert_called_once_with(action, "enp1s0")
 
+    def test_unsupported_wol_warning_survives_success_reply(self):
+        self.backend.run = mock.Mock(return_value=mock.Mock(
+            status="installed", identity_preserved="not_verified",
+            source_verified=True, wol_status="unsupported",
+            credential_result=continuity.Result()))
+        response = bridge.dispatch(
+            self.parse(wol_interface="enp1s0", wol_plan_digest="a" * 64),
+            self.manifest, backend=self.backend, journal=self.journal,
+            selected_python="/usr/bin/python3")
+        self.assertEqual(response["status"], "installed")
+        self.assertEqual(response["wol_status"], "unsupported")
+
     def test_valid_install_upgrade_repair_and_previews(self):
         for action in ('install', 'upgrade', 'repair'):
             for power in ('preserve', 'enable', 'disable'):

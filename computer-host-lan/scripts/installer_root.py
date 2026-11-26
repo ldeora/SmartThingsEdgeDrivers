@@ -284,10 +284,13 @@ def dispatch(request: dict, trusted_manifest: dict, *, backend, journal,
         wol_plan_digest=request.get('wol_plan_digest'),
     )
     done = backend.run(options, Path(request['source']), trusted_manifest['files'])
-    return dict(status=done.status, operation=action,
-                identity_preserved=done.identity_preserved,
-                source_verified=done.source_verified, secrets_included=False,
-                **done.credential_result.public())
+    result = dict(status=done.status, operation=action,
+                  identity_preserved=done.identity_preserved,
+                  source_verified=done.source_verified, secrets_included=False,
+                  **done.credential_result.public())
+    if done.wol_status == 'unsupported':
+        result['wol_status'] = 'unsupported'
+    return result
 
 
 def _reply(payload: dict) -> None:

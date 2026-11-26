@@ -66,7 +66,7 @@ JSON
     done
     if [ "$configure" = true ]; then
       [ "$wol" = true ] || exit 2
-      printf '%s,"wol_policy":{"action":"configure","interface":"%s","mac":"02:11:22:33:44:55","backend":"nm","profile":"aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee","previous":"1","link_name":null,"link_text":null,"digest":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","capability":"supported"}}\n' "$(printf '` + fixturePlan + `' "$power" "$wol" | sed 's/}$//')" "$nic"
+      printf '%s,"wol_policy":{"action":"configure","interface":"%s","mac":"02:11:22:33:44:55","backend":"nm","profile":"aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee","previous":"1","link_name":null,"link_text":null,"digest":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","capability":"unknown","connection_name":"Wired connection 1"}}\n' "$(printf '` + fixturePlan + `' "$power" "$wol" | sed 's/}$//')" "$nic"
     else
     printf '` + fixturePlan + `\n' "$power" "$wol"
     fi
