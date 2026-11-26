@@ -272,4 +272,5 @@ suspendGate.SetResult(true);
 await suspendExecuted.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
 await MdnsRetryTests.Run();
+await SourceConnectionTests.Run();
 Console.WriteLine("All Windows Host Agent contract tests passed.");

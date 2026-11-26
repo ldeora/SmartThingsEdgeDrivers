@@ -34,49 +34,49 @@ public sealed class MdnsAdvertisingService : BackgroundService
 
     internal sealed class Native : INative
     {
-    [DllImport("dnsapi.dll", CharSet = CharSet.Unicode, ExactSpelling = true)]
-    private static extern IntPtr DnsServiceConstructInstance(
-        [MarshalAs(UnmanagedType.LPWStr)] string serviceName,
-        [MarshalAs(UnmanagedType.LPWStr)] string hostName,
-        IntPtr ip4, IntPtr ip6,
-        ushort port, ushort priority, ushort weight,
-        uint propertyCount, IntPtr keys, IntPtr values);
+        [DllImport("dnsapi.dll", CharSet = CharSet.Unicode, ExactSpelling = true)]
+        private static extern IntPtr DnsServiceConstructInstance(
+            [MarshalAs(UnmanagedType.LPWStr)] string serviceName,
+            [MarshalAs(UnmanagedType.LPWStr)] string hostName,
+            IntPtr ip4, IntPtr ip6,
+            ushort port, ushort priority, ushort weight,
+            uint propertyCount, IntPtr keys, IntPtr values);
 
-    [DllImport("dnsapi.dll", ExactSpelling = true)]
-    private static extern uint DnsServiceRegister(IntPtr request, IntPtr cancel);
+        [DllImport("dnsapi.dll", ExactSpelling = true)]
+        private static extern uint DnsServiceRegister(IntPtr request, IntPtr cancel);
 
-    [DllImport("dnsapi.dll", ExactSpelling = true)]
-    private static extern void DnsServiceFreeInstance(IntPtr instance);
+        [DllImport("dnsapi.dll", ExactSpelling = true)]
+        private static extern void DnsServiceFreeInstance(IntPtr instance);
 
 
         public IntPtr Construct(AgentOptions options)
         {
-        IntPtr instance;
-        var hostname = Environment.MachineName;
-        var keys = new[] { "platform", "agent", "api" };
-        var values = new[] { "windows", AgentContract.Protocol, "2" };
-        var keyStrings = keys.Select(Marshal.StringToHGlobalUni).ToArray();
-        var valueStrings = values.Select(Marshal.StringToHGlobalUni).ToArray();
-        var keyBlock = Marshal.AllocHGlobal(IntPtr.Size * keys.Length);
-        var valueBlock = Marshal.AllocHGlobal(IntPtr.Size * values.Length);
-        try
-        {
-            for (var i = 0; i < keys.Length; i++)
+            IntPtr instance;
+            var hostname = Environment.MachineName;
+            var keys = new[] { "platform", "agent", "api" };
+            var values = new[] { "windows", AgentContract.Protocol, "2" };
+            var keyStrings = keys.Select(Marshal.StringToHGlobalUni).ToArray();
+            var valueStrings = values.Select(Marshal.StringToHGlobalUni).ToArray();
+            var keyBlock = Marshal.AllocHGlobal(IntPtr.Size * keys.Length);
+            var valueBlock = Marshal.AllocHGlobal(IntPtr.Size * values.Length);
+            try
             {
-                Marshal.WriteIntPtr(keyBlock, i * IntPtr.Size, keyStrings[i]);
-                Marshal.WriteIntPtr(valueBlock, i * IntPtr.Size, valueStrings[i]);
+                for (var i = 0; i < keys.Length; i++)
+                {
+                    Marshal.WriteIntPtr(keyBlock, i * IntPtr.Size, keyStrings[i]);
+                    Marshal.WriteIntPtr(valueBlock, i * IntPtr.Size, valueStrings[i]);
+                }
+                var serviceName = $"Computer Host Agent (Windows) on {hostname}._computerhost._tcp.local";
+                instance = DnsServiceConstructInstance(serviceName, hostname + ".local", IntPtr.Zero, IntPtr.Zero,
+                    checked((ushort)options.Port), 0, 0, (uint)keys.Length, keyBlock, valueBlock);
             }
-            var serviceName = $"Computer Host Agent (Windows) on {hostname}._computerhost._tcp.local";
-            instance = DnsServiceConstructInstance(serviceName, hostname + ".local", IntPtr.Zero, IntPtr.Zero,
-                checked((ushort)options.Port), 0, 0, (uint)keys.Length, keyBlock, valueBlock);
-        }
-        finally
-        {
-            foreach (var pointer in keyStrings) Marshal.FreeHGlobal(pointer);
-            foreach (var pointer in valueStrings) Marshal.FreeHGlobal(pointer);
-            Marshal.FreeHGlobal(keyBlock);
-            Marshal.FreeHGlobal(valueBlock);
-        }
+            finally
+            {
+                foreach (var pointer in keyStrings) Marshal.FreeHGlobal(pointer);
+                foreach (var pointer in valueStrings) Marshal.FreeHGlobal(pointer);
+                Marshal.FreeHGlobal(keyBlock);
+                Marshal.FreeHGlobal(valueBlock);
+            }
 
             return instance;
         }
@@ -145,7 +145,7 @@ public sealed class MdnsAdvertisingService : BackgroundService
         }
 
         var backoff = TimeSpan.FromSeconds(3);
-        bool first = true;
+        bool first = true, warnedAtCap = false;
         try
         {
             while (!stoppingToken.IsCancellationRequested)
@@ -201,13 +201,11 @@ public sealed class MdnsAdvertisingService : BackgroundService
                     else status = code;
                 }
 
-                var level = first || backoff.TotalSeconds == 120 ? LogLevel.Warning : LogLevel.Information;
-                // DNS_ERROR_RCODE_YXDOMAIN: name already exists.
-                if (status == 9006)
-                    logger.Log(level, "Native DNS-SD name conflict (status {Status}); retrying in {Seconds}s", status, backoff.TotalSeconds);
-                else
-                    logger.Log(level, "Native DNS-SD registration failed (status {Status}); retrying in {Seconds}s; monitoring unaffected",
-                        status, backoff.TotalSeconds);
+                bool atCap = backoff.TotalSeconds == 120;
+                var level = first || (atCap && !warnedAtCap) ? LogLevel.Warning : LogLevel.Information;
+                logger.Log(level, "Native DNS-SD registration failed (status {Status}); retrying in {Seconds}s; monitoring unaffected",
+                    status, backoff.TotalSeconds);
+                warnedAtCap |= atCap;
                 first = false;
                 // Give a completed native callback time to unwind before releasing
                 // its request and input instance. Cancellation retains the attempt.
