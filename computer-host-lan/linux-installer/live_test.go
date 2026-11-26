@@ -47,6 +47,8 @@ JSON
     shift
     power=preserve
     wol=false
+    configure=false
+    nic=''
     while [ "$#" -gt 0 ]; do
       case "$1" in
         --enable-power) power=enable ;;
@@ -55,12 +57,19 @@ JSON
           wol=true
           shift
           [ "$1" = "enp1s0f0" ] || [ "$1" = "LAN0" ] || exit 2
+          nic=$1
           ;;
+        --configure-wol) configure=true ;;
         *) exit 2 ;;
       esac
       shift
     done
+    if [ "$configure" = true ]; then
+      [ "$wol" = true ] || exit 2
+      printf '%s,"wol_policy":{"action":"configure","interface":"%s","mac":"02:11:22:33:44:55","backend":"nm","profile":"aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee","previous":"1","link_name":null,"link_text":null,"digest":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","capability":"supported"}}\n' "$(printf '` + fixturePlan + `' "$power" "$wol" | sed 's/}$//')" "$nic"
+    else
     printf '` + fixturePlan + `\n' "$power" "$wol"
+    fi
     ;;
   *) exit 2 ;;
 esac

@@ -704,6 +704,15 @@ func newLiveSelection(api apiClient, info apiInspect, hubs []discoveredHub) *liv
 	} else {
 		s.wolNIC = suggestedNIC("")
 	}
+	// Fresh installs default to Configure only if a real read-only probe
+	// established support and a complete reviewable persistent policy.
+	// Unknown capability and all upgrades remain Keep.
+	if !info.Installation.Detected && s.wolNIC != "" {
+		if p, err := api.plan(planOptions{power: "keep", wolNIC: s.wolNIC, configureWOL: true}); err == nil &&
+			p.WOLPolicy != nil && p.WOLPolicy.Capability == "supported" {
+			s.wolChoice = "configure"
+		}
+	}
 	return s
 }
 

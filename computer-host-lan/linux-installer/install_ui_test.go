@@ -322,7 +322,7 @@ func TestInstallationOutcomeUsesIdentityAndPowerChoices(t *testing.T) {
 					privilegedResult{Status: "installed_cleanup_required", IdentityPreserved: identity})
 				text := out.String()
 				for _, phrase := range []string{"refresh", "Scan nearby", "Avahi discovery is not confirmed",
-					"firewalld is active", "persistent WOL configuration were not performed", "-recover",
+					"firewalld is active", "Persistent WOL configuration was left unchanged", "-recover",
 					"https://bestow-regional.api.smartthings.com/invite/1J2Qy7ZkxL20",
 					"Never forward the agent port to the Internet",
 					"pre-install observations, not proof of discovery or connectivity"} {
@@ -405,6 +405,65 @@ func TestInstallationOutcomeDistinguishesNewInstallAndUnverifiedUpgrade(t *testi
 			privilegedResult{Status: "installed", IdentityPreserved: tc.identity})
 		if !strings.Contains(out.String(), tc.want) || strings.Contains(out.String(), tc.absent) {
 			t.Fatalf("unexpected wording: %s", out.String())
+		}
+	}
+}
+
+func TestPersistentWOLWizardReviewAndConsent(t *testing.T) {
+	client := fixtureClient(t)
+	info, err := client.inspect()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := newLiveSelection(client, info, nil)
+	if s.wolChoice != "keep" {
+		t.Fatal("Upgrade must default to Keep")
+	}
+	s.wolChoice, s.wolNIC = "configure", "LAN0"
+	preview := s.installPreview()
+	for _, want := range []string{"LAN0", "02:11:22:33:44:55", "NetworkManager profile", "existing WOL flags 1"} {
+		if !strings.Contains(preview, want) {
+			t.Fatalf("Preview missing %q: %s", want, preview)
+		}
+	}
+	req, err := approvedRootRequest(s)
+	if err != nil || req.WOLPlanDigest != strings.Repeat("a", 64) || req.WOLInterface == nil || *req.WOLInterface != "LAN0" {
+		t.Fatalf("WOL consent was lost: %+v (%v)", req, err)
+	}
+	s.wolChoice = "leave"
+	req, err = approvedRootRequest(s)
+	if err != nil || req.WOLPlanDigest != "" || req.WOLInterface != nil {
+		t.Fatalf("Leave must preserve policy: %+v (%v)", req, err)
+	}
+}
+
+func TestWOLManagementRequiresSeparateRemovalConsent(t *testing.T) {
+	for _, tc := range []struct {
+		input string
+		want int
+	}{
+		{"LAN0\nn\n", 1},
+		{"LAN0\ny\nno\n", 1},
+		{"LAN0\ny\nREMOVE\n", 2},
+	} {
+		var out bytes.Buffer
+		calls := 0
+		err := manageWOL(strings.NewReader(tc.input), &out, false, func(req privilegedRequest) (privilegedResult, error) {
+			calls++
+			if req.WOLInterface == nil || *req.WOLInterface != "LAN0" || req.validate() != nil {
+				t.Fatalf("Invalid WOL request: %+v", req)
+			}
+			if calls == 1 && req.Action == "wol-check" {
+				return privilegedResult{Status:"passed", WOLStatus:"managed"}, nil
+			}
+			if calls == 2 && req.Action == "wol-remove" {
+				return privilegedResult{Status:"passed", WOLStatus:"removed"}, nil
+			}
+			t.Fatalf("Unexpected WOL request: %+v", req)
+			return privilegedResult{}, nil
+		})
+		if err != nil || calls != tc.want {
+			t.Fatalf("Consent mismatch: %d / %d (%v)", calls, tc.want, err)
 		}
 	}
 }

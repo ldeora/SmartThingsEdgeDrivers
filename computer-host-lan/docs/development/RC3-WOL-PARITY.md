@@ -226,3 +226,20 @@ checks capability and all visible policy fields before applying. Explicit
 inspection/removal requires the existing shared lock and clean journal.
 Removal is retryable using the retained record, without agent/service writes.
 Normal uninstall retains WOL. No hardware acceptance is inferred from CI.
+
+Wizard: choose Configure persistent Wake-on-LAN, select the wired interface,
+review the policy and confirm INSTALL. Fresh installs default to Configure
+only when the ordinary-user probe proves magic support and previews the
+policy; upgrades/repair default to Keep. Unknown capability is not declared
+unsupported. Keep and leave do not change persistent or runtime WOL.
+CLI: run cli plan --action upgrade --wol configure --wol-interface IFNAME,
+then cli upgrade --confirm UPGRADE --wol configure --wol-interface IFNAME
+--wol-plan-digest DIGEST using the reviewed digest (install/repair analogous).
+The existing bare --wol-interface remains pin-only.
+Configure (-configure) uses protected inspection for a chosen interface;
+explicit REMOVE confirmation is required for restoration. Normal uninstall
+retains WOL; after verified agent uninstall, a separate optional removal
+prompt defaults to No. CLI uses wol-check and wol-remove separately. Removal
+never requires reinstalling the agent and does not change agent files or
+services. The protected launcher may be provisioned/updated on authorized
+check/remove; this is not an unprivileged preview operation.
