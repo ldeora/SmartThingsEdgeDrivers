@@ -66,7 +66,7 @@ Each fix requires its own scoped review and relevant behavioral tests.
 | #123 | Merged (#177), needs exact rc.3 acceptance | Native cosock/LuaSocket CI and scoped physical V4 hub deadline/cleanup/recovery and authenticated OFF A/B passed (firmware `000.063.00006`). Maintainer approved the documented deferral; final PR CI green. Compatibility fallback is not a PASS. Uninterrupted one-hour normal operation, full accepted-command timing, physical power and unmodified package checks remain NOT TESTED against rc.3; seven-day soak and stable gates unchanged. See [qualification decision](../development/EDGE-HTTP-HUB-QUALIFICATION.md). |
 | #125 | Accept current best-effort behavior for v1.0 with disclosure; improve in v1.0.1 | Hardware/OS-dependent suspend is already a declared limitation. S3 absence alone does not prove Modern Standby is unsupported. Do not add an unreliable capability filter. Document advertisement vs successful transition and qualify supported paths. |
 | #124 | Merged (#178), needs acceptance | Prefer a fresh matching health response from the stored endpoint over a competing candidate; preserve explicit host override and cached WOL metadata until matching health on the newly selected endpoint. Recheck selection after yielding network probes. Test genuine address/port migration and competing UUID on disposable devices. This mitigates unnecessary redirection, not unauthenticated discovery itself. No new authentication protocol. |
-| #132 | Fix before rc.3 | Address the known asynchronous registration failure with bounded retry and safe native callback lifetime; verify host-IP change/resume on real Windows. If automatic advertisement recovery fails within 180 seconds of restored network connectivity after DHCP change or resume, bounded/debounced network-change re-registration is a pre-rc.3 fix, not a deferred feature. |
+| #132 | Merged (#179), needs acceptance | Address the known asynchronous registration failure with bounded retry and safe native callback lifetime; verify host-IP change/resume on real Windows. If automatic advertisement recovery fails within 180 seconds of restored network connectivity after DHCP change or resume, bounded/debounced network-change re-registration is a pre-rc.3 fix, not a deferred feature. |
 
 Continue #118 in parallel as a non-blocking follow-up; prioritize the
 approved production fixes and group #135/#121 and #126/#127 where shared
@@ -78,6 +78,8 @@ After the candidate freeze, any production-code change invalidates the
 affected candidate evidence and restarts the seven-day qualification soak
 on the replacement candidate. No previously reported hardware PASS is
 transferred automatically.
+
+Windows #31 parity: this work package adds a four-connection per-source limit before HTTP parsing while retaining Kestrel's global twelve-connection limit. Verify distinct-source health, connection cleanup and shared-source operation on the exact candidate; distributed saturation and transport backlog pressure remain possible. No hardware PASS claimed.
 
 ## Previously addressed rc.1 findings (#136)
 

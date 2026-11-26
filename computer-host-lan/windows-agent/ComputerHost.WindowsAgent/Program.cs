@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Connections;
 using ComputerHost.WindowsAgent;
 
 if (!OperatingSystem.IsWindows())
@@ -13,7 +14,8 @@ if (options.Port is < 1024 or > 65535)
     throw new ArgumentOutOfRangeException(nameof(options.Port), "HostAgent:Port must be between 1024 and 65535.");
 builder.WebHost.ConfigureKestrel(server =>
 {
-    server.ListenAnyIP(options.Port);
+    var sourceLimit = new SourceConnectionLimit();
+    server.ListenAnyIP(options.Port, listen => listen.Use(sourceLimit.Wrap));
     server.Limits.MaxConcurrentConnections = 12;
     server.Limits.MaxRequestBodySize = 0;
     server.Limits.RequestHeadersTimeout = TimeSpan.FromSeconds(5);

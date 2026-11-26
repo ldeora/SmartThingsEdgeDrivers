@@ -99,3 +99,12 @@ Do **not** post real credentials, privately identifying diagnostics, or proof-of
 ## Release limitations and open decisions
 
 The v1.0 acceptance checklist separately requires review of third-party redistribution notices, final build integrity/provenance, signing policy, Windows/Linux installation and upgrade recovery, and real hardware behavior. These remain **release gates**, not claims already satisfied. TLS/mTLS, automatic pairing and routine key rotation are out of scope for v1.0.
+
+### Windows connection admission (prospective rc.3)
+
+Kestrel retains its global limit of twelve connections and five-second header
+deadline. Connection middleware before HTTP parsing admits at most four
+active connections per remote IP (IPv4-mapped IPv6 normalized to IPv4).
+Excess connections are aborted, not queued by this middleware. This reduces
+single-source saturation; it is not authentication or protection against
+distributed saturation, shared-source contention or transport backlog pressure.
