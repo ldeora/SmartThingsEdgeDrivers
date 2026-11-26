@@ -427,6 +427,7 @@ func (p apiPlan) brief() string {
 type liveSelection struct {
 	api                apiClient
 	inspection         apiInspect
+	requestedAction    string // menu repair/upgrade/install intent; empty = existing auto mode
 	hubs               []discoveredHub
 	hubChoice          string // skip, manual, or discovered:<literal IPv4>
 	hubManual          string
@@ -784,7 +785,12 @@ func runLiveAccessibleWithHubs(reader io.Reader, writer io.Writer, api apiClient
 
 func runLiveAccessibleWithHubsMode(reader io.Reader, writer io.Writer, api apiClient, info apiInspect,
 	hubs []discoveredHub, installing bool, onConfirm func(*liveSelection) error) error {
-	s := newLiveSelection(api, info, hubs)
+	return runLiveAccessibleSelection(reader, writer, newLiveSelection(api, info, hubs), installing, onConfirm)
+}
+
+func runLiveAccessibleSelection(reader io.Reader, writer io.Writer, s *liveSelection,
+	installing bool, onConfirm func(*liveSelection) error) error {
+	hubs := s.hubs
 	if installing {
 		s.firewalldActive = firewalldRunning()
 		fmt.Fprintln(writer, "COMPUTER HOST LAN — LINUX INSTALLATION (PLAIN TEXT)")

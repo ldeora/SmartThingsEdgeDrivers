@@ -139,6 +139,9 @@ func (s *liveSelection) showNetworkWarnings(w io.Writer) {
 
 func (s *liveSelection) installationSummary() string {
 	summary := s.inspectionSummary()
+	if s.requestedAction == "repair" {
+		summary += "\nRepair reinstalls the bundled agent version, retaining identity and key."
+	}
 	return strings.Replace(summary,
 		"This is an early PREVIEW: it will not install or change anything.",
 		"Installation is available after explicit review and administrator authorization.", 1)
@@ -149,6 +152,11 @@ func (s *liveSelection) installPreview() string {
 	preview = strings.Replace(preview,
 		"Preview only — your Linux agent, SmartThings devices and settings\nwill remain unchanged. No installation or pairing will happen.",
 		"After confirmation, the wizard will request administrator permission\nand install or upgrade the Linux agent. No SmartThings pairing or firewall\nchanges will happen automatically.", 1)
+	if s.requestedAction == "repair" {
+		preview = "Action: Repair using the bundled agent version\n\n" + preview
+	} else if s.requestedAction == "upgrade" {
+		preview = "Action: Install the bundled agent version (upgrade or configuration change)\n\n" + preview
+	}
 	for _, warning := range s.networkWarnings(false) {
 		preview += "\n\nWARNING: " + warning
 	}
@@ -182,6 +190,12 @@ func approvedRootRequest(s *liveSelection) (privilegedRequest, error) {
 	action := "install"
 	if s.inspection.Installation.Detected {
 		action = "upgrade"
+	}
+	if s.requestedAction != "" {
+		if s.requestedAction != action && !(s.requestedAction == "repair" && action == "upgrade") {
+			return privilegedRequest{}, errors.New("installation state changed; start setup again")
+		}
+		action = s.requestedAction
 	}
 	power := "preserve"
 	if s.powerChoice == "enabled" {
@@ -615,6 +629,10 @@ func showInstallationOutcome(w io.Writer, s *liveSelection, req privilegedReques
 }
 
 func runInstallingWizard(accessible bool, apiPath string, reader io.Reader, writer io.Writer, method string) error {
+	return runInstallingWizardMode(accessible, apiPath, reader, writer, method, false, "")
+}
+
+func runInstallingWizardMode(accessible bool, apiPath string, reader io.Reader, writer io.Writer, method string, startMenu bool, action string) error {
 	if os.Geteuid() == 0 {
 		return errors.New("run the wizard as your normal user; sudo is requested only after review")
 	}
@@ -638,7 +656,17 @@ func runInstallingWizard(accessible bool, apiPath string, reader io.Reader, writ
 	if err != nil {
 		return err
 	}
+	if startMenu && maintenanceNeeded(info) {
+		return runMaintenanceMenu(reader, writer, info, func(choice string) error {
+			return dispatchMaintenance(choice, accessible, apiPath, reader, writer, method, info)
+		})
+	}
+	if action != "" && ((action == "install") == info.Installation.Detected) {
+		return errors.New("installation state changed; start setup again")
+	}
 	hubs := discoverHubs()
+	s := newLiveSelection(api, info, hubs)
+	s.requestedAction = action
 	if accessible {
 		// The plain-text form includes a literal INSTALL confirmation on
 		// its final page; no extra raw-terminal/sudo prompt is mixed in.
@@ -646,12 +674,11 @@ func runInstallingWizard(accessible bool, apiPath string, reader io.Reader, writ
 		// Only use sudo -n when there is no TTY; otherwise allow sudo's
 		// usual /dev/tty password prompt after the plain form completes.
 		hasTTY := stdinIsTerminal()
-		return runLiveAccessibleWithHubsMode(reader, writer, api, info, hubs,
+		return runLiveAccessibleSelection(reader, writer, s,
 			true, func(s *liveSelection) error {
 				return installSelection(s, writer, hasTTY, method)
 			})
 	}
-	s := newLiveSelection(api, info, hubs)
 	s.firewalldActive = firewalldRunning()
 	fmt.Fprintln(writer, "COMPUTER HOST LAN — LINUX INSTALLATION")
 	fmt.Fprintln(writer, "The agent will not be changed until you approve the final confirmation.")

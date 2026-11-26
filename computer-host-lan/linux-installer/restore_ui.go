@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -47,10 +48,10 @@ func validBackupReply(reply privilegedResult, action string) bool {
 func runRestoreWizard(reader io.Reader, writer io.Writer, method string) error {
 	return restoreWizard(reader, writer, func(req privilegedRequest) (privilegedResult, error) {
 		return executeAuthorizedBootstrap(req, true, method)
-	})
+	}, installedAgentVersion())
 }
 
-func restoreWizard(reader io.Reader, writer io.Writer, authorize func(privilegedRequest) (privilegedResult, error)) error {
+func restoreWizard(reader io.Reader, writer io.Writer, authorize func(privilegedRequest) (privilegedResult, error), currentVersion string) error {
 	fmt.Fprintln(writer, "Computer Host LAN — Restore a historical backup")
 	fmt.Fprintln(writer, "Administrator authorization is needed to list local private backups. Listing does not restore agent files.")
 	reply, err := authorize(privilegedRequest{SchemaVersion: 2, Action: "backups"})
@@ -60,13 +61,24 @@ func restoreWizard(reader io.Reader, writer io.Writer, authorize func(privileged
 	if !validBackupReply(reply, "backups") {
 		return fmt.Errorf("invalid backup list")
 	}
-	backups := *reply.Backups
+	backups := append([]backupSummary(nil), (*reply.Backups)...)
+	sort.Slice(backups, func(i, j int) bool {
+		if backups[i].CapturedAt == backups[j].CapturedAt {
+			return backups[i].Name > backups[j].Name
+		}
+		return backups[i].CapturedAt > backups[j].CapturedAt
+	})
 	if len(backups) == 0 {
 		fmt.Fprintln(writer, "No suitable installed-state v2 backups were found.")
 		return nil
 	}
+	fmt.Fprintln(writer, "Installed agent file version (not runtime-verified):", currentVersion)
 	for i, b := range backups {
-		fmt.Fprintf(writer, "%2d. %s — agent %s — %s\n", i+1, time.Unix(b.CapturedAt, 0).Local().Format("2006-01-02 15:04"), b.Version, b.Name)
+		label := ""
+		if i == 0 {
+			label = " (Latest backup)"
+		}
+		fmt.Fprintf(writer, "%2d. Agent %s — %s%s — %s\n", i+1, b.Version, time.Unix(b.CapturedAt, 0).Local().Format("2006-01-02 15:04"), label, b.Name)
 	}
 	fmt.Fprint(writer, "Choose a backup number (or quit): ")
 	line, err := readConfirmationLine(reader)
