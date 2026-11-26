@@ -109,7 +109,7 @@ def exercise(binary: str, api: str) -> None:
         # Both power choices and advanced-network choices are fields in
         # one Huh page. The second title is already rendered before we
         # advance past the first field.
-        wait_for(b'Advanced network setup', mark)
+        wait_for(b'Wake-on-LAN', mark)
 
         send(b'\r')  # Keep the existing (enabled) power-control state.
         time.sleep(0.15)
