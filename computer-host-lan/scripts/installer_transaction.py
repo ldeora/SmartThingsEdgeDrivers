@@ -53,7 +53,7 @@ class ControllerError(RuntimeError):
         if code not in ('invalid_request', 'installation_busy', 'aborted',
                         'rolled_back', 'recovery_required',
                         'unsupported_environment', 'adoption_required',
-                        'unsafe_lock', 'not_installed'):
+                        'unsafe_lock', 'not_installed', 'wol_review_required'):
             code = 'recovery_required'
         # This is a deliberate, fixed message with no private paths or ID.
         # The Go wizard may display it without needing privileged
@@ -86,7 +86,7 @@ class InstallRequest:
     disable_power: bool = False
     wol_interface: str | None = None
     port: int = 8765
-    # Internal only until the public preview/approval flow is implemented.
+    # Optional digest of the explicitly reviewed visible WOL policy.
     wol_plan_digest: str | None = None
 
     def validate(self) -> None:
@@ -945,6 +945,22 @@ class InstallerBackend:
                     'adoption_required' if orphan_only else 'unsupported_environment'
                 ) from None
             return self._run_locked(request, source, trusted_hashes)
+
+    def wol_action(self, action, interface):
+        """Independent explicit WOL inspection/removal under the shared lock."""
+        self._check_context()
+        if action not in ("wol-check", "wol-remove"):
+            raise ControllerError("invalid_request")
+        with manual_install_lock(self.manual_lock_path, owner_uid=self.owner_uid):
+            if ProtectedJournal(root=self.root, owner_uid=self.owner_uid
+                                ).public_status()["privileged_transaction_state"] != "none":
+                raise ControllerError("recovery_required")
+            try:
+                if action == "wol-check":
+                    return self._wol.inspect_owned(interface)
+                return self._wol.remove_owned(interface)
+            except (WolError, OSError):
+                raise ControllerError("wol_review_required") from None
 
     def uninstall(self) -> UninstallOutcome:
         """Journaled v2 uninstall of managed files and services only.

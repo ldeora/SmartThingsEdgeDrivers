@@ -217,3 +217,12 @@ explicit removal, and actionable existing-ownership guidance. Default Keep
 on upgrade/repair; defer runtime-only lifecycle and existing-link reconfigure
 beyond parity unless required for physical acceptance. No public activation
 in this engine PR.
+
+### User-visible WOL follow-up
+
+Preview hashes only visible policy, including exact generated rule text.
+Hardware capability may be unknown without privilege; root independently
+checks capability and all visible policy fields before applying. Explicit
+inspection/removal requires the existing shared lock and clean journal.
+Removal is retryable using the retained record, without agent/service writes.
+Normal uninstall retains WOL. No hardware acceptance is inferred from CI.

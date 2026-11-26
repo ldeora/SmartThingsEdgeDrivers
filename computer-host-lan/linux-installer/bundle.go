@@ -48,6 +48,7 @@ var payloadFiles = []string{
 }
 
 var previewFiles = []string{
+	"scripts/persistent_wol.py",
 	"scripts/installer-api.sh",
 	"scripts/installer_api.py",
 	"scripts/python-selector.sh",

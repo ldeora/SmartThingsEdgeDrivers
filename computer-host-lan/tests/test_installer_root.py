@@ -63,6 +63,25 @@ class RootProtocolTests(unittest.TestCase):
         obj.update(updates)
         return bridge.parse_request(json.dumps(obj).encode('utf-8'))
 
+    def test_public_wol_digest_and_management_requests(self):
+        request = self.parse(wol_interface="enp1s0", wol_plan_digest="a" * 64)
+        bridge.dispatch(request, self.manifest, backend=self.backend,
+                        journal=self.journal, selected_python="/usr/bin/python3")
+        self.assertEqual(self.backend.calls[-1][0].wol_plan_digest, "a" * 64)
+        with self.assertRaises(bridge.RequestError):
+            self.parse(wol_plan_digest="a" * 64)
+        with self.assertRaises(bridge.RequestError):
+            self.parse(wol_interface="enp1s0", wol_plan_digest="not-a-digest")
+        for action in ("wol-check", "wol-remove"):
+            payload = json.dumps(dict(schema_version=2, action=action,
+                                      wol_interface="enp1s0")).encode()
+            req = bridge.parse_request(payload)
+            self.backend.wol_action = mock.Mock(return_value="not_managed")
+            result = bridge.dispatch(req, self.manifest, backend=self.backend,
+                                     journal=self.journal, selected_python="/usr/bin/python3")
+            self.assertEqual(result["wol_status"], "not_managed")
+            self.backend.wol_action.assert_called_once_with(action, "enp1s0")
+
     def test_valid_install_upgrade_repair_and_previews(self):
         for action in ('install', 'upgrade', 'repair'):
             for power in ('preserve', 'enable', 'disable'):

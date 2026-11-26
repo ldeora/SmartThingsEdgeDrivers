@@ -18,6 +18,7 @@ import sys
 
 import install_core as core
 import runtime_verify
+import persistent_wol
 
 SCHEMA_VERSION = 1
 DEFAULT_SOURCE = Path(__file__).resolve().parents[1]
@@ -203,10 +204,19 @@ def inspection(*, root: Path = Path('/'), check_services: bool = True,
 
 def change_plan(*, source: Path = DEFAULT_SOURCE, root: Path = Path('/'),
                 python_bin: str | None = None, enable_power: bool = False,
-                disable_power: bool = False, wol_interface: str | None = None) -> dict:
+                disable_power: bool = False, wol_interface: str | None = None,
+                configure_wol: bool = False) -> dict:
     if enable_power and disable_power:
         raise InvalidArgument('power enable/disable flags conflict')
     valid_interface(wol_interface, root=root)
+    policy = None
+    if configure_wol:
+        if wol_interface is None:
+            raise InvalidArgument('WOL interface required')
+        try:
+            policy = persistent_wol.preview_policy(wol_interface, root=root)
+        except (persistent_wol.WolError, OSError) as exc:
+            raise PrerequisiteMissing('WOL policy cannot be safely previewed') from exc
     selected_python = select_python(explicit=python_bin, source=source)
     if selected_python is None:
         raise PrerequisiteMissing('No supported Python interpreter available')
@@ -245,6 +255,7 @@ def change_plan(*, source: Path = DEFAULT_SOURCE, root: Path = Path('/'),
             action = 'unchanged'
         result.append({'path': change.path, 'action': action})
     return {
+        **({'wol_policy': policy} if policy is not None else {}),
         'schema_version': SCHEMA_VERSION,
         'operation': 'plan',
         'mode': 'read_only',
@@ -300,6 +311,7 @@ def main(argv: list[str] | None = None) -> int:
         plan.add_argument('--enable-power', action='store_true')
         plan.add_argument('--disable-power', action='store_true')
         plan.add_argument('--wol-interface')
+        plan.add_argument('--configure-wol', action='store_true')
         plan.add_argument('--python')
         verify = sub.add_parser('verify', help='bounded read-only loopback agent health check')
         verify.add_argument('--port', type=int, default=8765)
@@ -313,6 +325,7 @@ def main(argv: list[str] | None = None) -> int:
             result = change_plan(
                 python_bin=args.python, enable_power=args.enable_power,
                 disable_power=args.disable_power, wol_interface=args.wol_interface,
+                configure_wol=args.configure_wol,
             )
     except (InvalidArgument, UnsafeManagedPath, SourceUnavailable, PrerequisiteMissing) as exc:
         print(error_response(operation, exc.code), file=sys.stderr)

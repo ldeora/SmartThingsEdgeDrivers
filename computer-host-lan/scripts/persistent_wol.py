@@ -7,6 +7,8 @@ No experimental wol_* modules are imported.
 """
 from dataclasses import dataclass
 import os
+import hashlib
+import json
 from pathlib import Path
 import re
 import stat
@@ -107,13 +109,40 @@ class Plan:
         return self.adapter.runtime if "g" in self.adapter.runtime else "g"
 
 
+def visible_policy(plan):
+    """Policy fields shown for consent; runtime observations are excluded."""
+    return dict(action="configure", interface=plan.adapter.interface,
+                mac=plan.adapter.mac, backend=plan.backend, profile=plan.profile,
+                previous=plan.previous, link_name=plan.link_name, link_text=plan.link_text)
+
+
+def policy_digest(plan):
+    raw = json.dumps(visible_policy(plan), sort_keys=True, separators=(",", ":"),
+                     ensure_ascii=True).encode("ascii")
+    return hashlib.sha256(raw).hexdigest()
+
+
+def preview_policy(interface, *, root=Path("/"), backend=None):
+    """Read-only ordinary-user policy inspection; no private record reads."""
+    backend = backend if backend is not None else Backend(root=root)
+    plan = backend.inspect(interface, preview=True)
+    policy = visible_policy(plan)
+    text = plan.link_text or ""
+    if len(text.encode("utf-8")) > 8192 or any(
+            (ord(ch) < 32 and ch not in "\n\t") or 127 <= ord(ch) <= 159 for ch in text):
+        raise WolError("link policy too complex for preview")
+    policy["digest"] = policy_digest(plan)
+    policy["capability"] = "supported" if plan.adapter.supported else "unknown"
+    return policy
+
+
 class Backend:
     def __init__(self, *, root=Path("/"), run=command, owner_uid=0):
         self.root = Path(root)
         self.run = run
         self.owner_uid = owner_uid
 
-    def adapter(self, interface):
+    def adapter(self, interface, *, preview=False):
         if (not isinstance(interface, str) or not _IFACE.fullmatch(interface)
                 or interface in (".", "..", "lo") or interface.startswith("-")):
             raise WolError("invalid wired interface")
@@ -146,6 +175,8 @@ class Backend:
                 if "s" in runtime[0]:
                     raise WolError("SecureOn runtime policy requires manual configuration")
                 return Adapter(interface, mac, index, supported[0], runtime[0])
+        if preview:
+            return Adapter(interface, mac, index, "", "")
         raise WolError("WOL capability unknown")
 
     def _nm_active(self):
@@ -269,8 +300,8 @@ class Backend:
         return Plan(adapter, "link-create", None, None, name,
                     self.link_content(adapter.mac, selected_text))
 
-    def inspect(self, interface):
-        adapter = self.adapter(interface)
+    def inspect(self, interface, *, preview=False):
+        adapter = self.adapter(interface, preview=preview)
         if self._nm_active():
             profile = self._profile(interface)
             return Plan(adapter, "nm", profile, self._nm_value(profile), None)
