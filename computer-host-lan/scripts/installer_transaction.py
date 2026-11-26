@@ -88,6 +88,7 @@ class InstallRequest:
     port: int = 8765
     # Optional digest of the explicitly reviewed visible WOL policy.
     wol_plan_digest: str | None = None
+    reuse_retained: bool = False
 
     def validate(self) -> None:
         if type(self.operation) is not str or self.operation not in _ALLOWED_OPS:
@@ -101,6 +102,9 @@ class InstallRequest:
             # may expose an /usr/sbin/python3 wrapper; rejecting it here
             # after the shell accepted it makes real upgrades fail.
             # Never accept an arbitrary user-provided Python path.
+            raise ControllerError('invalid_request')
+        if (type(self.reuse_retained) is not bool or
+                (self.reuse_retained and self.operation != 'install')):
             raise ControllerError('invalid_request')
         if not runtime_verify.valid_version(self.expected_version):
             raise ControllerError('invalid_request')
@@ -929,22 +933,36 @@ class InstallerBackend:
         request.validate()
         self._check_context()
         with manual_install_lock(self.manual_lock_path, owner_uid=self.owner_uid):
-            # Do not stage a v2 agent over a v1/partial installation.
-            # Use the same read-only classification as the manual CLI.
+            # Only an explicitly authorized orphan-only install may adopt.
+            # Import lazily because the existing validator uses this engine.
+            from retained_state_eligibility import (
+                AdoptionEligibilityError, inspect_retained_state,
+                require_v2_uninstall_evidence, _require_empty_journal,
+            )
             try:
                 core.require_v2_or_clean(self.root)
             except core.InstallError:
-                # The wizard never adopts retained private state. Distinguish
-                # an orphan-only layout from v1/partial managed files so the
-                # UI can give precise, non-destructive v1.0 refusal guidance.
                 try:
                     orphan_only = (core.require_v2_or_clean(
                         self.root, classify_orphan_state=True) == 'orphan_state')
                 except (core.InstallError, OSError):
                     orphan_only = False
-                raise ControllerError(
-                    'adoption_required' if orphan_only else 'unsupported_environment'
-                ) from None
+                if not orphan_only:
+                    raise ControllerError('unsupported_environment') from None
+                if not request.reuse_retained:
+                    raise ControllerError('adoption_required') from None
+                try:
+                    _require_empty_journal(self.root, self.owner_uid)
+                    if (self.services.verify_uninstall_services() is not True or
+                            not _enablement_absent(core.InstallTransaction(self.root))):
+                        raise AdoptionEligibilityError('service_state_unconfirmed')
+                    inspect_retained_state(self.root, owner_uid=self.owner_uid)
+                    require_v2_uninstall_evidence(self.root, owner_uid=self.owner_uid)
+                except (AdoptionEligibilityError, OSError):
+                    raise ControllerError('adoption_required') from None
+            else:
+                if request.reuse_retained:
+                    raise ControllerError('invalid_request')
             return self._run_locked(request, source, trusted_hashes)
 
     def wol_action(self, action, interface):
@@ -1109,6 +1127,15 @@ class InstallerBackend:
                 # cannot supply or read it. A provided internal hint must
                 # match the actual persisted ID, or we reject pre-apply.
                 credential_check.capture()
+                if request.reuse_retained:
+                    from retained_state_eligibility import inspect_retained_state
+                    # Revalidate after staging and capture, under the same
+                    # lock. Continuity guards subsequent changes.
+                    inspect_retained_state(self.root, owner_uid=self.owner_uid)
+                    if (self.services.verify_uninstall_services() is not True or
+                            not _enablement_absent(transaction)):
+                        raise ControllerError('unsupported_environment')
+                    credential_check.verify(journal, allow_new=False)
                 saved_identity = read_saved_identity(self.root)
                 if (request.expected_identity is not None and
                         request.expected_identity != saved_identity):
@@ -1181,7 +1208,7 @@ class InstallerBackend:
                     transaction=transaction
                 ) is not True:
                     raise ControllerError('recovery_required')
-                credential_check.verify(journal, allow_new=True)
+                credential_check.verify(journal, allow_new=not request.reuse_retained)
                 # Apply WOL last, with the durable before-state already
                 # captured. An exception takes the same rollback path.
                 if 'persistent_wol' in previous:

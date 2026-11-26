@@ -35,6 +35,7 @@ _TRUSTED_MODULES = (
     'installer-entry.sh',
     'installer_transaction.py',
     'credential_continuity.py',
+    'retained_state_eligibility.py',
     'persistent_wol.py',
     'wol_ownership.py',
     'install_core.py',
@@ -138,8 +139,11 @@ def parse_request(raw: bytes) -> dict:
         if set(payload) != {'schema_version', 'action'}:
             raise RequestError('invalid_request')
         return dict(action=action)
-    if set(payload) not in ({'schema_version', 'action', 'source', 'power', 'wol_interface'},
-                            {'schema_version', 'action', 'source', 'power', 'wol_interface', 'wol_plan_digest'}):
+    required = {'schema_version', 'action', 'source', 'power', 'wol_interface'}
+    if not required.issubset(payload) or set(payload) - required - {
+            'wol_plan_digest', 'reuse_retained'}:
+        raise RequestError('invalid_request')
+    if 'reuse_retained' in payload and (action != 'install' or payload['reuse_retained'] is not True):
         raise RequestError('invalid_request')
     source = payload['source']
     if (type(source) is not str or len(source) > 1024 or not source.startswith('/')
@@ -156,6 +160,8 @@ def parse_request(raw: bytes) -> dict:
                             or nic in ('.', '..')):
         raise RequestError('invalid_request')
     result = dict(action=action, source=source, power=power, wol_interface=nic)
+    if 'reuse_retained' in payload:
+        result['reuse_retained'] = True
     if 'wol_plan_digest' in payload:
         digest = payload['wol_plan_digest']
         if nic is None or type(digest) is not str or not _SHA256.fullmatch(digest):
@@ -282,6 +288,7 @@ def dispatch(request: dict, trusted_manifest: dict, *, backend, journal,
         disable_power=(power == 'disable'),
         wol_interface=request['wol_interface'],
         wol_plan_digest=request.get('wol_plan_digest'),
+        reuse_retained=request.get('reuse_retained', False),
     )
     done = backend.run(options, Path(request['source']), trusted_manifest['files'])
     result = dict(status=done.status, operation=action,
