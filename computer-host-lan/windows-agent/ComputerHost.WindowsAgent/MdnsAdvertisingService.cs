@@ -1,23 +1,19 @@
+using System.Collections.Concurrent;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+
+[assembly: InternalsVisibleTo("ComputerHost.WindowsAgent.Tests")]
 
 namespace ComputerHost.WindowsAgent;
 
-/// <summary>
-/// Registers native DNS-SD (_computerhost._tcp.local) using dnsapi.dll. The registration is
-/// asynchronous and bound to the process lifetime. No Bonjour/third-party daemon is required.
-/// On shutdown the process automatically drops the registration; per Microsoft the native API
-/// unregisters services when the calling process exits.
-/// The unmanaged request and instance intentionally live until process exit, avoiding a callback
-/// use-after-free during asynchronous service shutdown. This is one allocation per service process.
-/// </summary>
-public sealed class MdnsAdvertisingService(AgentOptions options,
-    ILogger<MdnsAdvertisingService> logger) : BackgroundService
+/// <summary>Native DNS-SD registration, with one outstanding attempt at a time.</summary>
+public sealed class MdnsAdvertisingService : BackgroundService
 {
     [UnmanagedFunctionPointer(CallingConvention.Winapi)]
-    private delegate void NativeRegistrationCallback(uint status, IntPtr context, IntPtr instance);
+    internal delegate void NativeRegistrationCallback(uint status, IntPtr context, IntPtr instance);
 
     [StructLayout(LayoutKind.Sequential)]
-    private struct RegistrationRequest
+    internal struct RegistrationRequest
     {
         public uint Version;
         public uint InterfaceIndex;
@@ -28,11 +24,16 @@ public sealed class MdnsAdvertisingService(AgentOptions options,
         [MarshalAs(UnmanagedType.Bool)] public bool UnicastEnabled;
     }
 
-    private static readonly NativeRegistrationCallback StaticCallback = OnRegistrationCompleted;
-    private static readonly System.Collections.Concurrent.ConcurrentDictionary<IntPtr, ILogger> Loggers = new();
-    private IntPtr _request;
-    private IntPtr _instance;
 
+    internal interface INative
+    {
+        IntPtr Construct(AgentOptions options);
+        uint Register(IntPtr request);
+        void Free(IntPtr instance);
+    }
+
+    internal sealed class Native : INative
+    {
     [DllImport("dnsapi.dll", CharSet = CharSet.Unicode, ExactSpelling = true)]
     private static extern IntPtr DnsServiceConstructInstance(
         [MarshalAs(UnmanagedType.LPWStr)] string serviceName,
@@ -47,59 +48,10 @@ public sealed class MdnsAdvertisingService(AgentOptions options,
     [DllImport("dnsapi.dll", ExactSpelling = true)]
     private static extern void DnsServiceFreeInstance(IntPtr instance);
 
-    private static void OnRegistrationCompleted(uint status, IntPtr context, IntPtr instance)
-    {
-        try
-        {
-            if (Loggers.TryGetValue(context, out var log))
-            {
-                if (status == 0) log.LogInformation("Native Windows DNS-SD registration completed");
-                else log.LogWarning("Native Windows DNS-SD registration callback status {Status}", status);
-            }
-        }
-        finally
-        {
-            if (instance != IntPtr.Zero)
-            {
-                try { DnsServiceFreeInstance(instance); }
-                catch (Exception) { /* A native callback must not crash the HTTP agent. */ }
-            }
-        }
-    }
 
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
-    {
-        if (!options.DiscoveryEnabled)
+        public IntPtr Construct(AgentOptions options)
         {
-            logger.LogWarning("mDNS disabled by HostAgent:DiscoveryEnabled=false (testing only)");
-            return;
-        }
-        // DNS-SD can fail temporarily while Windows initializes the network.
-        // Such failures must never bring down the HTTP monitoring service.
-        var delay = TimeSpan.FromSeconds(3);
-        while (!stoppingToken.IsCancellationRequested)
-        {
-            try
-            {
-                if (TryRegister())
-                {
-                    try { await Task.Delay(Timeout.InfiniteTimeSpan, stoppingToken); }
-                    catch (OperationCanceledException) { }
-                    return;
-                }
-            }
-            catch (Exception ex) when (!stoppingToken.IsCancellationRequested)
-            {
-                logger.LogWarning(ex, "Native mDNS registration failed; HTTP monitoring remains available");
-            }
-            try { await Task.Delay(delay, stoppingToken); }
-            catch (OperationCanceledException) { return; }
-            delay = TimeSpan.FromSeconds(Math.Min(delay.TotalSeconds * 2, 120));
-        }
-    }
-
-    private bool TryRegister()
-    {
+        IntPtr instance;
         var hostname = Environment.MachineName;
         var keys = new[] { "platform", "agent", "api" };
         var values = new[] { "windows", AgentContract.Protocol, "2" };
@@ -115,7 +67,7 @@ public sealed class MdnsAdvertisingService(AgentOptions options,
                 Marshal.WriteIntPtr(valueBlock, i * IntPtr.Size, valueStrings[i]);
             }
             var serviceName = $"Computer Host Agent (Windows) on {hostname}._computerhost._tcp.local";
-            _instance = DnsServiceConstructInstance(serviceName, hostname + ".local", IntPtr.Zero, IntPtr.Zero,
+            instance = DnsServiceConstructInstance(serviceName, hostname + ".local", IntPtr.Zero, IntPtr.Zero,
                 checked((ushort)options.Port), 0, 0, (uint)keys.Length, keyBlock, valueBlock);
         }
         finally
@@ -125,45 +77,154 @@ public sealed class MdnsAdvertisingService(AgentOptions options,
             Marshal.FreeHGlobal(keyBlock);
             Marshal.FreeHGlobal(valueBlock);
         }
-        if (_instance == IntPtr.Zero)
-        {
-            logger.LogWarning("DnsServiceConstructInstance returned null; retrying without disrupting HTTP");
-            return false;
+
+            return instance;
         }
-        _request = Marshal.AllocHGlobal(Marshal.SizeOf<RegistrationRequest>());
-        var request = new RegistrationRequest
+
+        public uint Register(IntPtr request) => DnsServiceRegister(request, IntPtr.Zero);
+        public void Free(IntPtr instance) => DnsServiceFreeInstance(instance);
+    }
+
+    private sealed class Attempt(INative native, ILogger logger, IntPtr instance)
+    {
+        internal readonly INative Native = native;
+        internal readonly ILogger Logger = logger;
+        internal readonly IntPtr Instance = instance;
+        internal readonly TaskCompletionSource<uint> Completion =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+    }
+
+    private static readonly NativeRegistrationCallback StaticCallback = OnRegistrationCompleted;
+    private static readonly ConcurrentDictionary<IntPtr, Attempt> Attempts = new();
+    private readonly AgentOptions options;
+    private readonly ILogger<MdnsAdvertisingService> logger;
+    private readonly INative native;
+    private readonly Func<TimeSpan, CancellationToken, Task> delay;
+    private readonly TimeSpan pendingWarning;
+
+    public MdnsAdvertisingService(AgentOptions options, ILogger<MdnsAdvertisingService> logger)
+        : this(options, logger, new Native(), Task.Delay, TimeSpan.FromSeconds(60)) { }
+
+    internal MdnsAdvertisingService(AgentOptions options, ILogger<MdnsAdvertisingService> logger,
+        INative native, Func<TimeSpan, CancellationToken, Task> delay, TimeSpan pendingWarning)
+    {
+        this.options = options;
+        this.logger = logger;
+        this.native = native;
+        this.delay = delay;
+        this.pendingWarning = pendingWarning;
+    }
+
+    private static void OnRegistrationCompleted(uint status, IntPtr context, IntPtr instance)
+    {
+        if (!Attempts.TryGetValue(context, out var attempt)) return;
+        try
         {
-            Version = 1, InterfaceIndex = options.DiscoveryInterfaceIndex,
-            ServiceInstance = _instance,
-            Callback = Marshal.GetFunctionPointerForDelegate(StaticCallback),
-            Context = _request, Credentials = IntPtr.Zero,
-            UnicastEnabled = false
-        };
-        Marshal.StructureToPtr(request, _request, false);
-        Loggers.TryAdd(_request, logger);
-        uint code;
-        try { code = DnsServiceRegister(_request, IntPtr.Zero); }
-        catch
-        {
-            // Do not free request/instance if an asynchronous native callback
-            // may still hold them. The bounded allocation survives until exit.
-            throw;
+            // The callback owns its returned copy, not the constructed input.
+            if (instance != IntPtr.Zero && instance != attempt.Instance)
+                attempt.Native.Free(instance);
         }
-        if (code != 9506) // DNS_REQUEST_PENDING
+        catch (Exception)
         {
-            logger.LogWarning("DnsServiceRegister returned {Code}; retrying mDNS discovery", code);
-            Loggers.TryRemove(_request, out _);
-            // A synchronous registration failure has not handed ownership to
-            // the DNS-SD callback. Release temporary unmanaged allocations.
-            Marshal.FreeHGlobal(_request);
-            DnsServiceFreeInstance(_instance);
-            _request = IntPtr.Zero;
-            _instance = IntPtr.Zero;
-            return false;
+            // Never allow an exception to cross the unmanaged callback boundary.
         }
-        logger.LogInformation("Advertising {Service} TCP {Port}; interface index {Interface}",
-            AgentContract.ServiceType, options.Port, options.DiscoveryInterfaceIndex);
-        // Native request and instance remain alive for callbacks until process exit.
-        return true;
+        finally
+        {
+            attempt.Completion.TrySetResult(status);
+        }
+    }
+
+    protected override Task ExecuteAsync(CancellationToken stoppingToken) => RunAsync(stoppingToken);
+
+    internal async Task RunAsync(CancellationToken stoppingToken)
+    {
+        if (!options.DiscoveryEnabled)
+        {
+            logger.LogWarning("mDNS disabled by HostAgent:DiscoveryEnabled=false (testing only)");
+            return;
+        }
+
+        var backoff = TimeSpan.FromSeconds(3);
+        bool first = true;
+        try
+        {
+            while (!stoppingToken.IsCancellationRequested)
+            {
+                IntPtr instance;
+                try { instance = native.Construct(options); }
+                catch (Exception ex)
+                {
+                    logger.LogWarning("Native DNS-SD construction failed ({Type}); monitoring unaffected", ex.GetType().Name);
+                    instance = IntPtr.Zero;
+                }
+                IntPtr request = IntPtr.Zero;
+                uint? status = null;
+                if (instance != IntPtr.Zero)
+                {
+                    var attempt = new Attempt(native, logger, instance);
+                    request = Marshal.AllocHGlobal(Marshal.SizeOf<RegistrationRequest>());
+                    Marshal.StructureToPtr(new RegistrationRequest
+                    {
+                        Version = 1, InterfaceIndex = options.DiscoveryInterfaceIndex,
+                        ServiceInstance = instance,
+                        Callback = Marshal.GetFunctionPointerForDelegate(StaticCallback),
+                        Context = request, Credentials = IntPtr.Zero, UnicastEnabled = false
+                    }, request, false);
+                    Attempts[request] = attempt;
+                    uint code;
+                    try { code = native.Register(request); }
+                    catch (Exception ex)
+                    {
+                        // Ownership is uncertain. Keep this one attempt rooted until
+                        // process exit; do not retry or free potentially live memory.
+                        logger.LogWarning("Native DNS-SD call failed ({Type}); discovery may be unavailable, monitoring unaffected", ex.GetType().Name);
+                        return;
+                    }
+                    if (code == 9506)
+                    {
+                        try
+                        {
+                            status = await attempt.Completion.Task.WaitAsync(pendingWarning, stoppingToken);
+                        }
+                        catch (TimeoutException)
+                        {
+                            logger.LogWarning("Native DNS-SD registration still pending; discovery may be unavailable, monitoring unaffected");
+                            status = await attempt.Completion.Task.WaitAsync(stoppingToken);
+                        }
+                        if (status == 0)
+                        {
+                            logger.LogInformation("Native Windows DNS-SD registration completed");
+                            // Successful registration remains alive until process exit.
+                            return;
+                        }
+                    }
+                    else status = code;
+                }
+
+                var level = first || backoff.TotalSeconds == 120 ? LogLevel.Warning : LogLevel.Information;
+                // DNS_ERROR_RCODE_YXDOMAIN: name already exists.
+                if (status == 9006)
+                    logger.Log(level, "Native DNS-SD name conflict (status {Status}); retrying in {Seconds}s", status, backoff.TotalSeconds);
+                else
+                    logger.Log(level, "Native DNS-SD registration failed (status {Status}); retrying in {Seconds}s; monitoring unaffected",
+                        status, backoff.TotalSeconds);
+                first = false;
+                // Give a completed native callback time to unwind before releasing
+                // its request and input instance. Cancellation retains the attempt.
+                await delay(backoff, stoppingToken);
+                if (request != IntPtr.Zero)
+                {
+                    Attempts.TryRemove(request, out _);
+                    Marshal.FreeHGlobal(request);
+                    native.Free(instance);
+                }
+                backoff = TimeSpan.FromSeconds(Math.Min(backoff.TotalSeconds * 2, 120));
+            }
+        }
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { }
+        catch (Exception ex)
+        {
+            logger.LogWarning("Native DNS-SD recovery stopped ({Type}); monitoring unaffected", ex.GetType().Name);
+        }
     }
 }
