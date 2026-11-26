@@ -1,5 +1,8 @@
 # Edge HTTP deadline — pre-merge hub qualification (#177)
 
+**Historical record:** #177 merged on 2026-11-26 after maintainer approval.
+See [RC3-READINESS.md](../release/RC3-READINESS.md) for remaining exact-candidate qualification gates.
+
 **Scoped physical-hub transport and OFF acknowledgement checks passed.**
 Independent review on 2026-11-26 recommends merge after recording hub
 model/firmware and approving the revised gate below. Explicit maintainer

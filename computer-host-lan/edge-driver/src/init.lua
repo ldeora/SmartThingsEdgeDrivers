@@ -78,7 +78,7 @@ local function clear_pending(device)
   device:set_field(C.FIELD_PENDING_AT,nil,{persist=true})
 end
 
-local function failure(driver,device,reason,publish_switch)
+local function failure(driver,device,reason,publish_switch,known_failed)
   local previous_failures=device:get_field(C.FIELD_FAILURES)
   local n=(tonumber(previous_failures) or 0)+1
   device:set_field(C.FIELD_FAILURES,n)
@@ -114,7 +114,7 @@ local function failure(driver,device,reason,publish_switch)
     end
   end
   if n>=U.failure_threshold(device) and n% C.REDISCOVERY_EVERY_FAILURES==0 and not U.host_override(device) then
-    local ok,err=D.rediscover(driver,device)
+    local ok,err=D.rediscover(driver,device,{known_failed=known_failed})
     if not ok and U.debug(device) then log.info("Computer Host rediscovery: "..tostring(err)) end
   end
 end
@@ -136,9 +136,9 @@ poll=function(driver,device,reason)
     local health,health_err=API.fetch_health(host,port)
     local current,current_port=get_address(device)
     if current~=host or tonumber(current_port)~=tonumber(port) then return end
-    if not health then failure(driver,device,health_err,publish_switch); return end
+    if not health then failure(driver,device,health_err,publish_switch,true); return end
     if health.id~=U.uuid_from_dni(device.device_network_id) then
-      failure(driver,device,"unexpected installation ID at known address",publish_switch)
+      failure(driver,device,"unexpected installation ID at known address",publish_switch,true)
       return
     end
     local previous_boot=device:get_field(C.FIELD_LAST_BOOT)

@@ -214,13 +214,15 @@ function M.handle_discovery(driver,_,should_continue)
     if err then log.warn(string.format("Rejecting candidate %s:%s: %s",tostring(c.host),tostring(c.port),tostring(err))) end
   end
 end
-function M.rediscover(driver,device)
+function M.rediscover(driver,device,opts)
   if U.host_override(device) then return false,"manual host override active" end
   local wanted=U.uuid_from_dni(device.device_network_id)
   if not wanted then return false,"missing installation UUID" end
   -- Called by the device poll itself, so its own busy flag is expected.
   local before=snapshot(device)
-  local healthy=responsive(before,wanted)
+  -- Only the poll that just failed health at this unchanged endpoint may
+  -- skip the redundant probe. Ordinary discovery still checks responsiveness.
+  local healthy=not (opts and opts.known_failed) and responsive(before,wanted)
   if not unchanged(device,before,true) then return false,"endpoint changed during rediscovery" end
   if healthy then return true,nil end
   for _,c in ipairs(M.candidates()) do

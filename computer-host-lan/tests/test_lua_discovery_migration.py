@@ -167,6 +167,20 @@ class DiscoveryMigrationTests(unittest.TestCase):
           template.capability_handlers.refresh.refresh(driver,dev)
           old_endpoint()
           assert(not fields[C.FIELD_ENDPOINT_UNCONFIRMED])
+          -- The fifth failed real poll must not probe the failed endpoint twice.
+          healths[a]=nil; healths[b]=id
+          fields[C.FIELD_FAILURES]=C.REDISCOVERY_EVERY_FAILURES-1
+          hc=health_calls
+          template.capability_handlers.refresh.refresh(driver,dev)
+          assert(health_calls==hc+1,'redundant failed health probe')
+          assert(fields[C.FIELD_HOST]==b and fields[C.FIELD_ENDPOINT_UNCONFIRMED])
+          assert(fields[C.FIELD_MAC]==oldmac)
+          template.capability_handlers.refresh.refresh(driver,dev)
+          assert(not fields[C.FIELD_ENDPOINT_UNCONFIRMED])
+          healths[b]=nil; healths[a]=id
+          assert(D.rediscover(driver,dev))
+          template.capability_handlers.refresh.refresh(driver,dev)
+          old_endpoint()
           -- Stale info from a previously effective endpoint must not change metadata.
           on_info=function() dev.preferences.hostOverride=b..':9876' end
           assert(not D.refresh_fields(dev,a,8765)); old_endpoint()
