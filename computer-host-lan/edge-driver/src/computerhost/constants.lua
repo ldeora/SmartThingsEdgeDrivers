@@ -21,6 +21,7 @@ M.DEFAULT_TELEMETRY_INTERVAL = 60
 M.REDISCOVERY_EVERY_FAILURES = 5
 M.FIELD_HOST = "computerhost_host"
 M.FIELD_PORT = "computerhost_port"
+M.FIELD_ENDPOINT_UNCONFIRMED = "computerhost_endpoint_unconfirmed"
 M.FIELD_UUID = "computerhost_uuid"
 M.FIELD_NAME = "computerhost_name"
 M.FIELD_PLATFORM = "computerhost_platform"

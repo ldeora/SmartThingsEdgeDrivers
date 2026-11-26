@@ -44,6 +44,9 @@ function M.wake(device)
   return true
 end
 function M.action(device,action)
+  if device:get_field(C.FIELD_ENDPOINT_UNCONFIRMED) and not U.host_override(device) then
+    return false,"discovered endpoint not yet confirmed by health polling"
+  end
   if not U.boolean_pref(device,"allowPowerCommands") then
     return false,"power commands disabled in device settings"
   end
