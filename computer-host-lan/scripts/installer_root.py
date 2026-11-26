@@ -36,6 +36,7 @@ _TRUSTED_MODULES = (
     'installer_transaction.py',
     'credential_continuity.py',
     'retained_state_eligibility.py',
+    'historical_snapshot.py',
     'persistent_wol.py',
     'wol_ownership.py',
     'install_core.py',
@@ -58,6 +59,7 @@ _MANIFEST_FILES = frozenset((
 ))
 _SHA256 = re.compile(r'[0-9a-f]{64}\Z')
 _VERSION = re.compile(r'[0-9A-Za-z][0-9A-Za-z.+_-]{0,63}\Z')
+_BACKUP = re.compile(r'snapshot-[A-Za-z0-9_-]{6,64}\Z')
 _NIC = re.compile(r'[A-Za-z0-9_.-]{1,15}\Z')
 _ACTIONS = frozenset(('status', 'recover', 'install', 'upgrade', 'repair'))
 # Exact entries in the fixed PATH and candidate-name list of installer-entry.sh.
@@ -121,6 +123,17 @@ def parse_request(raw: bytes) -> dict:
         raise RequestError('invalid_request')
     action = payload.get('action')
     if payload['schema_version'] == 2:
+        if action == 'backups':
+            if set(payload) != {'schema_version', 'action'}:
+                raise RequestError('invalid_request')
+            return dict(action=action)
+        if action == 'restore':
+            name, digest = payload.get('backup'), payload.get('backup_digest')
+            if (set(payload) != {'schema_version', 'action', 'backup', 'backup_digest'} or
+                    type(name) is not str or not _BACKUP.fullmatch(name) or
+                    type(digest) is not str or not _SHA256.fullmatch(digest)):
+                raise RequestError('invalid_request')
+            return dict(action=action, backup=name, backup_digest=digest)
         if action in ('wol-check', 'wol-remove'):
             nic = payload.get('wol_interface')
             if (set(payload) != {'schema_version', 'action', 'wol_interface'} or
@@ -252,7 +265,7 @@ def dispatch(request: dict, trusted_manifest: dict, *, backend, journal,
         done = backend.recover_interrupted()
         result = dict(status='passed', operation='recover',
                       recovery_status=done.status, secrets_included=False)
-        if done.operation in ('install', 'upgrade', 'repair', 'uninstall'):
+        if done.operation in ('install', 'upgrade', 'repair', 'uninstall', 'restore'):
             result['recovery_operation'] = done.operation
         result.update(done.credential_result.public())
         if done.wol_review_required is True:
@@ -265,6 +278,14 @@ def dispatch(request: dict, trusted_manifest: dict, *, backend, journal,
     # allowlist to accept all of /usr/lib.
     if selected_python not in _SYSTEM_PYTHON_COMMANDS:
         raise RequestError('invalid_request')
+    if action == 'backups':
+        return dict(status='passed', operation=action, backups=backend.list_backups(),
+                    secrets_included=False)
+    if action == 'restore':
+        done = backend.restore_backup(request['backup'], request['backup_digest'])
+        return dict(status=done.status, operation=action,
+                    identity_preserved=done.identity_preserved,
+                    secrets_included=False, **done.credential_result.public())
     if action in ('wol-check', 'wol-remove'):
         outcome = backend.wol_action(action, request['wol_interface'])
         return dict(status='passed', operation=action, wol_status=outcome, secrets_included=False)

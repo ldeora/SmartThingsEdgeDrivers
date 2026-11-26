@@ -27,6 +27,7 @@ var installedHelpers = []string{
 	"installer_transaction.py",
 	"credential_continuity.py",
 	"retained_state_eligibility.py",
+	"historical_snapshot.py",
 	"persistent_wol.py",
 	"wol_ownership.py",
 	"install_core.py",

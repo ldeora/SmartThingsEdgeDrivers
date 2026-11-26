@@ -276,3 +276,140 @@ def inspect_protected_candidate(root: Path, name: str, *,
         if isinstance(exc, SnapshotEligibilityError):
             raise
         raise SnapshotEligibilityError('protected_receipt_unavailable_or_invalid') from None
+
+
+# Local administrative backups are deliberately a different trust model
+# from the experimental independently authenticated candidate functions
+# above. The operator authorizes an existing root-private backup, not a
+# downloaded release. A digest binds selection to bytes, not a publisher.
+def inspect_local_backup(root: Path, name: str, *, owner_uid: int = 0,
+                         owner_gid: int = 0):
+    """Return bounded public summary and validated manifest for a local restore.
+
+    A legacy rc.2 snapshot may omit optional paths not in its forward plan.
+    Restore only recorded paths, as rc.2 did. Required executable/unit files
+    must all be present. The caller holds the shared installer lock.
+    """
+    if (type(name) is not str or not _NAME.fullmatch(name) or
+            (root == Path('/') and (owner_uid != 0 or owner_gid != 0))):
+        raise SnapshotEligibilityError('invalid_backup')
+    try:
+        with ExitStack() as stack:
+            fd = os.open(root, _DIR_FLAGS)
+            stack.callback(os.close, fd)
+            _directory(fd, owner_uid)
+            parts = Path(core.BACKUP_BASE.lstrip('/')).parts + (name,)
+            for index, component in enumerate(parts):
+                fd = os.open(component, _DIR_FLAGS, dir_fd=fd)
+                stack.callback(os.close, fd)
+                _directory(fd, owner_uid, private=index >= len(parts) - 2)
+            before = os.fstat(fd)
+            raw, _ = _read(fd, 'manifest.json', owner_uid,
+                           core.MAX_BACKUP_MANIFEST_BYTES, private=True)
+            data = json.loads(raw.decode('utf-8'), object_pairs_hook=_unique)
+            if (type(data) is not dict or set(data) not in (
+                    {'schema', 'items', 'previous'},
+                    {'schema', 'installer_protocol', 'items', 'previous'}) or
+                    type(data['schema']) is not int or data['schema'] != 1 or
+                    ('installer_protocol' in data and data['installer_protocol'] != 'v2') or
+                    type(data['items']) is not list or
+                    not len(_REQUIRED) <= len(data['items']) <= len(core.MANAGED_PATHS)):
+                raise SnapshotEligibilityError('invalid_backup')
+            previous = data['previous']
+            if (type(previous) is not dict or not _PREVIOUS.issubset(previous) or
+                    any(type(previous[k]) is not bool for k in _PREVIOUS) or
+                    previous['first_install']):
+                raise SnapshotEligibilityError('invalid_backup')
+            # Only these five booleans direct the restored service state.
+            # Historical WOL transaction metadata is never executed.
+            seen = set()
+            present = set()
+            entries = {'manifest.json'}
+            digest = hashlib.sha256(raw)
+            total = 0
+            version = None
+            for index, item in enumerate(data['items']):
+                if (type(item) is not dict or type(item.get('path')) is not str or
+                        item['path'] not in core.MANAGED_PATHS or item['path'] in seen or
+                        type(item.get('existed')) is not bool):
+                    raise SnapshotEligibilityError('invalid_backup')
+                path = item['path']
+                seen.add(path)
+                if not item['existed']:
+                    if set(item) != {'path', 'existed'} or path in _REQUIRED:
+                        raise SnapshotEligibilityError('invalid_backup')
+                    continue
+                filename = f'{index}.original'
+                mode = 0o755 if path in core.APP_FILES else 0o644
+                if (set(item) != {'path', 'existed', 'file', 'mode', 'uid', 'gid'} or
+                        item['file'] != filename or type(item['mode']) is not int or
+                        item['mode'] != mode or type(item['uid']) is not int or
+                        item['uid'] != owner_uid or type(item['gid']) is not int or
+                        item['gid'] != owner_gid):
+                    raise SnapshotEligibilityError('invalid_backup')
+                content, info = _read(fd, filename, owner_uid, _MAX_FILE)
+                total += len(content)
+                if (not content or total > _MAX_TOTAL or
+                        stat.S_IMODE(info.st_mode) != mode or info.st_gid != owner_gid):
+                    raise SnapshotEligibilityError('invalid_backup')
+                digest.update(hashlib.sha256(content).digest())
+                if path == core.APP_FILES[0]:
+                    versions = _VERSION_LINE.findall(content)
+                    if (len(versions) != 1 or
+                            core.PROTOCOL_MARKER.findall(content) != [b'computer-host-agent']):
+                        raise SnapshotEligibilityError('invalid_backup')
+                    version = versions[0].decode('ascii')
+                    if not _VERSION.fullmatch(version):
+                        raise SnapshotEligibilityError('invalid_backup')
+                if path == core.AVAHI_PATH and (
+                        b'_computerhost._tcp' not in content or b'_linuxhost._tcp' in content):
+                    raise SnapshotEligibilityError('invalid_backup')
+                entries.add(filename)
+                present.add(path)
+            if (not _REQUIRED.issubset(present) or version is None or
+                    set(os.listdir(fd)) != entries or _stamp(before) != _stamp(os.fstat(fd)) or
+                    ((previous['socket_active'] or previous['socket_enabled']) and
+                     core.POWER_DROPIN in seen and core.POWER_DROPIN not in present)):
+                raise SnapshotEligibilityError('invalid_backup')
+            summary = dict(name=name, version=version, digest=digest.hexdigest(),
+                           captured_at=max(0, int(before.st_mtime)),
+                           agent_active=previous['agent_active'],
+                           agent_enabled=previous['agent_enabled'],
+                           power=('enabled' if core.POWER_DROPIN in present else
+                                  'disabled' if core.POWER_DROPIN in seen else 'keep'),
+                           coverage='complete' if seen == core.MANAGED_PATHS else 'partial')
+            return summary, data
+    except (OSError, UnicodeError, ValueError, RecursionError, TypeError) as exc:
+        if isinstance(exc, SnapshotEligibilityError):
+            raise
+        raise SnapshotEligibilityError('invalid_backup') from None
+
+
+def list_local_backups(root: Path, *, owner_uid: int = 0, owner_gid: int = 0):
+    """Newest 32 eligible backups, no credential data or arbitrary paths."""
+    try:
+        with ExitStack() as stack:
+            fd = os.open(root, _DIR_FLAGS)
+            stack.callback(os.close, fd)
+            _directory(fd, owner_uid)
+            for component in Path(core.BACKUP_BASE.lstrip('/')).parts:
+                fd = os.open(component, _DIR_FLAGS, dir_fd=fd)
+                stack.callback(os.close, fd)
+                _directory(fd, owner_uid, private=component == Path(core.BACKUP_BASE).name)
+            names = os.listdir(fd)
+            if len(names) > 2048:
+                raise SnapshotEligibilityError('backup_review_required')
+            names = [name for name in names if _NAME.fullmatch(name)]
+    except FileNotFoundError:
+        return []
+    except OSError:
+        raise SnapshotEligibilityError('invalid_backup') from None
+    results = []
+    for name in names:
+        try:
+            summary, _ = inspect_local_backup(root, name, owner_uid=owner_uid,
+                                              owner_gid=owner_gid)
+            results.append(summary)
+        except SnapshotEligibilityError:
+            continue
+    return sorted(results, key=lambda x: (x['captured_at'], x['name']), reverse=True)[:32]
