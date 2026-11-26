@@ -135,7 +135,8 @@ jobs:
           grep -q 'REAL READ-ONLY FILE PLAN' "$RUNNER_TEMP/live-inspection.txt"
           python3 pty_smoke.py "$RUNNER_TEMP/computer-host-linux-tui-demo" --live
           # Exercise the NIC-page keyboard path with a controlled fake API.
-          python3 pty_live_nic.py "$RUNNER_TEMP/computer-host-linux-tui-demo"
+          python3 pty_live_nic.py "$RUNNER_TEMP/computer-host-linux-tui-demo" \
+            "$RUNNER_TEMP/computer-host-root-status.test"
           grep -q 'Privileged transaction/recovery status: UNKNOWN' "$RUNNER_TEMP/live-inspection.txt"
           printf 's\nk\nk\ny\n' | NO_COLOR=1 TERM=dumb \
             "$RUNNER_TEMP/computer-host-linux-tui-demo" -live -accessible \

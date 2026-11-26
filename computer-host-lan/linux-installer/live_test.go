@@ -401,3 +401,27 @@ func TestLiveNICInputDisplaysUsefulValidationErrors(t *testing.T) {
 		t.Fatalf("unexpected empty-NIC validation: %v", err)
 	}
 }
+
+// Only the separately invoked PTY fixture runs this test. It exercises the
+// actual live form with a deterministic physical-NIC suggestion.
+func TestFreshWOLPreviewPTY(t *testing.T) {
+	path := os.Getenv("COMPUTER_HOST_FRESH_WOL_PTY_API")
+	if path == "" {
+		t.Skip("fresh WOL PTY fixture only")
+	}
+	api, err := newAPIClient(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	info, err := api.inspect()
+	if err != nil || info.Installation.Detected {
+		t.Fatalf("Expected fresh fixture: %+v (%v)", info, err)
+	}
+	s := newLiveSelectionWithNIC(api, info, discoverHubs(), func(string) string { return "LAN0" })
+	if s.wolChoice != "configure" {
+		t.Fatal("Fresh wired computer did not preselect Configure")
+	}
+	if err := runLiveInteractiveSelection(os.Stdout, s); err != nil {
+		t.Fatal(err)
+	}
+}
