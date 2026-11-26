@@ -15,7 +15,9 @@ All three PR workflows passed on this head, including mandatory native
 upstream cosock/LuaSocket tests (8.000 s header, 8.000 s body, 4.002 s
 inactivity; native descriptor and peer closure).
 Isolated monitoring driver version: `2026-11-25T19:53:07.490582168`.
-Hub model and firmware: **NOT RECORDED — required before merge**.
+Tested hub hardware type: `V4_HUB`; firmware: `000.063.00006`
+(as reported by the SmartThings CLI on 2026-11-26). Hub metadata gate satisfied
+for this tested runtime; no other hub/firmware compatibility is inferred.
 
 | Physical-hub observation | Result |
 | --- | --- |
