@@ -344,7 +344,7 @@ def main(argv=None) -> int:
                 secrets_included=False,
                 adoption_hint=(
                     'Retained agent state cannot be verified as a supported v2 installation. '
-                    'Adoption is not supported in v1.0. Preserve the retained state, identity, '
+                    'Reuse requires explicit consent and v2 backup evidence. Preserve the retained state, identity, '
                     'key and backups; do not delete or regenerate them. '
                     'Seek recovery guidance before retrying.'
                     if exc.code == 'adoption_required' else None))

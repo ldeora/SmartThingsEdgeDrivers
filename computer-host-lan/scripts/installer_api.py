@@ -230,10 +230,17 @@ def change_plan(*, source: Path = DEFAULT_SOURCE, root: Path = Path('/'),
     if any(managed_file_status(trans, p) == 'unsafe'
            for p in core.MANAGED_PATHS):
         raise UnsafeManagedPath('unsafe managed target')
+    reuse_candidate = False
     try:
         core.require_v2_or_clean(root)
     except core.InstallError as exc:
-        raise PrerequisiteMissing('legacy or ambiguous agent installation') from exc
+        try:
+            reuse_candidate = (core.require_v2_or_clean(
+                root, classify_orphan_state=True) == 'orphan_state')
+        except (core.InstallError, OSError):
+            pass
+        if not reuse_candidate:
+            raise PrerequisiteMissing('legacy or ambiguous agent installation') from exc
     power_state = managed_file_status(trans, core.POWER_DROPIN)
     if power_state in ('unsafe', 'unreadable'):
         raise UnsafeManagedPath('cannot safely determine existing power settings')
@@ -260,6 +267,7 @@ def change_plan(*, source: Path = DEFAULT_SOURCE, root: Path = Path('/'),
         result.append({'path': change.path, 'action': action})
     return {
         **({'wol_policy': policy} if policy is not None else {}),
+        **({'retained_state_candidate': True} if reuse_candidate else {}),
         'schema_version': SCHEMA_VERSION,
         'operation': 'plan',
         'mode': 'read_only',

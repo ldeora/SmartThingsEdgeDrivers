@@ -150,3 +150,16 @@ credential corruption or unsafe power transitions.
 Use this record to consolidate evidence as it arrives; do not mark an
 unperformed check PASS. Any narrowing of supported platforms or deferral
 requires an explicit maintainer decision and user-facing limitation.
+
+### Retained rc.2 state reuse (implementation draft)
+
+A read-only orphan-only plan identifies a candidate, not eligibility. The
+wizard asks for REUSE instead of INSTALL; CLI requires --confirm REUSE.
+The protected controller checks the shared lock, empty journal, absent
+managed files/owner record, stopped units, exact private state layout,
+canonical credentials and a complete root-private legacy v2 snapshot.
+The snapshot corroborates protocol only, not credential association; the
+operator confirms ownership. Existing credential continuity checks ensure
+both files are unchanged. No new journal fields or credential copies.
+A normal rc.3 uninstall with a valid owner marker keeps its existing path.
+Physical rc.2 uninstall/reinstall acceptance and independent review remain.

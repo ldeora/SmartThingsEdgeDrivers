@@ -28,6 +28,8 @@ prompts or provider retries. No hub discovery, pairing or firewall changes.
 For persistent WOL, first run plan --wol configure --wol-interface IFNAME,
 then pass its wol_policy.digest as --wol-plan-digest to install/upgrade/repair.
 Keep/leave preserve network policy. A bare --wol-interface pins the interface only.
+To reinstall over retained rc.2 state, review cli plan --action install,
+then use cli install --confirm REUSE (not INSTALL). No credential is reset.
 Status/recovery use the existing protected helper.
 Use an independently authenticated executable for any eventual release.
 Except for --help, stdout contains a single JSON result.
@@ -43,6 +45,7 @@ type cliOptions struct {
 	wol       string
 	wolDigest string
 	elevation string
+	reuse     bool
 }
 
 func (o cliOptions) isInstall() bool {
@@ -128,6 +131,8 @@ func parseCLI(args []string) (cliOptions, error) {
 		if seen["--confirm"] {
 			return cliOptions{}, invalid
 		}
+	} else if o.action == "install" && confirm == "REUSE" {
+		o.reuse = true
 	} else if !seen["--confirm"] || confirm != strings.ToUpper(o.action) {
 		return cliOptions{}, invalid
 	}
@@ -191,6 +196,9 @@ func cliInstallPreflight(o cliOptions, api apiClient, info apiInspect, firewallA
 	req, err := approvedRootRequest(s)
 	if err != nil {
 		return prepared, err
+	}
+	if !isPreview && o.reuse != req.ReuseRetained {
+		return prepared, errors.New("retained state requires a reviewed plan and explicit --confirm REUSE")
 	}
 	if o.wol == "configure" && !isPreview && req.WOLPlanDigest != o.wolDigest {
 		return prepared, errors.New("WOL plan changed; run plan again before confirming")

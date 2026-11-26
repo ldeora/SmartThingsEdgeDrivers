@@ -41,6 +41,7 @@ type privilegedRequest struct {
 	Power         string  `json:"power,omitempty"`
 	WOLInterface  *string `json:"wol_interface,omitempty"`
 	WOLPlanDigest string  `json:"wol_plan_digest,omitempty"`
+	ReuseRetained bool    `json:"reuse_retained,omitempty"`
 }
 
 type privilegedResult struct {
@@ -63,6 +64,9 @@ type privilegedResult struct {
 }
 
 func (r privilegedRequest) validate() error {
+	if r.ReuseRetained && (r.SchemaVersion != 1 || r.Action != "install") {
+		return errors.New("retained-state reuse requires install")
+	}
 	if r.SchemaVersion == 2 {
 		if r.Action == "wol-check" || r.Action == "wol-remove" {
 			if r.Power != "" || r.WOLPlanDigest != "" || r.WOLInterface == nil || !wiredNICName(*r.WOLInterface) {
@@ -120,7 +124,7 @@ func decodePrivilegedRequest(r io.Reader) (privilegedRequest, error) {
 			return privilegedRequest{}, errors.New("invalid privileged request key")
 		}
 		switch key {
-		case "schema_version", "action", "power", "wol_interface", "wol_plan_digest":
+		case "schema_version", "action", "power", "wol_interface", "wol_plan_digest", "reuse_retained":
 		default:
 			return privilegedRequest{}, errors.New("unknown privileged request key")
 		}
@@ -156,6 +160,9 @@ func decodePrivilegedRequest(r io.Reader) (privilegedRequest, error) {
 			return privilegedRequest{}, errors.New("unexpected privileged request fields")
 		}
 	}
+	if raw, present := fields["reuse_retained"]; present && string(raw) != "true" {
+		return privilegedRequest{}, errors.New("invalid reuse consent")
+	}
 	if err := request.validate(); err != nil {
 		return privilegedRequest{}, err
 	}
@@ -173,6 +180,9 @@ func pythonRequest(r privilegedRequest) ([]byte, error) {
 		data["wol_interface"] = r.WOLInterface
 		if r.WOLPlanDigest != "" {
 			data["wol_plan_digest"] = r.WOLPlanDigest
+		}
+		if r.ReuseRetained {
+			data["reuse_retained"] = true
 		}
 	} else if r.Action == "wol-check" || r.Action == "wol-remove" {
 		data["wol_interface"] = r.WOLInterface

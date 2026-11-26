@@ -155,6 +155,16 @@ func (s *liveSelection) installPreview() string {
 	return preview
 }
 
+const retainedReuseNotice = "Retained installation data found. If this is your previous Computer Host LAN v2 installation, reuse its identity and control key to keep your SmartThings device. Root will check the retained files and v2 backup; nothing is reset. Type REUSE only if you recognize this installation."
+
+func (s *liveSelection) installConfirmation() string {
+	plan, err := s.currentPlan()
+	if err == nil && plan.RetainedStateCandidate {
+		return "REUSE"
+	}
+	return "INSTALL"
+}
+
 func approvedRootRequest(s *liveSelection) (privilegedRequest, error) {
 	plan, err := s.currentPlan()
 	if err != nil {
@@ -189,6 +199,7 @@ func approvedRootRequest(s *liveSelection) (privilegedRequest, error) {
 	}
 	request := privilegedRequest{
 		SchemaVersion: 1, Action: action, Power: power, WOLInterface: nic,
+		ReuseRetained: plan.RetainedStateCandidate,
 	}
 	if s.wolChoice == "configure" && !plan.WOLPreviewSkipped {
 		if plan.WOLPolicy == nil || !plan.WOLPolicy.valid(s.wolNIC) {
@@ -365,9 +376,8 @@ func userFacingPrivilegeFailure(reply privilegedResult) error {
 	case "recovery_required":
 		return errors.New("installer transaction requires recovery. Run this wizard with -recover before retrying; preserve the protected journal and backup")
 	case "adoption_required":
-		return errors.New("Retained agent state cannot be verified as a supported v2 installation. " +
-			"Adoption is not supported in v1.0. Preserve the retained state, identity, key and backups; " +
-			"do not delete or regenerate them. Seek recovery guidance before retrying.")
+		return errors.New("Retained state could not be approved for reuse. Preserve the identity, control key and backups. " +
+			"Reuse requires explicit consent, intact private files, a valid v2 backup and stopped services. Do not delete the state.")
 	case "unsupported_python":
 		return errors.New("a system Python 3.10 or newer is required; install a compatible interpreter without changing the system default")
 	case "not_installed":
@@ -642,12 +652,12 @@ func runInstallingWizard(accessible bool, apiPath string, reader io.Reader, writ
 		return nil
 	}
 	// At this point Huh has exited; the terminal is no longer in raw mode.
-	fmt.Fprint(writer, "\nType INSTALL to authorize system changes (anything else cancels): ")
+	fmt.Fprintf(writer, "\nType %s to authorize system changes (anything else cancels): ", s.installConfirmation())
 	line, err := readConfirmationLine(reader)
 	if err != nil && err != io.EOF {
 		return err
 	}
-	if err == io.EOF || strings.TrimSpace(line) != "INSTALL" {
+	if err == io.EOF || strings.TrimSpace(line) != s.installConfirmation() {
 		fmt.Fprintln(writer, "Cancelled. No changes made.")
 		return nil
 	}
