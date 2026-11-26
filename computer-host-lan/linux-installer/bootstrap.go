@@ -42,28 +42,46 @@ type privilegedRequest struct {
 	WOLInterface  *string `json:"wol_interface,omitempty"`
 	WOLPlanDigest string  `json:"wol_plan_digest,omitempty"`
 	ReuseRetained bool    `json:"reuse_retained,omitempty"`
+	Backup        string  `json:"backup,omitempty"`
+	BackupDigest  string  `json:"backup_digest,omitempty"`
 }
 
 type privilegedResult struct {
-	SchemaVersion              int    `json:"schema_version"`
-	Status                     string `json:"status"`
-	Operation                  string `json:"operation"`
-	ErrorCode                  string `json:"error_code"`
-	FailureStage               string `json:"failure_stage,omitempty"`
-	RecoveryStatus             string `json:"recovery_status"`
-	RecoveryOperation          string `json:"recovery_operation,omitempty"`
-	PrivilegedTransactionState string `json:"privileged_transaction_state"`
-	IdentityPreserved          string `json:"identity_preserved"`
-	InstallationIDContinuity   string `json:"installation_id_continuity,omitempty"`
-	ControlTokenContinuity     string `json:"control_token_continuity,omitempty"`
-	CredentialContinuity       string `json:"credential_continuity,omitempty"`
-	ContinuityReason           string `json:"continuity_reason,omitempty"`
-	WOLReviewRequired          bool   `json:"wol_review_required,omitempty"`
-	WOLStatus                  string `json:"wol_status,omitempty"`
-	SecretsIncluded            bool   `json:"secrets_included"`
+	SchemaVersion              int              `json:"schema_version"`
+	Status                     string           `json:"status"`
+	Operation                  string           `json:"operation"`
+	ErrorCode                  string           `json:"error_code"`
+	FailureStage               string           `json:"failure_stage,omitempty"`
+	RecoveryStatus             string           `json:"recovery_status"`
+	RecoveryOperation          string           `json:"recovery_operation,omitempty"`
+	PrivilegedTransactionState string           `json:"privileged_transaction_state"`
+	IdentityPreserved          string           `json:"identity_preserved"`
+	InstallationIDContinuity   string           `json:"installation_id_continuity,omitempty"`
+	ControlTokenContinuity     string           `json:"control_token_continuity,omitempty"`
+	CredentialContinuity       string           `json:"credential_continuity,omitempty"`
+	ContinuityReason           string           `json:"continuity_reason,omitempty"`
+	WOLReviewRequired          bool             `json:"wol_review_required,omitempty"`
+	WOLStatus                  string           `json:"wol_status,omitempty"`
+	SecretsIncluded            bool             `json:"secrets_included"`
+	Backups                    *[]backupSummary `json:"backups,omitempty"`
 }
 
 func (r privilegedRequest) validate() error {
+	if r.Action == "backups" || r.Action == "restore" {
+		if r.SchemaVersion != 2 || r.Power != "" || r.WOLInterface != nil || r.WOLPlanDigest != "" || r.ReuseRetained {
+			return errors.New("invalid backup request")
+		}
+		if r.Action == "backups" && r.Backup == "" && r.BackupDigest == "" {
+			return nil
+		}
+		if r.Action == "restore" && backupNamePattern.MatchString(r.Backup) && wolDigestPattern.MatchString(r.BackupDigest) {
+			return nil
+		}
+		return errors.New("invalid backup selection")
+	}
+	if r.Backup != "" || r.BackupDigest != "" {
+		return errors.New("unexpected backup selection")
+	}
 	if r.ReuseRetained && (r.SchemaVersion != 1 || r.Action != "install") {
 		return errors.New("retained-state reuse requires install")
 	}
@@ -124,7 +142,7 @@ func decodePrivilegedRequest(r io.Reader) (privilegedRequest, error) {
 			return privilegedRequest{}, errors.New("invalid privileged request key")
 		}
 		switch key {
-		case "schema_version", "action", "power", "wol_interface", "wol_plan_digest", "reuse_retained":
+		case "schema_version", "action", "power", "wol_interface", "wol_plan_digest", "reuse_retained", "backup", "backup_digest":
 		default:
 			return privilegedRequest{}, errors.New("unknown privileged request key")
 		}
@@ -149,12 +167,19 @@ func decodePrivilegedRequest(r io.Reader) (privilegedRequest, error) {
 	if err := json.Unmarshal(raw, &request); err != nil {
 		return privilegedRequest{}, errors.New("invalid privileged request")
 	}
+	if request.Action == "restore" {
+		if len(fields) != 4 || fields["backup"] == nil || fields["backup_digest"] == nil {
+			return privilegedRequest{}, errors.New("unexpected restore request fields")
+		}
+	} else if request.Action != "backups" && (fields["backup"] != nil || fields["backup_digest"] != nil) {
+		return privilegedRequest{}, errors.New("unexpected backup request fields")
+	}
 	if request.Action == "wol-check" || request.Action == "wol-remove" {
 		if len(fields) != 3 || fields["wol_interface"] == nil {
 			return privilegedRequest{}, errors.New("unexpected WOL request fields")
 		}
 	}
-	if request.Action == "uninstall" || request.Action == "status" || request.Action == "recover" {
+	if request.Action == "uninstall" || request.Action == "status" || request.Action == "recover" || request.Action == "backups" {
 		// Reject even explicitly empty/null installation settings.
 		if len(fields) != 2 {
 			return privilegedRequest{}, errors.New("unexpected privileged request fields")
@@ -186,6 +211,9 @@ func pythonRequest(r privilegedRequest) ([]byte, error) {
 		}
 	} else if r.Action == "wol-check" || r.Action == "wol-remove" {
 		data["wol_interface"] = r.WOLInterface
+	} else if r.Action == "restore" {
+		data["backup"] = r.Backup
+		data["backup_digest"] = r.BackupDigest
 	}
 	return json.Marshal(data)
 }
@@ -799,12 +827,12 @@ func rootBootstrap(reader io.Reader, writer io.Writer) error {
 	}
 	// Once verified success and cleanup is complete the old helper may be
 	// retired. A retained previous copy is never executed automatically.
-	if (request.Action == "wol-check" || request.Action == "wol-remove") && response.Status == "passed" {
+	if (request.Action == "wol-check" || request.Action == "wol-remove" || request.Action == "backups") && response.Status == "passed" {
 		if err := finishHelperRetirementIfNeeded(trustedDir, 0); err != nil {
 			return relayBootstrapFailure(writer, request.Action, err)
 		}
 	}
-	if response.Status == "installed" || response.Status == "uninstalled" {
+	if response.Status == "installed" || response.Status == "uninstalled" || response.Status == "restored" {
 		if err := finishHelperRetirementIfNeeded(trustedDir, 0); err != nil {
 			// Committed operations must not be presented as failed
 			// solely because previous launcher cleanup could not finish.

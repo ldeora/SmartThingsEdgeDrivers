@@ -440,7 +440,7 @@ class InstalledProtocolTests(unittest.TestCase):
     def test_historical_rollback_refused_before_inspecting_backup(self):
         with mock.patch.object(core, 'validate_v2_backup') as validate, \
                 mock.patch.object(core, 'require_v2_or_clean') as guard:
-            with self.assertRaisesRegex(core.InstallError, 'Historical restore is not supported'):
+            with self.assertRaisesRegex(core.InstallError, 'For historical restore, use -restore'):
                 core.run_cli(['--rollback', '/missing/snapshot'])
             guard.assert_not_called()
             validate.assert_not_called()

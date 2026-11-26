@@ -231,9 +231,9 @@ SmartThings registration.
 
 Each option is a separate name/value pair, may occur only once, and is
 valid only for the documented action. Missing or wrong confirmation is
-an invocation error. There is no arbitrary source, Python override,
-historical backup restore or legacy shell fallback in this increment.
-Persistent WOL setup/removal and explicit retained rc.2 state reuse are
+an invocation error. There is no arbitrary source, Python override
+or legacy shell fallback in this increment.
+Persistent WOL setup/removal, historical backup restoration and explicit retained rc.2 state reuse are
 available for supervised development. Current published shell instructions
 remain unchanged, including their read-only dry run.
 

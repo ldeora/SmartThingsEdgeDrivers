@@ -117,6 +117,10 @@ class FakeSystemd:
     def verify_restored_services(self, previous):
         return self.states == {k: previous[k] for k in self.original}
 
+    def verify_historical_restore(self, previous, *, version, identity, power):
+        self.historical_verified = (version, identity, power)
+        return not self.fail_verify and self.verify_restored_services(previous)
+
 
 class InstallerBackendTests(unittest.TestCase):
     def setUp(self):
@@ -1824,7 +1828,7 @@ class InstallerBackendTests(unittest.TestCase):
               mock.patch.object(core, 'write_owner_record') as owner,
               mock.patch.object(core, 'InstallTransaction') as trans,
               mock.patch.object(core, 'restore_services') as services):
-            with self.assertRaisesRegex(core.InstallError, 'Historical restore is not supported'):
+            with self.assertRaisesRegex(core.InstallError, 'For historical restore, use -restore'):
                 core.run_cli(['--rollback', '/missing/snapshot'])
             for operation in (guard, owner, trans, services):
                 operation.assert_not_called()
@@ -1872,6 +1876,118 @@ class InstallerBackendTests(unittest.TestCase):
         self.assertEqual(self.backend.run(self.request(), ROOT, self.hashes).status,
                          'installed')
         self.assertEqual(private.read_text(), UUID + '\n')
+
+    def historical_restore_fixture(self, *, partial=False):
+        target, token = self.continuity_fixture()
+        token.write_text('a9' * 32 + '\n')
+        trans = self.installed_paths()
+        plan = core.generate_plan(ROOT, '/usr/bin/python3',
+                                  enable_power=False, disable_power=False,
+                                  wol_interface=None, is_existing_power=False,
+                                  avahi_dir=False)
+        # Match the legacy upgrade snapshot's actual optional-file omissions.
+        trans.apply(plan)
+        agent = trans.location(core.APP_FILES[0])
+        historic_agent = b'PROTOCOL = "computer-host-agent"\nVERSION = "0.4.5-rc.1"\n'
+        agent.write_bytes(historic_agent)
+        target.write_text('HISTORICAL UNIT')
+        changes = plan if partial else [core.Change(path, None)
+                                       for path in sorted(core.MANAGED_PATHS)]
+        backup = trans.snapshot(changes, previous=self.services.original)
+        manifest = backup / 'manifest.json'
+        data = json.loads(manifest.read_text())
+        data.pop('installer_protocol', None)
+        manifest.write_text(json.dumps(data))
+        # An upgrade has since installed the current agent.
+        agent.write_bytes((ROOT / 'agent/linux_host_agent.py').read_bytes())
+        target.write_text('CURRENT UNIT')
+        core.write_owner_record(self.root)
+        if partial:
+            pin = trans.location(core.WOL_DROPIN)
+            pin.parent.mkdir(parents=True, exist_ok=True)
+            pin.write_text('[Service]\nEnvironment="LINUX_HOST_WOL_INTERFACE=LAN0"\n')
+        return backup, target, token, historic_agent
+
+    def test_historical_restore_legacy_partial_keeps_credentials_and_unrecorded_pin(self):
+        backup, target, token, historic = self.historical_restore_fixture(partial=True)
+        trans = self.installed_paths()
+        pin = trans.location(core.WOL_DROPIN)
+        pin_before = pin.read_bytes()
+        state = token.parent
+        before = {p.name: (p.read_bytes(), p.stat().st_ino, p.stat().st_mtime_ns)
+                  for p in state.iterdir()}
+        summaries = self.backend.list_backups()
+        self.assertEqual(len(summaries), 1)
+        selected = summaries[0]
+        self.assertEqual(selected['name'], backup.name)
+        self.assertEqual(selected['version'], '0.4.5-rc.1')
+        self.assertEqual(selected['coverage'], 'partial')
+        self.assertEqual(selected['power'], 'keep')
+        with mock.patch.object(self.backend._wol, 'apply') as apply, \
+                mock.patch.object(self.backend._wol, 'rollback') as rollback:
+            done = self.backend.restore_backup(backup.name, selected['digest'])
+            apply.assert_not_called()
+            rollback.assert_not_called()
+        self.assertEqual(done.status, 'restored')
+        self.assertEqual(done.credential_result.public()['credential_continuity'], 'verified')
+        self.assertEqual(self.services.historical_verified, ('0.4.5-rc.1', UUID, False))
+        self.assertEqual(target.read_text(), 'HISTORICAL UNIT')
+        self.assertEqual(trans.location(core.APP_FILES[0]).read_bytes(), historic)
+        self.assertEqual(pin.read_bytes(), pin_before)
+        self.assertEqual(before, {p.name: (p.read_bytes(), p.stat().st_ino, p.stat().st_mtime_ns)
+                                 for p in state.iterdir()})
+        self.assertEqual(self.store.public_status()['privileged_transaction_state'], 'none')
+        self.assertEqual(len(self.backend.list_backups()), 2)
+        # Upgrade again using the ordinary path, preserving the same device.
+        result = self.backend.run(self.request('upgrade'), ROOT, self.hashes)
+        self.assertEqual(result.status, 'installed')
+        self.assertEqual(result.credential_result.public()['credential_continuity'], 'verified')
+
+    def test_historical_restore_rejects_stale_selection_before_changes(self):
+        backup, target, token, _ = self.historical_restore_fixture()
+        selected = self.backend.list_backups()[0]
+        data = json.loads((backup / 'manifest.json').read_text())
+        agent = next(x for x in data['items'] if x['path'] == core.APP_FILES[0])
+        original = backup / agent['file']
+        original.write_bytes(original.read_bytes() + b'# changed\n')
+        with self.assertRaises(installer.ControllerError) as caught:
+            self.backend.restore_backup(backup.name, selected['digest'])
+        self.assertEqual(caught.exception.code, 'invalid_backup')
+        self.assertEqual(target.read_text(), 'CURRENT UNIT')
+        self.assertEqual(token.read_text(), 'a9' * 32 + '\n')
+        self.assertEqual(self.services.uninstall_stops, 0)
+        self.assertEqual(self.store.public_status()['privileged_transaction_state'], 'none')
+
+    def test_historical_restore_failed_health_rolls_back_current_installation(self):
+        backup, target, token, _ = self.historical_restore_fixture()
+        selected = self.backend.list_backups()[0]
+        current = self.installed_paths().location(core.APP_FILES[0]).read_bytes()
+        self.services.fail_verify = True
+        with self.assertRaises(installer.ControllerError) as caught:
+            self.backend.restore_backup(backup.name, selected['digest'])
+        self.assertEqual(caught.exception.code, 'rolled_back')
+        self.assertEqual(caught.exception.credential_result.public()['credential_continuity'], 'verified')
+        self.assertEqual(target.read_text(), 'CURRENT UNIT')
+        self.assertEqual(self.installed_paths().location(core.APP_FILES[0]).read_bytes(), current)
+        self.assertEqual(token.read_text(), 'a9' * 32 + '\n')
+        self.assertEqual(self.store.public_status()['privileged_transaction_state'], 'none')
+
+    def test_interrupted_historical_restore_recovers_current_not_selected_backup(self):
+        backup, target, token, _ = self.historical_restore_fixture()
+        selected = self.backend.list_backups()[0]
+        current = self.installed_paths().location(core.APP_FILES[0]).read_bytes()
+        with mock.patch.object(self.services, 'restore_services', side_effect=KeyboardInterrupt):
+            with self.assertRaises(KeyboardInterrupt):
+                self.backend.restore_backup(backup.name, selected['digest'])
+        self.assertEqual(target.read_text(), 'HISTORICAL UNIT')
+        self.assertNotEqual(self.store.public_status()['privileged_transaction_state'], 'none')
+        done = self.backend.recover_interrupted()
+        self.assertEqual(done.status, 'rolled_back')
+        self.assertEqual(done.operation, 'restore')
+        self.assertEqual(target.read_text(), 'CURRENT UNIT')
+        self.assertEqual(self.installed_paths().location(core.APP_FILES[0]).read_bytes(), current)
+        self.assertEqual(token.read_text(), 'a9' * 32 + '\n')
+        self.assertEqual(self.store.public_status()['privileged_transaction_state'], 'none')
 
     def retained_rc2_fixture(self):
         # Reproduce the rc.2 uninstall snapshot shape: no installer_protocol

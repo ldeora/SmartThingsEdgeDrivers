@@ -29,6 +29,7 @@ import payload_staging as staging
 import runtime_verify
 import credential_continuity as continuity
 import wol_ownership
+import historical_snapshot as historical
 from persistent_wol import WolError, WolUnsupported, WolCapabilityUnknown
 from transaction_journal import ProtectedJournal, JournalConflict, _staged_payload_remains
 
@@ -53,7 +54,7 @@ class ControllerError(RuntimeError):
         if code not in ('invalid_request', 'installation_busy', 'aborted',
                         'rolled_back', 'recovery_required',
                         'unsupported_environment', 'adoption_required',
-                        'unsafe_lock', 'not_installed', 'wol_review_required'):
+                        'unsafe_lock', 'not_installed', 'wol_review_required', 'invalid_backup'):
             code = 'recovery_required'
         # This is a deliberate, fixed message with no private paths or ID.
         # The Go wizard may display it without needing privileged
@@ -150,6 +151,13 @@ class UninstallOutcome:
 
 
 @dataclass(frozen=True)
+class RestoreOutcome:
+    status: str
+    identity_preserved: str
+    credential_result: continuity.Result = continuity.Result()
+
+
+@dataclass(frozen=True)
 class RecoveryOutcome:
     """Public, redacted summary; never include journal IDs or secret state."""
     status: str       # aborted, rolled_back, cleaned
@@ -219,6 +227,8 @@ class ServiceOperations(Protocol):
     def prepare_restore(self, previous: dict) -> None: ...
     def restore_services(self, previous: dict) -> None: ...
     def verify_restored_services(self, previous: dict) -> bool: ...
+    def verify_historical_restore(self, previous: dict, *, version: str,
+                                  identity: str, power: bool) -> bool: ...
     def stop_for_uninstall(self) -> None: ...
     def verify_uninstall_stopped(self) -> bool: ...
     def reload_after_uninstall(self) -> None: ...
@@ -512,6 +522,25 @@ class SystemdOperations:
             core.systemctl('stop', 'linux-host-agent-power.service', check=False)
             core.systemctl('reset-failed', 'linux-host-agent-power.service', check=False)
 
+    def verify_historical_restore(self, previous: dict, *, version: str,
+                                  identity: str, power: bool) -> bool:
+        deadline = time.monotonic() + 12.0
+        while True:
+            if self.verify_restored_services(previous):
+                if not previous['agent_active']:
+                    return True
+                result = self.health_probe(port=8765, expected_version=version,
+                                           expected_identity=identity, expected_power=power,
+                                           service_status='active')
+                if (isinstance(result, dict) and result.get('status') == 'passed' and
+                        result.get('runtime_verified') is True and
+                        result.get('identity_preserved') == 'passed'):
+                    return True
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return False
+            time.sleep(min(0.5, remaining))
+
     def verify_restored_services(self, previous: dict) -> bool:
         if previous['first_install']:
             return self.verify_uninstall_services()
@@ -664,7 +693,7 @@ def _snapshot_provenance(root: Path, backup: Path, journal, previous: dict,
     """
     record = journal._record()
     if (record['phase'] != 'STAGED' or
-            record['operation'] not in ('install', 'upgrade', 'repair', 'uninstall') or
+            record['operation'] not in ('install', 'upgrade', 'repair', 'uninstall', 'restore') or
             not _PROVENANCE_NAME.fullmatch(backup.name) or
             backup.parent != root / core.BACKUP_BASE.lstrip('/')):
         raise ControllerError('recovery_required')
@@ -980,6 +1009,141 @@ class InstallerBackend:
                 return self._wol.remove_owned(interface)
             except (WolError, OSError):
                 raise ControllerError("wol_review_required") from None
+
+    def list_backups(self):
+        self._check_context()
+        with manual_install_lock(self.manual_lock_path, owner_uid=self.owner_uid):
+            if ProtectedJournal(root=self.root, owner_uid=self.owner_uid
+                                ).public_status()['privileged_transaction_state'] != 'none':
+                raise ControllerError('recovery_required')
+            try:
+                return historical.list_local_backups(
+                    self.root, owner_uid=self.owner_uid, owner_gid=os.getegid())
+            except historical.SnapshotEligibilityError:
+                raise ControllerError('invalid_backup') from None
+
+    def restore_backup(self, name, digest) -> RestoreOutcome:
+        """A new schema-1 transaction, not recovery of a former journal.
+
+        The requested source is a root-private local v2 snapshot. Capture
+        a new protected before-state, never use the historical source as
+        the recovery journal's snapshot. Credentials and NIC policy stay.
+        """
+        self._check_context()
+        if type(digest) is not str or not re.fullmatch(r'[0-9a-f]{64}', digest):
+            raise ControllerError('invalid_request')
+        with manual_install_lock(self.manual_lock_path, owner_uid=self.owner_uid):
+            store = ProtectedJournal(root=self.root, owner_uid=self.owner_uid)
+            if store.public_status()['privileged_transaction_state'] != 'none':
+                raise ControllerError('recovery_required')
+            try:
+                if core.require_v2_or_clean(self.root) != 'v2':
+                    raise ControllerError('unsupported_environment')
+                summary, manifest = historical.inspect_local_backup(
+                    self.root, name, owner_uid=self.owner_uid, owner_gid=os.getegid())
+                if summary['digest'] != digest:
+                    raise ControllerError('invalid_backup')
+                source = self.root / core.BACKUP_BASE.lstrip('/') / name
+                core.validate_v2_backup(source, root=self.root)
+            except historical.SnapshotEligibilityError:
+                raise ControllerError('invalid_backup') from None
+            except core.InstallError:
+                raise ControllerError('unsupported_environment') from None
+            return self._historical_restore_locked(store, source, summary, manifest)
+
+    def _historical_restore_locked(self, store, source, summary, manifest):
+        transaction = core.InstallTransaction(self.root)
+        changes = [core.Change(path, None) for path in sorted(core.MANAGED_PATHS)]
+        desired = {key: manifest['previous'][key] for key in
+                   ('first_install', 'agent_active', 'agent_enabled',
+                    'socket_active', 'socket_enabled')}
+        with store.begin('restore') as journal:
+            check = continuity.Check(journal, self._observe_credentials)
+            backup = previous = None
+            failure_stage = 'existing_state'
+            try:
+                journal.advance('INSPECTED', 'STAGED')
+                previous = self.services.capture_previous(transaction)
+                _check_previous(previous)
+                check.capture()
+                identity = read_saved_identity(self.root)
+                if (identity is None or
+                        check.verify(journal).public()['credential_continuity'] != 'verified'):
+                    raise ControllerError('unsupported_environment')
+                # A partial historical backup leaves unrecorded optional
+                # files as they are; do not activate a socket without opt-in.
+                power = (summary['power'] == 'enabled' or
+                         (summary['power'] == 'keep' and
+                          transaction.location(core.POWER_DROPIN).is_file()))
+                if not power and (desired['socket_active'] or desired['socket_enabled']):
+                    raise ControllerError('invalid_backup')
+                failure_stage = 'snapshot'
+                backup = transaction.snapshot(changes, previous=previous)
+                _sync_snapshot(backup)
+                _snapshot_provenance(self.root, backup, journal, previous,
+                                     owner_uid=self.owner_uid)
+                journal.advance('STAGED', 'SNAPSHOTTED', snapshot_name=backup.name)
+                fresh, _ = historical.inspect_local_backup(
+                    self.root, source.name, owner_uid=self.owner_uid, owner_gid=os.getegid())
+                if fresh != summary:
+                    raise ControllerError('invalid_backup')
+                check.verify(journal)
+                journal.advance('SNAPSHOTTED', 'APPLYING')
+                core.write_owner_record(self.root)
+                if previous['first_install']:
+                    if self.services.verify_uninstall_services() is not True:
+                        raise ControllerError('recovery_required')
+                else:
+                    self.services.stop_for_uninstall()
+                    if self.services.verify_uninstall_stopped() is not True:
+                        raise ControllerError('recovery_required')
+                # Existing rc.2 restore primitive: exact recorded bytes,
+                # modes and uid/gid, no private-state or NIC mutations.
+                transaction.restore(source)
+                _sync_managed_directories(changes, transaction)
+                journal.advance('APPLYING', 'ACTIVATING')
+                self.services.restore_services(desired)
+                journal.advance('ACTIVATING', 'VERIFYING')
+                if (not _files_match_snapshot(source, transaction) or
+                        self.services.verify_historical_restore(
+                            desired, version=summary['version'], identity=identity,
+                            power=power) is not True or
+                        read_saved_identity(self.root) != identity):
+                    raise ControllerError('recovery_required')
+                fresh, _ = historical.inspect_local_backup(
+                    self.root, source.name, owner_uid=self.owner_uid, owner_gid=os.getegid())
+                if fresh != summary:
+                    raise ControllerError('recovery_required')
+                check.verify(journal, allow_new=False)
+                journal.advance('VERIFYING', 'COMMITTED')
+            except Exception:
+                try:
+                    phase = journal._record()['phase']
+                    if phase == 'COMMITTED':
+                        return RestoreOutcome('restored_cleanup_required', 'verified', check.result)
+                    if phase in _PREAPPLY:
+                        journal.abort(lambda _: True)
+                        outcome = 'aborted'
+                    elif phase in _APPLIED and backup is not None and previous is not None:
+                        self._restore_snapshot(journal, transaction, backup,
+                                               credential_check=check)
+                        outcome = 'rolled_back'
+                    else:
+                        raise ControllerError('recovery_required')
+                    staging.finish_terminal_stage(journal, root=self.root, owner_uid=self.owner_uid)
+                    journal.clear_finished()
+                except Exception:
+                    raise ControllerError('recovery_required',
+                                          credential_result=check.result if check.failed else continuity.Result()) from None
+                raise ControllerError(outcome,
+                                      failure_stage=failure_stage if outcome == 'aborted' else None,
+                                      credential_result=check.result if check.failed or outcome == 'rolled_back' else continuity.Result()) from None
+            try:
+                staging.finish_terminal_stage(journal, root=self.root, owner_uid=self.owner_uid)
+                journal.clear_finished()
+            except Exception:
+                return RestoreOutcome('restored_cleanup_required', 'verified', check.result)
+        return RestoreOutcome('restored', 'verified', check.result)
 
     def uninstall(self) -> UninstallOutcome:
         """Journaled v2 uninstall of managed files and services only.

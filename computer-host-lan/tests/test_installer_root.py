@@ -63,6 +63,31 @@ class RootProtocolTests(unittest.TestCase):
         obj.update(updates)
         return bridge.parse_request(json.dumps(obj).encode('utf-8'))
 
+    def test_local_backup_list_and_restore_requests_are_exact(self):
+        def parse(**payload):
+            return bridge.parse_request(json.dumps(payload).encode())
+        listed = parse(schema_version=2, action='backups')
+        self.backend.list_backups = mock.Mock(return_value=[])
+        result = bridge.dispatch(listed, self.manifest, backend=self.backend,
+                                 journal=self.journal, selected_python='/usr/bin/python3')
+        self.assertEqual(result['backups'], [])
+        base = dict(schema_version=2, action='restore', backup='snapshot-abcdefgh',
+                    backup_digest='a' * 64)
+        self.backend.restore_backup = mock.Mock(return_value=mock.Mock(
+            status='restored', identity_preserved='verified',
+            credential_result=continuity.Result('verified', 'verified')))
+        result = bridge.dispatch(parse(**base), self.manifest, backend=self.backend,
+                                 journal=self.journal, selected_python='/usr/bin/python3')
+        self.assertEqual(result['status'], 'restored')
+        self.backend.restore_backup.assert_called_once_with('snapshot-abcdefgh', 'a' * 64)
+        for changes in (dict(backup='../snapshot-abcdefgh'),
+                        dict(backup_digest=None), dict(schema_version=3),
+                        dict(source='/tmp'), dict(backup_digest='no')):
+            with self.assertRaises(bridge.RequestError):
+                parse(**(base | changes))
+        with self.assertRaises(bridge.RequestError):
+            parse(schema_version=2, action='backups', backup=None)
+
     def test_public_wol_digest_and_management_requests(self):
         request = self.parse(wol_interface="enp1s0", wol_plan_digest="a" * 64)
         bridge.dispatch(request, self.manifest, backend=self.backend,

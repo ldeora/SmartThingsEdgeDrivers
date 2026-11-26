@@ -121,3 +121,17 @@ eligibility after authorization and refuses ambiguous or unsafe state; it
 will not reset the identity or key. Refresh the existing SmartThings device
 rather than creating a duplicate. Select remote power again if you want it;
 use the existing control key. Existing WOL settings are kept by default.
+
+### Restore an earlier local installation
+
+Run `./computer-host-linux-installer -restore` as an ordinary user. Authorize
+listing the private local backups, select the desired agent version, review
+its saved service and power state, then type **RESTORE**. Older software can
+have defects fixed in the current release. The installer saves the current
+managed files and service state first, restores the selected backup, and
+retains the current identity, key and persistent NIC WOL. A saved interface
+pin can be restored. Unrecorded optional files stay unchanged. Refresh the
+existing SmartThings device and test it before upgrading again. Use `-recover`
+only for an interrupted operation. Local backups are not release signatures.
+CLI users can review `cli backups` and then use `cli restore --backup NAME
+--backup-digest DIGEST --confirm RESTORE` with the selected digest.

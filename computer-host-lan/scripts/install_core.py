@@ -636,7 +636,7 @@ def run_cli(argv=None) -> int:
                         help='read-only root journal diagnostic')
     action.add_argument('--check-existing', action='store_true',
                         help='read-only v1/v2 coexistence guard; no root needed')
-    action.add_argument('--rollback', type=Path, help='historical restoration not supported')
+    action.add_argument('--rollback', type=Path, help='retired; use the verified installer with -restore or cli backups and cli restore')
     action.add_argument('--uninstall', action='store_true', help='retired; use verified release installer')
     parser.add_argument('--source', type=Path)
     parser.add_argument('--python', dest='python_bin')
@@ -647,7 +647,7 @@ def run_cli(argv=None) -> int:
                         help='retired; use protected installer with explicit reuse consent')
     args = parser.parse_args(argv)
     if args.install or args.uninstall or args.rollback is not None:
-        raise InstallError('Legacy mutation disabled; use the independently verified release installer wizard/CLI. Historical restore is not supported; preserve backups and seek recovery guidance.')
+        raise InstallError('Legacy mutation disabled; use the independently verified release installer wizard/CLI. For historical restore, use -restore or cli backups followed by cli restore. Preserve your backups; -recover is only for interrupted transactions.')
     if args.adopt_retained_state:
         raise InstallError(
             'Legacy adoption is disabled. Use the protected installer with explicit '

@@ -33,6 +33,7 @@ ASSETS = {
     'scripts/installer_transaction.py': 0o644,
     'scripts/credential_continuity.py': 0o644,
     'scripts/retained_state_eligibility.py': 0o644,
+    'scripts/historical_snapshot.py': 0o644,
     'scripts/persistent_wol.py': 0o644,
     'scripts/wol_ownership.py': 0o644,
     'scripts/payload_staging.py': 0o644,

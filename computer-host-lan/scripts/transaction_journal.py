@@ -33,7 +33,7 @@ _LOCK_RETRY_SECONDS = 0.025
 _PHASES = ('INSPECTED', 'STAGED', 'SNAPSHOTTED', 'APPLYING',
            'ACTIVATING', 'VERIFYING', 'COMMITTED')
 _TERMINAL = frozenset(('COMMITTED', 'ABORTED', 'ROLLED_BACK'))
-_OPERATIONS = frozenset(('install', 'upgrade', 'repair', 'uninstall'))
+_OPERATIONS = frozenset(('install', 'upgrade', 'repair', 'uninstall', 'restore'))
 _SNAPSHOT = re.compile(r'snapshot-[A-Za-z0-9_-]{6,64}\Z')
 _TXID = re.compile(r'[0-9a-f]{32}\Z')
 _DIR_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
