@@ -177,3 +177,43 @@ failed commands still raise. Added zero-flags restoration and failed-query
 regressions. The full real round-trip including zero restoration is pending
 CI on the corrected head; no physical wake or netplan acceptance implied.
 Jobs: 139865220471 and 139865195723.
+
+
+### Controller integration increment (draft)
+
+The internal InstallRequest.wol_plan_digest field binds a reviewed plan to
+root re-inspection. It is deliberately not accepted by the public request
+router yet. The schema-1 snapshot records the intended change and boot ID.
+The controller applies WOL only after managed-file/service and credential
+verification, before COMMITTED. A root-private per-adapter record is
+published before mutation and confirmed after persistent verification,
+before runtime mutation. On rollback, a missing record means the WOL step
+was not reached; an unconfirmed changed value or colliding link fails closed.
+Confirmed links require the planned text and original inode; same-boot
+rollback checks the interface MAC and ifindex. After reboot rollback restores
+persistent policy without rewriting current runtime state. Normal uninstall
+does not touch the record. Existing records are never overwritten by a
+second configure; changed profiles, uncertain state, and reconfiguration
+requiring explicit removal are refused. The public consent flow, explicit
+removal, runtime-only record lifecycle, recovery ergonomics and additional
+fixture/physical tests remain required before activation.
+
+### Engine review follow-up
+
+Optional WOL rollback errors (WolError or filesystem OSError) no longer
+block verified managed-file/service rollback. The protected WOL ownership
+record is left untouched by the controller on failure. A completed rollback
+returns the fixed optional boolean wol_review_required in the privileged
+JSON/CLI and a manual-check warning in the interactive installer. No raw
+network error or private adapter/profile identity is serialized. Ordinary
+agent recovery/credential checks still gate terminal rollback. If the process
+loses its reply after terminal cleanup, the unresolved ownership record is
+still the evidence; the later Configure/Remove UI must surface it. No new
+journal fields or recovery subsystem.
+
+The user-visible follow-up is limited to approval of visible policy fields
+(or a privileged read-only preview), wizard and CLI keep/configure/leave,
+explicit removal, and actionable existing-ownership guidance. Default Keep
+on upgrade/repair; defer runtime-only lifecycle and existing-link reconfigure
+beyond parity unless required for physical acceptance. No public activation
+in this engine PR.

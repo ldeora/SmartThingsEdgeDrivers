@@ -181,6 +181,90 @@ class InstallerBackendTests(unittest.TestCase):
         token.chmod(0o600)
         return target, token
 
+    def test_internal_wol_plan_is_applied_after_verification(self):
+        intent = {"fixture": "WOL intent"}
+        calls = []
+
+        def prepare(interface, digest, transaction):
+            calls.append(("prepare", self.store.public_status()["privileged_transaction_state"]))
+            self.assertEqual(interface, "enp1s0")
+            return intent
+
+        def apply(value, transaction):
+            self.assertEqual(value, intent)
+            calls.append(("apply", self.services.states.copy()))
+            snapshot = next((self.root / core.BACKUP_BASE.lstrip("/")).glob("snapshot-*"))
+            data = json.loads((snapshot / "manifest.json").read_text())
+            self.assertEqual(data["previous"]["persistent_wol"], intent)
+
+        with mock.patch.object(self.backend._wol, "prepare", side_effect=prepare), \
+                mock.patch.object(self.backend._wol, "apply", side_effect=apply):
+            result = self.backend.run(self.request(wol_interface="enp1s0",
+                                                   wol_plan_digest="a" * 64),
+                                      ROOT, self.hashes)
+        self.assertEqual(result.status, "installed")
+        self.assertEqual([x[0] for x in calls], ["prepare", "apply"])
+
+    def test_internal_wol_failure_uses_existing_rollback(self):
+        intent = {"fixture": "WOL intent"}
+        with mock.patch.object(self.backend._wol, "prepare", return_value=intent), \
+                mock.patch.object(self.backend._wol, "apply", side_effect=RuntimeError("fixture failure")), \
+                mock.patch.object(self.backend._wol, "rollback") as rollback:
+            with self.assertRaises(installer.ControllerError) as caught:
+                self.backend.run(self.request(wol_interface="enp1s0",
+                                              wol_plan_digest="a" * 64),
+                                 ROOT, self.hashes)
+        self.assertEqual(caught.exception.code, "rolled_back")
+        rollback.assert_called_once()
+        self.assertEqual(rollback.call_args.args[0], intent)
+        self.assertEqual(self.store.public_status()["privileged_transaction_state"], "none")
+
+    def test_wol_rollback_conflict_does_not_strand_agent(self):
+        target, token = self.continuity_fixture()
+        original_token = token.read_bytes()
+        intent = {"fixture": "WOL intent"}
+        with mock.patch.object(self.backend._wol, "prepare", return_value=intent), \
+                mock.patch.object(self.backend._wol, "apply", side_effect=installer.WolError("apply failed")), \
+                mock.patch.object(self.backend._wol, "rollback", side_effect=installer.WolError("private conflict")):
+            with self.assertRaises(installer.ControllerError) as caught:
+                self.backend.run(self.request("upgrade", wol_interface="enp1s0",
+                                              wol_plan_digest="a" * 64), ROOT, self.hashes)
+        self.assertEqual(caught.exception.code, "rolled_back")
+        self.assertTrue(caught.exception.wol_review_required)
+        self.assertNotIn("private conflict", str(caught.exception))
+        self.assertEqual(target.read_text(), "ORIGINAL-UNIT-CONTENTS")
+        self.assertEqual(token.read_bytes(), original_token)
+        self.assertEqual(self.services.restore_calls, 1)
+        self.assertEqual(self.store.public_status()["privileged_transaction_state"], "none")
+        self.assertEqual(self.backend.recover_interrupted().status, "nothing_to_recover")
+        # The ordinary upgrade remains available (no WOL request).
+        self.assertEqual(self.backend.run(self.request("upgrade"), ROOT, self.hashes).status,
+                         "installed")
+
+    def test_interrupted_wol_conflict_does_not_strand_agent(self):
+        old, original, _ = self._simulate_crash_at(
+            "VERIFYING", wol_intent={"fixture": "WOL intent"})
+        with mock.patch.object(self.backend._wol, "rollback",
+                               side_effect=OSError("private network path")):
+            result = self.backend.recover_interrupted()
+        self.assertEqual(result.status, "rolled_back")
+        self.assertTrue(result.wol_review_required)
+        self.assertEqual(old.read_bytes(), original)
+        self.assertEqual(self.services.restore_calls, 1)
+        self.assertEqual(self.store.public_status()["privileged_transaction_state"], "none")
+        self.assertEqual(self.backend.recover_interrupted().status, "nothing_to_recover")
+
+    def test_wol_warning_never_masks_agent_recovery_failure(self):
+        self._simulate_crash_at("VERIFYING", wol_intent={"fixture": "WOL intent"})
+        self.services.fail_restore = True
+        with mock.patch.object(self.backend._wol, "rollback",
+                               side_effect=installer.WolError("fixture conflict")):
+            with self.assertRaises(installer.ControllerError) as caught:
+                self.backend.recover_interrupted()
+        self.assertEqual(caught.exception.code, "recovery_required")
+        self.assertFalse(caught.exception.wol_review_required)
+        self.assertEqual(self.store.public_status()["privileged_transaction_state"], "recovery_required")
+
     def test_continuity_rejects_token_rewrite_during_active_upgrade(self):
         target, token = self.continuity_fixture()
         activate = self.services.activate
@@ -1887,7 +1971,7 @@ class InstallerBackendTests(unittest.TestCase):
                 power_enabled=True, transaction=self.installed_paths()))
         ops.health_probe.assert_not_called()
 
-    def _simulate_crash_at(self, phase, *, fresh=False):
+    def _simulate_crash_at(self, phase, *, fresh=False, wol_intent=None):
         """Create an authentic, protected journal/stage/snapshot then exit.
 
         The test process does NOT fork or execute a real installer; closing
@@ -1910,6 +1994,8 @@ class InstallerBackendTests(unittest.TestCase):
                 if phase == 'STAGED':
                     return (old, original, None)
                 previous = self.services.capture_previous(trans)
+                if wol_intent is not None:
+                    previous['persistent_wol'] = wol_intent
                 source = receipt.verified_source_path(self.hashes)
                 plan = core.generate_plan(source, '/usr/bin/python3',
                                           enable_power=False, disable_power=False,

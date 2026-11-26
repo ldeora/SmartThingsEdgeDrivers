@@ -28,6 +28,8 @@ import install_core as core
 import payload_staging as staging
 import runtime_verify
 import credential_continuity as continuity
+import wol_ownership
+from persistent_wol import WolError
 from transaction_journal import ProtectedJournal, JournalConflict, _staged_payload_remains
 
 _MANUAL_LOCK = Path('/run/lock/linux-host-agent-install.lock')
@@ -46,7 +48,8 @@ class ControllerError(RuntimeError):
     """All user-facing errors are fixed, sanitized codes."""
 
     def __init__(self, code: str, *, failure_stage: str | None = None,
-                 credential_result: continuity.Result = continuity.Result()):
+                 credential_result: continuity.Result = continuity.Result(),
+                 wol_review_required: bool = False):
         if code not in ('invalid_request', 'installation_busy', 'aborted',
                         'rolled_back', 'recovery_required',
                         'unsupported_environment', 'adoption_required',
@@ -65,6 +68,7 @@ class ControllerError(RuntimeError):
         super().__init__(message)
         self.code = code
         self.credential_result = credential_result
+        self.wol_review_required = (code == 'rolled_back' and wol_review_required is True)
         # Only a fixed pre-apply stage can appear in the public JSON.
         # No filesystem paths, source data, UUIDs or exception strings.
         self.failure_stage = (failure_stage
@@ -82,6 +86,8 @@ class InstallRequest:
     disable_power: bool = False
     wol_interface: str | None = None
     port: int = 8765
+    # Internal only until the public preview/approval flow is implemented.
+    wol_plan_digest: str | None = None
 
     def validate(self) -> None:
         if type(self.operation) is not str or self.operation not in _ALLOWED_OPS:
@@ -114,6 +120,10 @@ class InstallRequest:
             self.wol_interface in ('.', '..')
         ):
             raise ControllerError('invalid_request')
+        if self.wol_plan_digest is not None and (
+                self.wol_interface is None or not isinstance(self.wol_plan_digest, str)
+                or not re.fullmatch(r'[0-9a-f]{64}', self.wol_plan_digest)):
+            raise ControllerError('invalid_request')
         if self.port != 8765 or type(self.port) is not int:
             raise ControllerError('invalid_request')
 
@@ -140,6 +150,7 @@ class RecoveryOutcome:
     status: str       # aborted, rolled_back, cleaned
     previous_phase: str | None = None
     operation: str | None = None  # fixed journal operation, never an identifier
+    wol_review_required: bool = False
 
     @property
     def credential_result(self):
@@ -893,6 +904,7 @@ class InstallerBackend:
         self.owner_uid = owner_uid
         self.manual_lock_path = Path(manual_lock_path)
         self.services = services if services is not None else SystemdOperations()
+        self._wol = wol_ownership.Ownership(root=self.root, owner_uid=self.owner_uid)
 
     def _observe_credentials(self):
         # Live account resolution cannot be provided by the caller. Tests
@@ -1019,12 +1031,13 @@ class InstallerBackend:
                     if phase == 'COMMITTED':
                         return UninstallOutcome('uninstalled_cleanup_required',
                                                 identity_state, credential_check.result)
+                    wol_review_required = False
                     if phase in _PREAPPLY:
                         journal.abort(lambda _: True)
                         outcome = 'aborted'
                     elif phase in _APPLIED and backup is not None and previous is not None:
-                        self._restore_snapshot(journal, transaction, backup,
-                                               credential_check=credential_check)
+                        wol_review_required = self._restore_snapshot(
+                            journal, transaction, backup, credential_check=credential_check)
                         outcome = 'rolled_back'
                     else:
                         raise ControllerError('recovery_required')
@@ -1038,6 +1051,7 @@ class InstallerBackend:
                 raise ControllerError(
                     outcome,
                     failure_stage=failure_stage if outcome == 'aborted' else None,
+                    wol_review_required=wol_review_required,
                     credential_result=(credential_check.result if credential_check.failed or outcome == 'rolled_back'
                                        else continuity.Result())
                 ) from None
@@ -1095,6 +1109,12 @@ class InstallerBackend:
                 power_enabled = request.enable_power or (
                     existing_power and not request.disable_power)
                 failure_stage = 'plan'
+                if request.wol_plan_digest is not None:
+                    intent = self._wol.prepare(request.wol_interface,
+                                               request.wol_plan_digest,
+                                               journal._record()['transaction_id'])
+                    if intent is not None:
+                        previous['persistent_wol'] = intent
                 changes = core.generate_plan(
                     verified_source, request.python_bin,
                     enable_power=request.enable_power,
@@ -1133,6 +1153,11 @@ class InstallerBackend:
                 ) is not True:
                     raise ControllerError('recovery_required')
                 credential_check.verify(journal, allow_new=True)
+                # Apply WOL last, with the durable before-state already
+                # captured. An exception takes the same rollback path.
+                if 'persistent_wol' in previous:
+                    self._wol.apply(previous['persistent_wol'],
+                                    journal._record()['transaction_id'])
                 journal.advance('VERIFYING', 'COMMITTED')
             except Exception:
                 # If a durable COMMITTED record was written before an fsync
@@ -1145,13 +1170,14 @@ class InstallerBackend:
                                               identity_state if previous is not None and
                                               'identity_state' in locals() else 'not_verified',
                                               credential_result=credential_check.result)
+                    wol_review_required = False
                     if phase in _PREAPPLY:
                         # This controller has not touched managed targets.
                         journal.abort(lambda _: True)
                         outcome = 'aborted'
                     elif phase in _APPLIED and backup is not None and previous is not None:
-                        self._restore_snapshot(journal, transaction, backup,
-                                               credential_check=credential_check)
+                        wol_review_required = self._restore_snapshot(
+                            journal, transaction, backup, credential_check=credential_check)
                         outcome = 'rolled_back'
                     else:
                         raise ControllerError('recovery_required')
@@ -1168,6 +1194,7 @@ class InstallerBackend:
                 raise ControllerError(
                     outcome,
                     failure_stage=failure_stage if outcome == 'aborted' else None,
+                    wol_review_required=wol_review_required,
                     credential_result=(credential_check.result if credential_check.failed or outcome == 'rolled_back'
                                        else continuity.Result())
                 ) from None
@@ -1191,7 +1218,7 @@ class InstallerBackend:
     def _restore_snapshot(self, journal, transaction: core.InstallTransaction,
                           backup: Path, *,
                           journal_owned_fresh_install: bool = False,
-                          credential_check: continuity.Check | None = None) -> None:
+                          credential_check: continuity.Check | None = None) -> bool:
         """Restore and durably verify the snapshot before marking rollback complete.
 
         Only explicit recovery of the protected APPLYING+ journal may use
@@ -1225,11 +1252,24 @@ class InstallerBackend:
                     self.services.verify_restored_services(restored) is True and
                     (not restored['first_install'] or
                      _enablement_absent(transaction)))
+        wol_review_required = False
+        if 'persistent_wol' in previous:
+            try:
+                self._wol.rollback(previous['persistent_wol'],
+                                   journal._record()['transaction_id'])
+            except (WolError, OSError):
+                # Optional network policy must not strand managed recovery.
+                # Preserve unresolved ownership evidence and do not retry
+                # destructive WOL compensation automatically. The agent's
+                # own file/service/credential verification still gates
+                # the terminal record; never report an unverified rollback.
+                wol_review_required = True
         if credential_check is not None:
             # Even after a known mismatch, perform the authorized managed
             # restoration above; never report terminal rollback success.
             credential_check.verify(journal, allow_new=True)
         journal.mark_rolled_back(lambda _: verified)
+        return wol_review_required
 
     def _recover_locked(self, journal, transaction: core.InstallTransaction) -> RecoveryOutcome:
         """Resolve a durable nonterminal transaction, never resume an install.
@@ -1260,12 +1300,13 @@ class InstallerBackend:
                 (self.root == Path('/') and backup_base.stat().st_uid != 0)):
             raise ControllerError('recovery_required')
         backup = backup_base / snapshot_name
-        self._restore_snapshot(journal, transaction, backup,
-                               journal_owned_fresh_install=True)
+        wol_review_required = self._restore_snapshot(
+            journal, transaction, backup, journal_owned_fresh_install=True)
         staging.finish_terminal_stage(journal, root=self.root,
                                       owner_uid=self.owner_uid)
         journal.clear_finished()
-        return RecoveryOutcome('rolled_back', phase, operation)
+        return RecoveryOutcome('rolled_back', phase, operation,
+                               wol_review_required=wol_review_required)
 
     def recover_interrupted(self) -> RecoveryOutcome:
         """Explicitly recover after power loss, SIGKILL or helper crash.

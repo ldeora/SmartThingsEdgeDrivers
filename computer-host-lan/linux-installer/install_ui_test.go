@@ -263,6 +263,25 @@ func TestUninstallCleanupAndRollbackMessages(t *testing.T) {
 	}
 }
 
+func TestWOLReviewWarningSurvivesRecoveryReply(t *testing.T) {
+	reply, err := validatedPrivilegedReply([]byte(`{"schema_version":1,"status":"passed","operation":"recover","recovery_status":"rolled_back","wol_review_required":true,"secrets_included":false}`), "recover")
+	if err != nil || !reply.WOLReviewRequired {
+		t.Fatalf("Missing WOL review warning: %+v (%v)", reply, err)
+	}
+	var out bytes.Buffer
+	showRecoveryOutcome(&out, reply)
+	if !strings.Contains(out.String(), "Wake-on-LAN setting needs a manual check") {
+		t.Fatal(out.String())
+	}
+	reply, err = validatedPrivilegedReply([]byte(`{"schema_version":1,"status":"error","error_code":"rolled_back","wol_review_required":true,"secrets_included":false}`), "upgrade")
+	if err != nil || !reply.WOLReviewRequired || !strings.Contains(userFacingPrivilegeFailure(reply).Error(), "previous agent files and service state were restored") {
+		t.Fatalf("Missing rollback warning: %+v (%v)", reply, err)
+	}
+	if _, err := validatedPrivilegedReply([]byte(`{"schema_version":1,"status":"passed","operation":"status","wol_review_required":true,"secrets_included":false}`), "status"); err == nil {
+		t.Fatal("Accepted unrelated WOL warning on status")
+	}
+}
+
 func TestConfirmationDoesNotConsumeTypedAheadInput(t *testing.T) {
 	for _, word := range []string{"INSTALL", "UNINSTALL", "RECOVER"} {
 		reader := strings.NewReader(word + "\nnext-line\n")

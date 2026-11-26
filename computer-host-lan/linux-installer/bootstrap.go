@@ -56,6 +56,7 @@ type privilegedResult struct {
 	ControlTokenContinuity     string `json:"control_token_continuity,omitempty"`
 	CredentialContinuity       string `json:"credential_continuity,omitempty"`
 	ContinuityReason           string `json:"continuity_reason,omitempty"`
+	WOLReviewRequired          bool   `json:"wol_review_required,omitempty"`
 	SecretsIncluded            bool   `json:"secrets_included"`
 }
 

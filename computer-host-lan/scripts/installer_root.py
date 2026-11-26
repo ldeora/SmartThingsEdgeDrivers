@@ -35,6 +35,8 @@ _TRUSTED_MODULES = (
     'installer-entry.sh',
     'installer_transaction.py',
     'credential_continuity.py',
+    'persistent_wol.py',
+    'wol_ownership.py',
     'install_core.py',
     'payload_staging.py',
     'transaction_journal.py',
@@ -233,6 +235,8 @@ def dispatch(request: dict, trusted_manifest: dict, *, backend, journal,
         if done.operation in ('install', 'upgrade', 'repair', 'uninstall'):
             result['recovery_operation'] = done.operation
         result.update(done.credential_result.public())
+        if done.wol_review_required is True:
+            result['wol_review_required'] = True
         return result
     # The installed root-owned shell has already selected and version-checked
     # this executable from fixed system paths. sys.executable is *not*
@@ -316,6 +320,8 @@ def main(argv=None) -> int:
                     'key and backups; do not delete or regenerate them. '
                     'Seek recovery guidance before retrying.'
                     if exc.code == 'adoption_required' else None))
+            if exc.wol_review_required:
+                envelope['wol_review_required'] = True
             if exc.code == 'aborted' and exc.failure_stage is not None:
                 envelope['failure_stage'] = exc.failure_stage
             if request['action'] == 'recover':

@@ -291,6 +291,10 @@ func validatedPrivilegedReply(data []byte, action string) (privilegedResult, err
 		reply.RecoveryStatus == "" || reply.RecoveryStatus == "nothing_to_recover") {
 		return privilegedResult{}, errors.New("unexpected recovery operation")
 	}
+	if reply.WOLReviewRequired && !((action == "recover" && reply.Status == "passed" && reply.RecoveryStatus == "rolled_back") ||
+		(action != "status" && action != "recover" && reply.Status == "error" && reply.ErrorCode == "rolled_back")) {
+		return privilegedResult{}, errors.New("unexpected WOL review outcome")
+	}
 	if !validateContinuityReply(&reply, action) {
 		return privilegedResult{}, errors.New("invalid credential continuity outcome")
 	}
@@ -338,6 +342,9 @@ func userFacingPrivilegeFailure(reply privilegedResult) error {
 	case "unsafe_lock":
 		return errors.New("an installer lock is unsafe. After confirming no installation or recovery is running, ask an administrator to inspect /run/lock/linux-host-agent-install.lock and /run/computer-host-lan/bootstrap.lock; do not delete lock files during an active installation")
 	case "rolled_back":
+		if reply.WOLReviewRequired {
+			return errors.New("previous agent files and service state were restored. The Wake-on-LAN setting needs a manual check; preserve the WOL ownership record and ask an administrator to review it. Do not repeat recovery for WOL alone")
+		}
 		if reply.Operation == "uninstall" {
 			return errors.New("uninstall was undone; previous files and service state were restored. Check prerequisites and run -uninstall again if desired")
 		}
@@ -709,6 +716,9 @@ func runUninstallWizard(reader io.Reader, writer io.Writer, method string) error
 func showRecoveryOutcome(writer io.Writer, response privilegedResult) {
 	fmt.Fprintln(writer, "Recovery outcome:", response.RecoveryStatus)
 	showCredentialContinuity(writer, response)
+	if response.WOLReviewRequired {
+		fmt.Fprintln(writer, "The agent was restored. The Wake-on-LAN setting needs a manual check; preserve the WOL ownership record and ask an administrator to review it. Do not repeat recovery for WOL alone.")
+	}
 	switch response.RecoveryStatus {
 	case "nothing_to_recover":
 		fmt.Fprintln(writer, "No protected transaction needs recovery.")
