@@ -163,7 +163,7 @@ class InstalledProtocolTests(unittest.TestCase):
         secret = self.put('/var/lib/linux-host-agent/control-token', b'UNCHANGED')
         self.assertEqual(self.classify(), 'unknown')
         with self.assertRaisesRegex(
-                core.InstallError, 'not supported in v1.0') as error:
+                core.InstallError, 'explicitly confirm reuse') as error:
             core.require_v2_or_clean(self.root)
         self.assertIn('Preserve the retained state', str(error.exception))
         self.assertEqual(core.require_v2_or_clean(

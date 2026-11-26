@@ -1866,12 +1866,97 @@ class InstallerBackendTests(unittest.TestCase):
         with self.assertRaises(installer.ControllerError) as caught:
             self.backend.run(self.request(), ROOT, self.hashes)
         self.assertEqual(caught.exception.code, 'adoption_required')
-        self.assertIn('not supported in v1.0', str(caught.exception))
+        self.assertIn('Reuse requires explicit consent', str(caught.exception))
         self.assertIn('Preserve the retained state', str(caught.exception))
         core.write_owner_record(self.root)  # Provenance from an earlier v2 install.
         self.assertEqual(self.backend.run(self.request(), ROOT, self.hashes).status,
                          'installed')
         self.assertEqual(private.read_text(), UUID + '\n')
+
+    def retained_rc2_fixture(self):
+        # Reproduce the rc.2 uninstall snapshot shape: no installer_protocol
+        # marker and a complete managed-file before-state, no credentials.
+        self.existing_install()
+        state = self.root / 'var/lib/linux-host-agent'
+        key = state / 'control-token'
+        key.write_text('a9' * 32 + '\n')
+        key.chmod(0o600)
+        trans = self.installed_paths()
+        changes = [core.Change(path, None) for path in sorted(core.MANAGED_PATHS)]
+        backup = trans.snapshot(changes, previous=self.services.original)
+        manifest = backup / 'manifest.json'
+        data = json.loads(manifest.read_text())
+        data.pop('installer_protocol', None)
+        manifest.write_text(json.dumps(data))
+        trans.apply(changes)
+        self.services = FakeSystemd()
+        self.backend.services = self.services
+        return state, backup
+
+    def test_reuse_rc2_uninstall_preserves_identity_and_key(self):
+        import retained_state_eligibility as adoption
+        state, backup = self.retained_rc2_fixture()
+        original = {p.name: (p.read_bytes(), p.stat().st_ino, p.stat().st_mtime_ns)
+                    for p in state.iterdir()}
+        with mock.patch.object(adoption, '_account', return_value=(self.uid, os.getegid())):
+            with self.assertRaises(installer.ControllerError) as caught:
+                self.backend.run(self.request(), ROOT, self.hashes)
+            self.assertEqual(caught.exception.code, 'adoption_required')
+            result = self.backend.run(self.request(reuse_retained=True), ROOT, self.hashes)
+        self.assertEqual(result.status, 'installed')
+        self.assertEqual(result.identity_preserved, 'verified')
+        self.assertEqual(result.credential_result.public()['credential_continuity'], 'verified')
+        self.assertEqual(self.services.received_request.expected_identity, UUID)
+        self.assertEqual(original, {p.name: (p.read_bytes(), p.stat().st_ino, p.stat().st_mtime_ns)
+                                    for p in state.iterdir()})
+        self.assertTrue(core.owner_record_exists(self.root))
+        self.assertTrue(backup.is_dir())
+        self.assertEqual(self.store.public_status()['privileged_transaction_state'], 'none')
+
+    def test_reuse_refuses_invalid_state_or_backup_before_mutation(self):
+        import retained_state_eligibility as adoption
+        state, backup = self.retained_rc2_fixture()
+        key = state / 'control-token'
+        original = key.read_bytes()
+        with mock.patch.object(adoption, '_account', return_value=(self.uid, os.getegid())):
+            key.chmod(0o644)
+            with self.assertRaises(installer.ControllerError) as caught:
+                self.backend.run(self.request(reuse_retained=True), ROOT, self.hashes)
+            self.assertEqual(caught.exception.code, 'adoption_required')
+            key.chmod(0o600)
+            manifest = backup / 'manifest.json'
+            data = json.loads(manifest.read_text())
+            agent = next(item for item in data['items'] if item['path'] == core.APP_FILES[0])
+            (backup / agent['file']).write_text('PROTOCOL = "linux-host-agent"\n')
+            with self.assertRaises(installer.ControllerError) as caught:
+                self.backend.run(self.request(reuse_retained=True), ROOT, self.hashes)
+            self.assertEqual(caught.exception.code, 'adoption_required')
+        self.assertEqual(key.read_bytes(), original)
+        self.assertFalse(core.owner_record_exists(self.root))
+        self.assertEqual(self.services.user_preflights, 0)
+        self.assertEqual(self.store.public_status()['privileged_transaction_state'], 'none')
+
+    def test_reuse_refuses_clean_host(self):
+        with self.assertRaises(installer.ControllerError) as caught:
+            self.backend.run(self.request(reuse_retained=True), ROOT, self.hashes)
+        self.assertEqual(caught.exception.code, 'invalid_request')
+        self.assertFalse(core.owner_record_exists(self.root))
+
+    def test_reuse_failed_activation_rolls_back_without_resetting_credentials(self):
+        import retained_state_eligibility as adoption
+        state, _ = self.retained_rc2_fixture()
+        original = {p.name: p.read_bytes() for p in state.iterdir()}
+        self.services.fail_verify = True
+        with mock.patch.object(adoption, '_account', return_value=(self.uid, os.getegid())):
+            with self.assertRaises(installer.ControllerError) as caught:
+                self.backend.run(self.request(reuse_retained=True), ROOT, self.hashes)
+        self.assertEqual(caught.exception.code, 'rolled_back')
+        self.assertEqual(original, {p.name: p.read_bytes() for p in state.iterdir()})
+        self.assertFalse(self.installed_paths().location(core.APP_FILES[0]).exists())
+        self.assertEqual(self.store.public_status()['privileged_transaction_state'], 'none')
+        # The validated v2 owner marker permits an ordinary retry.
+        self.services.fail_verify = False
+        self.assertEqual(self.backend.run(self.request(), ROOT, self.hashes).status, 'installed')
 
     def test_manual_installer_guard_refuses_after_wizard_crash(self):
         self.assertEqual(core.require_no_wizard_transaction(

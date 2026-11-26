@@ -47,12 +47,13 @@ type apiInspect struct {
 		DaemonState       string `json:"daemon_state"`
 	} `json:"avahi"`
 	Installation struct {
-		Detected            bool   `json:"detected"`
-		ServiceFile         string `json:"service_file"`
-		PowerDropin         string `json:"power_dropin"`
-		AvahiServiceFile    string `json:"avahi_service_file"`
-		AgentServiceState   string `json:"agent_service_state"`
-		AgentServiceEnabled string `json:"agent_service_enabled"`
+		Detected             bool   `json:"detected"`
+		RetainedStatePresent bool   `json:"retained_state_present,omitempty"`
+		ServiceFile          string `json:"service_file"`
+		PowerDropin          string `json:"power_dropin"`
+		AvahiServiceFile     string `json:"avahi_service_file"`
+		AgentServiceState    string `json:"agent_service_state"`
+		AgentServiceEnabled  string `json:"agent_service_enabled"`
 	} `json:"installation"`
 	PrivilegedTransactionState string `json:"privileged_transaction_state"`
 	IdentityPreserved          string `json:"identity_preserved"`
@@ -743,7 +744,7 @@ func newLiveSelectionWithNIC(api apiClient, info apiInspect, hubs []discoveredHu
 	// The suggested NIC is already checked for physical wired Ethernet.
 	// An ordinary user may be unable to query ethtool; don't require
 	// that privilege-dependent observation to select the useful default.
-	s.wolChoice = defaultWOLChoice(info.Installation.Detected, s.wolNIC)
+	s.wolChoice = defaultWOLChoice(info.Installation.Detected || info.Installation.RetainedStatePresent, s.wolNIC)
 	return s
 }
 

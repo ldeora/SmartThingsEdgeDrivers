@@ -106,6 +106,18 @@ class RootProtocolTests(unittest.TestCase):
         self.assertEqual(response["status"], "installed")
         self.assertEqual(response["wol_status"], "unsupported")
 
+    def test_reuse_authorization_is_install_only_and_literal_true(self):
+        req = self.parse(reuse_retained=True)
+        bridge.dispatch(req, self.manifest, backend=self.backend,
+                        journal=self.journal, selected_python='/usr/bin/python3')
+        self.assertIs(self.backend.calls[-1][0].reuse_retained, True)
+        for value in (False, None, 1, 'true', 'REUSE'):
+            with self.assertRaises(bridge.RequestError):
+                self.parse(reuse_retained=value)
+        for action in ('upgrade', 'repair'):
+            with self.assertRaises(bridge.RequestError):
+                self.parse(action=action, reuse_retained=True)
+
     def test_valid_install_upgrade_repair_and_previews(self):
         for action in ('install', 'upgrade', 'repair'):
             for power in ('preserve', 'enable', 'disable'):

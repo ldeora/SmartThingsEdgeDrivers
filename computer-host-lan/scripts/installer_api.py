@@ -194,6 +194,8 @@ def inspection(*, root: Path = Path('/'), check_services: bool = True,
         },
         'installation': {
             'detected': unit_state == 'present',
+            'retained_state_present': (unit_state == 'absent' and
+                                       os.path.lexists(root / 'var/lib/linux-host-agent')),
             'service_file': unit_state,
             'power_dropin': power_state,
             'avahi_service_file': avahi_state,

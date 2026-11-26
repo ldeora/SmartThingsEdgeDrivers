@@ -503,3 +503,59 @@ func TestUnknownWOLCompletion(t *testing.T) {
 		t.Fatal("Unrelated operation accepted unknown WOL warning")
 	}
 }
+
+func TestRetainedStateRequiresExplicitReuseConsent(t *testing.T) {
+	inspect := strings.Replace(fixtureInspect, `"detected":true`, `"detected":false,"retained_state_present":true`, 1)
+	plan := strings.Replace(fixturePlan, `"secrets_included":false`, `"retained_state_candidate":true,"secrets_included":false`, 1)
+	client := scriptClient(t, `#!/bin/sh
+case "$1" in
+inspect) printf '%s\n' '`+inspect+`' ;;
+plan) printf '`+plan+`\n' preserve false ;;
+*) exit 2 ;;
+esac
+`)
+	info, err := client.inspect()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := newLiveSelectionWithNIC(client, info, nil, func(string) string { return "LAN0" })
+	if s.wolChoice != "keep" || s.installConfirmation() != "REUSE" || !strings.Contains(s.installPreview(), "Retained installation data found") {
+		t.Fatal("Retained state was not disclosed or WOL was not preserved")
+	}
+	for _, tc := range []struct {
+		input string
+		want  bool
+	}{
+		{"s\nk\nk\nINSTALL\nquit\n", false},
+		{"s\nk\nk\nREUSE\n", true},
+		{"s\nk\nk\nREUSE", false},
+	} {
+		var output bytes.Buffer
+		called := false
+		err := runLiveAccessibleWithHubsMode(strings.NewReader(tc.input), &output, client, info, nil, true, func(s *liveSelection) error {
+			called = true
+			req, err := approvedRootRequest(s)
+			if err != nil || req.Action != "install" || !req.ReuseRetained {
+				t.Fatalf("Consent missing: %+v (%v)", req, err)
+			}
+			return nil
+		})
+		if err != nil || called != tc.want {
+			t.Fatalf("Wrong reuse confirmation result: %v, %v, %s", called, err, output.String())
+		}
+	}
+	for _, word := range []string{"INSTALL", "REUSE"} {
+		o, err := parseCLI([]string{"install", "--confirm", word})
+		if err != nil {
+			t.Fatal(err)
+		}
+		req, err := cliInstallRequest(o, client, info)
+		if word == "REUSE" {
+			if err != nil || !req.ReuseRetained {
+				t.Fatalf("CLI REUSE missing: %+v (%v)", req, err)
+			}
+		} else if err == nil {
+			t.Fatal("CLI INSTALL adopted orphan state")
+		}
+	}
+}
