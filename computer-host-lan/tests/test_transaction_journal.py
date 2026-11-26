@@ -80,6 +80,8 @@ class ProtectedJournalTests(unittest.TestCase):
             pass
         for operation in ('restore', 'adopt'):
             for schema in (1, 2, 3):
+                if operation == 'restore' and schema == 1:
+                    continue  # the narrow production local restore now uses schema 1
                 for phase in ('APPLYING', 'COMMITTED', 'ROLLED_BACK'):
                     with self.subTest(operation=operation, schema=schema, phase=phase):
                         record = dict(self.record(phase=phase, snapshot=SNAPSHOT),

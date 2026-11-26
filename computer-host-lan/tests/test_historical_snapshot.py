@@ -64,6 +64,42 @@ class HistoricalCandidateTests(unittest.TestCase):
         return self.backup / next(item['file'] for item in records
                                   if item['path'] == core.APP_FILES[0])
 
+    def local_inspect(self, name=None):
+        return historical.inspect_local_backup(
+            self.root, name or self.backup.name,
+            owner_uid=os.geteuid(), owner_gid=os.getegid())
+
+    def test_local_backup_selects_v2_and_binds_bytes(self):
+        summary, _ = self.local_inspect()
+        self.assertEqual(summary['version'], '0.4.6')
+        self.assertEqual(summary['coverage'], 'complete')
+        self.assertEqual(summary['power'], 'enabled')
+        self.agent_backup().write_bytes(self.agent_backup().read_bytes() + b'# changed\n')
+        self.assertNotEqual(self.local_inspect()[0]['digest'], summary['digest'])
+
+    def test_local_backup_rejects_paths_legacy_modes_links_and_empty_sources(self):
+        for name in ('../snapshot-abcdef', '/tmp/snapshot-abcdef', 'not-a-backup'):
+            with self.assertRaises(historical.SnapshotEligibilityError):
+                self.local_inspect(name)
+        original = self.manifest.read_bytes()
+        for mutate in (
+                lambda data: data['previous'].update(first_install=True),
+                lambda data: data['items'][0].update(mode=0o7777),
+                lambda data: data.update(schema=True),
+                lambda data: data.update(installer_protocol='v1')):
+            self.manifest.write_bytes(original)
+            self.rewrite(mutate)
+            with self.assertRaises(historical.SnapshotEligibilityError):
+                self.local_inspect()
+        self.manifest.write_bytes(original)
+        self.agent_backup().write_bytes(b'PROTOCOL = "linux-host-agent"\nVERSION = "0.4.6"\n')
+        self.assertEqual(historical.list_local_backups(
+            self.root, owner_uid=os.geteuid(), owner_gid=os.getegid()), [])
+        self.agent_backup().write_bytes(self.contents[core.APP_FILES[0]])
+        os.link(self.agent_backup(), self.backup / 'extra')
+        with self.assertRaises(historical.SnapshotEligibilityError):
+            self.local_inspect()
+
     def test_complete_candidate_returns_pinned_bytes_without_writes(self):
         before = {p.name: p.read_bytes() for p in self.backup.iterdir()}
         candidate = self.inspect()
