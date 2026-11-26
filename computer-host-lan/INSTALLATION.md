@@ -58,9 +58,9 @@ Invoke-RestMethod http://127.0.0.1:8765/v2/metrics
 **Version boundary:** the commands below apply only to the immutable
 published rc.2 source ZIP, not a checkout of main or a development source
 archive. Current development source refuses legacy mutation commands.
-An authenticated standalone installer is planned for the next release;
-no attested release is available yet. Do not elevate source scripts or
-substitute an unsigned CI artifact.
+The standalone installer is implemented for rc.3, but its release asset
+and physical qualification are pending. Do not elevate development source
+scripts or substitute an ordinary CI artifact for a versioned release.
 
 Requires Python 3.10+, systemd as PID1, Avahi/mDNS for automatic discovery and administrator rights to install. From the *matching* Computer Host LAN source directory:
 
