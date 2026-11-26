@@ -35,6 +35,10 @@ def parse_nm_value(output):
              "multicast": 8, "broadcast": 16, "arp": 32, "magic": 64,
              "all": 126, "ignore": 32768}
     output = output.strip()
+    # nmcli 1.46.0 renders zero WOL flags as an empty value for a
+    # successful single-property query. Failed commands still raise.
+    if not output:
+        return "0"
     match = re.fullmatch(
         r"(0[xX][0-9a-fA-F]{1,8}|[0-9]{1,10})(?: \([A-Za-z0-9_, -]+\))?",
         output)

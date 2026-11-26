@@ -165,3 +165,15 @@ Backend review follow-ups:
   including generated netplan policies. Ubuntu Server networkd/netplan
   acceptance remains pending.
 - No physical acceptance is inferred from fixture or profile-only smoke.
+
+### Real NetworkManager evidence (2026-11-26)
+
+Both push and PR Python 3.12 jobs on e07662d reached actual Ubuntu 24.04
+NetworkManager 1.46.0 (package 1.46.0-1ubuntu2.9). The smoke completed
+read/modify/restore for default, magic, combined 66 (phy, magic), and
+ignore. The zero-flags query returned an empty string, which the parser
+incorrectly refused. Normalize that successful property result to 0;
+failed commands still raise. Added zero-flags restoration and failed-query
+regressions. The full real round-trip including zero restoration is pending
+CI on the corrected head; no physical wake or netplan acceptance implied.
+Jobs: 139865220471 and 139865195723.

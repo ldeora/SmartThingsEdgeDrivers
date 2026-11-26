@@ -130,13 +130,38 @@ class WolTests(unittest.TestCase):
                               ("magic", "64"), ("64 (magic)", "64"),
                               ("phy, magic", "66"), ("66 (phy, magic)", "66"),
                               ("0x42", "66"), ("ignore", "32768"),
-                              ("none", "0"), ("0", "0"), ("all", "126")):
+                              ("none", "0"), ("0", "0"), ("", "0"), ("all", "126")):
             with self.subTest(raw=raw):
                 self.assertEqual(parse_nm_value(raw), expected)
-        for raw in ("", "unknown", "default,magic", "ignore,magic",
+        for raw in ("unknown", "default,magic", "ignore,magic",
                     "none,magic", "129", "65", "-1", "0x10000"):
             with self.subTest(raw=raw), self.assertRaises(WolError):
                 parse_nm_value(raw)
+
+    def test_nm_zero_flags_roundtrip(self):
+        self.nm = True
+        self.value = ""
+        plan = self.backend.inspect(NIC)
+        self.assertEqual(plan.previous, "0")
+        self.backend.apply(plan)
+        self.assertEqual(self.value, "64")
+        self.backend.restore(plan)
+        self.assertEqual(self.value, "0")
+        self.assertEqual(self.runtime, "d")
+
+    def test_failed_nm_query_not_zero(self):
+        self.nm = True
+        original = self.backend.run
+
+        def failed_query(args):
+            if "802-3-ethernet.wake-on-lan" in args:
+                raise WolError("WOL command failed")
+            return original(args)
+
+        self.backend.run = failed_query
+        with self.assertRaisesRegex(WolError, "command failed"):
+            self.backend.inspect(NIC)
+        self.assertEqual(self.writes, [])
 
     def test_existing_magic_flags_and_runtime_preserved(self):
         self.nm = True
