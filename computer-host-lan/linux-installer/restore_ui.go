@@ -48,10 +48,10 @@ func validBackupReply(reply privilegedResult, action string) bool {
 func runRestoreWizard(reader io.Reader, writer io.Writer, method string) error {
 	return restoreWizard(reader, writer, func(req privilegedRequest) (privilegedResult, error) {
 		return executeAuthorizedBootstrap(req, true, method)
-	})
+	}, installedAgentVersion())
 }
 
-func restoreWizard(reader io.Reader, writer io.Writer, authorize func(privilegedRequest) (privilegedResult, error)) error {
+func restoreWizard(reader io.Reader, writer io.Writer, authorize func(privilegedRequest) (privilegedResult, error), currentVersion string) error {
 	fmt.Fprintln(writer, "Computer Host LAN — Restore a historical backup")
 	fmt.Fprintln(writer, "Administrator authorization is needed to list local private backups. Listing does not restore agent files.")
 	reply, err := authorize(privilegedRequest{SchemaVersion: 2, Action: "backups"})
@@ -72,7 +72,7 @@ func restoreWizard(reader io.Reader, writer io.Writer, authorize func(privileged
 		fmt.Fprintln(writer, "No suitable installed-state v2 backups were found.")
 		return nil
 	}
-	fmt.Fprintln(writer, "Installed agent file version (not runtime-verified):", installedAgentVersion())
+	fmt.Fprintln(writer, "Installed agent file version (not runtime-verified):", currentVersion)
 	for i, b := range backups {
 		label := ""
 		if i == 0 {

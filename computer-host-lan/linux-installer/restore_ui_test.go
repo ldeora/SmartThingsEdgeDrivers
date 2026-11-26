@@ -40,7 +40,7 @@ func TestRestoreWizardRequiresExactSelectionConsent(t *testing.T) {
 			}
 			t.Fatalf("Unexpected request: %+v", req)
 			return privilegedResult{}, nil
-		})
+		}, "0.4.7-rc.3")
 		if err != nil || calls != tc.want {
 			t.Fatalf("Consent mismatch: calls=%d err=%v output=%s", calls, err, out.String())
 		}
@@ -99,5 +99,37 @@ func TestRestoreSuccessRequiresCredentialContinuity(t *testing.T) {
 	raw, _ = json.Marshal(reply)
 	if _, err := validatedPrivilegedReply(raw, "restore"); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestRestoreShowsLatestEligibleBackupAndCurrentVersion(t *testing.T) {
+	older := testBackup()
+	newer := older
+	newer.Name = "snapshot-newer123"
+	newer.Version = "0.4.7-rc.3"
+	newer.CapturedAt++
+	newer.Digest = strings.Repeat("b", 64)
+	items := []backupSummary{older, newer}
+	var out bytes.Buffer
+	calls := 0
+	err := restoreWizard(strings.NewReader("1\nRESTORE\n"), &out, func(req privilegedRequest) (privilegedResult, error) {
+		calls++
+		if req.Action == "backups" {
+			return privilegedResult{Status: "passed", Backups: &items}, nil
+		}
+		if req.Action != "restore" || req.Backup != newer.Name || req.BackupDigest != newer.Digest {
+			t.Fatalf("Displayed selection changed: %+v", req)
+		}
+		return privilegedResult{Status: "restored", IdentityPreserved: "verified", CredentialContinuity: "verified"}, nil
+	}, "0.4.8")
+	if err != nil || calls != 2 {
+		t.Fatalf("Unexpected outcome: %v, %d", err, calls)
+	}
+	output := out.String()
+	if !strings.Contains(output, "Installed agent file version (not runtime-verified): 0.4.8") ||
+		strings.Count(output, "(Latest backup)") != 1 ||
+		strings.Index(output, "(Latest backup)") > strings.Index(output, older.Name) ||
+		items[0] != older {
+		t.Fatal(output)
 	}
 }

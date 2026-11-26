@@ -48,7 +48,14 @@ func readInstalledAgentVersion(path string, owner uint32) string {
 		return "unknown"
 	}
 	data, err := io.ReadAll(io.LimitReader(f, (1<<20)+1))
-	if err != nil || len(data) > 1<<20 || !installedProtocol.Match(data) {
+	if err != nil || len(data) > 1<<20 {
+		return "unknown"
+	}
+	return agentVersionFromSource(data)
+}
+
+func agentVersionFromSource(data []byte) string {
+	if len(installedProtocol.FindAll(data, 2)) != 1 {
 		return "unknown"
 	}
 	versions := bundledAgentVersion.FindAllSubmatch(data, 2)
