@@ -6,7 +6,7 @@ public static class AgentContract
     public const string Protocol = "computer-host-agent";
     public const int ApiVersion = 2;
     public const string Platform = "windows";
-    public const string AgentVersion = "0.2.7-rc.2";
+    public const string AgentVersion = "0.2.8-rc.3";
     public const string ServiceType = "_computerhost._tcp.local";
     public const int DefaultPort = 8765;
 

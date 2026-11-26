@@ -84,9 +84,11 @@ def build(published: Path, output_dir: Path, runtime: str, commit: str) -> Path:
     for dst, src in DOCUMENTS.items():
         if stage != "beta":
             if dst == "docs/START-HERE.md":
-                src = ROOT / "docs/release/QUICK-START.md"
+                src = ROOT / ("docs/release/WINDOWS-QUICK-START.md" if "linux_installer" in release
+                              else "docs/release/QUICK-START.md")
             elif dst == "docs/TEST-CHECKLIST.md":
-                src = ROOT / "docs/release/RC-ACCEPTANCE.md"
+                src = ROOT / ("docs/release/RC3-READINESS.md" if "linux_installer" in release
+                              else "docs/release/RC-ACCEPTANCE.md")
         add_source(entries, dst, src)
     add_source(entries, "docs/RELEASE-NOTES.md", ROOT / "docs" / notes_directory / f"RELEASE-NOTES-v{version}.md")
     add_source(entries, "LICENSE", ROOT / "LICENSE")

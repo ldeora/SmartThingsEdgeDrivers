@@ -1,6 +1,8 @@
-# Computer Host LAN — quick start (published v1.0.0-rc.2)
+# Computer Host LAN — historical quick start (v1.0.0-rc.2)
 
-**Available now: [v1.0.0-rc.2 GitHub prerelease](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v1.0.0-rc.2)** (published November 21, 2026 UTC from commit `72e4a99c4b2e8f958ce771152826319318d0d537`). Integration **1.0.0-rc.2**, Linux/Edge **0.4.6-rc.2**, Windows **0.2.7-rc.2**, protocol v2 unchanged. Download matching checksummed unsigned Windows packages or Linux source; do not use transient CI artifacts. [v0.5.5-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.5-beta.1) remains the Windows hardware-tested rollback baseline. SmartThings channel deployment is separate.
+**For v1.0.0-rc.3, use the [Linux](LINUX-INSTALLER-QUICK-START.md) or [Windows](WINDOWS-QUICK-START.md) guide instead. The commands below are only for rc.2.** See the [v1.0.0-rc.3 release](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v1.0.0-rc.3) for its version-matched assets.
+
+**Historical package: [v1.0.0-rc.2 GitHub prerelease](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v1.0.0-rc.2)** (published November 21, 2026 UTC from commit `72e4a99c4b2e8f958ce771152826319318d0d537`). Integration **1.0.0-rc.2**, Linux/Edge **0.4.6-rc.2**, Windows **0.2.7-rc.2**, protocol v2 unchanged. Download matching checksummed unsigned Windows packages or Linux source; do not use transient CI artifacts. [v0.5.5-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.5-beta.1) remains the Windows hardware-tested rollback baseline. SmartThings channel deployment is separate.
 
 **rc.1 is not equivalent to rc.2:** Published rc.1 predates PRs #56–#59 and **does not have the hardened Windows ProgramData/control-token checks** ([#32](https://github.com/ldeora/SmartThingsEdgeDrivers/issues/32)). Avoid rc.1 authenticated power commands on a shared PC with untrusted local users: inspecting `%ProgramData%\ComputerHostAgent` cannot prevent its fresh-install race. Published rc.2 includes the fix, but **real Windows 11 acceptance remains pending**. Review [known rc.1 issues](../../SECURITY.md#known-issues-in-the-published-rc1) and [rc.2 notes](RELEASE-NOTES-v1.0.0-rc.2.md).
 
@@ -23,12 +25,7 @@
 Download the **matching v1.0.0-rc.2 source ZIP from the published release**.
 These Linux commands apply only to that immutable release. They must not
 be used to elevate main or a development source archive, which now
-refuses legacy mutations. The standalone Linux installer is not yet available as a release.
-The [planned rc.3 Linux installer Quick Start](LINUX-INSTALLER-QUICK-START.md)
-describes the future flow, not a currently available download. For planned
-rc.3 Windows changes see [Windows Quick Start](WINDOWS-QUICK-START.md).
-The [maintenance guide](UPGRADE.md) and [troubleshooting](TROUBLESHOOTING.md)
-also describe planned rc.3, not changes to published rc.2.
+refuses legacy mutations. For v1.0.0-rc.3 use the [Linux installer Quick Start](LINUX-INSTALLER-QUICK-START.md) or [Windows Quick Start](WINDOWS-QUICK-START.md). These are separate version-matched instructions.
 Linux needs Python 3.10+, systemd and Avahi.
 From the extracted **published rc.2** source directory:
 

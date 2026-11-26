@@ -16,21 +16,21 @@ network guidance (#168), ordinary-user default launch and prospective
 [Linux Quick Start](LINUX-INSTALLER-QUICK-START.md) (#169) are merged.
 The parity fixes #183–#185 (persistent WOL), #186 (explicit rc.2 state reuse),
 #187 (historical restore) and #188 (maintenance menu) are merged. Freeze
-installer features; fix only concrete release defects. The normal release
-binary, exact-version migration and physical acceptance remain open.
+installer features; fix only concrete release defects. The normal release binary is implemented in #189; exact-main CI, migration and
+physical acceptance remain open.
 
 ## Remaining critical path
 
 | Gate / issue | Status at baseline | Next evidence or action |
 | --- | --- | --- |
-| #84 Linux authenticity / #171 release approval | Formal signing/independent attestation deferred to v1.2; #182 closed | Release PR must add reproducible Linux binary build and SHA-256/build metadata to normal release workflow. Exact main CI and downloaded-byte verification remain required. Existing optional attestation workflow stays separate; disclose unsigned status and checksum limitations. |
+| #84 Linux authenticity / #171 release approval | Formal signing/independent attestation deferred to v1.2; #182 closed | #189 adds reproducible Linux binary build and SHA-256/build metadata to the normal release workflow. Exact main CI and downloaded-byte verification remain required. Existing optional attestation workflow stays separate; disclose unsigned status and checksum limitations. |
 | #101 Linux engine cutover | Implementation merged, acceptance pending | Verified release candidate; clean install, legacy rc.2 in-place upgrade, repair, recovery, removal/reinstall, old entry-point refusal and identity continuity on real Gentoo and Debian/Ubuntu hosts. |
 | #155 retained credentials | Narrow schema-1 implementation merged (#159); preliminary hydra metadata evidence in issue | Real-host upgrade, service restart, authorized rollback on reversible hosts; check redacted UUID/key metadata outcomes. Interrupted-process continuity remains not_verified, not a claim of equality. |
 | #118 Third-party notice automation | Non-blocking follow-up, formal automation deferred to v1.2 | Preserve notices and satisfy applicable redistribution obligations; automation/approval is not a release blocker, nor is incomplete evidence legal sign-off. |
 | #117 Windows signing | Maintainer decision: retain unsigned packages for v1.0.0 | Document unsigned status, checksum limitations, SmartScreen/Smart App Control and machine-readable release metadata before publication. Defer formal signing integration; do not bypass platform protections. |
 | #120 / #23 Windows hub-page rendering | Physical confirmation pending; synchronous search remains a reported risk | Ask reporting Windows 11 tester to exercise first search, retry, manual selection and navigation. If reproduced, isolate a bounded UI fix and test; no speculative full installer redesign. |
 | #31 Linux connection saturation | Merged (#176), needs acceptance | Absolute header deadline implemented (#56). Preserve 12 global handlers and add four concurrent handlers per source IP. Loopback tests verify distinct-source health, repeated excess connections, shared-source operation, global exhaustion and cleanup. Document residual distributed saturation, backlog pressure and shared-source limits. No waiver or physical-hub PASS claimed. |
-| #129 / #130 release docs | Reconciled with implemented journeys in #181, pending review and final asset/version substitutions | Keep published rc.2 links immutable; finalize rc.3 links, versions and known limitations in release PR. |
+| #129 / #130 release docs | Reconciled in #181 and #189; exact release assets and physical acceptance remain pending | Keep published rc.2 links immutable; finalize rc.3 links, versions and known limitations in release PR. |
 | #119 hardware/soak | Open | Record exact-version evidence in one rc.3 acceptance record (below); two independent Windows 11 x64 hosts, Gentoo and Debian/Ubuntu, minimum seven-day real-hub Windows/Linux soak before stable. |
 | Candidate identity and channel | Not prepared | Final versions, all five exact-main workflows, matching release assets, exact expected tag/SHA via trusted release record; separate explicit Edge upload/assignment and real installed version check. |
 
@@ -199,3 +199,64 @@ Physical rc.2 -> rc.3 -> rc.2 restore -> rc.3 upgrade acceptance remains.
 See [user journeys](UPGRADE.md). Record the actual described test paths and original
 review references when recording J2/J3/J5/J6/J9/J10/J11 results. Backup
 retention/pruning is deferred to v1.1; normal uninstall keeps backups.
+
+## rc.3 publication procedure — exact tested bytes
+
+The version-specific user guides and release notes are publication-neutral.
+`release.json` records the build-stage identity (rc-candidate-v1.0.0-rc.3);
+GitHub release draft/prerelease status and the release list are the authority
+for actual availability. The source manifest in the immutable packages is
+a record of the candidate build, not a live publication-status database.
+There is no pre-tag publication-only commit and no rebuild after acceptance.
+If desired, update main's publication record *after* publication, never retag
+or rebuild the accepted assets just to change a banner.
+
+1. After #189 merges, record exact main SHA and all five required workflow
+   run IDs. Run the normal release workflow on that exact SHA if needed.
+   Download the complete unsigned candidate artifact from that run, not the
+   ordinary wizard integration artifact. Record the run and artifact IDs.
+   Preserve an immutable local copy (artifact retention is seven days).
+2. In the extracted candidate directory run
+   `sha256sum --check SHA256SUMS.txt`. Verify the seven manifest entries,
+   Linux .sha256 and .build-info.json (source_commit, versions, Go 1.25.14,
+   unsigned=true, attested=false, reproducible=true). Check the Windows ZIP's
+   BUILD-INFO.json against the same source SHA. Validate the complete set
+   with the exact source's `scripts/ci/verify_release_bundle.py`, specifying
+   --directory, --manifest and --source-commit. Record exact asset digests.
+   Confirm notices and redistribution terms; no automated license sign-off
+   is implied. Test only these checked candidate bytes.
+3. Check out the recorded source SHA in a clean checkout. Use the existing
+   Computer Host LAN driver identity and package its edge-driver directory
+   with `smartthings edge:drivers:package` (see the installed CLI's help).
+   Record the returned driver ID and version ID, source SHA and reported
+   driver version 0.4.7-rc.3. Assign that exact version to an explicitly
+   identified **private test channel only** using the CLI channel assignment
+   command. Verify the channel ID, assigned version and actual installed
+   version on the test hub (`smartthings edge:channels:drivers` and
+   `smartthings edge:drivers:installed --hub HUB_ID --verbose`).
+   Do not assign to the public channel or delete existing devices.
+4. Record the acceptance rows above: hydra upgrade and menu, WOL
+   shutdown/wake/reboot/repeat, restore and re-upgrade, rc.3 uninstall/reinstall;
+   second machine or VM rc.2 uninstall and REUSE; physical NetworkManager
+   WOL; minimal host without ethtool; Windows 11; private-channel rc.2/rc.3
+   mixed agents, same devices and routines. Include exact artifact hashes and
+   driver version. VM tests do not establish physical WOL. Stop on concrete
+   failures; any fixed source requires fresh candidate CI and relevant
+   acceptance, not substitution of unchecked binaries.
+5. Obtain explicit maintainer approval for the exact commit, asset digests
+   and tested driver version. Create the immutable
+   computer-host-lan-v1.0.0-rc.3 tag pointing to that commit, then create a
+   draft GitHub prerelease with the exact seven assets plus SHA256SUMS.txt.
+   Use the versioned release notes as the body; do not upload replica logs,
+   intermediate hashes or development artifacts. Re-download draft assets,
+   verify their hashes and source metadata, tag target and draft state.
+6. On separate explicit publication approval, publish the prerelease.
+   Verify the public downloads match the tested bytes. Only then assign
+   the same tested driver version (no repackaging) to the existing public
+   channel, verify assignment and installed version, and announce in the
+   Computer Host LAN community thread. Record the release URL, tag SHA,
+   hashes, driver version and time. Continue the seven-day soak before stable.
+
+No command in this checklist constitutes authorization to create a tag,
+release or channel assignment. Publication and channel changes are separate
+actions requiring the maintainer's explicit approval.

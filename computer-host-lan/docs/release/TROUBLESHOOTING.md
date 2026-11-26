@@ -1,6 +1,6 @@
-# Troubleshooting — planned rc.3
+# Troubleshooting — v1.0.0-rc.3
 
-For published rc.2, see [current quick start](QUICK-START.md) and [detailed installation](../../INSTALLATION.md). Do not substitute development binaries.
+This guide is for v1.0.0-rc.3. See [detailed installation](../../INSTALLATION.md). Do not substitute development binaries.
 
 ## Hub or computer not found
 
@@ -49,7 +49,7 @@ Check the NIC's wake support, firmware settings, supported sleep states, and net
 
 ## Installer refuses unsafe state or upgrade fails
 
-Stop and preserve installation identity, credentials, rollback material and journals. Follow [upgrade and recovery](UPGRADE.md); do not purge state or delete a pending protected journal to bypass refusal. After rc.2 uninstall, use menu option 1 and REUSE before attempting historical restore. If reuse cannot be validated, seek support; a deliberate [completely fresh installation](UPGRADE.md#start-completely-fresh-j8) creates a different SmartThings device and requires rebuilding routines. Never use that path simply to repair an upgrade.
+Stop and preserve installation identity, credentials, rollback material and journals. Follow [upgrade and recovery](UPGRADE.md); do not purge state or delete a pending protected journal to bypass refusal. After rc.2 uninstall, use menu option 1 and REUSE before attempting historical restore. If reuse cannot be validated, seek support; a deliberate [completely fresh installation](UPGRADE.md#start-completely-fresh) creates a different SmartThings device and requires rebuilding routines. Never use that path simply to repair an upgrade.
 
 ## Reporting a problem
 

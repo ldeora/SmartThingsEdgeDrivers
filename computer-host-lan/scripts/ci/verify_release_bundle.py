@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate that four versioned release artifacts describe one immutable release.
+"""Validate that versioned release artifacts describe one immutable release.
 
 SHA-256 integrity is checked separately by the release workflow. This verifier
 prevents passing checksums for the *wrong* version or source commit.
@@ -11,6 +11,11 @@ import json
 from pathlib import Path
 import re
 from zipfile import ZipFile
+
+if __package__:
+    from .linux_release_metadata import validate_metadata
+else:
+    from linux_release_metadata import validate_metadata
 
 
 def validate_bundle(directory: Path, manifest: dict, commit: str) -> None:
@@ -55,6 +60,26 @@ def validate_bundle(directory: Path, manifest: dict, commit: str) -> None:
             embedded = json.loads(archive.read(member))
             if embedded != manifest:
                 raise ValueError(f"version/release manifest mismatch inside {filename}")
+    if "linux_installer" in manifest:
+        validate_metadata(directory, manifest, commit)
+        from hashlib import sha256
+        installer = f"{name}-linux-x64-unsigned-installer"
+        published = expected_zips | {setups[0], installer,
+                                     installer + ".sha256",
+                                     installer + ".build-info.json"}
+        sums = directory / "SHA256SUMS.txt"
+        entries = {}
+        for line in sums.read_text(encoding="ascii").splitlines():
+            match = re.fullmatch(r"([a-f0-9]{64})  ([A-Za-z0-9._-]+)", line)
+            if not match or match[2] in entries:
+                raise ValueError("invalid or duplicate unified checksum entry")
+            entries[match[2]] = match[1]
+        if set(entries) != published:
+            raise ValueError("unified checksum manifest does not cover exact release asset set")
+        for filename, digest in entries.items():
+            path = directory / filename
+            if path.is_symlink() or not path.is_file() or sha256(path.read_bytes()).hexdigest() != digest:
+                raise ValueError(f"unified checksum mismatch: {filename}")
     print(f"PASS exact release asset names, source commit {commit}, and all component versions ({version})")
 
 
