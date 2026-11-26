@@ -8,7 +8,7 @@ internal static class MdnsRetryTests
     {
         internal int Allocations, Frees, Registrations;
         internal uint Immediate = 9506, CallbackStatus = 5;
-        internal bool Complete = true;
+        internal bool Complete = true, ThrowOnRegister;
         internal IntPtr LastRequest;
         public IntPtr Construct(AgentOptions options)
         {
@@ -19,6 +19,7 @@ internal static class MdnsRetryTests
         {
             Registrations++;
             LastRequest = request;
+            if (ThrowOnRegister) throw new InvalidOperationException("synthetic native failure");
             if (Immediate == 9506 && Complete)
             {
                 var data = Marshal.PtrToStructure<MdnsAdvertisingService.RegistrationRequest>(request);
@@ -74,6 +75,14 @@ internal static class MdnsRetryTests
             stop.Cancel();
             await run.WaitAsync(TimeSpan.FromSeconds(5));
             Check(pending.Registrations == 1 && pending.Frees == 0, "pending timeout and cancellation retain native attempt");
+        }
+        var throwing = new Fake { ThrowOnRegister = true };
+        using (var service = new MdnsAdvertisingService(new AgentOptions { DiscoveryEnabled = true },
+            NullLogger<MdnsAdvertisingService>.Instance, throwing,
+            (_, _) => throw new Exception("unexpected retry"), TimeSpan.FromSeconds(1)))
+        {
+            await service.RunAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+            Check(throwing.Registrations == 1 && throwing.Frees == 0, "uncertain native failure retains attempt without retry");
         }
         var disabled = new Fake();
         using (var service = new MdnsAdvertisingService(new AgentOptions { DiscoveryEnabled = false },
