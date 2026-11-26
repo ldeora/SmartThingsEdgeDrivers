@@ -351,3 +351,43 @@ func TestCLIInspectorRejectsDuplicateCheckIDs(t *testing.T) {
 		t.Fatal("duplicate inspector check accepted")
 	}
 }
+
+func TestPersistentWOLCLIRequiresReviewedDigest(t *testing.T) {
+	api := fixtureClient(t)
+	info, err := api.inspect()
+	if err != nil {
+		t.Fatal(err)
+	}
+	o, err := parseCLI([]string{"plan", "--action", "upgrade", "--wol", "configure", "--wol-interface", "LAN0"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := cliInstallPreflight(o, api, info, false)
+	if err != nil || p.plan == nil || p.plan.WOLPolicy == nil {
+		t.Fatalf("Missing reviewed WOL plan: %+v (%v)", p, err)
+	}
+	for _, digest := range []string{strings.Repeat("a", 64), strings.Repeat("b", 64)} {
+		o, err := parseCLI([]string{"upgrade", "--confirm", "UPGRADE", "--wol", "configure", "--wol-interface", "LAN0", "--wol-plan-digest", digest})
+		if err != nil {
+			t.Fatal(err)
+		}
+		prepared, err := cliInstallPreflight(o, api, info, false)
+		if digest == strings.Repeat("a", 64) {
+			if err != nil || prepared.request.WOLPlanDigest != digest {
+				t.Fatalf("Approved digest lost: %+v (%v)", prepared, err)
+			}
+		} else if err == nil {
+			t.Fatal("Stale approval accepted")
+		}
+	}
+	for _, args := range [][]string{
+		{"upgrade", "--confirm", "UPGRADE", "--wol", "configure", "--wol-interface", "LAN0"},
+		{"upgrade", "--confirm", "UPGRADE", "--wol", "configure", "--wol-interface", "lo", "--wol-plan-digest", strings.Repeat("a", 64)},
+		{"upgrade", "--confirm", "UPGRADE", "--wol", "keep", "--wol-interface", "LAN0"},
+		{"wol-remove", "--wol-interface", "LAN0"},
+	} {
+		if _, err := parseCLI(args); err == nil {
+			t.Fatalf("Unsafe invocation accepted: %v", args)
+		}
+	}
+}

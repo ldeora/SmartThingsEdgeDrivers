@@ -60,8 +60,15 @@ your hub's IPv4, or choose it later. Leave remote power at its default for
 initial monitoring; an existing power preference is retained unless changed.
 Review the plan and type **INSTALL** only if you agree to the changes. The
 wizard then requests administrator authorization. You can cancel before
-consent. The installer does not change firewall rules, start Avahi, pair a
-SmartThings device or configure persistent NIC Wake-on-LAN.
+consent. The installer does not change firewall rules, start Avahi or pair
+a SmartThings device. On a new installation with a suggested wired adapter,
+Configure Wake-on-LAN is selected by default. Existing installations default
+to Keep. Hardware support is checked after authorization; if the adapter
+does not support magic packets or the check is unavailable (for example
+ethtool is missing), the agent installs without configuring WOL and shows a
+warning. If the optional network policy cannot be reviewed on a fresh setup,
+the review offers installation with WOL left unchanged. Install ethtool
+if missing and run setup again to enable WOL.
 
 For plain-text prompts, run `./computer-host-linux-installer -accessible`.
 For a real read-only plan, use `./computer-host-linux-installer -live -preview`.
@@ -83,7 +90,12 @@ Only if needed, retrieve the private key using the completion instructions;
 enter it in **Power control key (64 hex chars)** and turn on
 **Enable shutdown/reboot/suspend**. Do not share the key. Save your work and
 keep physical access before testing shutdown, reboot or suspend. Wake-on-LAN
-depends on the hardware and existing OS/network configuration.
+depends on wired Ethernet, BIOS/UEFI support and the network. Test shutdown
+from SmartThings and switch on again, then reboot and repeat. To enable
+Wake-on-LAN later, run the installer again (upgrade/repair) and choose
+Configure in the Wake-on-LAN step. Use `-configure` to check or remove an
+installer-owned WOL setting. Normal uninstall keeps WOL unless you separately
+confirm its removal.
 
 ## 5. Upgrade or recover
 

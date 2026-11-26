@@ -29,7 +29,7 @@ import payload_staging as staging
 import runtime_verify
 import credential_continuity as continuity
 import wol_ownership
-from persistent_wol import WolError
+from persistent_wol import WolError, WolUnsupported, WolCapabilityUnknown
 from transaction_journal import ProtectedJournal, JournalConflict, _staged_payload_remains
 
 _MANUAL_LOCK = Path('/run/lock/linux-host-agent-install.lock')
@@ -53,7 +53,7 @@ class ControllerError(RuntimeError):
         if code not in ('invalid_request', 'installation_busy', 'aborted',
                         'rolled_back', 'recovery_required',
                         'unsupported_environment', 'adoption_required',
-                        'unsafe_lock', 'not_installed'):
+                        'unsafe_lock', 'not_installed', 'wol_review_required'):
             code = 'recovery_required'
         # This is a deliberate, fixed message with no private paths or ID.
         # The Go wizard may display it without needing privileged
@@ -86,7 +86,7 @@ class InstallRequest:
     disable_power: bool = False
     wol_interface: str | None = None
     port: int = 8765
-    # Internal only until the public preview/approval flow is implemented.
+    # Optional digest of the explicitly reviewed visible WOL policy.
     wol_plan_digest: str | None = None
 
     def validate(self) -> None:
@@ -135,6 +135,7 @@ class InstallOutcome:
     identity_preserved: str  # 'verified' or 'not_verified'
     source_verified: bool = True
     credential_result: continuity.Result = continuity.Result()
+    wol_status: str = ''  # optional, fixed 'unsupported' or 'capability_unknown'
 
 
 @dataclass(frozen=True)
@@ -946,6 +947,22 @@ class InstallerBackend:
                 ) from None
             return self._run_locked(request, source, trusted_hashes)
 
+    def wol_action(self, action, interface):
+        """Independent explicit WOL inspection/removal under the shared lock."""
+        self._check_context()
+        if action not in ("wol-check", "wol-remove"):
+            raise ControllerError("invalid_request")
+        with manual_install_lock(self.manual_lock_path, owner_uid=self.owner_uid):
+            if ProtectedJournal(root=self.root, owner_uid=self.owner_uid
+                                ).public_status()["privileged_transaction_state"] != "none":
+                raise ControllerError("recovery_required")
+            try:
+                if action == "wol-check":
+                    return self._wol.inspect_owned(interface)
+                return self._wol.remove_owned(interface)
+            except (WolError, OSError):
+                raise ControllerError("wol_review_required") from None
+
     def uninstall(self) -> UninstallOutcome:
         """Journaled v2 uninstall of managed files and services only.
 
@@ -1077,6 +1094,7 @@ class InstallerBackend:
             backup = None
             previous = None
             failure_stage = 'payload'
+            wol_status = ''
             try:
                 receipt = staging.stage_payload(source, trusted_hashes, journal,
                                                 root=self.root, owner_uid=self.owner_uid)
@@ -1110,16 +1128,27 @@ class InstallerBackend:
                     existing_power and not request.disable_power)
                 failure_stage = 'plan'
                 if request.wol_plan_digest is not None:
-                    intent = self._wol.prepare(request.wol_interface,
-                                               request.wol_plan_digest,
-                                               journal._record()['transaction_id'])
-                    if intent is not None:
-                        previous['persistent_wol'] = intent
+                    try:
+                        intent = self._wol.prepare(request.wol_interface,
+                                                   request.wol_plan_digest,
+                                                   journal._record()['transaction_id'])
+                    except (WolUnsupported, WolCapabilityUnknown) as exc:
+                        # No network mutation was attempted. Missing ethtool
+                        # or unavailable capability is nonfatal, as is a
+                        # positive observation of no magic support. All
+                        # other policy/ownership errors still refuse.
+                        wol_status = ('unsupported' if isinstance(exc, WolUnsupported)
+                                      else 'capability_unknown')
+                        effective_request = replace(effective_request, wol_interface=None,
+                                                    wol_plan_digest=None)
+                    else:
+                        if intent is not None:
+                            previous['persistent_wol'] = intent
                 changes = core.generate_plan(
                     verified_source, request.python_bin,
                     enable_power=request.enable_power,
                     disable_power=request.disable_power,
-                    wol_interface=request.wol_interface,
+                    wol_interface=effective_request.wol_interface,
                     is_existing_power=existing_power,
                     avahi_dir=(self.root / 'etc/avahi/services').is_dir(),
                 )
@@ -1169,7 +1198,8 @@ class InstallerBackend:
                                               request.operation,
                                               identity_state if previous is not None and
                                               'identity_state' in locals() else 'not_verified',
-                                              credential_result=credential_check.result)
+                                              credential_result=credential_check.result,
+                                              wol_status=wol_status)
                     wol_review_required = False
                     if phase in _PREAPPLY:
                         # This controller has not touched managed targets.
@@ -1211,9 +1241,11 @@ class InstallerBackend:
                 journal.clear_finished()
             except Exception:
                 return InstallOutcome('installed_cleanup_required', request.operation,
-                                      identity_state, credential_result=credential_check.result)
+                                      identity_state, credential_result=credential_check.result,
+                                      wol_status=wol_status)
         return InstallOutcome('installed', request.operation,
-                              identity_state, credential_result=credential_check.result)
+                              identity_state, credential_result=credential_check.result,
+                              wol_status=wol_status)
 
     def _restore_snapshot(self, journal, transaction: core.InstallTransaction,
                           backup: Path, *,

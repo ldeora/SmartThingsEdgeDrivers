@@ -120,6 +120,13 @@ def parse_request(raw: bytes) -> dict:
         raise RequestError('invalid_request')
     action = payload.get('action')
     if payload['schema_version'] == 2:
+        if action in ('wol-check', 'wol-remove'):
+            nic = payload.get('wol_interface')
+            if (set(payload) != {'schema_version', 'action', 'wol_interface'} or
+                    type(nic) is not str or not _NIC.fullmatch(nic) or
+                    nic in ('.', '..', 'lo') or nic.startswith('-')):
+                raise RequestError('invalid_request')
+            return dict(action=action, wol_interface=nic)
         if action != 'uninstall' or set(payload) != {'schema_version', 'action'}:
             raise RequestError('invalid_request')
         return dict(action='uninstall')
@@ -131,7 +138,8 @@ def parse_request(raw: bytes) -> dict:
         if set(payload) != {'schema_version', 'action'}:
             raise RequestError('invalid_request')
         return dict(action=action)
-    if set(payload) != {'schema_version', 'action', 'source', 'power', 'wol_interface'}:
+    if set(payload) not in ({'schema_version', 'action', 'source', 'power', 'wol_interface'},
+                            {'schema_version', 'action', 'source', 'power', 'wol_interface', 'wol_plan_digest'}):
         raise RequestError('invalid_request')
     source = payload['source']
     if (type(source) is not str or len(source) > 1024 or not source.startswith('/')
@@ -147,7 +155,13 @@ def parse_request(raw: bytes) -> dict:
     if nic is not None and (type(nic) is not str or not _NIC.fullmatch(nic)
                             or nic in ('.', '..')):
         raise RequestError('invalid_request')
-    return dict(action=action, source=source, power=power, wol_interface=nic)
+    result = dict(action=action, source=source, power=power, wol_interface=nic)
+    if 'wol_plan_digest' in payload:
+        digest = payload['wol_plan_digest']
+        if nic is None or type(digest) is not str or not _SHA256.fullmatch(digest):
+            raise RequestError('invalid_request')
+        result['wol_plan_digest'] = digest
+    return result
 
 
 def validate_manifest(payload: object) -> dict:
@@ -245,6 +259,9 @@ def dispatch(request: dict, trusted_manifest: dict, *, backend, journal,
     # allowlist to accept all of /usr/lib.
     if selected_python not in _SYSTEM_PYTHON_COMMANDS:
         raise RequestError('invalid_request')
+    if action in ('wol-check', 'wol-remove'):
+        outcome = backend.wol_action(action, request['wol_interface'])
+        return dict(status='passed', operation=action, wol_status=outcome, secrets_included=False)
     if action == 'uninstall':
         if set(request) != {'action'}:
             raise RequestError('invalid_request')
@@ -264,12 +281,16 @@ def dispatch(request: dict, trusted_manifest: dict, *, backend, journal,
         enable_power=(power == 'enable'),
         disable_power=(power == 'disable'),
         wol_interface=request['wol_interface'],
+        wol_plan_digest=request.get('wol_plan_digest'),
     )
     done = backend.run(options, Path(request['source']), trusted_manifest['files'])
-    return dict(status=done.status, operation=action,
-                identity_preserved=done.identity_preserved,
-                source_verified=done.source_verified, secrets_included=False,
-                **done.credential_result.public())
+    result = dict(status=done.status, operation=action,
+                  identity_preserved=done.identity_preserved,
+                  source_verified=done.source_verified, secrets_included=False,
+                  **done.credential_result.public())
+    if done.wol_status in ('unsupported', 'capability_unknown'):
+        result['wol_status'] = done.wol_status
+    return result
 
 
 def _reply(payload: dict) -> None:

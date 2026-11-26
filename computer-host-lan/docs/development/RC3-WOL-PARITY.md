@@ -217,3 +217,45 @@ explicit removal, and actionable existing-ownership guidance. Default Keep
 on upgrade/repair; defer runtime-only lifecycle and existing-link reconfigure
 beyond parity unless required for physical acceptance. No public activation
 in this engine PR.
+
+### User-visible WOL follow-up
+
+Preview hashes only visible policy, including exact generated rule text.
+Hardware capability may be unknown without privilege; root independently
+checks capability and all visible policy fields before applying. Explicit
+inspection/removal requires the existing shared lock and clean journal.
+Removal is retryable using the retained record, without agent/service writes.
+Normal uninstall retains WOL. No hardware acceptance is inferred from CI.
+
+Wizard: choose Configure persistent Wake-on-LAN, select the wired interface,
+review the policy and confirm INSTALL. Fresh installs default to Configure when a physical wired adapter is
+suggested, even if ordinary-user hardware capability is unknown.
+Upgrades/repair default to Keep. A positive root-side observation of no magic
+support skips WOL and the interface pin, completes agent installation and
+returns wol_status=unsupported. Unavailable root-side hardware capability likewise skips WOL with
+wol_status=capability_unknown. Unsafe/changed policy and ownership conflicts
+still refuse rather than authorizing a different change. A fresh wizard can
+review a no-WOL fallback on the specific wol_preview_unavailable result;
+CLI configuration and upgrade/repair previews remain strict. Other preview
+errors are not suppressed. Keep and leave do not change persistent or runtime WOL.
+CLI: run cli plan --action upgrade --wol configure --wol-interface IFNAME,
+then cli upgrade --confirm UPGRADE --wol configure --wol-interface IFNAME
+--wol-plan-digest DIGEST using the reviewed digest (install/repair analogous).
+The existing bare --wol-interface remains pin-only.
+Configure (-configure) uses protected inspection for a chosen interface;
+explicit REMOVE confirmation is required for restoration. Normal uninstall
+retains WOL; after verified agent uninstall, a separate optional removal
+prompt defaults to No. CLI uses wol-check and wol-remove separately. Removal
+never requires reinstalling the agent and does not change agent files or
+services. The protected launcher may be provisioned/updated on authorized
+check/remove; this is not an unprivileged preview operation.
+
+Ordinary-user hydra evidence (2026-11-26): ethtool enp1s0f0 reports
+netlink Operation not permitted, and ethtool --disable-netlink reports
+Cannot get wake-on-lan settings: Operation not permitted. Neither exposes
+Supports Wake-on or Wake-on. This confirms unknown is not unsupported.
+
+PTY acceptance: existing-install fixture accepts Keep and skips NIC page;
+fresh-install fixture supplies a deterministic wired NIC suggestion through
+the Go test binary, accepts preselected Configure using Enter, reviews the
+unknown-capability policy and cancels. No elevation or host changes.

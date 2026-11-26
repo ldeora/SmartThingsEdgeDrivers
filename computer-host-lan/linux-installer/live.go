@@ -71,6 +71,8 @@ type apiPlan struct {
 	SelectedPython             string      `json:"selected_python"`
 	PowerOption                string      `json:"power_option"`
 	WOLInterfaceRequested      bool        `json:"wol_interface_requested"`
+	WOLPolicy                  *wolPolicy  `json:"wol_policy,omitempty"`
+	WOLPreviewSkipped          bool        `json:"-"` // local wizard fallback; never a backend field
 	PrivilegedTransactionState string      `json:"privileged_transaction_state"`
 	RuntimeVerified            bool        `json:"runtime_verified"`
 	ChangesApplied             bool        `json:"changes_applied"`
@@ -95,7 +97,7 @@ func (e apiError) Error() string { return "read-only backend: " + e.code }
 func permittedError(code string) bool {
 	switch code {
 	case "invalid_argument", "unsafe_managed_path", "source_unavailable",
-		"prerequisite_missing", "internal_error":
+		"prerequisite_missing", "internal_error", "wol_preview_unavailable":
 		return true
 	default:
 		return false
@@ -280,8 +282,9 @@ var approvedPaths = map[string]bool{
 }
 
 type planOptions struct {
-	power  string // "keep", "enabled", "disabled"
-	wolNIC string // empty = retain current, non-empty = pin chosen interface
+	power        string // "keep", "enabled", "disabled"
+	wolNIC       string // empty = retain current, non-empty = pin chosen interface
+	configureWOL bool
 }
 
 func (o planOptions) args() ([]string, error) {
@@ -300,6 +303,12 @@ func (o planOptions) args() ([]string, error) {
 			return nil, err
 		}
 		result = append(result, "--wol-interface", o.wolNIC)
+	}
+	if o.configureWOL {
+		if !wiredNICName(o.wolNIC) {
+			return nil, apiError{"invalid_argument"}
+		}
+		result = append(result, "--configure-wol")
 	}
 	return result, nil
 }
@@ -347,6 +356,9 @@ func (c apiClient) plan(o planOptions) (apiPlan, error) {
 		!safePythonPath.MatchString(value.SelectedPython) ||
 		value.PowerOption != wantPower || value.WOLInterfaceRequested != (o.wolNIC != "") ||
 		len(value.Changes) == 0 || len(value.Changes) > len(approvedPaths) {
+		return apiPlan{}, apiError{"invalid_response"}
+	}
+	if o.configureWOL != (value.WOLPolicy != nil) || (value.WOLPolicy != nil && !value.WOLPolicy.valid(o.wolNIC)) {
 		return apiPlan{}, apiError{"invalid_response"}
 	}
 	seen := make(map[string]bool)
@@ -397,7 +409,13 @@ func (p apiPlan) brief() string {
 		fmt.Fprintf(&b, "%s: %s\n", change.Action, change.Path)
 	}
 	fmt.Fprintln(&b, "No runtime check, root recovery inspection or privileged action.")
-	fmt.Fprintln(&b, "No WOL hardware configuration, firewall change, or hub discovery.")
+	if p.WOLPolicy != nil {
+		fmt.Fprintln(&b, p.WOLPolicy.description())
+		if p.WOLPolicy.LinkText != nil {
+			fmt.Fprintln(&b, *p.WOLPolicy.LinkText)
+		}
+	}
+	fmt.Fprintln(&b, "No hardware or firewall change, or hub discovery, has occurred.")
 	return strings.TrimSpace(b.String())
 }
 
@@ -413,6 +431,7 @@ type liveSelection struct {
 	powerChoice        string
 	wolChoice          string
 	wolNIC             string
+	allowWOLFallback   bool // interactive fresh install only; CLI remains strict
 	firewalldActive    bool // Read once before installation review; never changes policy.
 	finished           bool
 	cacheMu            sync.Mutex // Huh invokes DescriptionFunc off the UI goroutine.
@@ -423,10 +442,10 @@ type liveSelection struct {
 
 func (s *liveSelection) options() planOptions {
 	nic := ""
-	if s.wolChoice == "pin" {
+	if s.wolChoice == "pin" || s.wolChoice == "configure" {
 		nic = s.wolNIC
 	}
-	return planOptions{power: s.powerChoice, wolNIC: nic}
+	return planOptions{power: s.powerChoice, wolNIC: nic, configureWOL: s.wolChoice == "configure"}
 }
 func (s *liveSelection) currentPlan() (apiPlan, error) {
 	// Huh runs the Review DescriptionFunc on a background command while the
@@ -436,9 +455,18 @@ func (s *liveSelection) currentPlan() (apiPlan, error) {
 	s.cacheMu.Lock()
 	defer s.cacheMu.Unlock()
 	options := s.options()
-	key := options.power + "\x00" + options.wolNIC
+	key := fmt.Sprintf("%s\x00%s\x00%t", options.power, options.wolNIC, options.configureWOL)
 	if s.cacheKey != key {
 		plan, err := s.api.plan(options)
+		if s.allowWOLFallback && options.configureWOL && errors.Is(err, apiError{"wol_preview_unavailable"}) {
+			// A fresh wizard may continue without an optional WOL policy.
+			// Re-plan ordinary managed files; never conceal unrelated errors.
+			// Cache the exact fallback reviewed, without modifying Huh inputs.
+			plan, err = s.api.plan(planOptions{power: options.power})
+			if err == nil {
+				plan.WOLPreviewSkipped = true
+			}
+		}
 		s.cached, s.cacheErr, s.cacheKey = plan, err, key
 	}
 	return s.cached, s.cacheErr
@@ -569,7 +597,11 @@ func (s *liveSelection) preview() string {
 	fmt.Fprintln(&b, "Your SmartThings setup")
 	fmt.Fprintln(&b, "  Hub:           "+s.selectedHub())
 	fmt.Fprintln(&b, "  Power control: "+s.friendlyPower())
-	if s.wolChoice == "pin" {
+	if p.WOLPreviewSkipped {
+		fmt.Fprintln(&b, "  Wake-on-LAN: Left unchanged — the network policy could not be safely checked. You can enable it later by running the installer again.")
+	} else if s.wolChoice == "configure" && p.WOLPolicy != nil {
+		fmt.Fprintln(&b, p.WOLPolicy.description())
+	} else if s.wolChoice == "pin" {
 		fmt.Fprintf(&b, "  Network:       %s (advanced interface suggestion)\n", s.wolNIC)
 	} else {
 		fmt.Fprintln(&b, "  Network:       Leave existing settings unchanged")
@@ -585,9 +617,9 @@ func liveForm(s *liveSelection) *huh.Form {
 }
 
 func liveFormMode(s *liveSelection, installing bool) *huh.Form {
-	nicHelp := "Press Enter to accept the suggested interface or edit it. Does NOT enable Wake-on-LAN."
+	nicHelp := "Select the wired Ethernet interface. The persistent policy will be shown before confirmation."
 	if s.wolNIC == "" {
-		nicHelp = "Enter your interface name (for example enp1s0f0). Does NOT enable Wake-on-LAN."
+		nicHelp = "Enter your wired Ethernet interface name (for example enp1s0f0)."
 	}
 	reviewTitle := "Finish preview"
 	reviewDescription := func() string { return s.preview() }
@@ -636,11 +668,13 @@ func liveFormMode(s *liveSelection, installing bool) *huh.Form {
 				Options(livePowerOptions(s.inspection)...).
 				Value(&s.powerChoice),
 			huh.NewSelect[string]().
-				Title("Advanced network setup").
-				Description("Most people should keep the default. Wake-on-LAN itself is not configured by this preview.").
+				Title("Wake-on-LAN").
+				Description("Configure is recommended for new wired computers; Keep for upgrades. Hardware support is checked after authorization.").
 				Options(
-					huh.NewOption("Keep network settings unchanged (recommended)", "keep"),
-					huh.NewOption("Review the wake-up network interface (advanced)", "pin"),
+					huh.NewOption("Keep existing WOL configuration (recommended)", "keep"),
+					huh.NewOption("Configure persistent Wake-on-LAN", "configure"),
+					huh.NewOption("Leave WOL unchanged", "leave"),
+					huh.NewOption("Pin interface only (advanced)", "pin"),
 				).Value(&s.wolChoice),
 		).Title("3. Power control"),
 		huh.NewGroup(
@@ -650,7 +684,7 @@ func liveFormMode(s *liveSelection, installing bool) *huh.Form {
 				Placeholder("e.g. enp1s0f0").
 				Validate(validateNICInput).
 				Value(&s.wolNIC),
-		).Title("Network details").WithHideFunc(func() bool { return s.wolChoice != "pin" }),
+		).Title("Network details").WithHideFunc(func() bool { return s.wolChoice != "pin" && s.wolChoice != "configure" }),
 		huh.NewGroup(
 			huh.NewConfirm().
 				Title("Review your choices").
@@ -674,18 +708,35 @@ func liveFormMode(s *liveSelection, installing bool) *huh.Form {
 	)
 }
 
+func defaultWOLChoice(existing bool, wiredNIC string) string {
+	if !existing && wiredNIC != "" {
+		return "configure"
+	}
+	return "keep"
+}
+
 func newLiveSelection(api apiClient, info apiInspect, hubs []discoveredHub) *liveSelection {
+	return newLiveSelectionWithNIC(api, info, hubs, suggestedNIC)
+}
+
+// The selector is injected only by fixture tests; production uses sysfs.
+func newLiveSelectionWithNIC(api apiClient, info apiInspect, hubs []discoveredHub, suggest func(string) string) *liveSelection {
 	s := &liveSelection{
 		api: api, inspection: info, hubs: hubs,
 		hubChoice:   defaultHubChoice(hubs),
 		powerChoice: "keep", wolChoice: "keep",
+		allowWOLFallback: !info.Installation.Detected,
 	}
 	s.recordHubChoice(s.hubChoice)
 	if len(hubs) > 0 {
-		s.wolNIC = suggestedNIC(hubs[0].IPv4)
+		s.wolNIC = suggest(hubs[0].IPv4)
 	} else {
-		s.wolNIC = suggestedNIC("")
+		s.wolNIC = suggest("")
 	}
+	// The suggested NIC is already checked for physical wired Ethernet.
+	// An ordinary user may be unable to query ethtool; don't require
+	// that privilege-dependent observation to select the useful default.
+	s.wolChoice = defaultWOLChoice(info.Installation.Detected, s.wolNIC)
 	return s
 }
 
@@ -693,7 +744,10 @@ func runLiveInteractive(w io.Writer, api apiClient, info apiInspect) error {
 	if !stdinIsTerminal() {
 		return errors.New("The interactive setup requires a terminal. Try -live -accessible.")
 	}
-	s := newLiveSelection(api, info, discoverHubs())
+	return runLiveInteractiveSelection(w, newLiveSelection(api, info, discoverHubs()))
+}
+
+func runLiveInteractiveSelection(w io.Writer, s *liveSelection) error {
 	fmt.Fprintln(w, "COMPUTER HOST LAN — SETUP PREVIEW")
 	fmt.Fprintln(w, "No installation or system changes will be made.")
 	err := liveForm(s).Run()
@@ -764,9 +818,9 @@ func runLiveAccessibleWithHubsMode(reader io.Reader, writer io.Writer, api apiCl
 				fmt.Fprint(writer, "[k] monitor only (default), [y] allow shutdown/restart/suspend: ")
 			}
 		case 3:
-			fmt.Fprint(writer, "Advanced networking: [k] leave unchanged (default), [p] review network interface: ")
+			fmt.Fprintf(writer, "Wake-on-LAN: [k] keep, [c] configure, [l] leave unchanged, [p] pin interface only (Enter: %s): ", s.wolChoice)
 		case 4:
-			if s.wolChoice != "pin" {
+			if s.wolChoice != "pin" && s.wolChoice != "configure" {
 				step++
 				continue
 			}
@@ -822,7 +876,7 @@ func runLiveAccessibleWithHubsMode(reader io.Reader, writer io.Writer, api apiCl
 			} else {
 				fmt.Fprintln(writer, "Already at the first step.")
 			}
-			if step == 4 && s.wolChoice != "pin" {
+			if step == 4 && s.wolChoice != "pin" && s.wolChoice != "configure" {
 				step--
 			}
 			if step == 1 && s.hubChoice != "manual" {
@@ -889,8 +943,14 @@ func runLiveAccessibleWithHubsMode(reader io.Reader, writer io.Writer, api apiCl
 			}
 		case 3:
 			switch answer {
-			case "", "k":
+			case "":
+				// Accept the displayed default/current choice.
+			case "k":
 				s.wolChoice = "keep"
+			case "c":
+				s.wolChoice = "configure"
+			case "l":
+				s.wolChoice = "leave"
 			case "p":
 				s.wolChoice = "pin"
 			default:

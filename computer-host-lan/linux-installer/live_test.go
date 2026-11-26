@@ -47,6 +47,8 @@ JSON
     shift
     power=preserve
     wol=false
+    configure=false
+    nic=''
     while [ "$#" -gt 0 ]; do
       case "$1" in
         --enable-power) power=enable ;;
@@ -55,12 +57,19 @@ JSON
           wol=true
           shift
           [ "$1" = "enp1s0f0" ] || [ "$1" = "LAN0" ] || exit 2
+          nic=$1
           ;;
+        --configure-wol) configure=true ;;
         *) exit 2 ;;
       esac
       shift
     done
+    if [ "$configure" = true ]; then
+      [ "$wol" = true ] || exit 2
+      printf '%s,"wol_policy":{"action":"configure","interface":"%s","mac":"02:11:22:33:44:55","backend":"nm","profile":"aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee","previous":"1","link_name":null,"link_text":null,"digest":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","capability":"unknown","connection_name":"Wired connection 1"}}\n' "$(printf '` + fixturePlan + `' "$power" "$wol" | sed 's/}$//')" "$nic"
+    else
     printf '` + fixturePlan + `\n' "$power" "$wol"
+    fi
     ;;
   *) exit 2 ;;
 esac
@@ -390,5 +399,82 @@ func TestLiveNICInputDisplaysUsefulValidationErrors(t *testing.T) {
 		!strings.Contains(err.Error(), "1–15") ||
 		strings.Contains(err.Error(), "read-only backend: invalid_argument") {
 		t.Fatalf("unexpected empty-NIC validation: %v", err)
+	}
+}
+
+// Only the separately invoked PTY fixture runs this test. It exercises the
+// actual live form with a deterministic physical-NIC suggestion.
+func TestFreshWOLPreviewPTY(t *testing.T) {
+	path := os.Getenv("COMPUTER_HOST_FRESH_WOL_PTY_API")
+	if path == "" {
+		t.Skip("fresh WOL PTY fixture only")
+	}
+	api, err := newAPIClient(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	info, err := api.inspect()
+	if err != nil || info.Installation.Detected {
+		t.Fatalf("Expected fresh fixture: %+v (%v)", info, err)
+	}
+	s := newLiveSelectionWithNIC(api, info, discoverHubs(), func(string) string { return "LAN0" })
+	if s.wolChoice != "configure" {
+		t.Fatal("Fresh wired computer did not preselect Configure")
+	}
+	if err := runLiveInteractiveSelection(os.Stdout, s); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestFreshWizardFallsBackOnlyOnWOLPreviewFailure(t *testing.T) {
+	for _, code := range []string{"wol_preview_unavailable", "prerequisite_missing"} {
+		t.Run(code, func(t *testing.T) {
+			source := `#!/bin/sh
+case "$1" in
+inspect)
+cat <<'JSON'
+` + fixtureInspect + `
+JSON
+;;
+plan)
+shift
+if [ "$#" -gt 0 ]; then
+printf '{"schema_version":1,"operation":"plan","mode":"read_only","error":{"code":"%s"}}\n' '` + code + `' >&2
+exit 2
+fi
+printf '` + fixturePlan + `\n' preserve false
+;;
+*) exit 2 ;;
+esac
+`
+			api := scriptClient(t, source)
+			info, err := api.inspect()
+			if err != nil {
+				t.Fatal(err)
+			}
+			info.Installation.Detected = false
+			s := newLiveSelectionWithNIC(api, info, nil, func(string) string { return "LAN0" })
+			plan, err := s.currentPlan()
+			if code != "wol_preview_unavailable" {
+				if err == nil {
+					t.Fatal("Unrelated prerequisite error was suppressed")
+				}
+				return
+			}
+			if err != nil || !plan.WOLPreviewSkipped || plan.WOLInterfaceRequested || plan.WOLPolicy != nil {
+				t.Fatalf("No safe fallback: %+v (%v)", plan, err)
+			}
+			if !strings.Contains(s.installPreview(), "network policy could not be safely checked") {
+				t.Fatal("Fallback was not disclosed in review")
+			}
+			req, err := approvedRootRequest(s)
+			if err != nil || req.WOLInterface != nil || req.WOLPlanDigest != "" {
+				t.Fatalf("Fallback authorized WOL: %+v (%v)", req, err)
+			}
+			s = &liveSelection{api: api, inspection: info, powerChoice: "keep", wolChoice: "configure", wolNIC: "LAN0"}
+			if _, err := s.currentPlan(); err == nil {
+				t.Fatal("Strict request silently downgraded")
+			}
+		})
 	}
 }

@@ -7,7 +7,6 @@ confirmation is deliberately fail-closed if the persistent value changed.
 This increment is internal only; public preview/consent and removal follow.
 """
 from dataclasses import asdict, replace
-import hashlib
 import json
 import os
 from pathlib import Path
@@ -32,7 +31,7 @@ def _encoded(value):
 
 
 def plan_digest(plan):
-    return hashlib.sha256(_encoded(asdict(plan))).hexdigest()
+    return wol.policy_digest(plan)
 
 
 def _uuid(value):
@@ -216,7 +215,7 @@ class Ownership:
                     and saved.backend == plan.backend and saved.profile == plan.profile
                     and "g" in plan.adapter.runtime):
                 return None
-            raise wol.WolError("existing WOL ownership requires review")
+            raise wol.WolError("existing WOL ownership requires review; remove the installer setting first, then configure again")
         intent = {"transaction": transaction, "boot_id": self.boot_id(), "plan": asdict(plan)}
         decode_intent(intent)
         return intent
@@ -283,3 +282,37 @@ class Ownership:
             restore_plan = plan if same_boot else replace(plan, adapter=now)
             self.backend.restore(restore_plan)
         self._delete(plan, record)
+
+    def inspect_owned(self, interface):
+        adapter = self.backend.adapter(interface, preview=True)
+        probe = wol.Plan(adapter, "link-existing", None, None, None)
+        record = self._read(probe)
+        if record is None:
+            return "not_managed"
+        saved = decode_intent(record["intent"])
+        if record["state"] != "confirmed":
+            return "review_required"
+        if saved.backend == "nm":
+            if (not self.backend._nm_active()
+                    or self.backend._profile(interface) != saved.profile
+                    or self.backend._nm_value(saved.profile) != saved.nm_after):
+                return "review_required"
+        elif saved.backend == "link-create":
+            target = self.backend._target(saved)
+            if (not os.path.lexists(target) or target.lstat().st_ino != record["inode"]
+                    or self.backend._read_link(target) != saved.link_text):
+                return "review_required"
+        return "managed" if saved.owns_change else "runtime_only"
+
+    def remove_owned(self, interface):
+        """Explicit retryable restoration; retain record until verified."""
+        adapter = self.backend.adapter(interface)
+        probe = wol.Plan(adapter, "link-existing", None, None, None)
+        record = self._read(probe)
+        if record is None:
+            return "not_managed"
+        saved = decode_intent(record["intent"])
+        if saved.adapter.interface != interface or saved.adapter.mac != adapter.mac:
+            raise wol.WolError("WOL adapter changed")
+        self.rollback(record["intent"], record["intent"]["transaction"])
+        return "removed"

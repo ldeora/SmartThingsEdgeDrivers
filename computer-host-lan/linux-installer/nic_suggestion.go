@@ -48,7 +48,7 @@ func suggestedNICAt(sysfs string, hubIP string, route routeCommand) string {
 		if name := route(hubIP); validNICName(name) == nil && name != "lo" {
 			// Validate the suggested name exists; route output is never
 			// accepted as proof of a physical Ethernet or WOL capability.
-			if _, err := os.Stat(filepath.Join(sysfs, name)); err == nil {
+			if wiredInterfaceAt(sysfs, name) {
 				return name
 			}
 		}
@@ -64,14 +64,7 @@ func suggestedNICAt(sysfs string, hubIP string, route routeCommand) string {
 			continue
 		}
 		p := filepath.Join(sysfs, name)
-		// A "device" link distinguishes common hardware NICs from veth,
-		// tun, bridges and other purely software interfaces. Wi-Fi also
-		// has a device link; treat all suggestions as unverified.
-		if _, err := os.Stat(filepath.Join(p, "device")); err != nil {
-			continue
-		}
-		typ, err := os.ReadFile(filepath.Join(p, "type"))
-		if err != nil || strings.TrimSpace(string(typ)) != "1" {
+		if !wiredInterfaceAt(sysfs, name) {
 			continue
 		}
 		state, err := os.ReadFile(filepath.Join(p, "operstate"))
@@ -93,4 +86,25 @@ func suggestedNIC(hubIP string) string {
 		hubIP = ""
 	}
 	return suggestedNICAt("/sys/class/net", hubIP, routeDeviceForHub)
+}
+
+func wiredInterfaceAt(sysfs, name string) bool {
+	if !wiredNICName(name) {
+		return false
+	}
+	p := filepath.Join(sysfs, name)
+	if _, err := os.Stat(filepath.Join(p, "device")); err != nil {
+		return false
+	}
+	typ, err := os.ReadFile(filepath.Join(p, "type"))
+	if err != nil || strings.TrimSpace(string(typ)) != "1" {
+		return false
+	}
+	for _, entry := range []string{"wireless", "phy80211"} {
+		if _, err := os.Stat(filepath.Join(p, entry)); err == nil || !os.IsNotExist(err) {
+			return false
+		}
+	}
+	uevent, err := os.ReadFile(filepath.Join(p, "uevent"))
+	return err == nil && !strings.Contains(string(uevent), "DEVTYPE=wlan")
 }

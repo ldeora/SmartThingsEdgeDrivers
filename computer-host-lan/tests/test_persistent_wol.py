@@ -55,6 +55,8 @@ class WolTests(unittest.TestCase):
                 return ""
             if "GENERAL.CON-UUID" in args:
                 return PROFILE
+            if "connection.id" in args:
+                return "Wired connection 1\n"
             return self.value + "\n"
         raise AssertionError(args)
 
@@ -155,10 +157,74 @@ class WolTests(unittest.TestCase):
     def test_protected_rejects_changed_plan_digest(self):
         owned = self.owned()
         plan = self.backend.inspect(NIC)
-        self.runtime = "g"
+        self.default.write_text(self.default.read_text() + "MTUBytes=1500\n")
         with self.assertRaisesRegex(WolError, "plan changed"):
             owned.prepare(NIC, plan_digest(plan), "first")
         self.assertEqual(self.writes, [])
+
+    def test_visible_policy_digest_ignores_runtime_but_not_policy(self):
+        from dataclasses import replace
+        from persistent_wol import policy_digest
+        plan = self.backend.inspect(NIC)
+        different = replace(plan, adapter=replace(plan.adapter, runtime="g", supported="",
+                                                  ifindex=100))
+        self.assertEqual(policy_digest(plan), policy_digest(different))
+        self.assertNotEqual(policy_digest(plan),
+                            policy_digest(replace(plan, link_text=plan.link_text + "# edit")))
+
+    def test_preview_unknown_ethtool_capability(self):
+        from persistent_wol import preview_policy
+        run = self.backend.run
+
+        def denied(args):
+            if args[0] == "ethtool":
+                raise WolError("permission denied")
+            return run(args)
+
+        plan = self.backend.inspect(NIC)
+        self.backend.run = denied
+        result = preview_policy(NIC, backend=self.backend)
+        self.assertEqual(result["capability"], "unknown")
+        self.assertEqual(result["digest"], plan_digest(plan))
+        self.backend.run = run
+
+    def test_unsupported_adapter_is_distinct_from_unknown(self):
+        from persistent_wol import WolUnsupported, preview_policy
+        self.nm = True
+        self.supported = "d"
+        preview = preview_policy(NIC, backend=self.backend)
+        self.assertEqual(preview["capability"], "unsupported")
+        self.assertEqual(preview["connection_name"], "Wired connection 1")
+        with self.assertRaises(WolUnsupported):
+            self.backend.inspect(NIC)
+        self.assertEqual(self.writes, [])
+
+    def test_missing_ethtool_is_capability_unknown_not_policy_conflict(self):
+        from persistent_wol import WolCapabilityUnknown, preview_policy
+        run = self.backend.run
+
+        def missing(args):
+            if args[0] == "ethtool":
+                raise WolError("command failed")
+            return run(args)
+
+        self.backend.run = missing
+        self.assertEqual(preview_policy(NIC, backend=self.backend)["capability"], "unknown")
+        with self.assertRaises(WolCapabilityUnknown):
+            self.backend.inspect(NIC)
+        self.assertEqual(self.writes, [])
+
+    def test_explicit_owned_nm_removal_preserves_original_policy(self):
+        owned = self.owned()
+        self.nm = True
+        plan = self.backend.inspect(NIC)
+        self.assertEqual(owned.inspect_owned(NIC), "not_managed")
+        intent = owned.prepare(NIC, plan_digest(plan), "first")
+        owned.apply(intent, "first")
+        self.assertEqual(owned.inspect_owned(NIC), "managed")
+        self.assertEqual(owned.remove_owned(NIC), "removed")
+        self.assertEqual(self.value, "1")
+        self.assertEqual(owned.remove_owned(NIC), "not_managed")
 
     def test_link_apply_restore(self):
         plan = self.backend.inspect(NIC)

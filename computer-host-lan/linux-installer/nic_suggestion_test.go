@@ -19,6 +19,9 @@ func addNICFixture(t *testing.T, root, name, state string) {
 	if err := os.WriteFile(filepath.Join(path, "operstate"), []byte(state+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(filepath.Join(root, name, "uevent"), []byte("INTERFACE="+name+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestSuggestedNICUsesRouteAndRequiresExistingInterface(t *testing.T) {
@@ -95,5 +98,16 @@ func TestDefaultHubAndReviewUseBeginnerFriendlyWords(t *testing.T) {
 	}
 	if len(livePowerOptions(info)) != 2 {
 		t.Fatal("power control should be a simple default/alternative choice")
+	}
+}
+
+func TestSuggestedNICRejectsWirelessHardware(t *testing.T) {
+	root := t.TempDir()
+	addNICFixture(t, root, "wlan0", "up")
+	if err := os.Mkdir(filepath.Join(root, "wlan0", "wireless"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got := suggestedNICAt(root, "192.168.1.103", func(string) string { return "wlan0" }); got != "" {
+		t.Fatalf("Wireless route was suggested: %q", got)
 	}
 }

@@ -40,6 +40,7 @@ type privilegedRequest struct {
 	Action        string  `json:"action"`
 	Power         string  `json:"power,omitempty"`
 	WOLInterface  *string `json:"wol_interface,omitempty"`
+	WOLPlanDigest string  `json:"wol_plan_digest,omitempty"`
 }
 
 type privilegedResult struct {
@@ -57,15 +58,25 @@ type privilegedResult struct {
 	CredentialContinuity       string `json:"credential_continuity,omitempty"`
 	ContinuityReason           string `json:"continuity_reason,omitempty"`
 	WOLReviewRequired          bool   `json:"wol_review_required,omitempty"`
+	WOLStatus                  string `json:"wol_status,omitempty"`
 	SecretsIncluded            bool   `json:"secrets_included"`
 }
 
 func (r privilegedRequest) validate() error {
 	if r.SchemaVersion == 2 {
-		if r.Action != "uninstall" || r.Power != "" || r.WOLInterface != nil {
+		if r.Action == "wol-check" || r.Action == "wol-remove" {
+			if r.Power != "" || r.WOLPlanDigest != "" || r.WOLInterface == nil || !wiredNICName(*r.WOLInterface) {
+				return errors.New("invalid WOL request")
+			}
+			return nil
+		}
+		if r.WOLPlanDigest != "" || r.Action != "uninstall" || r.Power != "" || r.WOLInterface != nil {
 			return errors.New("invalid uninstall request")
 		}
 		return nil
+	}
+	if r.WOLPlanDigest != "" && (r.WOLInterface == nil || !wiredNICName(*r.WOLInterface) || !wolDigestPattern.MatchString(r.WOLPlanDigest) || (r.Action != "install" && r.Action != "upgrade" && r.Action != "repair")) {
+		return errors.New("invalid WOL approval")
 	}
 	if r.SchemaVersion != 1 {
 		return errors.New("unsupported privileged request version")
@@ -109,7 +120,7 @@ func decodePrivilegedRequest(r io.Reader) (privilegedRequest, error) {
 			return privilegedRequest{}, errors.New("invalid privileged request key")
 		}
 		switch key {
-		case "schema_version", "action", "power", "wol_interface":
+		case "schema_version", "action", "power", "wol_interface", "wol_plan_digest":
 		default:
 			return privilegedRequest{}, errors.New("unknown privileged request key")
 		}
@@ -134,6 +145,11 @@ func decodePrivilegedRequest(r io.Reader) (privilegedRequest, error) {
 	if err := json.Unmarshal(raw, &request); err != nil {
 		return privilegedRequest{}, errors.New("invalid privileged request")
 	}
+	if request.Action == "wol-check" || request.Action == "wol-remove" {
+		if len(fields) != 3 || fields["wol_interface"] == nil {
+			return privilegedRequest{}, errors.New("unexpected WOL request fields")
+		}
+	}
 	if request.Action == "uninstall" || request.Action == "status" || request.Action == "recover" {
 		// Reject even explicitly empty/null installation settings.
 		if len(fields) != 2 {
@@ -154,6 +170,11 @@ func pythonRequest(r privilegedRequest) ([]byte, error) {
 	if r.Action == "install" || r.Action == "upgrade" || r.Action == "repair" {
 		data["source"] = trustedDir + "/payload"
 		data["power"] = r.Power
+		data["wol_interface"] = r.WOLInterface
+		if r.WOLPlanDigest != "" {
+			data["wol_plan_digest"] = r.WOLPlanDigest
+		}
+	} else if r.Action == "wol-check" || r.Action == "wol-remove" {
 		data["wol_interface"] = r.WOLInterface
 	}
 	return json.Marshal(data)
@@ -768,6 +789,11 @@ func rootBootstrap(reader io.Reader, writer io.Writer) error {
 	}
 	// Once verified success and cleanup is complete the old helper may be
 	// retired. A retained previous copy is never executed automatically.
+	if (request.Action == "wol-check" || request.Action == "wol-remove") && response.Status == "passed" {
+		if err := finishHelperRetirementIfNeeded(trustedDir, 0); err != nil {
+			return relayBootstrapFailure(writer, request.Action, err)
+		}
+	}
 	if response.Status == "installed" || response.Status == "uninstalled" {
 		if err := finishHelperRetirementIfNeeded(trustedDir, 0); err != nil {
 			// Committed operations must not be presented as failed

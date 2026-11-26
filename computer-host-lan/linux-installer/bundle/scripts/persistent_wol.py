@@ -7,6 +7,8 @@ No experimental wol_* modules are imported.
 """
 from dataclasses import dataclass
 import os
+import hashlib
+import json
 from pathlib import Path
 import re
 import stat
@@ -17,6 +19,14 @@ import uuid
 
 class WolError(RuntimeError):
     pass
+
+
+class WolUnsupported(WolError):
+    """A successful hardware query explicitly reports no magic support."""
+
+
+class WolCapabilityUnknown(WolError):
+    """Both hardware queries failed or lacked usable WOL capability fields."""
 
 
 _IFACE = re.compile(r"[A-Za-z0-9_.-]{1,15}")
@@ -107,13 +117,53 @@ class Plan:
         return self.adapter.runtime if "g" in self.adapter.runtime else "g"
 
 
+def visible_policy(plan):
+    """Policy fields shown for consent; runtime observations are excluded."""
+    return dict(action="configure", interface=plan.adapter.interface,
+                mac=plan.adapter.mac, backend=plan.backend, profile=plan.profile,
+                previous=plan.previous, link_name=plan.link_name, link_text=plan.link_text)
+
+
+def policy_digest(plan):
+    raw = json.dumps(visible_policy(plan), sort_keys=True, separators=(",", ":"),
+                     ensure_ascii=True).encode("ascii")
+    return hashlib.sha256(raw).hexdigest()
+
+
+def preview_policy(interface, *, root=Path("/"), backend=None):
+    """Read-only ordinary-user policy inspection; no private record reads."""
+    backend = backend if backend is not None else Backend(root=root)
+    plan = backend.inspect(interface, preview=True)
+    policy = visible_policy(plan)
+    text = plan.link_text or ""
+    if len(text.encode("utf-8")) > 8192 or any(
+            (ord(ch) < 32 and ch not in "\n\t") or 127 <= ord(ch) <= 159 for ch in text):
+        raise WolError("link policy too complex for preview")
+    policy["digest"] = policy_digest(plan)
+    policy["capability"] = ("supported" if "g" in plan.adapter.supported else
+                            "unsupported" if plan.adapter.supported else "unknown")
+    if plan.backend == "nm":
+        try:
+            # The UUID remains the stable consent/mutation identity. The
+            # connection name is an ordinary-user display label only.
+            name = backend.run(("nmcli", "--wait", "5", "--escape", "no", "-g",
+                                "connection.id", "connection", "show", "uuid",
+                                plan.profile)).rstrip("\n")
+            if (name and len(name.encode("utf-8")) <= 256 and
+                    all(ch.isprintable() for ch in name)):
+                policy["connection_name"] = name
+        except WolError:
+            pass
+    return policy
+
+
 class Backend:
     def __init__(self, *, root=Path("/"), run=command, owner_uid=0):
         self.root = Path(root)
         self.run = run
         self.owner_uid = owner_uid
 
-    def adapter(self, interface):
+    def adapter(self, interface, *, preview=False):
         if (not isinstance(interface, str) or not _IFACE.fullmatch(interface)
                 or interface in (".", "..", "lo") or interface.startswith("-")):
             raise WolError("invalid wired interface")
@@ -141,12 +191,16 @@ class Backend:
             if (len(supported) == len(runtime) == 1 and
                     _MODES.fullmatch(supported[0]) and _MODES.fullmatch(runtime[0])):
                 if "g" not in supported[0]:
-                    raise WolError("magic-packet WOL unsupported")
+                    if preview:
+                        return Adapter(interface, mac, index, supported[0], runtime[0])
+                    raise WolUnsupported("magic-packet WOL unsupported")
                 # SecureOn passwords cannot be captured/restored by this contract.
                 if "s" in runtime[0]:
                     raise WolError("SecureOn runtime policy requires manual configuration")
                 return Adapter(interface, mac, index, supported[0], runtime[0])
-        raise WolError("WOL capability unknown")
+        if preview:
+            return Adapter(interface, mac, index, "", "")
+        raise WolCapabilityUnknown("WOL capability unknown")
 
     def _nm_active(self):
         output = self.run(("systemctl", "show", "--property=LoadState,ActiveState",
@@ -269,8 +323,8 @@ class Backend:
         return Plan(adapter, "link-create", None, None, name,
                     self.link_content(adapter.mac, selected_text))
 
-    def inspect(self, interface):
-        adapter = self.adapter(interface)
+    def inspect(self, interface, *, preview=False):
+        adapter = self.adapter(interface, preview=preview)
         if self._nm_active():
             profile = self._profile(interface)
             return Plan(adapter, "nm", profile, self._nm_value(profile), None)
