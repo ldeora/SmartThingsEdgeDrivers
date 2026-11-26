@@ -1828,7 +1828,7 @@ class InstallerBackendTests(unittest.TestCase):
               mock.patch.object(core, 'write_owner_record') as owner,
               mock.patch.object(core, 'InstallTransaction') as trans,
               mock.patch.object(core, 'restore_services') as services):
-            with self.assertRaisesRegex(core.InstallError, 'Historical restore is not supported'):
+            with self.assertRaisesRegex(core.InstallError, 'For historical restore, use -restore'):
                 core.run_cli(['--rollback', '/missing/snapshot'])
             for operation in (guard, owner, trans, services):
                 operation.assert_not_called()
