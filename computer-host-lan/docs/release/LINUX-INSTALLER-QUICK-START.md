@@ -110,3 +110,14 @@ private identity/key and recovery material. See the
 [installer documentation](../../linux-installer/README.md) for CLI repair,
 recovery, and detailed troubleshooting. Report OS/version and redacted
 results using the [RC checklist](RC-ACCEPTANCE.md); never share credentials.
+
+### Reinstall after an rc.2 uninstall
+
+If setup finds retained installation data without a current agent, it offers
+reuse of your existing identity and control key. Review the plan and type
+**REUSE** only if it is your previous Computer Host LAN v2 installation.
+Keep your original private files and backups intact. The installer checks
+eligibility after authorization and refuses ambiguous or unsafe state; it
+will not reset the identity or key. Refresh the existing SmartThings device
+rather than creating a duplicate. Select remote power again if you want it;
+use the existing control key. Existing WOL settings are kept by default.

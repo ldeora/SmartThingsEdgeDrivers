@@ -47,12 +47,13 @@ type apiInspect struct {
 		DaemonState       string `json:"daemon_state"`
 	} `json:"avahi"`
 	Installation struct {
-		Detected            bool   `json:"detected"`
-		ServiceFile         string `json:"service_file"`
-		PowerDropin         string `json:"power_dropin"`
-		AvahiServiceFile    string `json:"avahi_service_file"`
-		AgentServiceState   string `json:"agent_service_state"`
-		AgentServiceEnabled string `json:"agent_service_enabled"`
+		Detected             bool   `json:"detected"`
+		RetainedStatePresent bool   `json:"retained_state_present,omitempty"`
+		ServiceFile          string `json:"service_file"`
+		PowerDropin          string `json:"power_dropin"`
+		AvahiServiceFile     string `json:"avahi_service_file"`
+		AgentServiceState    string `json:"agent_service_state"`
+		AgentServiceEnabled  string `json:"agent_service_enabled"`
 	} `json:"installation"`
 	PrivilegedTransactionState string `json:"privileged_transaction_state"`
 	IdentityPreserved          string `json:"identity_preserved"`
@@ -72,6 +73,7 @@ type apiPlan struct {
 	PowerOption                string      `json:"power_option"`
 	WOLInterfaceRequested      bool        `json:"wol_interface_requested"`
 	WOLPolicy                  *wolPolicy  `json:"wol_policy,omitempty"`
+	RetainedStateCandidate     bool        `json:"retained_state_candidate,omitempty"`
 	WOLPreviewSkipped          bool        `json:"-"` // local wizard fallback; never a backend field
 	PrivilegedTransactionState string      `json:"privileged_transaction_state"`
 	RuntimeVerified            bool        `json:"runtime_verified"`
@@ -405,6 +407,9 @@ func (p apiPlan) brief() string {
 	fmt.Fprintf(&b, "Interpreter: %s\n", p.SelectedPython)
 	fmt.Fprintf(&b, "Power setting: %s\n", p.PowerOption)
 	fmt.Fprintf(&b, "WOL interface pin requested: %t\n", p.WOLInterfaceRequested)
+	if p.RetainedStateCandidate {
+		fmt.Fprintln(&b, retainedReuseNotice)
+	}
 	for _, change := range p.Changes {
 		fmt.Fprintf(&b, "%s: %s\n", change.Action, change.Path)
 	}
@@ -597,6 +602,9 @@ func (s *liveSelection) preview() string {
 	fmt.Fprintln(&b, "Your SmartThings setup")
 	fmt.Fprintln(&b, "  Hub:           "+s.selectedHub())
 	fmt.Fprintln(&b, "  Power control: "+s.friendlyPower())
+	if p.RetainedStateCandidate {
+		fmt.Fprintln(&b, retainedReuseNotice)
+	}
 	if p.WOLPreviewSkipped {
 		fmt.Fprintln(&b, "  Wake-on-LAN: Left unchanged — the network policy could not be safely checked. You can enable it later by running the installer again.")
 	} else if s.wolChoice == "configure" && p.WOLPolicy != nil {
@@ -736,7 +744,7 @@ func newLiveSelectionWithNIC(api apiClient, info apiInspect, hubs []discoveredHu
 	// The suggested NIC is already checked for physical wired Ethernet.
 	// An ordinary user may be unable to query ethtool; don't require
 	// that privilege-dependent observation to select the useful default.
-	s.wolChoice = defaultWOLChoice(info.Installation.Detected, s.wolNIC)
+	s.wolChoice = defaultWOLChoice(info.Installation.Detected || info.Installation.RetainedStatePresent, s.wolNIC)
 	return s
 }
 
@@ -832,7 +840,7 @@ func runLiveAccessibleWithHubsMode(reader io.Reader, writer io.Writer, api apiCl
 		case 5:
 			if installing {
 				fmt.Fprintln(writer, "\n"+s.installPreview())
-				fmt.Fprint(writer, "Type INSTALL to confirm actual changes (or back/quit): ")
+				fmt.Fprintf(writer, "Type %s to confirm actual changes (or back/quit): ", s.installConfirmation())
 			} else {
 				fmt.Fprintln(writer, "\n"+s.preview())
 				fmt.Fprint(writer, "Finish preview? [Y/n]: ")
@@ -967,8 +975,8 @@ func runLiveAccessibleWithHubsMode(reader io.Reader, writer io.Writer, api apiCl
 			}
 		case 5:
 			if installing {
-				if raw != "INSTALL" {
-					fmt.Fprintln(writer, "No changes made. Type INSTALL exactly, or back/quit.")
+				if raw != s.installConfirmation() {
+					fmt.Fprintf(writer, "No changes made. Type %s exactly, or back/quit.\n", s.installConfirmation())
 					continue
 				}
 			} else {

@@ -105,9 +105,11 @@ changes explicitly identified; they are not new hardware certifications. Do not 
   #160 implemented the narrow missing-helper evidence guard; do not claim
   that cross-schema compatibility has been delivered. Same-schema failures
   found in physical acceptance still block as appropriate.
-- #128 automatic Linux inbound policy, #88 persistent WOL, #49 WOL reset:
-  no new network or NIC mutation for v1.0. Existing #168 manual guidance
-  stays; revisit only a concrete supported-path failure.
+- #128 automatic Linux inbound policy remains deferred. The maintainer's
+  subsequent rc.2 parity decision supersedes the earlier WOL deferral:
+  #183–#185 implement persistent wired WOL and explicit owned removal;
+  physical acceptance remains pending. The narrow schema-1 retained-state
+  reuse path below does not activate the experimental schema-2 engine.
 - #79 residual local lock availability, #161 clean-host status/recover message,
   #163 unsafe obsolete artifact cleanup, #81 progress hints: retain tracked
   limitations; no automatic deletion of suspicious evidence. Promote to
@@ -150,3 +152,16 @@ credential corruption or unsafe power transitions.
 Use this record to consolidate evidence as it arrives; do not mark an
 unperformed check PASS. Any narrowing of supported platforms or deferral
 requires an explicit maintainer decision and user-facing limitation.
+
+### Retained rc.2 state reuse (implementation draft)
+
+A read-only orphan-only plan identifies a candidate, not eligibility. The
+wizard asks for REUSE instead of INSTALL; CLI requires --confirm REUSE.
+The protected controller checks the shared lock, empty journal, absent
+managed files/owner record, stopped units, exact private state layout,
+canonical credentials and a complete root-private legacy v2 snapshot.
+The snapshot corroborates protocol only, not credential association; the
+operator confirms ownership. Existing credential continuity checks ensure
+both files are unchanged. No new journal fields or credential copies.
+A normal rc.3 uninstall with a valid owner marker keeps its existing path.
+Physical rc.2 uninstall/reinstall acceptance and independent review remain.

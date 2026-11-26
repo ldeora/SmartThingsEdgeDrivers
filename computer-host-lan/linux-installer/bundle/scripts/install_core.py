@@ -410,9 +410,9 @@ def require_v2_or_clean(root: Path = Path('/'), *, classify_orphan_state: bool =
         raise InstallError(
             'Existing Linux Host Agent files or retained state could not be identified '
             'as a supported v2 installation. Refusing automatic changes; investigate '
-            'before migration or repair. Adoption is not supported in v1.0. '
-            'Preserve the retained state, identity, key and backups; do not delete or '
-            'regenerate them. Seek recovery guidance before retrying.')
+            'before migration or repair. For retained rc.2 state, use the protected '
+            'installer and explicitly confirm reuse. Preserve the retained state, '
+            'identity, key and backups; do not delete or regenerate them.')
     if classify_orphan_state:
         raise InstallError('Orphan-state classification applies only when retained state '
                            'exists without managed files or a v2 ownership record')
@@ -644,15 +644,15 @@ def run_cli(argv=None) -> int:
     parser.add_argument('--disable-power', action='store_true')
     parser.add_argument('--wol-interface', default=None)
     parser.add_argument('--adopt-retained-state', action='store_true',
-                        help='retired; retained-state adoption not supported')
+                        help='retired; use protected installer with explicit reuse consent')
     args = parser.parse_args(argv)
     if args.install or args.uninstall or args.rollback is not None:
         raise InstallError('Legacy mutation disabled; use the independently verified release installer wizard/CLI. Historical restore is not supported; preserve backups and seek recovery guidance.')
     if args.adopt_retained_state:
         raise InstallError(
-            'Retained-state adoption is not supported in v1.0. Preserve the retained '
-            'state, identity, key and backups; do not delete or regenerate them. '
-            'Seek recovery guidance before retrying.')
+            'Legacy adoption is disabled. Use the protected installer with explicit '
+            'reuse consent. Preserve the retained state, identity, key and backups; '
+            'do not delete or regenerate them.')
     if os.geteuid() != 0 and not (args.plan or args.check_existing):
         parser.error('must run as root')
     if args.plan and (not args.source or not args.python_bin):

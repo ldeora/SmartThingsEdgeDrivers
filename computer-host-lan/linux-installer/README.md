@@ -30,6 +30,7 @@ preserved on upgrade. Interface pinning is separate from persistent NIC WOL.
 ./computer-host-linux-installer-test -live -preview
 ./computer-host-linux-installer-test -live
 # Supervised installation/upgrade: type INSTALL after review
+# For retained rc.2 state, review and type REUSE instead
 ./computer-host-linux-installer-test
 # Plain-text wizard with terminal su
 ./computer-host-linux-installer-test -accessible -elevation su
@@ -66,7 +67,9 @@ In the SmartThings device settings, enter the 64-character value in
 **Enable shutdown/reboot/suspend** (`allowPowerCommands`).
 Do not read or replace a key merely to upgrade an existing installation with
 working power control. Monitoring-only installations do not need the key.
-The wizard never reads, displays or copies the secret.
+The unprivileged wizard never reads, displays or copies the secret. For
+explicit retained-state reuse the protected controller validates its private
+format and verifies continuity without displaying or copying it.
 
 ## Troubleshooting discovery and connectivity
 
@@ -229,9 +232,10 @@ SmartThings registration.
 Each option is a separate name/value pair, may occur only once, and is
 valid only for the documented action. Missing or wrong confirmation is
 an invocation error. There is no arbitrary source, Python override,
-historical backup restore, retained-state adoption, persistent WOL
-configuration or legacy shell fallback in this increment. Current published
-shell instructions remain unchanged, including their read-only dry run.
+historical backup restore or legacy shell fallback in this increment.
+Persistent WOL setup/removal and explicit retained rc.2 state reuse are
+available for supervised development. Current published shell instructions
+remain unchanged, including their read-only dry run.
 
 Except for help, stdout is a single schema-version-1 JSON result containing
 fixed operation/status/error, recovery/identity and optional validated plan,
@@ -312,3 +316,16 @@ consent, prior state, identity verification, service recovery and protected
 transaction status. Gentoo/Btrfs lifecycle evidence does not certify final
 release bytes or other distributions. No additional reboot, power loss,
 network change or installation is implied by this document.
+
+### Reuse after an rc.2 uninstall
+
+The read-only plan identifies retained state only as a candidate. If the
+state is yours and belongs to a previous Computer Host LAN v2 installation,
+type REUSE at the wizard confirmation, or use `cli install --confirm REUSE`
+after reviewing `cli plan --action install`. The protected controller checks
+quiescence, the private state layout and complete legacy v2 snapshot evidence.
+The backup itself does not contain or prove association with the credentials.
+Do not delete or regenerate private state, account or backups if reuse is
+refused. Choose remote power again if needed; retain the existing key and
+refresh the existing SmartThings device. Normal reinstall with the current
+v2 owner marker continues to use the ordinary INSTALL path.

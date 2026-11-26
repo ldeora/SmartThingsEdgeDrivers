@@ -1,6 +1,6 @@
-"""Experimental retained-state file/account eligibility; no adoption authority.
+"""Retained-state file/account eligibility; no independent adoption authority.
 
-No production caller or mutation. A future caller must hold the shared
+No mutation. The protected caller must hold the shared
 installer lock, establish service quiescence and journal eligibility,
 and independently obtain explicit v2 provenance/consent. Valid formats
 do not establish which protocol created these files.
@@ -10,6 +10,7 @@ from __future__ import annotations
 from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass, replace
 import grp
+import json
 import os
 from pathlib import Path
 import pwd
@@ -239,3 +240,77 @@ def adoption_candidate(*, root: Path = Path('/'), owner_uid: int = 0,
             raise AdoptionEligibilityError(
                 'installer_lock_or_environment_unavailable') from None
         yield replace(evidence, service_state='verified', journal_state='verified')
+
+
+def require_v2_uninstall_evidence(root: Path, *, owner_uid: int) -> None:
+    """Corroborate legacy v2 protocol with a complete private snapshot.
+
+    The operator confirms ownership; the snapshot contains no credentials
+    and cannot prove which UUID/token belongs to the backed-up agent.
+    Nothing from the backup is restored or executed here.
+    """
+    base = root / core.BACKUP_BASE.lstrip('/')
+    try:
+        for path in (base, *base.parents):
+            if path != root and root not in path.parents:
+                continue
+            info = path.lstat()
+            if (not stat.S_ISDIR(info.st_mode) or info.st_uid != owner_uid
+                    or info.st_mode & 0o022):
+                raise AdoptionEligibilityError('unsafe_backup_parent')
+        if base.stat().st_mode & 0o077:
+            raise AdoptionEligibilityError('unsafe_backup_directory')
+        candidates = sorted(base.iterdir(), key=lambda p: p.name)
+        if len(candidates) > 1024:
+            raise AdoptionEligibilityError('backup_review_required')
+        for snapshot in candidates:
+            if not snapshot.name.startswith('snapshot-'):
+                continue
+            try:
+                info = snapshot.lstat()
+                if (not stat.S_ISDIR(info.st_mode) or info.st_uid != owner_uid
+                        or info.st_mode & 0o077):
+                    continue
+                manifest = snapshot / 'manifest.json'
+                info = manifest.lstat()
+                if (not stat.S_ISREG(info.st_mode) or info.st_uid != owner_uid
+                        or info.st_nlink != 1 or info.st_mode & 0o077):
+                    continue
+                data = json.loads(core._read_backup_file(
+                    manifest, core.MAX_BACKUP_MANIFEST_BYTES))
+                if (type(data) is not dict or set(data) != {'schema', 'items', 'previous'}
+                        or type(data['schema']) is not int or data['schema'] != 1
+                        or type(data['items']) is not list
+                        or len(data['items']) != len(core.MANAGED_PATHS)
+                        or type(data['previous']) is not dict
+                        or data['previous'].get('first_install') is not False):
+                    continue
+                paths = set()
+                expected = {'manifest.json'}
+                agent_present = unit_present = False
+                for index, item in enumerate(data['items']):
+                    if (type(item) is not dict or item.get('path') not in core.MANAGED_PATHS
+                            or item['path'] in paths or type(item.get('existed')) is not bool):
+                        raise ValueError()
+                    paths.add(item['path'])
+                    if item['existed']:
+                        name = f'{index}.original'
+                        if item.get('file') != name:
+                            raise ValueError()
+                        info = (snapshot / name).lstat()
+                        if (not stat.S_ISREG(info.st_mode) or info.st_uid != owner_uid
+                                or info.st_nlink != 1 or info.st_mode & 0o022):
+                            raise ValueError()
+                        expected.add(name)
+                        agent_present |= item['path'] == core.APP_FILES[0]
+                        unit_present |= item['path'] == core.SYSTEMD_PATHS[0]
+                if (paths != core.MANAGED_PATHS or not agent_present or not unit_present
+                        or {p.name for p in snapshot.iterdir()} != expected):
+                    continue
+                core.validate_v2_backup(snapshot, root=root)
+                return
+            except (OSError, ValueError, TypeError, core.InstallError):
+                continue
+    except (OSError, core.InstallError):
+        pass
+    raise AdoptionEligibilityError('v2_backup_evidence_unavailable')

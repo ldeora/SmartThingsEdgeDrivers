@@ -446,7 +446,7 @@ func TestPrivilegedHelperErrorsSurviveNonzeroElevationExit(t *testing.T) {
 		help string
 	}{
 		{"recovery_required", "-recover"},
-		{"adoption_required", "not supported in v1.0"},
+		{"adoption_required", "Reuse requires explicit consent"},
 		{"rolled_back", "restored"},
 		{"installation_busy", "another installation"},
 		{"unsupported_python", "Python 3.10"},

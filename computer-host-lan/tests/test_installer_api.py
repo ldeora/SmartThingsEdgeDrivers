@@ -142,6 +142,22 @@ class InstallerAPIReadOnlyTests(unittest.TestCase):
         self.assertEqual(dropin['action'], 'remove')
         self.assertEqual(old.read_bytes(), b'old')
 
+    def test_retained_state_plan_is_candidate_only_and_does_not_read_credentials(self):
+        private = self.put('/var/lib/linux-host-agent/control-token', b'PRIVATE-FIXTURE')
+        private.parent.chmod(0o700)
+        private.chmod(0o600)
+        result = self.inspect_fixture_cli()
+        self.assertTrue(result['installation']['retained_state_present'])
+        self.assertFalse(result['installation']['detected'])
+        plan = api.change_plan(root=self.root, source=ROOT)
+        self.assertIs(plan['retained_state_candidate'], True)
+        self.assertFalse(plan['changes_applied'])
+        self.assertNotIn('PRIVATE-FIXTURE', json.dumps(plan))
+        self.assertFalse(core.owner_record_exists(self.root))
+        self.assertEqual(private.read_bytes(), b'PRIVATE-FIXTURE')
+        core.write_owner_record(self.root)
+        self.assertNotIn('retained_state_candidate', api.change_plan(root=self.root, source=ROOT))
+
     def test_plan_refuses_legacy_or_ambiguous_layout_before_offering_install(self):
         agent = self.put(core.APP_FILES[0], b'PROTOCOL = "linux-host-agent"\n')
         with self.assertRaises(api.PrerequisiteMissing) as legacy:
