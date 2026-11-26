@@ -29,3 +29,7 @@
 **rc.2 acceptance notes:** The fixed Public-network hint may appear below extra blank space with Advanced options collapsed; this is a cosmetic issue to judge at normal screen scaling, not proof of a broken firewall. The PowerShell installer's live Public-profile warning is not shown inside the hidden Inno child process, so the GUI provides a static explanation. The deferred Linux per-address connection cap (#31) remains an open follow-up; the current absolute header deadline bounds each slow request, not every possible LAN abuse pattern.
 
 **If something fails:** Stop at the failing step, keep the previous installer and any protected rollback snapshot, and share a brief **redacted** description. Do not delete ProgramData or the SmartThings device to make a retry work.
+
+## v1.0.0-rc.3 candidate
+
+The rc.2 rows above remain historical. rc.3 is not published or physically accepted. Use the [rc.3 readiness record](RC3-READINESS.md#rc3-acceptance-evidence-119) for exact-candidate evidence, including the standalone installer, both persistent WOL backends, retained rc.2 reinstall, historical restore, maintenance menu and mixed-version private-channel checks. Do not copy rc.2 PASS results to rc.3.

@@ -1,5 +1,7 @@
 # Computer Host LAN — installation (protocol v2)
 
+**Development candidate v1.0.0-rc.3 — not published.** Linux/Edge 0.4.7-rc.3, Windows 0.2.8-rc.3, protocol v2. Release preparation and physical acceptance are pending; rc.2 remains the latest published release. See the [rc.3 release notes](docs/release/RELEASE-NOTES-v1.0.0-rc.3.md).
+
 **Latest published prerelease: [v1.0.0-rc.2](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v1.0.0-rc.2)** (November 21, 2026 UTC; immutable source commit `72e4a99c4b2e8f958ce771152826319318d0d537`). Windows **0.2.7-rc.2**, Linux/Edge **0.4.6-rc.2**, protocol v2 unchanged. Obtain checksummed Windows/Linux release packages rather than transient CI artifacts. See [rc.2 notes](docs/release/RELEASE-NOTES-v1.0.0-rc.2.md) and [quick start](docs/release/QUICK-START.md). SmartThings driver assignment remains a separate action.
 
 ## Known differences between rc.1 and rc.2

@@ -1,6 +1,6 @@
 local M = {}
 M.DRIVER_NAME = "Computer Host LAN"
-M.DRIVER_VERSION = "0.4.6-rc.2"
+M.DRIVER_VERSION = "0.4.7-rc.3"
 M.PROFILE_NAME = "computer-host-linux"
 M.WINDOWS_PROFILE_NAME = "computer-host-windows"
 M.BASIC_PROFILE_NAME = "computer-host"

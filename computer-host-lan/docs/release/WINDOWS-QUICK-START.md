@@ -4,7 +4,7 @@
 
 ## 1. Prepare and download
 
-Use Windows 11 x64 and a SmartThings hub on the same trusted private LAN. Once rc.3 is published, download the version-matched x64 Setup executable and SHA256SUMS.txt from the fixed release linked in the [project README](../../README.md). Do not substitute ordinary CI artifacts. In PowerShell in the download directory:
+Use Windows 11 x64 and a SmartThings hub on the same trusted private LAN. Once rc.3 is published, download `computer-host-lan-v1.0.0-rc.3-windows-x64-unsigned-setup.exe` and SHA256SUMS.txt from the fixed release linked in the [project README](../../README.md). Do not substitute ordinary CI artifacts. In PowerShell in the download directory:
 
 ```powershell
 Get-FileHash -Algorithm SHA256 -LiteralPath '.\DOWNLOADED-SETUP.exe'

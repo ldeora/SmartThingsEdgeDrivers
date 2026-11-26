@@ -1,6 +1,11 @@
 # Computer Host LAN — change log
 
-## Unreleased (planned v1.0.0-rc.3)
+## v1.0.0-rc.3 (candidate, not published)
+
+- Linux: standalone release installer, protected install/upgrade/repair/uninstall/recovery; persistent wired WOL with explicit owned removal (#183–#185), retained rc.2 identity reuse (#186), historical restore (#187), maintenance menu (#188). Normal uninstall keeps credentials, snapshots and NIC WOL. Release builds require byte-identical Linux replicas and unified SHA-256/build metadata.
+- Windows: preserve validated firewall scope and power preference during Setup/ZIP upgrades; runtime retained-state checks, DNS-SD retry and per-source connection limits (#173/#174/#179/#180).
+- Edge: bounded cooperative HTTP request budget, command acknowledgements and safer endpoint selection (#175/#177/#178); protocol v2 unchanged.
+- Documentation: version-specific upgrade, reinstall and recovery journeys (#181). Exact-candidate hardware acceptance remains pending.
 
 - Windows: `ComputerHostAgent` now displays a service description in Windows Services (`services.msc`), set on fresh installations and upgrades through both Setup and PowerShell.
 - Switch ON: after successfully transmitting the Wake-on-LAN magic packets, acknowledge the switch command immediately with ON while Host Status remains `starting`. A matching health response confirms `running`; if boot never succeeds, existing 180-second pending expiry and reachability inference restore OFF where appropriate (including a previously settled `stopped` state). A successful UDP send does not prove the computer has booted. Rejected Wake packets do not emit ON. This adjustment only affects the main switch; the separate momentary Wake control is unchanged. Gentoo hardware validation required.

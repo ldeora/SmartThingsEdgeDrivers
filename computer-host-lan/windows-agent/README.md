@@ -1,5 +1,7 @@
 # Native Windows Host Agent — v0.2.7-rc.2 (published prerelease)
 
+**Development candidate v1.0.0-rc.3 — not published.** Linux/Edge 0.4.7-rc.3, Windows 0.2.8-rc.3, protocol v2. Release preparation and physical acceptance are pending; rc.2 remains the latest published release. See the [rc.3 release notes](../docs/release/RELEASE-NOTES-v1.0.0-rc.3.md).
+
 **Published [Computer Host LAN v1.0.0-rc.2](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v1.0.0-rc.2)** November 21, 2026 UTC (immutable commit `72e4a99c4b2e8f958ce771152826319318d0d537`), Windows **0.2.7-rc.2**, Linux/Edge **0.4.6-rc.2**, protocol v2. The older [rc.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v1.0.0-rc.1) lacks post-tag security fixes; [v0.5.5-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.5-beta.1) is the last independently Windows 11 hardware-tested fallback. **Real Windows 11 rc.2 acceptance remains pending.** Use published unsigned Setup/ZIP rather than temporary CI artifacts.
 
 Earlier Windows 11 testing of v0.5.5 confirmed graphical upgrades, identity/SmartThings device preservation, monitoring, service recovery and power/WOL on one host. rc.2 adds protected ProgramData directory creation and owner/ACL/reparse checks, synchronous native shutdown/reboot acceptance and error handling, Private-network firewall guidance and discovery/Wake fixes. CI passed on Windows Server; ARM64 remains cross-build-only.

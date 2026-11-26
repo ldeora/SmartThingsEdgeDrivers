@@ -20,19 +20,21 @@ listed with the release.
 
 Once rc.3 is published, open its fixed, versioned GitHub release from the
 [project README](../../README.md). Download the Linux x86_64 installer and
-`SHA256SUMS.txt` from that same release. The release PR will confirm the
-exact asset filename, source SHA and component versions. Do not use a
+`SHA256SUMS.txt` from that same release. The candidate asset is
+`computer-host-lan-v1.0.0-rc.3-linux-x64-unsigned-installer`, with matching
+`computer-host-lan-v1.0.0-rc.3-linux-x64-unsigned-installer.build-info.json`.
+The final source SHA is recorded by the exact-source build. Do not use a
 development or temporary test artifact.
 
 In your download directory, calculate the SHA-256 of the downloaded installer:
 
 ```sh
-sha256sum ./computer-host-linux-installer
+sha256sum ./computer-host-lan-v1.0.0-rc.3-linux-x64-unsigned-installer
 ```
 
 Compare the entire hash with the exact matching filename in SHA256SUMS.txt.
-If the release uses a versioned filename, use that filename in the command
-and subsequent examples. Stop if the hash differs or the release source
+After verification, rename the file locally to `computer-host-linux-installer`
+for the commands below (or use its full versioned filename). Stop if the hash differs or the release source
 cannot be established. Check the release announcement and recorded source
 commit through a trusted channel. The binary is planned to be **unsigned**:
 a matching checksum checks bytes, not independent publisher identity.

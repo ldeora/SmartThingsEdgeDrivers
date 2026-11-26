@@ -1,5 +1,7 @@
 # Computer Host LAN — SmartThings for Linux and Windows
 
+**Development candidate v1.0.0-rc.3 — not published.** Linux/Edge 0.4.7-rc.3, Windows 0.2.8-rc.3, protocol v2. Release preparation and physical acceptance are pending; rc.2 remains the latest published release. See the [rc.3 release notes](docs/release/RELEASE-NOTES-v1.0.0-rc.3.md).
+
 **Latest published prerelease: [v1.0.0-rc.2](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v1.0.0-rc.2)** (November 21, 2026 UTC, immutable source commit `72e4a99c4b2e8f958ce771152826319318d0d537`). Linux/Edge **0.4.6-rc.2**, Windows agent **0.2.7-rc.2**, protocol **v2 unchanged**. Obtain version-matched unsigned Windows Setup/ZIP or Linux source and checksums from the release rather than CI artifacts. [v0.5.5-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.5-beta.1) remains the last independently Windows 11 hardware-tested rollback baseline; rc.2 Windows 11 acceptance remains pending.
 
 **Development source is not the published rc.2 package.** The legacy
