@@ -48,8 +48,23 @@ until driver restart, with the original inactivity timeout retained. An
 unavailable initial deadline clock/select also triggers the compatibility
 path. There is no automatic retry, including for signed POST. This is a
 limited compatibility safeguard, not protection against arbitrary runtime
-incompatibility; fallback is a failed qualification. Real upstream runtime CI
-and physical SmartThings hub qualification are required before merging #177.
+incompatibility; fallback is a failed qualification. #177 merged after native
+CI and scoped V4 hub qualification; exact rc.3 acceptance remains required.
+
+**Post-rc.2 discovery implementation (intended rc.3, #124):** A known
+responsive endpoint returning the expected installation UUID from health
+wins over a competing discovery candidate. When the known endpoint cannot
+be confirmed, discovery can select a matching candidate; the driver retains
+cached WOL metadata and requires a matching normal health poll before
+refreshing it or sending power POSTs to the new automatic endpoint. Explicit
+host overrides prevent automatic endpoint updates. This is a conservative
+selection heuristic, not authentication of discovery, UUID, telemetry or
+WOL metadata: a reachable untrusted responder at the known address, or one
+selected while the genuine host is unavailable, can still mislead monitoring.
+A competing candidate may add one bounded health request; rediscovery is
+not a single globally bounded HTTP transaction. Use a trusted private LAN
+and explicit override where appropriate. Published rc.2 does not include
+these changes.
 
 ## Power commands and credentials
 

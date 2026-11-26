@@ -78,7 +78,7 @@ local function clear_pending(device)
   device:set_field(C.FIELD_PENDING_AT,nil,{persist=true})
 end
 
-local function failure(driver,device,reason,publish_switch)
+local function failure(driver,device,reason,publish_switch,known_failed)
   local previous_failures=device:get_field(C.FIELD_FAILURES)
   local n=(tonumber(previous_failures) or 0)+1
   device:set_field(C.FIELD_FAILURES,n)
@@ -114,7 +114,7 @@ local function failure(driver,device,reason,publish_switch)
     end
   end
   if n>=U.failure_threshold(device) and n% C.REDISCOVERY_EVERY_FAILURES==0 and not U.host_override(device) then
-    local ok,err=D.rediscover(driver,device)
+    local ok,err=D.rediscover(driver,device,{known_failed=known_failed})
     if not ok and U.debug(device) then log.info("Computer Host rediscovery: "..tostring(err)) end
   end
 end
@@ -134,9 +134,11 @@ poll=function(driver,device,reason)
       host,port=get_address(device)
     end
     local health,health_err=API.fetch_health(host,port)
-    if not health then failure(driver,device,health_err,publish_switch); return end
+    local current,current_port=get_address(device)
+    if current~=host or tonumber(current_port)~=tonumber(port) then return end
+    if not health then failure(driver,device,health_err,publish_switch,true); return end
     if health.id~=U.uuid_from_dni(device.device_network_id) then
-      failure(driver,device,"unexpected installation ID at known address",publish_switch)
+      failure(driver,device,"unexpected installation ID at known address",publish_switch,true)
       return
     end
     local previous_boot=device:get_field(C.FIELD_LAST_BOOT)
@@ -145,8 +147,16 @@ poll=function(driver,device,reason)
       log.info("Computer Host boot ID changed: "..tostring(device.label))
     end
     if health.boot_id then device:set_field(C.FIELD_LAST_BOOT,health.boot_id,{persist=true}) end
-    D.save_fields(device,U.host_override(device) and nil or host,
-      U.host_override(device) and nil or port,health.id)
+    local migrated=device:get_field(C.FIELD_ENDPOINT_UNCONFIRMED) and not U.host_override(device)
+    if migrated then
+      device:set_field(C.FIELD_ENDPOINT_UNCONFIRMED,nil,{persist=true})
+      log.info("Computer Host discovered endpoint confirmed by health poll (network address omitted)")
+    end
+    if U.host_override(device) then
+      D.save_fields(device,nil,nil,health.id)
+    else
+      D.save_fields(device,host,port,health.id)
+    end
     local previous_failures=device:get_field(C.FIELD_FAILURES)
     local failed_polls=tonumber(previous_failures) or 0
     device:set_field(C.FIELD_FAILURES,0)
@@ -172,9 +182,9 @@ poll=function(driver,device,reason)
     local previous_successes=device:get_field("computerhost_success_count")
     local n=(tonumber(previous_successes) or 0)+1
     device:set_field("computerhost_success_count",n)
-    if n==1 or n%20==0 or not U.valid_wol_mac(device:get_field(C.FIELD_MAC)) then
+    if migrated or n==1 or n%20==0 or not U.valid_wol_mac(device:get_field(C.FIELD_MAC)) then
       local info,info_err=D.refresh_fields(device,host,port)
-      if not info and (n==1 or n%20==0 or U.debug(device)) then
+      if not info and (migrated or n==1 or n%20==0 or U.debug(device)) then
         log.warn("Computer Host metadata refresh failed: "..tostring(info_err))
       elseif info and not U.valid_wol_mac(device:get_field(C.FIELD_MAC)) then
         -- The agent can be healthy with a missing NIC, but WOL needs a MAC.
@@ -200,6 +210,8 @@ metrics_poll=function(driver,device,reason)
     local host,port=get_address(device)
     if not host then return end
     local metrics,request_err=API.fetch_metrics(host,port)
+    local current,current_port=get_address(device)
+    if current~=host or tonumber(current_port)~=tonumber(port) then return end
     if not metrics then
       if U.debug(device) then log.warn("Computer Host metrics failed: "..tostring(request_err)) end
       return

@@ -60,11 +60,15 @@ function M.candidates()
   return items
 end
 function M.save_fields(device,host,port,id,name,info)
-  if host then device:set_field(C.FIELD_HOST,host,{persist=true}) end
-  if port then device:set_field(C.FIELD_PORT,tonumber(port),{persist=true}) end
+  local override=U.host_override(device)
+  if not override then
+    if host then device:set_field(C.FIELD_HOST,host,{persist=true}) end
+    if port then device:set_field(C.FIELD_PORT,tonumber(port),{persist=true}) end
+  end
   if id then device:set_field(C.FIELD_UUID,id,{persist=true}) end
-  if name then device:set_field(C.FIELD_NAME,name,{persist=true}) end
-  if info then
+  local confirmed=override or not device:get_field(C.FIELD_ENDPOINT_UNCONFIRMED)
+  if name and confirmed then device:set_field(C.FIELD_NAME,name,{persist=true}) end
+  if info and confirmed then
     if C.PLATFORMS[info.platform] then
       device:set_field(C.FIELD_PLATFORM,info.platform,{persist=true})
     end
@@ -89,22 +93,80 @@ function M.save_fields(device,host,port,id,name,info)
     end
   end
 end
--- Read fresh host metadata for a *known* device, never accepting a MAC
--- supplied by a different UUID at the same IP (e.g. DHCP reassignment).
+local function stored_address(device)
+  return device:get_field(C.FIELD_HOST),device:get_field(C.FIELD_PORT) or C.DEFAULT_PORT
+end
+local function effective_address(device)
+  local host,port=stored_address(device)
+  local override=U.host_override(device)
+  if override then return U.parse_host_port(override,port) end
+  return host,port
+end
+local function same_address(a,ap,b,bp)
+  return a==b and tonumber(ap)==tonumber(bp)
+end
+local function metadata_allowed(device,host,port)
+  local current,current_port=effective_address(device)
+  return same_address(host,port,current,current_port)
+    and (U.host_override(device) or not device:get_field(C.FIELD_ENDPOINT_UNCONFIRMED))
+end
+-- Read fresh metadata only from the current effective endpoint. A migration
+-- is not metadata evidence until a normal health poll confirms the UUID.
 function M.refresh_fields(device,host,port)
   if not U.nonempty(host) then return nil,"host address is unknown" end
+  if not metadata_allowed(device,host,port) then return nil,"endpoint not confirmed or changed" end
   local info,err=API.fetch_info(host,port)
   if not info then return nil,err end
   local wanted=U.uuid_from_dni(device.device_network_id)
   if not wanted or info.id~=wanted then return nil,"installation ID mismatch in /v2/info" end
+  if not metadata_allowed(device,host,port) then return nil,"endpoint not confirmed or changed" end
   M.save_fields(device,host,port,info.id,info.hostname,info)
   return info,nil
+end
+
+-- Discovery runs outside the device poll thread. Do not move an endpoint
+-- under an in-flight poll/metrics/power callback; after a yielding probe, check
+-- that the address, override and health success counter still agree.
+local function busy(device)
+  return device:get_field(C.FIELD_IN_PROGRESS) or device:get_field(C.FIELD_METRICS_BUSY)
+    or device:get_field(C.FIELD_POWER_BUSY)
+end
+local function snapshot(device)
+  local host,port=stored_address(device)
+  return {host=host,port=port,successes=device:get_field("computerhost_success_count"),
+    unconfirmed=device:get_field(C.FIELD_ENDPOINT_UNCONFIRMED)}
+end
+local function unchanged(device,before,from_poll)
+  local host,port=stored_address(device)
+  return not U.host_override(device)
+    and not device:get_field(C.FIELD_POWER_BUSY)
+    and (from_poll or not busy(device))
+    and same_address(host,port,before.host,before.port)
+    and device:get_field("computerhost_success_count")==before.successes
+    and device:get_field(C.FIELD_ENDPOINT_UNCONFIRMED)==before.unconfirmed
+end
+local function responsive(before,wanted)
+  if not U.nonempty(before.host) then return false end
+  local health=API.fetch_health(before.host,before.port)
+  return health~=nil and health.id==wanted
+end
+local function relocate(device,before,c,from_poll)
+  if not unchanged(device,before,from_poll) then return false end
+  -- Persist the guard before the new address, including across driver restart.
+  -- Do not copy discovery metadata (MAC, broadcast, platform or power actions).
+  device:set_field(C.FIELD_ENDPOINT_UNCONFIRMED,true,{persist=true})
+  device:set_field(C.FIELD_LAST_OK,false)
+  M.save_fields(device,c.host,c.port)
+  log.info("Computer Host discovered endpoint changed; awaiting health confirmation (network addresses omitted)")
+  return true
 end
 function M.apply_pending(device)
   local data=pending[device.device_network_id]
   if not data then return false end
-  M.save_fields(device,data.host,data.port,data.id,data.hostname,data.info)
   pending[device.device_network_id]=nil
+  -- A late creation callback must not overwrite an established/manual endpoint.
+  if U.host_override(device) or U.nonempty(device:get_field(C.FIELD_HOST)) then return false end
+  M.save_fields(device,data.host,data.port,data.id,data.hostname,data.info)
   return true
 end
 function M.process_candidate(driver,c)
@@ -113,8 +175,13 @@ function M.process_candidate(driver,c)
   local dni=U.dni(info.id)
   local existing=U.find_device(driver,dni)
   if existing then
-    M.save_fields(existing,c.host,c.port,info.id,info.hostname,info)
-    if U.debug(existing) then log.info("Computer Host address updated for "..dni) end
+    if U.host_override(existing) or busy(existing) then return existing,nil end
+    local before=snapshot(existing)
+    if same_address(c.host,c.port,before.host,before.port) then
+      M.save_fields(existing,c.host,c.port,info.id,info.hostname,info)
+    elseif not responsive(before,info.id) then
+      relocate(existing,before,c,false)
+    end
     return existing,nil
   end
   local queued=pending[dni]
@@ -147,15 +214,25 @@ function M.handle_discovery(driver,_,should_continue)
     if err then log.warn(string.format("Rejecting candidate %s:%s: %s",tostring(c.host),tostring(c.port),tostring(err))) end
   end
 end
-function M.rediscover(driver,device)
-  local wanted=device:get_field(C.FIELD_UUID) or U.uuid_from_dni(device.device_network_id)
+function M.rediscover(driver,device,opts)
+  if U.host_override(device) then return false,"manual host override active" end
+  local wanted=U.uuid_from_dni(device.device_network_id)
   if not wanted then return false,"missing installation UUID" end
+  -- Called by the device poll itself, so its own busy flag is expected.
+  local before=snapshot(device)
+  -- Only the poll that just failed health at this unchanged endpoint may
+  -- skip the redundant probe. Ordinary discovery still checks responsiveness.
+  local healthy=not (opts and opts.known_failed) and responsive(before,wanted)
+  if not unchanged(device,before,true) then return false,"endpoint changed during rediscovery" end
+  if healthy then return true,nil end
   for _,c in ipairs(M.candidates()) do
-    local info=API.fetch_info(c.host,c.port)
-    if info and info.id==wanted then
-      M.save_fields(device,c.host,c.port,info.id,info.hostname,info)
-      log.info("Computer Host agent rediscovered (network address omitted)")
-      return true,nil
+    if not unchanged(device,before,true) then return false,"endpoint changed during rediscovery" end
+    if not same_address(c.host,c.port,before.host,before.port) then
+      local info=API.fetch_info(c.host,c.port)
+      if info and info.id==wanted then
+        if relocate(device,before,c,true) then return true,nil end
+        return false,"endpoint changed during rediscovery"
+      end
     end
   end
   return false,"matching Computer Host Agent not found"
