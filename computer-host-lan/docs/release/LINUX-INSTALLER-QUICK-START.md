@@ -1,10 +1,6 @@
-# Computer Host LAN — Linux installer Quick Start (planned rc.3)
+# Computer Host LAN — Linux installer Quick Start (v1.0.0-rc.3)
 
-**Not yet a published release.** The standalone installer is implemented on
-main; the rc.3 candidate release workflow builds the executable. Final build
-verification and physical qualification are pending.
-Do not download/elevate an ordinary CI artifact or source build as a substitute.
-For published rc.2, follow the [current Quick Start](QUICK-START.md).
+This guide is for v1.0.0-rc.3. Use only a trusted version-matched release installer, not a development source archive or ordinary CI artifact.
 
 ## 1. Prepare your computer
 
@@ -14,35 +10,23 @@ private network. TCP 8765 (or your configured agent port) must be reachable
 from the hub, and local multicast DNS (UDP 5353) must be available. Do not
 forward the agent port to the Internet. See
 [Avahi and firewall troubleshooting](../../linux-installer/README.md#troubleshooting-discovery-and-connectivity)
-for distribution-specific instructions. Actual tested distributions will be
-listed with the release.
+for distribution-specific instructions. See the release notes for supported platforms and limitations.
 
 ## 2. Download and verify the installer
 
-Once rc.3 is published, open its fixed, versioned GitHub release from the
-[project README](../../README.md). Download the Linux x86_64 installer and
-`SHA256SUMS.txt` from that same release. The candidate asset is
-`computer-host-lan-v1.0.0-rc.3-linux-x64-unsigned-installer`, with matching
-`computer-host-lan-v1.0.0-rc.3-linux-x64-unsigned-installer.build-info.json`.
-The final source SHA is recorded by the exact-source build. Do not use a
-development or temporary test artifact.
-
-In your download directory, calculate the SHA-256 of the downloaded installer:
+Download `computer-host-lan-v1.0.0-rc.3-linux-x64-unsigned-installer`
+and `SHA256SUMS.txt` from the [v1.0.0-rc.3 release](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v1.0.0-rc.3)
+into a private download directory. From that directory run:
 
 ```sh
-sha256sum ./computer-host-lan-v1.0.0-rc.3-linux-x64-unsigned-installer
+sha256sum --check --ignore-missing SHA256SUMS.txt
 ```
 
-Compare the entire hash with the exact matching filename in SHA256SUMS.txt.
-After verification, rename the file locally to `computer-host-linux-installer`
-for the commands below (or use its full versioned filename). Stop if the hash differs or the release source
-cannot be established. Check the release announcement and recorded source
-commit through a trusted channel. The binary is planned to be **unsigned**:
-a matching checksum checks bytes, not independent publisher identity.
-Only execute a file from a release you trust. Keep it in a private download
-directory and do not replace it between verification and execution.
-Formal signing/independent attestation integration is deferred to v1.2;
-the existing optional attestation workflow is not the ordinary release route.
+Continue only if the exact installer filename reports **OK** and the command
+succeeds. Checksums detect changed or corrupted downloads but do not prove
+who published the file. The installer is unsigned; use a release you trust.
+Rename the verified installer locally to `computer-host-linux-installer`
+for the commands below.
 
 ## 3. Run Setup
 
@@ -100,15 +84,14 @@ confirm its removal.
 
 To upgrade, verify the newer release and run it over the existing
 installation, including an existing installation made by the published
-rc.2 legacy shell installer. This in-place migration is intended to be
-supported and must pass rc.3 physical acceptance before release. Do not
+rc.2 legacy shell installer. Do not
 uninstall first or delete persistent state or the SmartThings device. Use `-recover` with the verified installer if recovery
 is required; review and explicitly authorize recovery before another
 installation. Use `-uninstall` for normal removal, which retains the
 private identity/key and recovery material. See the
 [installer documentation](../../linux-installer/README.md) for CLI repair,
 recovery, and detailed troubleshooting. Report OS/version and redacted
-results using the [RC checklist](RC-ACCEPTANCE.md); never share credentials.
+results using the [rc.3 test checklist](RC3-READINESS.md); never share credentials.
 
 ### Reinstall after an rc.2 uninstall
 

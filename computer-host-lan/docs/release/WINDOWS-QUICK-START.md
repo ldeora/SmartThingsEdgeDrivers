@@ -1,16 +1,16 @@
-# Windows quick start — planned rc.3
+# Windows quick start — v1.0.0-rc.3
 
-**Not published yet.** For the currently published release use [rc.2 instructions](QUICK-START.md).
+This guide is for v1.0.0-rc.3.
 
 ## 1. Prepare and download
 
-Use Windows 11 x64 and a SmartThings hub on the same trusted private LAN. Once rc.3 is published, download `computer-host-lan-v1.0.0-rc.3-windows-x64-unsigned-setup.exe` and SHA256SUMS.txt from the fixed release linked in the [project README](../../README.md). Do not substitute ordinary CI artifacts. In PowerShell in the download directory:
+Use Windows 11 x64 and a SmartThings hub on the same trusted private LAN. Download `computer-host-lan-v1.0.0-rc.3-windows-x64-unsigned-setup.exe` and SHA256SUMS.txt from the [v1.0.0-rc.3 release](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v1.0.0-rc.3). Do not substitute ordinary CI artifacts. In PowerShell in the download directory:
 
 ```powershell
-Get-FileHash -Algorithm SHA256 -LiteralPath '.\DOWNLOADED-SETUP.exe'
+Get-FileHash -Algorithm SHA256 -LiteralPath '.\computer-host-lan-v1.0.0-rc.3-windows-x64-unsigned-setup.exe'
 ```
 
-Replace the filename with the exact downloaded name and compare the full hash with the corresponding manifest entry. Stop on mismatch. Windows packages are unsigned; unknown publisher, SmartScreen and Smart App Control may warn or block. A matching checksum is not publisher authentication or a code signature. Do not disable protections to run an untrusted file.
+Compare the full hash with the corresponding manifest entry. Stop on mismatch. Windows packages are unsigned; unknown publisher, SmartScreen and Smart App Control may warn or block. A matching checksum is not publisher authentication or a code signature. Do not disable protections to run an untrusted file.
 
 ## 2. Run Setup
 

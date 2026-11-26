@@ -1,8 +1,8 @@
 # Computer Host LAN — installation (protocol v2)
 
-**Development candidate v1.0.0-rc.3 — not published.** Linux/Edge 0.4.7-rc.3, Windows 0.2.8-rc.3, protocol v2. Release preparation and physical acceptance are pending; rc.2 remains the latest published release. See the [rc.3 release notes](docs/release/RELEASE-NOTES-v1.0.0-rc.3.md).
+This guide covers v1.0.0-rc.3 (Linux/Edge 0.4.7-rc.3, Windows 0.2.8-rc.3). Start with the [Linux Quick Start](docs/release/LINUX-INSTALLER-QUICK-START.md) or [Windows Quick Start](docs/release/WINDOWS-QUICK-START.md) and the [versioned downloads](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v1.0.0-rc.3). Older instructions are explicitly marked below.
 
-**Latest published prerelease: [v1.0.0-rc.2](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v1.0.0-rc.2)** (November 21, 2026 UTC; immutable source commit `72e4a99c4b2e8f958ce771152826319318d0d537`). Windows **0.2.7-rc.2**, Linux/Edge **0.4.6-rc.2**, protocol v2 unchanged. Obtain checksummed Windows/Linux release packages rather than transient CI artifacts. See [rc.2 notes](docs/release/RELEASE-NOTES-v1.0.0-rc.2.md) and [quick start](docs/release/QUICK-START.md). SmartThings driver assignment remains a separate action.
+**Historical prerelease: [v1.0.0-rc.2](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v1.0.0-rc.2)** (November 21, 2026 UTC; immutable source commit `72e4a99c4b2e8f958ce771152826319318d0d537`). Windows **0.2.7-rc.2**, Linux/Edge **0.4.6-rc.2**, protocol v2 unchanged. Obtain checksummed Windows/Linux release packages rather than transient CI artifacts. See [rc.2 notes](docs/release/RELEASE-NOTES-v1.0.0-rc.2.md) and [quick start](docs/release/QUICK-START.md). SmartThings driver assignment remains a separate action.
 
 ## Known differences between rc.1 and rc.2
 
@@ -16,7 +16,7 @@ Use a trusted private LAN and a SmartThings hub that supports LAN Edge drivers. 
 
 ## Windows 11 x64 — recommended graphical installer
 
-**For rc.2 acceptance:** obtain the v1.0.0-rc.2 Windows x64 unsigned Setup.exe and `SHA256SUMS.txt` from the [published rc.2 release](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v1.0.0-rc.2). Verify checksums before running as administrator; a checksum beside an unsigned download is not a code signature. **Do not substitute rc.1 Setup when testing rc.2 security changes.**
+Download the v1.0.0-rc.3 unsigned Setup.exe and SHA256SUMS.txt from the [versioned release](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v1.0.0-rc.3). Verify checksums before running as administrator. Do not substitute older Setup versions.
 
 1. Run Setup.exe. On the **SmartThings hub** page, select a discovered hub, retry **Search again**, or enter the hub's IPv4 manually. When discovery fails, the explicit **Allow connections from devices on my local network** option configures a Private-only LocalSubnet firewall rule; when discovery works, find this choice under **Advanced options**. It does not repair blocked mDNS between networks.
 2. Choose whether to enable optional **Power management**. A new installation defaults to monitoring only. A Setup upgrade or conversion from the existing ZIP/PowerShell installation retains the previous power preference unless you change it.
@@ -33,9 +33,9 @@ Use a trusted private LAN and a SmartThings hub that supports LAN Edge drivers. 
 - **First installation / confirmed orphan:** If this PC has never had Computer Host LAN installed, first confirm that no `ComputerHostAgent` service or previous SmartThings device identity needs to be preserved. Inspect `%ProgramData%\ComputerHostAgent`. If it is clearly an untrusted folder planted before the first installation and contains no legitimate state, an administrator may remove that folder and retry Setup. Do not use this route for an existing installation.
 - **Existing installation:** Do not delete the state directory or `installation-id`; losing that UUID can create a second SmartThings device. Have an administrator inspect and restore the expected owner and access rules before retrying. If an untrusted account could read or modify `control-token`, treat the key as compromised: disable `allowPowerCommands` on the SmartThings device and power control on the host while investigating. After restoring the directory's security and stopping the service (`Stop-Service ComputerHostAgent`), deliberately remove only the compromised `control-token`, rerun Setup with Power management enabled to generate a new key, and enter that new 64-character value in the device's `controlKey` setting. Re-enable `allowPowerCommands` only after both sides use the new key. The installer never rotates a key automatically.
 
-**Runtime refusal (post-rc.2 main, intended rc.3):** The agent also refuses startup if the protected state directory is missing or unsafe, or if the access rules or ownership of `installation-id` or `boot-session.json` are unsafe, including reparse-point redirects. Have an administrator inspect and restore trusted state before retrying the installer or restarting the service; the installer itself refuses unsafe retained state rather than blindly repairing it. Never delete the installation identity or reset the SmartThings device. If only the power credential is missing, unreadable, malformed or unsafe, monitoring continues when the remaining state is safe, but power is disabled. Use the existing credential recovery guidance above and restart the service after remediation. These runtime checks are not included in the published rc.2 agent.
+**Runtime refusal (rc.3):** The agent also refuses startup if the protected state directory is missing or unsafe, or if the access rules or ownership of `installation-id` or `boot-session.json` are unsafe, including reparse-point redirects. Have an administrator inspect and restore trusted state before retrying the installer or restarting the service; the installer itself refuses unsafe retained state rather than blindly repairing it. Never delete the installation identity or reset the SmartThings device. If only the power credential is missing, unreadable, malformed or unsafe, monitoring continues when the remaining state is safe, but power is disabled. Use the existing credential recovery guidance above and restart the service after remediation. These runtime checks are not included in the published rc.2 agent.
 
-**Upgrade configuration (post-rc.2 main, intended rc.3):** Setup offers a keep-current-settings summary when the existing hub address or Private LocalSubnet choice and power preference are valid. Select **Change settings** to open the prefilled hub and power pages. Otherwise continue straight to confirmation. An unchanged successful upgrade skips first-time onboarding and, when the existing enabled power key was retained, the key page. If the old scope is missing or ambiguous, select a valid replacement explicitly. Silent Setup supports `/HUBIP=192.168.1.20` (replace with the hub's actual IPv4), `/LOCALSUBNET=1`, and `/ENABLEPOWER=0` or `1`. With no overrides it preserves valid upgrade settings; missing scope or conflicting choices refuse before stopping the service. Fresh silent installs require an explicit scope. These changes are not in the published rc.2 installer.
+**Upgrade configuration (rc.3):** Setup offers a keep-current-settings summary when the existing hub address or Private LocalSubnet choice and power preference are valid. Select **Change settings** to open the prefilled hub and power pages. Otherwise continue straight to confirmation. An unchanged successful upgrade skips first-time onboarding and, when the existing enabled power key was retained, the key page. If the old scope is missing or ambiguous, select a valid replacement explicitly. Silent Setup supports `/HUBIP=192.168.1.20` (replace with the hub's actual IPv4), `/LOCALSUBNET=1`, and `/ENABLEPOWER=0` or `1`. With no overrides it preserves valid upgrade settings; missing scope or conflicting choices refuse before stopping the service. Fresh silent installs require an explicit scope. These changes are not in the published rc.2 installer.
 
 **Upgrading:** Launch the new Setup.exe over the existing ZIP- or Setup-installed agent. Do not first uninstall, delete the SmartThings device or purge `%ProgramData%\ComputerHostAgent`. Inno Setup preserves the installation ID, control token, custom `appsettings.json` and previous power selection. Normal removal through Windows **Installed apps** removes the service, application files and firewall rule, but intentionally retains ProgramData state. Windows ARM64 is not supported by this x64 installer.
 
@@ -60,8 +60,7 @@ Invoke-RestMethod http://127.0.0.1:8765/v2/metrics
 **Version boundary:** the commands below apply only to the immutable
 published rc.2 source ZIP, not a checkout of main or a development source
 archive. Current development source refuses legacy mutation commands.
-The standalone installer is implemented for rc.3, but its release asset
-and physical qualification are pending. Do not elevate development source
+For rc.3 use the standalone installer described below. Do not elevate development source
 scripts or substitute an ordinary CI artifact for a versioned release.
 
 Requires Python 3.10+, systemd as PID1, Avahi/mDNS for automatic discovery and administrator rights to install. From the *matching* Computer Host LAN source directory:
@@ -82,7 +81,7 @@ namespace; do not install it alongside the new agent on the same listener.
 There is no automatic v1 migration. Retain the old SmartThings device, ID
 and key until a dedicated migration is available.
 
-### Development source and intended v1.0 cutover
+### rc.3 standalone installer
 
 The source scripts are now read-only diagnostics or explicit refusals.
 Use `./scripts/preflight.sh` and `./scripts/install-agent.sh --dry-run`
@@ -90,12 +89,11 @@ as an ordinary user for source inspection only. The legacy plan is
 informational, not the protected controller's authorization or a guarantee
 that installation will succeed.
 
-The intended rc.3 standalone Linux executable is the single supported
+The rc.3 standalone Linux executable is the single supported
 entry point for install, upgrade, repair, uninstall, persistent wired WOL,
 explicit reuse of eligible retained rc.2 state, historical backup restoration
 and interrupted-transaction recovery. The bare executable opens setup on a
 clean host or a maintenance menu on an existing/retained installation.
-These workflows are implemented on main but not yet release-qualified.
 See the [Linux Quick Start](docs/release/LINUX-INSTALLER-QUICK-START.md),
 [upgrade and maintenance journeys](docs/release/UPGRADE.md) and
 [troubleshooting](docs/release/TROUBLESHOOTING.md). Do not use a source
@@ -116,13 +114,13 @@ it is not a way to restore an arbitrary historical backup.
 
 ## Updates and caveats
 
-A GitHub Actions artifact is temporary and is **not** a permanent published prerelease. Install only assets associated with a fixed release/tag and matching checksums. The published rc.2 packages are not authenticated by artifact attestation. The optional attestation workflow has not produced an accepted release. For rc.3 and v1.0 the planned distribution is unsigned, with exact-source builds and checksums; independent attestation/signing integration is deferred to v1.2. See the current release gates. Keep applications saved before power tests. Do not use production or workplace computers for initial hardware experiments.
+A GitHub Actions artifact is temporary and is **not** a permanent published prerelease. Install only assets associated with a fixed release/tag and matching checksums. The published rc.2 packages are not authenticated by artifact attestation. The optional attestation workflow has not produced an accepted release. For rc.3 and v1.0 the distribution is unsigned, with exact-source builds and checksums; independent attestation/signing integration is deferred to v1.2. See the current release gates. Keep applications saved before power tests. Do not use production or workplace computers for initial hardware experiments.
 
 ## Current upgrade and recovery guidance
 
 The v0.5.5 Windows 11 tester confirmed a successful in-place GUI upgrade, preserved SmartThings device/settings, accurate CPU/RAM/disk statistics, service stop/restart recovery and functioning WOL. This does not validate the v0.5.6 hardening or the v1.0.0 RC on physical Windows hardware.
 
-Run the version-matched newer Setup.exe over the existing installation. Do not uninstall, delete the SmartThings device or purge the persistent UUID and control token. Published rc.2 Setup preserves the prior power preference; its ZIP/PowerShell upgrades require -EnablePower again. Post-rc.2 main preserves both validated firewall scope and power preference across all upgrade paths. Install only from a **published release** after checking SHA-256 hashes, not from temporary PR artifacts.
+Run the version-matched newer Setup.exe over the existing installation. Do not uninstall, delete the SmartThings device or purge the persistent UUID and control token. Published rc.2 Setup preserves the prior power preference; its ZIP/PowerShell upgrades require -EnablePower again. rc.3 preserves both validated firewall scope and power preference across all upgrade paths. Install only from a **published release** after checking SHA-256 hashes, not from temporary PR artifacts.
 
 The published v0.5.6 beta introduced an interrupted-upgrade recovery option and checks health, version and existing identity before committing. Never delete the rollback snapshot or ProgramData files to bypass a failure. Keep a router DHCP reservation for the SmartThings hub. Review the [published beta release notes](docs/beta/RELEASE-NOTES-v0.5.6-beta.1.md) before any new hardware tests.
 

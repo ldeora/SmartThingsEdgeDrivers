@@ -1,6 +1,6 @@
-# Troubleshooting — planned rc.3
+# Troubleshooting — v1.0.0-rc.3
 
-For published rc.2, see [current quick start](QUICK-START.md) and [detailed installation](../../INSTALLATION.md). Do not substitute development binaries.
+This guide is for v1.0.0-rc.3. See [detailed installation](../../INSTALLATION.md). Do not substitute development binaries.
 
 ## Hub or computer not found
 

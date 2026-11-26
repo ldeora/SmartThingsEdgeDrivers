@@ -1,13 +1,9 @@
-# Computer Host LAN v1.0.0-rc.3 — release candidate
+# Computer Host LAN v1.0.0-rc.3 — release notes
 
 **Upgrading? Run the new installer over your existing installation. Your device, settings, routines and key are kept; nothing needs to be changed in SmartThings.**
 
-**Candidate, NOT published by this preparation PR.** Intended release:
-https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v1.0.0-rc.3.
-The candidate tag/name and these notes are not evidence that the release exists;
-their presence does not by itself prove a release has been published.
-The currently published release is [rc.2](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v1.0.0-rc.2).
-GitHub publication and SmartThings channel assignment are separate actions.
+This document describes v1.0.0-rc.3. [Versioned downloads](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v1.0.0-rc.3).
+GitHub release availability and SmartThings channel assignment are separate actions.
 
 | Component | Version |
 | --- | --- |
@@ -54,7 +50,7 @@ connection admission limits. Discovery prefers a responsive known matching
 endpoint and confirms migration before updating WOL metadata or issuing power
 requests. These measures improve robustness, not authentication.
 
-## Intended release downloads
+## Release downloads
 
 All packages are unsigned. The normal workflow builds two independent
 Linux replicas with Go 1.25.14, linux/amd64, CGO disabled and trimmed paths,
@@ -89,10 +85,10 @@ Preserve private credentials, settings and the existing SmartThings device.
 Do not uninstall first or delete/re-pair for ordinary upgrades. Each new
 computer gets a separate identity. Power actions remain opt-in.
 
-## Known limitations and acceptance
+## Known limitations
 
 - A refused power command can still show the generic SmartThings network or server error. Check host power opt-in and matching key; do not blindly retry a request with uncertain acceptance.
-- Both platform binaries are unsigned. The normal Linux candidate workflow does not generate independent artifact attestation. SHA-256 checks bytes, not publisher identity. Do not bypass platform protections.
+- Both platform binaries are unsigned. The normal Linux release workflow does not generate independent artifact attestation. SHA-256 checks bytes, not publisher identity. Do not bypass platform protections.
 - Automated Linux WOL setup supports wired Ethernet only; Wi-Fi wake is not supported by this installer.
 - WOL depends on wired NIC, firmware, network and OS power state. The installer
   cannot promise wake from every sleep/shutdown state. Windows NIC WOL setup
@@ -110,11 +106,22 @@ computer gets a separate identity. Power actions remain opt-in.
 - Restore supports validated local installed-state v2 snapshots, not arbitrary
   imported backups. Interrupted recovery differs from historical restore.
   Backup pruning is deferred to v1.1. No automatic key rotation or pairing.
-- Existing protocol-v2 agents are intended to coexist; mixed-version actual
-  hub acceptance remains required. No forced simultaneous upgrade.
+- Existing protocol-v2 agents are intended to coexist; mixed versions can coexist without a forced simultaneous upgrade. No forced simultaneous upgrade.
 
-Exact-final-main CI, reproducible installer build, downloaded asset validation,
-Gentoo upgrade/restore/reinstall and WOL, a second rc.2 reuse test, NetworkManager
-physical WOL, Windows 11 acceptance and private-channel mixed-version testing
-remain to be recorded. See [rc.3 readiness](RC3-READINESS.md).
-No physical PASS or public deployment is implied by candidate preparation.
+
+## Help us test
+
+Please share results for fresh installation, upgrading over rc.2 without
+changing anything in SmartThings, uninstall/reinstall, wired Wake-on-LAN
+after reboot, and multiple computers on the same hub. Save your work and
+retain physical access before testing power. Include OS, exact agent and
+driver versions, hub model/firmware and observed behavior.
+
+Report in the Computer Host LAN [SmartThings Community thread search](https://community.smartthings.com/search?q=Computer%20Host%20LAN)
+or [GitHub issues](https://github.com/ldeora/SmartThingsEdgeDrivers/issues/new/choose).
+Linux: the source-only archive includes the read-only
+[`scripts/beta-report.sh`](https://github.com/ldeora/SmartThingsEdgeDrivers/blob/computer-host-lan-v1.0.0-rc.3/computer-host-lan/scripts/beta-report.sh)
+diagnostics script. Windows: use `scripts/Collect-WindowsDiagnostics.ps1`
+in the matching ZIP. Review output and redact private identifiers, network
+addresses and credentials before sharing. See the [test checklist](RC3-READINESS.md)
+for maintainer qualification details.

@@ -1,10 +1,8 @@
-# Upgrade, reinstall and maintenance — planned rc.3
+# Upgrade, reinstall and maintenance — v1.0.0-rc.3
 
 **Upgrading? Run the new installer over your existing installation. Your device, settings, routines and key are kept; nothing needs to be changed in SmartThings.**
 
-**rc.3 is not yet published.** Use the [published rc.2 instructions](QUICK-START.md)
-until the matching release is available. The following workflows are implemented
-on main; exact-candidate physical acceptance is pending. Use the
+This guide is for v1.0.0-rc.3. Use the
 [Linux Quick Start](LINUX-INSTALLER-QUICK-START.md) or
 [Windows Quick Start](WINDOWS-QUICK-START.md) to verify the matching package.
 Do not elevate a development source archive or ordinary CI artifact.
@@ -25,7 +23,7 @@ The same Edge driver supports Linux and Windows protocol-v2 agents. Leave the
 working device and its settings untouched. Install the matching agent on the
 other PC, scan nearby and check that each device reports only its own metrics.
 Enable power separately, with that computer's key. Older rc.2 agents do not
-need a simultaneous update; mixed-version acceptance remains a release gate.
+need a simultaneous update; test that both devices still work after an upgrade.
 
 ## Upgrade in place
 
@@ -168,7 +166,7 @@ Normal uninstall preserves WOL unless separately authorized for removal.
 
 Agent and Edge releases are separate. A driver update should preserve the
 existing device network identity, preferences and routines. Test with an
-unchanged rc.2 agent beside an rc.3 candidate, verify actual installed driver
+unchanged rc.2 agent beside an rc.3 agent, verify actual installed driver
 version on a private test hub/channel, refresh both devices, check metrics,
 reconnection and opted-in power. Do not move a public channel for testing.
 If a candidate fails, follow the version-matched recovery guidance; do not
