@@ -56,7 +56,7 @@ class DiscoveryMigrationTests(unittest.TestCase):
           local D=require 'computerhost.discovery'
           local fields={[C.FIELD_HOST]=a,[C.FIELD_PORT]=8765,[C.FIELD_UUID]=id,
             [C.FIELD_MAC]=oldmac,[C.FIELD_BROADCAST]='192.0.2.255',
-            [C.FIELD_POWER_ACTIONS]='shutdown',[C.FIELD_LAST_OK]=true,
+            [C.FIELD_NAME]='old',[C.FIELD_POWER_ACTIONS]='shutdown',[C.FIELD_LAST_OK]=true,
             computerhost_success_count=6}
           local persisted={}
           local dev={device_network_id=C.DNI_PREFIX..id,preferences={},label='fixture'}
@@ -81,6 +81,10 @@ class DiscoveryMigrationTests(unittest.TestCase):
           assert(D.process_candidate(driver,{host=a,port=8765})==dev); old_endpoint()
           assert(D.process_candidate(driver,candidate)==dev); old_endpoint()
           assert(D.rediscover(driver,dev)); old_endpoint()
+          -- A different port on the same IP is also a competing endpoint.
+          on_health=function(host,port) assert(host==a and port==8765) end
+          assert(D.process_candidate(driver,{host=a,port=9876})==dev); old_endpoint()
+          on_health=nil
           -- Override without explicit port must not be silently retargeted.
           dev.preferences.hostOverride=b
           local hc=health_calls
@@ -101,6 +105,25 @@ class DiscoveryMigrationTests(unittest.TestCase):
           fields[C.FIELD_IN_PROGRESS]=true
           assert(D.process_candidate(driver,candidate)==dev); old_endpoint()
           fields[C.FIELD_IN_PROGRESS]=false
+          -- Actual power code holds selection stable across a yielding request.
+          package.loaded['computerhost.wol']={send=function() error('unexpected WOL') end}
+          local Power=require 'computerhost.power'
+          dev.preferences.allowPowerCommands=true
+          dev.preferences.controlKey=string.rep('a',64)
+          local power_calls=0
+          API.control=function(host,port)
+            power_calls=power_calls+1
+            assert(host==a and port==8765 and fields[C.FIELD_POWER_BUSY])
+            assert(D.process_candidate(driver,candidate)==dev); old_endpoint()
+            return nil,'refused',403
+          end
+          local ok,err,status=Power.action(dev,'shutdown')
+          assert(not ok and err=='refused' and status==403 and power_calls==1)
+          assert(not fields[C.FIELD_POWER_BUSY])
+          API.control=function() error('simulated transport exception') end
+          assert(not pcall(Power.action,dev,'shutdown'))
+          assert(not fields[C.FIELD_POWER_BUSY])
+          API.control=function() power_calls=power_calls+1; error('unconfirmed endpoint contacted') end
           -- Wrong UUID at the old address permits real migration; metadata is retained.
           healths[a]=other
           assert(D.process_candidate(driver,candidate)==dev)
@@ -109,7 +132,10 @@ class DiscoveryMigrationTests(unittest.TestCase):
           assert(not fields[C.FIELD_LAST_OK])
           assert(fields[C.FIELD_MAC]==oldmac and fields[C.FIELD_POWER_ACTIONS]=='shutdown')
           assert(D.process_candidate(driver,candidate)==dev)
-          assert(fields[C.FIELD_MAC]==oldmac)
+          assert(fields[C.FIELD_MAC]==oldmac and fields[C.FIELD_NAME]=='old')
+          local rejected,reason=Power.action(dev,'shutdown')
+          assert(not rejected and reason:find('not yet confirmed',1,true))
+          assert(power_calls==1 and not fields[C.FIELD_POWER_BUSY])
           local ic=info_calls
           assert(not D.refresh_fields(dev,b,9876)); assert(info_calls==ic)
           -- Real init/poll, including a failed matching-ID check and subsequent recovery.
@@ -120,7 +146,6 @@ class DiscoveryMigrationTests(unittest.TestCase):
             refresh={ID='refresh',commands={refresh={NAME='refresh'}}},
             momentary={ID='momentary',commands={push={NAME='push'}}}}
           package.loaded['computerhost.telemetry']={status=function() return true end,metrics=function() end}
-          package.loaded['computerhost.power']={}
           local timers={}
           dev.thread={call_with_delay=function(_,_,fn,name) timers[name]=fn;return fn end,
             cancel_timer=function() end}
@@ -132,7 +157,7 @@ class DiscoveryMigrationTests(unittest.TestCase):
           healths[b]=id
           template.capability_handlers.refresh.refresh(driver,dev)
           assert(not fields[C.FIELD_ENDPOINT_UNCONFIRMED])
-          assert(fields[C.FIELD_LAST_OK] and fields[C.FIELD_MAC]==newmac)
+          assert(fields[C.FIELD_LAST_OK] and fields[C.FIELD_MAC]==newmac and fields[C.FIELD_NAME]=='new')
           assert(fields[C.FIELD_BROADCAST]=='198.51.100.255' and fields[C.FIELD_POWER_ACTIONS]=='reboot')
           -- Rediscovery after failure follows the same guard, including port changes.
           healths[b]=nil; healths[a]=id

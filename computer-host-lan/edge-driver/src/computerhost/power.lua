@@ -10,7 +10,7 @@ local function address(device)
   if override then return U.parse_host_port(override,device:get_field(C.FIELD_PORT) or C.DEFAULT_PORT) end
   return device:get_field(C.FIELD_HOST),device:get_field(C.FIELD_PORT) or C.DEFAULT_PORT
 end
-function M.wake(device)
+local function wake(device)
   local mac=U.wol_mac(device)
   -- After device recreation or driver updates, persistent WOL metadata can
   -- be temporarily unavailable. Recover it from the already-identified agent
@@ -43,7 +43,7 @@ function M.wake(device)
   log.info("Computer Host magic packet sent (network identifiers omitted)")
   return true
 end
-function M.action(device,action)
+local function action(device,action)
   if device:get_field(C.FIELD_ENDPOINT_UNCONFIRMED) and not U.host_override(device) then
     return false,"discovered endpoint not yet confirmed by health polling"
   end
@@ -66,4 +66,17 @@ function M.action(device,action)
   log.info("Computer Host accepted "..action.." command for "..tostring(device.label))
   return true
 end
+-- Discovery may run while challenge/POST or WOL recovery yields. Keep
+-- selection stable for the complete command; always clear the transient
+-- guard even if an unexpected runtime exception escapes the operation.
+local function guarded(device,fn,...)
+  if device:get_field(C.FIELD_POWER_BUSY) then return false,"power command already in progress" end
+  device:set_field(C.FIELD_POWER_BUSY,true)
+  local ok,a,b,c=pcall(fn,device,...)
+  device:set_field(C.FIELD_POWER_BUSY,false)
+  if not ok then error(a,0) end
+  return a,b,c
+end
+function M.wake(device) return guarded(device,wake) end
+function M.action(device,which) return guarded(device,action,which) end
 return M

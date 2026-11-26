@@ -66,8 +66,9 @@ function M.save_fields(device,host,port,id,name,info)
     if port then device:set_field(C.FIELD_PORT,tonumber(port),{persist=true}) end
   end
   if id then device:set_field(C.FIELD_UUID,id,{persist=true}) end
-  if name then device:set_field(C.FIELD_NAME,name,{persist=true}) end
-  if info and not (device:get_field(C.FIELD_ENDPOINT_UNCONFIRMED) and not override) then
+  local confirmed=override or not device:get_field(C.FIELD_ENDPOINT_UNCONFIRMED)
+  if name and confirmed then device:set_field(C.FIELD_NAME,name,{persist=true}) end
+  if info and confirmed then
     if C.PLATFORMS[info.platform] then
       device:set_field(C.FIELD_PLATFORM,info.platform,{persist=true})
     end
@@ -124,10 +125,11 @@ function M.refresh_fields(device,host,port)
 end
 
 -- Discovery runs outside the device poll thread. Do not move an endpoint
--- under an in-flight poll/metrics callback; after any yielding probe, check
+-- under an in-flight poll/metrics/power callback; after a yielding probe, check
 -- that the address, override and health success counter still agree.
 local function busy(device)
   return device:get_field(C.FIELD_IN_PROGRESS) or device:get_field(C.FIELD_METRICS_BUSY)
+    or device:get_field(C.FIELD_POWER_BUSY)
 end
 local function snapshot(device)
   local host,port=stored_address(device)
@@ -137,6 +139,7 @@ end
 local function unchanged(device,before,from_poll)
   local host,port=stored_address(device)
   return not U.host_override(device)
+    and not device:get_field(C.FIELD_POWER_BUSY)
     and (from_poll or not busy(device))
     and same_address(host,port,before.host,before.port)
     and device:get_field("computerhost_success_count")==before.successes
