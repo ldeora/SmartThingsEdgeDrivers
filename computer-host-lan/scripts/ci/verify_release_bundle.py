@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate that four versioned release artifacts describe one immutable release.
+"""Validate that versioned release artifacts describe one immutable release.
 
 SHA-256 integrity is checked separately by the release workflow. This verifier
 prevents passing checksums for the *wrong* version or source commit.
@@ -7,10 +7,16 @@ prevents passing checksums for the *wrong* version or source commit.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 from pathlib import Path
 import re
 from zipfile import ZipFile
+
+if __package__:
+    from .linux_release_metadata import validate_metadata
+else:
+    from linux_release_metadata import validate_metadata
 
 
 def validate_bundle(directory: Path, manifest: dict, commit: str) -> None:
@@ -55,6 +61,8 @@ def validate_bundle(directory: Path, manifest: dict, commit: str) -> None:
             embedded = json.loads(archive.read(member))
             if embedded != manifest:
                 raise ValueError(f"version/release manifest mismatch inside {filename}")
+    if "linux_installer" in manifest:
+        validate_metadata(directory, manifest, commit)
     print(f"PASS exact release asset names, source commit {commit}, and all component versions ({version})")
 
 

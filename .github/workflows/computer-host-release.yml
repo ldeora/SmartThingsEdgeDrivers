@@ -36,6 +36,100 @@ jobs:
           path: ${{ runner.temp }}/computer-host-source/
           if-no-files-found: error
           retention-days: 7
+  linux-installer:
+    name: Linux installer (replica ${{ matrix.replica }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        replica: [a, b]
+    env:
+      CGO_ENABLED: '0'
+      GOOS: linux
+      GOARCH: amd64
+      GOAMD64: v1
+      GOFLAGS: ''
+      GOTOOLCHAIN: local
+      GO_RELEASE_VERSION: '1.25.14'
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.25.14'
+          cache: false
+      - name: Verify and build exact-source Linux installer
+        working-directory: computer-host-lan/linux-installer
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(go env GOVERSION)" = "go$GO_RELEASE_VERSION"
+          test -z "$(git status --porcelain)"
+          test -z "$(gofmt -l ./*.go)"
+          go mod download
+          go mod verify
+          go mod tidy -diff
+          python3 -B sync_bundle.py --check
+          go test -count=1 ./...
+          go vet ./...
+          test -z "$(git status --porcelain)"
+          version=$(python3 -c 'import json; print(json.load(open("../release.json"))["integration"])')
+          name="computer-host-lan-v${version}-linux-x64-unsigned-installer"
+          out="$RUNNER_TEMP/linux-installer"
+          mkdir "$out"
+          go build -mod=readonly -trimpath -buildvcs=true -o "$out/$name" .
+          test -z "$(git status --porcelain)"
+          go version -m "$out/$name" > "$out/go-build-info.txt"
+          grep -F "vcs.revision=$GITHUB_SHA" "$out/go-build-info.txt"
+          grep -F "vcs.modified=false" "$out/go-build-info.txt"
+          # The inert preview must never elevate or touch host state.
+          "$out/$name" -preview > "$RUNNER_TEMP/linux-preview.txt"
+          grep -F 'DEMO ONLY' "$RUNNER_TEMP/linux-preview.txt"
+          cd "$out"
+          sha256sum "$name" > "$name.sha256"
+          sha256sum -c "$name.sha256"
+      - name: Upload independent Linux build
+        uses: actions/upload-artifact@v7
+        with:
+          name: computer-host-linux-replica-${{ matrix.replica }}
+          path: ${{ runner.temp }}/linux-installer/
+          if-no-files-found: error
+          retention-days: 7
+  linux-installer-compare:
+    name: Verify reproducible Linux installer and metadata
+    needs: [linux-installer]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/download-artifact@v8
+        with:
+          name: computer-host-linux-replica-a
+          path: ${{ runner.temp }}/linux-a
+      - uses: actions/download-artifact@v8
+        with:
+          name: computer-host-linux-replica-b
+          path: ${{ runner.temp }}/linux-b
+      - name: Compare both executables and construct build metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          python3 computer-host-lan/scripts/ci/linux_release_metadata.py \
+            --manifest computer-host-lan/release.json \
+            --source-commit "$GITHUB_SHA" \
+            --replica-a "$RUNNER_TEMP/linux-a" \
+            --replica-b "$RUNNER_TEMP/linux-b" \
+            --output-dir "$RUNNER_TEMP/computer-host-linux"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: computer-host-release-linux-installer
+          path: ${{ runner.temp }}/computer-host-linux/
+          if-no-files-found: error
+          retention-days: 7
   windows-x64:
     runs-on: windows-2025
     defaults:
@@ -174,7 +268,7 @@ jobs:
           retention-days: 7
   assemble:
     name: Validate release asset set (no publication)
-    needs: [linux-source, windows-x64]
+    needs: [linux-source, linux-installer-compare, windows-x64]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -184,7 +278,7 @@ jobs:
           pattern: computer-host-release-*
           path: ${{ runner.temp }}/computer-host-release/
           merge-multiple: true
-      - name: Check source and Windows assets and write unified SHA256SUMS
+      - name: Check source, Windows and Linux assets and write unified SHA256SUMS
         shell: bash
         run: |
           set -euo pipefail
@@ -194,7 +288,9 @@ jobs:
           sha256sum -c ./*.zip.sha256
           sha256sum -c ./*.exe.sha256
           sha256sum -c ./computer-host-lan-v*-SHA256SUMS.txt
-          sha256sum -- *.zip *setup.exe > SHA256SUMS.txt
+          sha256sum -c ./*-linux-x64-unsigned-installer.sha256
+          sha256sum -- *.zip *setup.exe *-linux-x64-unsigned-installer \
+            *-linux-x64-unsigned-installer.sha256 *-linux-x64-unsigned-installer.build-info.json > SHA256SUMS.txt
           sha256sum -c SHA256SUMS.txt
           python3 "$GITHUB_WORKSPACE/computer-host-lan/scripts/ci/verify_release_bundle.py" \
             --directory "$PWD" \
@@ -204,9 +300,11 @@ jobs:
             "Computer Host LAN unsigned development candidate" \
             "Commit: $GITHUB_SHA" \
             "Unsigned build candidate, not a published GitHub release; channel remains unchanged." \
-            "Windows Setup GUI passes native CI; real Windows 11 hub/mDNS/WOL and first-paint RC tests remain pending." \
+            "Source ZIP is source only, not a Linux installation package." \
+            "Linux executable is unsigned, reproduced independently, and not attested." \
+            "Real Linux and Windows hub/mDNS/WOL, lifecycle and Windows first-paint tests remain pending." \
             > RELEASE-CANDIDATE-NOTICE.txt
-          ls -lh *.zip *setup.exe SHA256SUMS.txt
+          ls -lh *.zip *setup.exe *-linux-x64-unsigned-installer* SHA256SUMS.txt
       - name: Upload one complete unsigned candidate set
         uses: actions/upload-artifact@v7
         with:
