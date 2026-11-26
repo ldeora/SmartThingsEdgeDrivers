@@ -44,7 +44,7 @@ preserved on upgrade. Interface pinning is separate from persistent NIC WOL.
 
 For source-checkout diagnostics, explicit `-live` modes may still use
 `-api ../scripts/installer-api.sh` as a trusted unprivileged inspector.
-See the [planned release Quick Start](../docs/release/LINUX-INSTALLER-QUICK-START.md).
+See the [rc.3 Quick Start](../docs/release/LINUX-INSTALLER-QUICK-START.md).
 Modifying examples are for supervised development on a reversible test host,
 not production deployment. Authorization supports auto, sudo, doas, run0
 and interactive su; no provider fallback after refusal. Demo and plain live

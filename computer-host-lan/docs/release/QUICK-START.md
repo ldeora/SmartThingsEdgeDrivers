@@ -1,6 +1,6 @@
 # Computer Host LAN — historical quick start (v1.0.0-rc.2)
 
-**For v1.0.0-rc.3, use the [Linux](LINUX-INSTALLER-QUICK-START.md) or [Windows](WINDOWS-QUICK-START.md) guide instead. The commands below are only for rc.2.**
+**For v1.0.0-rc.3, use the [Linux](LINUX-INSTALLER-QUICK-START.md) or [Windows](WINDOWS-QUICK-START.md) guide instead. The commands below are only for rc.2.** See the [v1.0.0-rc.3 release](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v1.0.0-rc.3) for its version-matched assets.
 
 **Historical package: [v1.0.0-rc.2 GitHub prerelease](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v1.0.0-rc.2)** (published November 21, 2026 UTC from commit `72e4a99c4b2e8f958ce771152826319318d0d537`). Integration **1.0.0-rc.2**, Linux/Edge **0.4.6-rc.2**, Windows **0.2.7-rc.2**, protocol v2 unchanged. Download matching checksummed unsigned Windows packages or Linux source; do not use transient CI artifacts. [v0.5.5-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.5-beta.1) remains the Windows hardware-tested rollback baseline. SmartThings channel deployment is separate.
 

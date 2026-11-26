@@ -91,7 +91,7 @@ class ReleaseVersionTests(unittest.TestCase):
                        f"releases/tag/computer-host-lan-v{version}")
         self.assertIn(release_url, notes)
         if "linux_installer" in manifest:
-            self.assertNotRegex(notes.lower(), r"not (?:yet )?published|planned rc\\.|once rc\\.3 is published")
+            self.assertNotRegex(notes.lower(), r"not (?:yet )?published|planned rc\\.|once rc\.3 is published")
         elif manifest["release_stage"] == f"rc-published-v{version}":
             self.assertIn("Published:", notes)
             self.assertIn("immutable", notes.lower())
@@ -154,13 +154,14 @@ class ReleaseVersionTests(unittest.TestCase):
         """Future RCs are version coherent but never imply publication."""
         manifest = json.loads((ROOT / "release.json").read_text(encoding="utf-8"))
         version = manifest["integration"]
-        if manifest["release_stage"] != f"rc-candidate-v{version}":
-            self.skipTest("only applies to unannounced RC source candidates")
+        if manifest["release_stage"] != f"rc-candidate-v{version}" and "linux_installer" not in manifest:
+            self.skipTest("only applies to unannounced RC source candidates or neutral release docs")
         candidate_url = ("https://github.com/ldeora/SmartThingsEdgeDrivers/"
                          f"releases/tag/computer-host-lan-v{version}")
         self.assertEqual(manifest["release_candidate_tag"], f"computer-host-lan-v{version}")
-        self.assertNotEqual(manifest.get("github_prerelease"), candidate_url,
-                            "unpublished candidate must not replace latest published URL")
+        if manifest["release_stage"] == f"rc-candidate-v{version}":
+            self.assertNotEqual(manifest.get("github_prerelease"), candidate_url,
+                                "unpublished candidate must not replace latest published URL")
         notes = (ROOT / release_notes(version)).read_text(encoding="utf-8")
         self.assertIn(candidate_url, notes)
         if "linux_installer" not in manifest:
@@ -182,7 +183,7 @@ class ReleaseVersionTests(unittest.TestCase):
                 with self.subTest(document=name):
                     self.assertIn(version, "\n".join(content.splitlines()[:10]))
                     self.assertNotRegex(content.lower(),
-                                        r"not (?:yet )?published|not published yet|planned rc\\.3|once rc\\.3 is published|latest published prerelease:.*rc\\.2")
+                                        r"not (?:yet )?published|not published yet|planned rc\.3|once rc\.3 is published|latest published prerelease:.*rc\.2")
             self.assertIn(candidate_url, (ROOT / "README.md").read_text())
             self.assertIn(candidate_url, (ROOT / "docs/release/LINUX-INSTALLER-QUICK-START.md").read_text())
             self.assertIn(candidate_url, (ROOT / "docs/release/WINDOWS-QUICK-START.md").read_text())

@@ -1,6 +1,8 @@
 # Computer Host LAN — published rc.2 and stable release readiness
 
-**Current prerelease:** [v1.0.0-rc.2](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v1.0.0-rc.2), published 2026-11-21 19:17:25 UTC from immutable commit `72e4a99c4b2e8f958ce771152826319318d0d537`. Linux/Edge **0.4.6-rc.2**, Windows **0.2.7-rc.2**, protocol v2. Four unsigned deliverables and `SHA256SUMS.txt` are available. **Do not replace these assets or move the tag after this documentation PR.** [v0.5.5-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.5-beta.1) remains the last independently Windows 11 hardware-tested rollback baseline.
+For v1.0.0-rc.3 qualification and exact-byte publication see [RC3-READINESS.md](docs/release/RC3-READINESS.md). The following rc.2 evidence is historical.
+
+**Historical rc.2 prerelease:** [v1.0.0-rc.2](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v1.0.0-rc.2), published 2026-11-21 19:17:25 UTC from immutable commit `72e4a99c4b2e8f958ce771152826319318d0d537`. Linux/Edge **0.4.6-rc.2**, Windows **0.2.7-rc.2**, protocol v2. Four unsigned deliverables and `SHA256SUMS.txt` are available. **Do not replace these assets or move the tag.** [v0.5.5-beta.1](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v0.5.5-beta.1) remains the last independently Windows 11 hardware-tested rollback baseline.
 
 **Next candidate:** see the [rc.3 readiness and issue triage](docs/release/RC3-READINESS.md) for the post-#169 implementation freeze, outstanding decisions and physical acceptance record. This does not alter the published rc.2 evidence below.
 
