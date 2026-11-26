@@ -64,7 +64,8 @@ def exercise(binary: str, api: str, *, fresh: bool = False) -> None:
                        PATH=str(Path(api).parent) + os.pathsep + env.get('PATH', ''))
             if fresh:
                 env['COMPUTER_HOST_FRESH_WOL_PTY_API'] = api
-                os.execve(binary, [binary, '-test.run=^TestFreshWOLPreviewPTY
+                os.execve(binary, [binary, '-test.run=^TestFreshWOLPreviewPTY$'], env)
+            os.execve(binary, [binary, '-live', '-api', api], env)
         except Exception as exc:
             print(f'PTY execution failed: {exc}', file=sys.stderr)
             os._exit(127)
