@@ -329,3 +329,17 @@ Do not delete or regenerate private state, account or backups if reuse is
 refused. Choose remote power again if needed; retain the existing key and
 refresh the existing SmartThings device. Normal reinstall with the current
 v2 owner marker continues to use the ordinary INSTALL path.
+
+### Maintenance menu
+
+Run the installer without flags as your normal user. On an existing installation
+it opens Maintenance: Upgrade, Configure, Repair, Restore, Recover, Inspect,
+Uninstall or Exit. Retained state without an installed agent offers reinstall
+and the applicable maintenance tasks. A clean host still opens setup directly.
+Configure → Change power or WOL settings reruns setup with the bundled agent
+version; Configure → Check or remove installer-owned Wake-on-LAN does not
+reinstall the agent. Repair also uses the bundled version. Inspect is read-only
+and does not check the protected journal; use `cli status` for that. Restore
+labels the newest eligible backup, not necessarily the last upgrade, and shows
+the installed file version when safely readable. Each mutation still needs its
+existing explicit confirmation. Existing flags and CLI commands work unchanged.

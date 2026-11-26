@@ -135,3 +135,15 @@ existing SmartThings device and test it before upgrading again. Use `-recover`
 only for an interrupted operation. Local backups are not release signatures.
 CLI users can review `cli backups` and then use `cli restore --backup NAME
 --backup-digest DIGEST --confirm RESTORE` with the selected digest.
+
+### Maintenance menu
+
+Run `./computer-host-linux-installer` again as your normal user. An existing
+installation opens Maintenance. Choose Upgrade, Configure, Repair, Restore,
+Recover, Inspect, or Uninstall. Configure offers changing power or WOL settings
+by rerunning setup with the bundled agent version, or checking/removing the
+installer-owned WOL setting separately. Each operation still asks for its own
+confirmation. Inspect is read-only; protected journal status remains available
+through `cli status`. Restore shows the current installed file version (if
+readable) and labels the latest eligible backup. For a fresh installation the
+usual setup opens directly. All existing command-line flags still work.

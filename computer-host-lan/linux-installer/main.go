@@ -385,7 +385,7 @@ func main() {
 	}
 	flag.Usage = func() {
 		fmt.Fprintln(flag.CommandLine.Output(), "Usage: computer-host-linux-installer [wizard flags] or computer-host-linux-installer cli --help")
-		fmt.Fprintln(flag.CommandLine.Output(), "Without mode flags, open the installation/upgrade wizard. Run as your normal user.")
+		fmt.Fprintln(flag.CommandLine.Output(), "Without mode flags, open setup or the maintenance menu. Run as your normal user.")
 		fmt.Fprintln(flag.CommandLine.Output(), "Use -live -preview for read-only host inspection, or -demo for a simulated wizard.")
 		flag.PrintDefaults()
 	}
@@ -510,7 +510,7 @@ func main() {
 			fmt.Fprintln(os.Stderr, "-install requires -live and cannot be combined with -preview")
 			os.Exit(2)
 		}
-		if err := runInstallingWizard(*accessible, *apiPath, os.Stdin, os.Stdout, *elevation); err != nil {
+		if err := runInstallingWizardMode(*accessible, *apiPath, os.Stdin, os.Stdout, *elevation, implicitInstall, ""); err != nil {
 			fmt.Fprintln(os.Stderr, "Installation not completed:", err)
 			os.Exit(1)
 		}
