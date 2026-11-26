@@ -225,16 +225,26 @@ class Ownership:
         plan = decode_intent(intent)
         if intent["transaction"] != transaction or intent["boot_id"] != self.boot_id():
             raise wol.WolError("WOL intent does not match current transaction")
+        # Refuse a known changed plan before publishing even a pending
+        # record. The backend checks again at the mutation boundary.
+        if self.backend.inspect(plan.adapter.interface) != plan:
+            raise wol.WolError("WOL plan changed before application")
         pending = {"schema": 1, "intent": intent, "state": "pending", "inode": None}
         self._write(plan, pending)
 
-        def confirm():
+        def confirm(created):
             inode = None
             if plan.backend == "link-create":
                 target = self.backend._target(plan)
-                if self.backend._read_link(target) != plan.link_text:
+                info = target.lstat()
+                if (created != (info.st_dev, info.st_ino)
+                        or self.backend._read_link(target) != plan.link_text):
                     raise wol.WolError("WOL link changed before confirmation")
-                inode = target.lstat().st_ino
+                # Record the inode of the file we actually published, not
+                # just the inode of a matching file observed afterwards.
+                inode = created[1]
+            elif created is not None:
+                raise wol.WolError("unexpected WOL publication evidence")
             self._write(plan, dict(pending, state="confirmed", inode=inode), previous=pending)
 
         self.backend.apply(plan, persisted=confirm)

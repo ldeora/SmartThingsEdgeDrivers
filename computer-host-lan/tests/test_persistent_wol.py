@@ -89,6 +89,27 @@ class WolTests(unittest.TestCase):
         target.write_text(plan.link_text)
         with self.assertRaises(WolError):
             owned.apply(intent, "test-transaction")
+        owned.rollback(intent, "test-transaction")
+        self.assertEqual(target.read_text(), plan.link_text)
+        self.assertIsNone(owned._read(plan))
+
+    def test_protected_identical_replacement_after_publication_not_owned(self):
+        owned = self.owned()
+        plan = self.backend.inspect(NIC)
+        intent = owned.prepare(NIC, plan_digest(plan), "test-transaction")
+        target = self.root / "etc/systemd/network" / plan.link_name
+        create = self.backend._create
+
+        def replace_after_publication(value):
+            published = create(value)
+            other = target.with_suffix(".admin")
+            other.write_text(plan.link_text)
+            os.replace(other, target)
+            return published
+
+        self.backend._create = replace_after_publication
+        with self.assertRaisesRegex(WolError, "changed before confirmation"):
+            owned.apply(intent, "test-transaction")
         with self.assertRaisesRegex(WolError, "unconfirmed"):
             owned.rollback(intent, "test-transaction")
         self.assertEqual(target.read_text(), plan.link_text)

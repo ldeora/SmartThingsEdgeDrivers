@@ -301,11 +301,16 @@ class Backend:
                 stream.write(plan.link_text.encode("utf-8"))
                 stream.flush()
                 os.fsync(stream.fileno())
+                created = os.fstat(stream.fileno())
             # Atomic no-clobber. Never replace an administrator file.
             os.link(temp, target, follow_symlinks=False)
         finally:
             os.unlink(temp)
         self._sync_dir(target.parent)
+        published = target.lstat()
+        if (published.st_dev, published.st_ino) != (created.st_dev, created.st_ino):
+            raise WolError("published link identity changed")
+        return (created.st_dev, created.st_ino)
 
     @staticmethod
     def _sync_dir(path):
@@ -319,11 +324,12 @@ class Backend:
         """Caller MUST have durably journaled plan before invoking."""
         if self.inspect(plan.adapter.interface) != plan:
             raise WolError("WOL plan changed before application")
+        created = None
         if plan.backend == "nm" and plan.previous != plan.nm_after:
             self.run(("nmcli", "--wait", "5", "connection", "modify", "uuid",
                       plan.profile, _PROPERTY, "magic"))
         elif plan.backend == "link-create":
-            self._create(plan)
+            created = self._create(plan)
         # Confirm the persistent change separately, before any runtime write.
         # The protected caller can durably record ownership at this boundary.
         if plan.backend == "nm" and self._nm_value(plan.profile) != plan.nm_after:
@@ -332,7 +338,7 @@ class Backend:
                 self._read_link(self._target(plan)) != plan.link_text):
             raise WolError("persistent WOL verification failed")
         if persisted is not None:
-            persisted()
+            persisted(created)
         if plan.adapter.runtime != plan.runtime_after:
             self.run(("ethtool", "-s", plan.adapter.interface, "wol", "g"))
         now = self._same_adapter(plan)
