@@ -18,36 +18,31 @@ These requirements were drafted before rc.2 publication; unchecked items remain 
 - [ ] **Linux reference and additional installation:** repeat real Gentoo `hydra` protocol-v2 monitoring/service/reboot/WOL checks after the candidate upgrade; validate at least one physical Debian or Ubuntu system with systemd and Avahi, installation, service recovery, upgrade and identity preservation. Fedora (SELinux enforcing/firewalld) is only advertised as hardware-verified after a real host test; container CI is not equivalent.
 - [ ] **Compatibility and upgrade safety:** verify the new Edge driver does not create duplicate computer devices when agents are upgraded; older protocol-v2 agents must continue to work for already-supported fields or any breaking minimum version must be declared before RC. Never modify old capabilities/profiles or force re-pairing to cure an update.
 - [ ] **Security/documentation:** current, non-historical `SECURITY.md` and short user-facing disclosure of unencrypted read-only HTTP telemetry, trusted-LAN firewall restrictions, retained secret in SmartThings preference, HMAC/nonces, monitoring-only defaults and WOL limitations. Review no key/token leakage through installer, diagnostics, logs or release assets. Record a clear code-signing decision; do not imply signing removes SmartScreen warnings.
-- **Third-party notice automation (#118):** best-effort, non-blocking follow-up for v1.0, not a P0 release gate. The publisher remains responsible for applicable redistribution terms and existing notices; incomplete automated evidence does not establish compliance. This scope decision does not change the mandatory Linux installer authentication gate.
+- **Third-party notice automation (#118):** best-effort, non-blocking follow-up for v1.0, not a P0 release gate. The publisher remains responsible for applicable redistribution terms and existing notices; incomplete automated evidence does not establish compliance. Formal notice automation and signing/independent attestation integration are deferred to v1.2. Applicable redistribution obligations remain.
 - [ ] **User documentation:** one up-to-date Windows quick start and one Linux quick start, upgrade/uninstall guide and troubleshooting reference; published version links sourced from `release.json` and checked by tests. Keep historic release-engineering content separate.
 - [ ] **Freeze and traceability:** document agent/driver compatibility, version policy (public integration release vs internally versioned agents), explicit platform support and known hardware limitations. Freeze protocol v2's existing semantics for the 1.x line, allowing backward-compatible optional additions only.
 
 ### P0: gate from published v1.0.0-rc.2 to stable v1.0.0
 
-- [ ] **Linux installer convergence (#101):** the intended stable design is
-  one protected transactional engine for supported installation entry points,
-  not two differing recovery guarantees. Follow the
-  [consolidation contract](../development/LINUX-INSTALLER-CONSOLIDATION.md).
-  Until cutover and physical acceptance, published rc.2 continues to use
-  the legacy shell installer; the Go wizard remains development-only.
-  Development source now explicitly refuses legacy shell and direct Python
-  mutation paths; the read-only source plan remains available. The
-  authenticated wizard/CLI is the intended sole supported installation
-  entry point. Historical backup restoration, retained-state adoption,
-  elevated Python overrides and automated persistent WOL changes are
-  unsupported in v1.0; no silent fallback. Historical restoration is
-  distinct from interrupted-transaction recovery. Cutover is not accepted
-  until the verified release installer and migration/refusal paths pass
-  real-host tests and version-matched user documentation is ready.
-- [ ] **Linux installer authenticity (#84):** before offering an elevated
-  standalone Go installer as a release download, generate and independently
-  verify its GitHub artifact attestation under the approved release workflow;
-  the checksum beside a CI test binary is not sufficient. Verify recovery availability,
-  helper promotion and supported shell entry points on the release build.
+- [ ] **Linux installer convergence (#101):** one protected schema-1 engine
+  for install, upgrade, repair, uninstall, recovery, persistent wired WOL,
+  explicit retained rc.2 state reuse and historical restore. Implemented in
+  #164–#188; legacy mutations remain refused. No elevated Python override.
+  Cutover requires the version-matched release binary, real-host acceptance
+  and current user documentation. See [maintenance journeys](UPGRADE.md).
+- [ ] **Linux installer distribution (#84):** maintainer decision 2026-11-26:
+  formal signing and independent attestation/approval deferred to v1.2.
+  rc.3 and v1.0 use unsigned release packages from the exact approved source,
+  reproducible Linux binary builds, build metadata and SHA-256 verification.
+  Normal release workflow must include the standalone Linux installer.
+  Independently authenticated provenance is optional, not mandatory.
+  Do not substitute ordinary CI artifacts; checksums verify bytes, not
+  publisher identity. The optional attestation workflow retains its own
+  requirements if used. Verify helper promotion/recovery and legacy refusals.
 
 - [ ] Run a **minimum seven-day unattended soak** on at least one physical Windows 11 system and one Linux host with a real SmartThings hub; log dates, exact binaries/driver version, reconnects, resource use and any duplicate/stuck state.
 - [ ] Exercise hub restart, agent stop/start, computer reboot, a router/network interruption and host DHCP address change (where feasible); separate a **hub IP change** from a **host IP change**, because the Windows firewall may intentionally scope access to the hub's previous IP.
-- [ ] Validate all five required repository workflows on the **final merged main SHA**. Build the proposed stable release assets from the final stable commit, checking source/embedded versions, SHA-256 and attestations; do not mix commits or replace existing rc.2 release assets.
+- [ ] Validate all five required repository workflows on the **final merged main SHA**. Build the proposed stable release assets from the final stable commit, checking source/embedded versions, reproducible Linux build, SHA-256 and build metadata; do not mix commits or replace existing rc.2 release assets.
 - [ ] Verify Windows x64 first install and upgrade from v0.5.5/v0.5.6 on an existing device; verify Linux upgrade. Failure recovery must retain known-good snapshot/state. Recheck SmartThings channel assignment separately from GitHub publication.
 - [ ] Perform final security, download integrity and supported-platform sign-off; record the status of advisory #118 separately. Publish a new stable tag only after explicit approval; never retag or overwrite existing published betas. Test permanent links and disclose unsigned status if applicable.
 

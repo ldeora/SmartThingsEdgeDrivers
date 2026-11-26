@@ -9,13 +9,15 @@ Read the [current architecture](../docs/development/LINUX-INSTALLER-ARCHITECTURE
 for components, lifecycle, locks and trust boundaries; see the
 [convergence contract](../docs/development/LINUX-INSTALLER-CONSOLIDATION.md)
 and [release-authentication design](../docs/development/LINUX-INSTALLER-RELEASE-AUTHENTICATION.md)
-for outstanding gates. A checksum beside an unsigned CI binary is not
-publisher authentication. Do not elevate a downloaded unverified executable.
+for historical design. The current [release gates](../docs/release/V1-RELEASE-GATES.md)
+record the unsigned, exact-source/checksum release decision and v1.2 deferral.
+A checksum beside an unsigned CI binary is not publisher authentication.
+Do not elevate an ordinary downloaded CI artifact.
 
 ## Interactive wizard
 
 Run as an ordinary user. Launch without arguments to open the real
-installation/upgrade wizard; `-accessible` opens its plain-text variant.
+installation wizard on a clean host or the maintenance menu on an existing/retained host; `-accessible` opens its plain-text variant.
 The previous `-live -install` spelling remains supported.
 Real installation uses an embedded inspector
 by default and requests administrator authorization only after explicit
@@ -343,3 +345,10 @@ and does not check the protected journal; use `cli status` for that. Restore
 labels the newest eligible backup, not necessarily the last upgrade, and shows
 the installed file version when safely readable. Each mutation still needs its
 existing explicit confirmation. Existing flags and CLI commands work unchanged.
+
+Menu keys are fixed (1 setup/upgrade, 2 Configure, 3 Repair, 4 Restore,
+5 Recover, 6 Inspect, 7 Uninstall, 0 Exit). Options not displayed do not
+apply. After an rc.2 uninstall, select 1 and REUSE before Restore; a
+valid rc.3 owner marker permits restoration after normal uninstall.
+Latest backup describes the before-state of an eligible operation, which
+may have the same agent version. See [user journeys](../docs/release/UPGRADE.md).

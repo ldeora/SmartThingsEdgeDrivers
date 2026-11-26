@@ -58,9 +58,9 @@ Invoke-RestMethod http://127.0.0.1:8765/v2/metrics
 **Version boundary:** the commands below apply only to the immutable
 published rc.2 source ZIP, not a checkout of main or a development source
 archive. Current development source refuses legacy mutation commands.
-An authenticated standalone installer is planned for the next release;
-no attested release is available yet. Do not elevate source scripts or
-substitute an unsigned CI artifact.
+The standalone installer is implemented for rc.3, but its release asset
+and physical qualification are pending. Do not elevate development source
+scripts or substitute an ordinary CI artifact for a versioned release.
 
 Requires Python 3.10+, systemd as PID1, Avahi/mDNS for automatic discovery and administrator rights to install. From the *matching* Computer Host LAN source directory:
 
@@ -88,20 +88,25 @@ as an ordinary user for source inspection only. The legacy plan is
 informational, not the protected controller's authorization or a guarantee
 that installation will succeed.
 
-The future independently verified Linux executable is the single supported
-entry point for install, upgrade, repair, uninstall and interrupted
-transaction recovery, through its wizard and explicit CLI. The CLI is
-still development-only pending release qualification. See the
-[consolidation contract](docs/development/LINUX-INSTALLER-CONSOLIDATION.md)
-and [authentication procedure](docs/development/LINUX-INSTALLER-RELEASE-AUTHENTICATION.md).
-Do not use a source script as a substitute.
+The intended rc.3 standalone Linux executable is the single supported
+entry point for install, upgrade, repair, uninstall, persistent wired WOL,
+explicit reuse of eligible retained rc.2 state, historical backup restoration
+and interrupted-transaction recovery. The bare executable opens setup on a
+clean host or a maintenance menu on an existing/retained installation.
+These workflows are implemented on main but not yet release-qualified.
+See the [Linux Quick Start](docs/release/LINUX-INSTALLER-QUICK-START.md),
+[upgrade and maintenance journeys](docs/release/UPGRADE.md) and
+[troubleshooting](docs/release/TROUBLESHOOTING.md). Do not use a source
+script as a substitute.
 
-Ambiguous retained state without a v2 ownership marker must be investigated;
-automatic adoption and historical snapshot restore are not supported in
-v1.0. Do not delete or regenerate the UUID/key or remove backups to bypass
-a refusal. Persistent WOL configuration remains an administrator-managed
-network setting; the source WOL utility now only previews possible changes.
-The agent's WOL interface pin is distinct from persistent WOL configuration.
+Reuse after an rc.2 uninstall requires REUSE consent, private state checks,
+quiescence and legacy v2 snapshot evidence; ambiguous/unsafe state is refused.
+Historical restoration uses a separate RESTORE confirmation and snapshots the
+current installation first. Persistent WOL can be configured for a supported
+wired NIC through setup and separately removed if installer-owned; normal
+uninstall retains it. The source WOL utility only previews possible changes.
+The agent's interface pin is distinct from persistent NIC configuration.
+Preserve private credentials and backups if a check fails.
 
 **Do not manually delete a pending protected journal or stage.** Interrupted
 transaction recovery must use a verified compatible protected installer;
@@ -109,7 +114,7 @@ it is not a way to restore an arbitrary historical backup.
 
 ## Updates and caveats
 
-A GitHub Actions artifact is temporary and is **not** a permanent published prerelease. Install only assets associated with a fixed release/tag and matching checksums. The published rc.2 packages are not authenticated by artifact attestation. The new release workflow is implemented but has not yet produced an accepted attested release. Keep applications saved before power tests. Do not use production or workplace computers for initial hardware experiments.
+A GitHub Actions artifact is temporary and is **not** a permanent published prerelease. Install only assets associated with a fixed release/tag and matching checksums. The published rc.2 packages are not authenticated by artifact attestation. The optional attestation workflow has not produced an accepted release. For rc.3 and v1.0 the planned distribution is unsigned, with exact-source builds and checksums; independent attestation/signing integration is deferred to v1.2. See the current release gates. Keep applications saved before power tests. Do not use production or workplace computers for initial hardware experiments.
 
 ## Current upgrade and recovery guidance
 
