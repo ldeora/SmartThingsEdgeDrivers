@@ -76,9 +76,9 @@ redistribution obligations remain.
 
 [SmartThings driver invitation](https://bestow-regional.api.smartthings.com/invite/1J2Qy7ZkxL20) — enroll your hub and install Computer Host LAN if needed. Refresh an existing device instead of pairing again.
 
-See the [Linux Quick Start](LINUX-INSTALLER-QUICK-START.md),
-[Windows Quick Start](WINDOWS-QUICK-START.md), [maintenance journeys](UPGRADE.md)
-and [troubleshooting](TROUBLESHOOTING.md) in the source/documentation package.
+See the [Linux Quick Start](https://github.com/ldeora/SmartThingsEdgeDrivers/blob/computer-host-lan-v1.0.0-rc.3/computer-host-lan/docs/release/LINUX-INSTALLER-QUICK-START.md),
+[Windows Quick Start](https://github.com/ldeora/SmartThingsEdgeDrivers/blob/computer-host-lan-v1.0.0-rc.3/computer-host-lan/docs/release/WINDOWS-QUICK-START.md), [maintenance journeys](https://github.com/ldeora/SmartThingsEdgeDrivers/blob/computer-host-lan-v1.0.0-rc.3/computer-host-lan/docs/release/UPGRADE.md)
+and [troubleshooting](https://github.com/ldeora/SmartThingsEdgeDrivers/blob/computer-host-lan-v1.0.0-rc.3/computer-host-lan/docs/release/TROUBLESHOOTING.md) in the source/documentation package.
 Windows Setup should be run over the existing installation. Linux uses the
 standalone installer, with maintenance option 1 on an existing computer.
 Preserve private credentials, settings and the existing SmartThings device.
@@ -106,7 +106,7 @@ computer gets a separate identity. Power actions remain opt-in.
 - Restore supports validated local installed-state v2 snapshots, not arbitrary
   imported backups. Interrupted recovery differs from historical restore.
   Backup pruning is deferred to v1.1. No automatic key rotation or pairing.
-- Existing protocol-v2 agents are intended to coexist; mixed versions can coexist without a forced simultaneous upgrade. No forced simultaneous upgrade.
+- Existing protocol-v2 agents are intended to coexist; no simultaneous upgrade is required by the protocol.
 
 
 ## Help us test
@@ -117,11 +117,11 @@ after reboot, and multiple computers on the same hub. Save your work and
 retain physical access before testing power. Include OS, exact agent and
 driver versions, hub model/firmware and observed behavior.
 
-Report in the Computer Host LAN [SmartThings Community thread search](https://community.smartthings.com/search?q=Computer%20Host%20LAN)
+Report in the Computer Host LAN discussion (find it using [SmartThings Community search](https://community.smartthings.com/search?q=Computer%20Host%20LAN))
 or [GitHub issues](https://github.com/ldeora/SmartThingsEdgeDrivers/issues/new/choose).
 Linux: the source-only archive includes the read-only
 [`scripts/beta-report.sh`](https://github.com/ldeora/SmartThingsEdgeDrivers/blob/computer-host-lan-v1.0.0-rc.3/computer-host-lan/scripts/beta-report.sh)
 diagnostics script. Windows: use `scripts/Collect-WindowsDiagnostics.ps1`
 in the matching ZIP. Review output and redact private identifiers, network
-addresses and credentials before sharing. See the [test checklist](RC3-READINESS.md)
+addresses and credentials before sharing. See the [test checklist](https://github.com/ldeora/SmartThingsEdgeDrivers/blob/computer-host-lan-v1.0.0-rc.3/computer-host-lan/docs/release/RC3-READINESS.md)
 for maintainer qualification details.
