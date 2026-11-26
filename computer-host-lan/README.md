@@ -2,15 +2,15 @@
 
 **Upgrading? Run the new installer over your existing installation. Your device, settings, routines and key are kept; nothing needs to be changed in SmartThings.**
 
+**v1.0.0-rc.3 candidate — not published.** The current download is
+[v1.0.0-rc.2](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v1.0.0-rc.2).
+Use the matching published instructions until rc.3 is available.
+
 Monitor and control your computer in SmartThings, using your trusted local
 network. See CPU, RAM, disk usage, uptime and host status; optionally wake,
 shut down, reboot or suspend your computer, including through routines.
 The Edge driver communicates locally with your computer; no separate cloud
 service is required. SmartThings itself still uses its platform services.
-
-**v1.0.0-rc.3 candidate — not published.** The current download is
-[v1.0.0-rc.2](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v1.0.0-rc.2).
-Use the matching published instructions until rc.3 is available.
 
 ## Get started
 

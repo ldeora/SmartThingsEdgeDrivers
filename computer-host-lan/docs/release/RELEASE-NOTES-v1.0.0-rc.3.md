@@ -78,6 +78,8 @@ redistribution obligations remain.
 
 ## Install or upgrade
 
+[SmartThings driver invitation](https://bestow-regional.api.smartthings.com/invite/1J2Qy7ZkxL20) — enroll your hub and install Computer Host LAN if needed. Refresh an existing device instead of pairing again.
+
 See the [Linux Quick Start](LINUX-INSTALLER-QUICK-START.md),
 [Windows Quick Start](WINDOWS-QUICK-START.md), [maintenance journeys](UPGRADE.md)
 and [troubleshooting](TROUBLESHOOTING.md) in the source/documentation package.
