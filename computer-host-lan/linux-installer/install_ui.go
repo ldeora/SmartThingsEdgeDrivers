@@ -180,7 +180,7 @@ func approvedRootRequest(s *liveSelection) (privilegedRequest, error) {
 		power = "disable"
 	}
 	var nic *string
-	if s.wolChoice == "pin" {
+	if s.wolChoice == "pin" || s.wolChoice == "configure" {
 		if err := validNICName(s.wolNIC); err != nil {
 			return privilegedRequest{}, errors.New("invalid network interface")
 		}
@@ -189,6 +189,12 @@ func approvedRootRequest(s *liveSelection) (privilegedRequest, error) {
 	}
 	request := privilegedRequest{
 		SchemaVersion: 1, Action: action, Power: power, WOLInterface: nic,
+	}
+	if s.wolChoice == "configure" {
+		if plan.WOLPolicy == nil || !plan.WOLPolicy.valid(s.wolNIC) {
+			return privilegedRequest{}, errors.New("persistent WOL policy could not be reviewed; choose Keep or configure manually")
+		}
+		request.WOLPlanDigest = plan.WOLPolicy.Digest
 	}
 	return request, request.validate()
 }
@@ -256,7 +262,7 @@ func validatedPrivilegedReply(data []byte, action string) (privilegedResult, err
 			return privilegedResult{}, errors.New("invalid uninstall identity outcome")
 		}
 	case "passed":
-		if action != "status" && action != "recover" {
+		if action != "status" && action != "recover" && action != "wol-check" && action != "wol-remove" {
 			return privilegedResult{}, errors.New("unexpected status outcome")
 		}
 	default:
@@ -291,6 +297,9 @@ func validatedPrivilegedReply(data []byte, action string) (privilegedResult, err
 		reply.RecoveryStatus == "" || reply.RecoveryStatus == "nothing_to_recover") {
 		return privilegedResult{}, errors.New("unexpected recovery operation")
 	}
+	if !validWOLStatus(reply, action) {
+		return privilegedResult{}, errors.New("invalid WOL outcome")
+	}
 	if reply.WOLReviewRequired && !((action == "recover" && reply.Status == "passed" && reply.RecoveryStatus == "rolled_back") ||
 		(action != "status" && action != "recover" && reply.Status == "error" && reply.ErrorCode == "rolled_back")) {
 		return privilegedResult{}, errors.New("unexpected WOL review outcome")
@@ -323,7 +332,7 @@ func knownPrivilegedError(code string) bool {
 		"recovery_required", "unsupported_environment", "adoption_required",
 		"unsupported_python", "untrusted_root_launcher",
 		"invalid_trusted_manifest", "duplicate_key", "bootstrap_failed",
-		"unsafe_lock", "not_installed", "recovery_helper_missing":
+		"unsafe_lock", "not_installed", "recovery_helper_missing", "wol_review_required":
 		return true
 	}
 	return false
@@ -337,13 +346,15 @@ func userFacingPrivilegeFailure(reply privilegedResult) error {
 		return errors.New("credential continuity could not be verified; preserve retained private state and recovery evidence. Run -recover for managed-state recovery; it cannot verify continuity with the interrupted transaction")
 	}
 	switch reply.ErrorCode {
+	case "wol_review_required":
+		return errors.New("Wake-on-LAN ownership or network policy needs review. Open Configure (-configure) to check or remove the installer setting; existing administrator configuration is not overwritten")
 	case "installation_busy":
 		return errors.New("another installation or recovery is in progress. Finish that operation before retrying")
 	case "unsafe_lock":
 		return errors.New("an installer lock is unsafe. After confirming no installation or recovery is running, ask an administrator to inspect /run/lock/linux-host-agent-install.lock and /run/computer-host-lan/bootstrap.lock; do not delete lock files during an active installation")
 	case "rolled_back":
 		if reply.WOLReviewRequired {
-			return errors.New("previous agent files and service state were restored. The Wake-on-LAN setting needs a manual check; preserve the WOL ownership record and ask an administrator to review it. Do not repeat recovery for WOL alone")
+			return errors.New("previous agent files and service state were restored. The Wake-on-LAN setting needs a manual check; open Configure (-configure) to check or remove the installer setting. Do not repeat recovery for WOL alone")
 		}
 		if reply.Operation == "uninstall" {
 			return errors.New("uninstall was undone; previous files and service state were restored. Check prerequisites and run -uninstall again if desired")
@@ -373,7 +384,7 @@ func userFacingPrivilegeFailure(reply privilegedResult) error {
 		case "existing_state":
 			return errors.New("installation aborted before applying changes (existing agent/service state); inspect service and protected identity prerequisites")
 		case "plan":
-			return errors.New("installation aborted before applying changes (installation plan); inspect managed paths and systemd templates")
+			return errors.New("installation aborted before applying changes (installation plan); inspect managed paths, systemd templates or Wake-on-LAN policy. Choose Keep to install without changing WOL, or use Configure (-configure) to check/remove an existing installer setting first")
 		case "snapshot":
 			return errors.New("installation aborted before applying changes (backup snapshot); inspect the existing backup directory and available storage")
 		default:
@@ -549,7 +560,12 @@ func showInstallationOutcome(w io.Writer, s *liveSelection, req privilegedReques
 	fmt.Fprintln(w, "Keep the hub and computer on a trusted private LAN; allow incoming TCP 8765 (or your configured agent port) from the hub and mDNS where needed. Never forward the agent port to the Internet.")
 	s.showNetworkWarnings(w)
 	fmt.Fprintln(w, "These are pre-install observations, not proof of discovery or connectivity. If warnings appear above, recheck those conditions before relying on Scan nearby.")
-	fmt.Fprintln(w, "Automatic hub pairing, firewall changes and persistent WOL configuration were not performed.")
+	fmt.Fprintln(w, "Automatic hub pairing and firewall changes were not performed.")
+	if req.WOLPlanDigest != "" {
+		fmt.Fprintln(w, "Persistent WOL configuration was verified for the selected wired interface. Enable WOL in BIOS/UEFI and test shutdown/wake after reboot; Wi-Fi and routed-subnet WOL are not supported by this setup.")
+	} else {
+		fmt.Fprintln(w, "Persistent WOL configuration was left unchanged.")
+	}
 	switch req.Power {
 	case "enable":
 		fmt.Fprintln(w, "For remote power, turn on Enable shutdown/reboot/suspend (allowPowerCommands) and configure Power control key (64 hex chars) [controlKey] in the SmartThings device if needed.")
@@ -708,16 +724,31 @@ func runUninstallWizard(reader io.Reader, writer io.Writer, method string) error
 	if !stdinIsTerminal() {
 		return errors.New("interactive uninstall needs a terminal")
 	}
-	return confirmUninstall(reader, writer, func(request privilegedRequest) (privilegedResult, error) {
-		return executeAuthorizedBootstrap(request, true, method)
+	removed := false
+	err := confirmUninstall(reader, writer, func(request privilegedRequest) (privilegedResult, error) {
+		result, err := executeAuthorizedBootstrap(request, true, method)
+		removed = err == nil && result.Status == "uninstalled"
+		return result, err
 	})
+	if err != nil || !removed {
+		return err
+	}
+	fmt.Fprint(writer, "Also remove the Wake-on-LAN setting this installer made? [y/N]: ")
+	answer, err := readConfirmationLine(reader)
+	if err != nil || !strings.EqualFold(strings.TrimSpace(answer), "y") {
+		return nil
+	}
+	if err := runWOLManagement(reader, writer, method, true); err != nil {
+		fmt.Fprintln(writer, "Agent uninstalled. WOL removal was not completed:", err)
+	}
+	return nil
 }
 
 func showRecoveryOutcome(writer io.Writer, response privilegedResult) {
 	fmt.Fprintln(writer, "Recovery outcome:", response.RecoveryStatus)
 	showCredentialContinuity(writer, response)
 	if response.WOLReviewRequired {
-		fmt.Fprintln(writer, "The agent was restored. The Wake-on-LAN setting needs a manual check; preserve the WOL ownership record and ask an administrator to review it. Do not repeat recovery for WOL alone.")
+		fmt.Fprintln(writer, "The agent was restored. The Wake-on-LAN setting needs a manual check; open Configure (-configure) to check or remove the installer setting. Do not repeat recovery for WOL alone.")
 	}
 	switch response.RecoveryStatus {
 	case "nothing_to_recover":

@@ -398,6 +398,7 @@ func main() {
 	rootMode := flag.Bool("root-bootstrap", false, "internal: fixed privileged bootstrap, never run the UI as root")
 	recoverMode := flag.Bool("recover", false, "explicitly recover an interrupted installer operation")
 	uninstallMode := flag.Bool("uninstall", false, "guided removal of the agent; retain identity, backups and recovery helper")
+	configureMode := flag.Bool("configure", false, "check or remove installer-owned Wake-on-LAN")
 	elevation := flag.String("elevation", "auto", "authorization provider for install/uninstall/recover: auto, sudo, doas, run0 or su")
 	requestArg := flag.String("request", "", "internal: bounded non-secret JSON input for su-only root bootstrap")
 	flag.Parse()
@@ -423,7 +424,7 @@ func main() {
 		os.Exit(2)
 	}
 	if *rootMode {
-		if *live || *install || *preview || *demo || *accessible || *apiPath != "" || *recoverMode || *uninstallMode || *elevation != "auto" {
+		if *live || *install || *preview || *demo || *accessible || *apiPath != "" || *recoverMode || *uninstallMode || *configureMode || *elevation != "auto" {
 			fmt.Fprintln(os.Stderr, "Invalid privileged bootstrap invocation.")
 			os.Exit(2)
 		}
@@ -447,7 +448,7 @@ func main() {
 	if implicitInstall {
 		*live, *install = true, true
 	}
-	if *demo && (*live || *install || *recoverMode || *uninstallMode || *apiPath != "") {
+	if *demo && (*live || *install || *recoverMode || *uninstallMode || *configureMode || *apiPath != "") {
 		fmt.Fprintln(os.Stderr, "-demo cannot be combined with live, recovery or uninstall modes or -api")
 		os.Exit(2)
 	}
@@ -455,9 +456,20 @@ func main() {
 		fmt.Fprintln(os.Stderr, "-api requires an explicit -live mode")
 		os.Exit(2)
 	}
-	if *elevation != "auto" && !*recoverMode && !*install && !*uninstallMode {
+	if *elevation != "auto" && !*recoverMode && !*install && !*uninstallMode && !*configureMode {
 		fmt.Fprintln(os.Stderr, "-elevation is allowed only with installation, uninstall or recovery")
 		os.Exit(2)
+	}
+	if *configureMode {
+		if *install || *uninstallMode || *recoverMode || *live || *preview || *demo || *accessible || *apiPath != "" || os.Geteuid() == 0 || !stdinIsTerminal() {
+			fmt.Fprintln(os.Stderr, "-configure requires a normal-user terminal and cannot be combined with other modes")
+			os.Exit(2)
+		}
+		if err := runWOLManagement(os.Stdin, os.Stdout, *elevation, false); err != nil {
+			fmt.Fprintln(os.Stderr, "Wake-on-LAN:", err)
+			os.Exit(1)
+		}
+		return
 	}
 	if *uninstallMode {
 		if *install || *recoverMode || *live || *preview || *accessible || *apiPath != "" {

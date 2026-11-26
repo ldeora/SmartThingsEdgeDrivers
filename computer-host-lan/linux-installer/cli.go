@@ -12,18 +12,23 @@ import (
 const cliUsage = `Computer Host LAN — noninteractive installer (development only)
 
 Usage:
-  installer cli plan --action install|upgrade|repair [--power preserve|enable|disable] [--wol-interface IFNAME]
-  installer cli install   --confirm INSTALL   [--power preserve|enable|disable] [--wol-interface IFNAME] [--elevation auto|sudo|doas|run0]
+  installer cli plan --action install|upgrade|repair [--power preserve|enable|disable] [--wol keep|configure|leave] [--wol-interface IFNAME]
+  installer cli install   --confirm INSTALL   [--power preserve|enable|disable] [--wol keep|configure|leave] [--wol-interface IFNAME] [--elevation auto|sudo|doas|run0]
   installer cli upgrade   --confirm UPGRADE   [same options]
   installer cli repair    --confirm REPAIR    [same options]
   installer cli uninstall --confirm UNINSTALL [--elevation auto|sudo|doas|run0]
   installer cli recover   --confirm RECOVER   [--elevation auto|sudo|doas|run0]
   installer cli status                         [--elevation auto|sudo|doas|run0]
+  installer cli wol-check  --wol-interface IFNAME [--elevation auto|sudo|doas|run0]
+  installer cli wol-remove --confirm WOL-REMOVE --wol-interface IFNAME [--elevation auto|sudo|doas|run0]
 
 Plan is unprivileged and never requests authorization. For other commands,
 run as an ordinary user with preauthorized administrator access; no password
-prompts or provider retries. No hub discovery, pairing, firewall or persistent
-WOL configuration. Status/recovery use the existing protected helper.
+prompts or provider retries. No hub discovery, pairing or firewall changes.
+For persistent WOL, first run plan --wol configure --wol-interface IFNAME,
+then pass its wol_policy.digest as --wol-plan-digest to install/upgrade/repair.
+Keep/leave preserve network policy. A bare --wol-interface pins the interface only.
+Status/recovery use the existing protected helper.
 Use an independently authenticated executable for any eventual release.
 Except for --help, stdout contains a single JSON result.
 Exit: 0 completed, 1 failed/unknown, 2 invalid invocation,
@@ -35,6 +40,8 @@ type cliOptions struct {
 	target    string
 	power     string
 	nic       string
+	wol       string
+	wolDigest string
 	elevation string
 }
 
@@ -52,7 +59,7 @@ func parseCLI(args []string) (cliOptions, error) {
 	}
 	o.action = args[0]
 	switch o.action {
-	case "install", "upgrade", "repair", "uninstall", "recover", "status", "plan":
+	case "install", "upgrade", "repair", "uninstall", "recover", "status", "plan", "wol-check", "wol-remove":
 	default:
 		return cliOptions{}, invalid
 	}
@@ -88,8 +95,18 @@ func parseCLI(args []string) (cliOptions, error) {
 				return cliOptions{}, invalid
 			}
 			o.power = value
+		case "--wol":
+			if (!o.isInstall() && o.action != "plan") || (value != "keep" && value != "configure" && value != "leave") {
+				return cliOptions{}, invalid
+			}
+			o.wol = value
+		case "--wol-plan-digest":
+			if !o.isInstall() || !wolDigestPattern.MatchString(value) {
+				return cliOptions{}, invalid
+			}
+			o.wolDigest = value
 		case "--wol-interface":
-			if (!o.isInstall() && o.action != "plan") || validNICName(value) != nil {
+			if (!o.isInstall() && o.action != "plan" && o.action != "wol-check" && o.action != "wol-remove") || validNICName(value) != nil {
 				return cliOptions{}, invalid
 			}
 			o.nic = value
@@ -97,11 +114,17 @@ func parseCLI(args []string) (cliOptions, error) {
 			return cliOptions{}, invalid
 		}
 	}
+	if (o.wol == "configure" && (!wiredNICName(o.nic) || (o.action != "plan" && o.wolDigest == ""))) ||
+		(o.wol != "configure" && o.wolDigest != "") ||
+		((o.wol == "keep" || o.wol == "leave") && o.nic != "") ||
+		((o.action == "wol-check" || o.action == "wol-remove") && !wiredNICName(o.nic)) {
+		return cliOptions{}, invalid
+	}
 	if o.action == "plan" {
 		if !seen["--action"] || seen["--confirm"] {
 			return cliOptions{}, invalid
 		}
-	} else if o.action == "status" {
+	} else if o.action == "status" || o.action == "wol-check" {
 		if seen["--confirm"] {
 			return cliOptions{}, invalid
 		}
@@ -140,7 +163,8 @@ func cliInstallPreflight(o cliOptions, api apiClient, info apiInspect, firewallA
 	if len(prepared.checks) == 0 {
 		return prepared, errors.New("invalid preflight checks")
 	}
-	if o.action == "plan" {
+	isPreview := o.action == "plan"
+	if isPreview {
 		o.action = o.target
 	}
 	if !o.isInstall() || (o.action == "install") == info.Installation.Detected {
@@ -161,9 +185,15 @@ func cliInstallPreflight(o cliOptions, api apiClient, info apiInspect, firewallA
 	if o.nic != "" {
 		s.wolChoice, s.wolNIC = "pin", o.nic
 	}
+	if o.wol == "configure" {
+		s.wolChoice = "configure"
+	}
 	req, err := approvedRootRequest(s)
 	if err != nil {
 		return prepared, err
+	}
+	if o.wol == "configure" && !isPreview && req.WOLPlanDigest != o.wolDigest {
+		return prepared, errors.New("WOL plan changed; run plan again before confirming")
 	}
 	if o.action == "repair" && req.Action == "upgrade" {
 		req.Action = "repair"
@@ -186,10 +216,13 @@ func cliInstallPreflight(o cliOptions, api apiClient, info apiInspect, firewallA
 func prepareCLIRequest(o cliOptions) (cliPrepared, error) {
 	if !o.isInstall() && o.action != "plan" {
 		version := 1
-		if o.action == "uninstall" {
+		if o.action == "uninstall" || o.action == "wol-check" || o.action == "wol-remove" {
 			version = 2
 		}
 		req := privilegedRequest{SchemaVersion: version, Action: o.action}
+		if o.action == "wol-check" || o.action == "wol-remove" {
+			req.WOLInterface = &o.nic
+		}
 		return cliPrepared{request: req}, req.validate()
 	}
 	path, cleanup, err := makeEmbeddedReadOnlyAPI()

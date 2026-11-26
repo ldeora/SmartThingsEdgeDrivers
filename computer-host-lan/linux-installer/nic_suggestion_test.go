@@ -19,6 +19,9 @@ func addNICFixture(t *testing.T, root, name, state string) {
 	if err := os.WriteFile(filepath.Join(path, "operstate"), []byte(state+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(filepath.Join(root, name, "uevent"), []byte("INTERFACE="+name+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestSuggestedNICUsesRouteAndRequiresExistingInterface(t *testing.T) {
