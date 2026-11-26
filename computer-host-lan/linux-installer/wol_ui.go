@@ -97,7 +97,7 @@ func validWOLStatus(r privilegedResult, action string) bool {
 		if r.WOLStatus == "" {
 			return true
 		}
-		return r.WOLStatus == "unsupported" &&
+		return (r.WOLStatus == "unsupported" || r.WOLStatus == "capability_unknown") &&
 			(action == "install" || action == "upgrade" || action == "repair") &&
 			(r.Status == "installed" || r.Status == "installed_cleanup_required")
 	}

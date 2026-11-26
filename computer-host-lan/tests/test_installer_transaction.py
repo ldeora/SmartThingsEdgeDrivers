@@ -218,9 +218,22 @@ class InstallerBackendTests(unittest.TestCase):
         self.assertFalse(self.installed_paths().location(core.WOL_DROPIN).exists())
         self.assertEqual(self.store.public_status()["privileged_transaction_state"], "none")
 
-    def test_unknown_wol_does_not_authorize_changed_policy(self):
+    def test_unknown_wol_installs_agent_without_network_changes(self):
         with mock.patch.object(self.backend._wol, "prepare",
-                               side_effect=installer.WolError("unknown capability")), \
+                               side_effect=installer.WolCapabilityUnknown("missing ethtool")), \
+                mock.patch.object(self.backend._wol, "apply") as apply:
+            result = self.backend.run(self.request(wol_interface="enp1s0",
+                                                   wol_plan_digest="a" * 64),
+                                      ROOT, self.hashes)
+        self.assertEqual(result.status, "installed")
+        self.assertEqual(result.wol_status, "capability_unknown")
+        apply.assert_not_called()
+        self.assertFalse(self.installed_paths().location(core.WOL_DROPIN).exists())
+        self.assertEqual(self.store.public_status()["privileged_transaction_state"], "none")
+
+    def test_policy_conflict_still_refuses(self):
+        with mock.patch.object(self.backend._wol, "prepare",
+                               side_effect=installer.WolError("changed network policy")), \
                 mock.patch.object(self.backend._wol, "apply") as apply:
             with self.assertRaises(installer.ControllerError) as caught:
                 self.backend.run(self.request(wol_interface="enp1s0",

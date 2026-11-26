@@ -64,7 +64,11 @@ consent. The installer does not change firewall rules, start Avahi or pair
 a SmartThings device. On a new installation with a suggested wired adapter,
 Configure Wake-on-LAN is selected by default. Existing installations default
 to Keep. Hardware support is checked after authorization; if the adapter
-does not support magic packets, the agent installs without configuring WOL.
+does not support magic packets or the check is unavailable (for example
+ethtool is missing), the agent installs without configuring WOL and shows a
+warning. If the optional network policy cannot be reviewed on a fresh setup,
+the review offers installation with WOL left unchanged. Install ethtool
+if missing and run setup again to enable WOL.
 
 For plain-text prompts, run `./computer-host-linux-installer -accessible`.
 For a real read-only plan, use `./computer-host-linux-installer -live -preview`.

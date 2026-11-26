@@ -180,7 +180,7 @@ func approvedRootRequest(s *liveSelection) (privilegedRequest, error) {
 		power = "disable"
 	}
 	var nic *string
-	if s.wolChoice == "pin" || s.wolChoice == "configure" {
+	if !plan.WOLPreviewSkipped && (s.wolChoice == "pin" || s.wolChoice == "configure") {
 		if err := validNICName(s.wolNIC); err != nil {
 			return privilegedRequest{}, errors.New("invalid network interface")
 		}
@@ -190,7 +190,7 @@ func approvedRootRequest(s *liveSelection) (privilegedRequest, error) {
 	request := privilegedRequest{
 		SchemaVersion: 1, Action: action, Power: power, WOLInterface: nic,
 	}
-	if s.wolChoice == "configure" {
+	if s.wolChoice == "configure" && !plan.WOLPreviewSkipped {
 		if plan.WOLPolicy == nil || !plan.WOLPolicy.valid(s.wolNIC) {
 			return privilegedRequest{}, errors.New("persistent WOL policy could not be reviewed; choose Keep or configure manually")
 		}
@@ -563,6 +563,8 @@ func showInstallationOutcome(w io.Writer, s *liveSelection, req privilegedReques
 	fmt.Fprintln(w, "Automatic hub pairing and firewall changes were not performed.")
 	if result.WOLStatus == "unsupported" {
 		fmt.Fprintln(w, "Wake-on-LAN is not supported by this adapter; the agent is installed without configuring it.")
+	} else if result.WOLStatus == "capability_unknown" {
+		fmt.Fprintln(w, "Wake-on-LAN could not be checked. The agent is installed without configuring it. Install ethtool if missing, then run the installer again and choose Configure.")
 	} else if req.WOLPlanDigest != "" {
 		fmt.Fprintln(w, "Persistent WOL configuration was verified for the selected wired interface. Enable WOL in BIOS/UEFI. Test: shut down from SmartThings, then switch on again. Reboot and repeat the test.")
 		fmt.Fprintln(w, "Wi-Fi and routed-subnet WOL are not supported by this setup.")

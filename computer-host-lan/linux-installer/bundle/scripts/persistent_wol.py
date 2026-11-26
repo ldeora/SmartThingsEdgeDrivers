@@ -25,6 +25,10 @@ class WolUnsupported(WolError):
     """A successful hardware query explicitly reports no magic support."""
 
 
+class WolCapabilityUnknown(WolError):
+    """Both hardware queries failed or lacked usable WOL capability fields."""
+
+
 _IFACE = re.compile(r"[A-Za-z0-9_.-]{1,15}")
 _MAC = re.compile(r"[0-9a-f]{2}(?::[0-9a-f]{2}){5}")
 _MODES = re.compile(r"(?:d|[pumbagfs]+)")
@@ -196,7 +200,7 @@ class Backend:
                 return Adapter(interface, mac, index, supported[0], runtime[0])
         if preview:
             return Adapter(interface, mac, index, "", "")
-        raise WolError("WOL capability unknown")
+        raise WolCapabilityUnknown("WOL capability unknown")
 
     def _nm_active(self):
         output = self.run(("systemctl", "show", "--property=LoadState,ActiveState",

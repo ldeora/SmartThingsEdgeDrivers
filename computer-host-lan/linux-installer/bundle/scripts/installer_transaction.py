@@ -29,7 +29,7 @@ import payload_staging as staging
 import runtime_verify
 import credential_continuity as continuity
 import wol_ownership
-from persistent_wol import WolError, WolUnsupported
+from persistent_wol import WolError, WolUnsupported, WolCapabilityUnknown
 from transaction_journal import ProtectedJournal, JournalConflict, _staged_payload_remains
 
 _MANUAL_LOCK = Path('/run/lock/linux-host-agent-install.lock')
@@ -135,7 +135,7 @@ class InstallOutcome:
     identity_preserved: str  # 'verified' or 'not_verified'
     source_verified: bool = True
     credential_result: continuity.Result = continuity.Result()
-    wol_status: str = ''  # optional, fixed 'unsupported' warning
+    wol_status: str = ''  # optional, fixed 'unsupported' or 'capability_unknown'
 
 
 @dataclass(frozen=True)
@@ -1132,11 +1132,13 @@ class InstallerBackend:
                         intent = self._wol.prepare(request.wol_interface,
                                                    request.wol_plan_digest,
                                                    journal._record()['transaction_id'])
-                    except WolUnsupported:
-                        # Only a positive hardware observation qualifies.
-                        # Unknown support, ownership and policy conflicts
-                        # keep the existing pre-apply refusal behavior.
-                        wol_status = 'unsupported'
+                    except (WolUnsupported, WolCapabilityUnknown) as exc:
+                        # No network mutation was attempted. Missing ethtool
+                        # or unavailable capability is nonfatal, as is a
+                        # positive observation of no magic support. All
+                        # other policy/ownership errors still refuse.
+                        wol_status = ('unsupported' if isinstance(exc, WolUnsupported)
+                                      else 'capability_unknown')
                         effective_request = replace(effective_request, wol_interface=None,
                                                     wol_plan_digest=None)
                     else:

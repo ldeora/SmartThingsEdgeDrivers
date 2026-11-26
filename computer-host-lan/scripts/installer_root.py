@@ -288,8 +288,8 @@ def dispatch(request: dict, trusted_manifest: dict, *, backend, journal,
                   identity_preserved=done.identity_preserved,
                   source_verified=done.source_verified, secrets_included=False,
                   **done.credential_result.public())
-    if done.wol_status == 'unsupported':
-        result['wol_status'] = 'unsupported'
+    if done.wol_status in ('unsupported', 'capability_unknown'):
+        result['wol_status'] = done.wol_status
     return result
 
 

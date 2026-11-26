@@ -29,7 +29,7 @@ INTERPRETER_COMMAND = (
 )
 ERROR_CODES = frozenset({
     'invalid_argument', 'unsafe_managed_path', 'source_unavailable',
-    'prerequisite_missing', 'internal_error',
+    'prerequisite_missing', 'internal_error', 'wol_preview_unavailable',
 })
 
 
@@ -51,6 +51,10 @@ class SourceUnavailable(RuntimeError):
 
 class PrerequisiteMissing(RuntimeError):
     code = 'prerequisite_missing'
+
+
+class WolPreviewUnavailable(RuntimeError):
+    code = 'wol_preview_unavailable'
 
 
 class JSONArgumentParser(argparse.ArgumentParser):
@@ -216,7 +220,7 @@ def change_plan(*, source: Path = DEFAULT_SOURCE, root: Path = Path('/'),
         try:
             policy = persistent_wol.preview_policy(wol_interface, root=root)
         except (persistent_wol.WolError, OSError) as exc:
-            raise PrerequisiteMissing('WOL policy cannot be safely previewed') from exc
+            raise WolPreviewUnavailable('WOL policy cannot be safely previewed') from exc
     selected_python = select_python(explicit=python_bin, source=source)
     if selected_python is None:
         raise PrerequisiteMissing('No supported Python interpreter available')
@@ -327,7 +331,8 @@ def main(argv: list[str] | None = None) -> int:
                 disable_power=args.disable_power, wol_interface=args.wol_interface,
                 configure_wol=args.configure_wol,
             )
-    except (InvalidArgument, UnsafeManagedPath, SourceUnavailable, PrerequisiteMissing) as exc:
+    except (InvalidArgument, UnsafeManagedPath, SourceUnavailable, PrerequisiteMissing,
+            WolPreviewUnavailable) as exc:
         print(error_response(operation, exc.code), file=sys.stderr)
         return 2
     except Exception:

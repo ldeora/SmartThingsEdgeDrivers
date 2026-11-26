@@ -199,6 +199,21 @@ class WolTests(unittest.TestCase):
             self.backend.inspect(NIC)
         self.assertEqual(self.writes, [])
 
+    def test_missing_ethtool_is_capability_unknown_not_policy_conflict(self):
+        from persistent_wol import WolCapabilityUnknown, preview_policy
+        run = self.backend.run
+
+        def missing(args):
+            if args[0] == "ethtool":
+                raise WolError("command failed")
+            return run(args)
+
+        self.backend.run = missing
+        self.assertEqual(preview_policy(NIC, backend=self.backend)["capability"], "unknown")
+        with self.assertRaises(WolCapabilityUnknown):
+            self.backend.inspect(NIC)
+        self.assertEqual(self.writes, [])
+
     def test_explicit_owned_nm_removal_preserves_original_policy(self):
         owned = self.owned()
         self.nm = True

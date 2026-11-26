@@ -487,3 +487,19 @@ func TestFreshWOLDefaultAndUnsupportedCompletion(t *testing.T) {
 		t.Fatal("Unsupported warning accepted for an unrelated operation")
 	}
 }
+
+func TestUnknownWOLCompletion(t *testing.T) {
+	reply, err := validatedPrivilegedReply([]byte(`{"schema_version":1,"operation":"install","status":"installed","wol_status":"capability_unknown","secrets_included":false}`), "install")
+	if err != nil || reply.WOLStatus != "capability_unknown" {
+		t.Fatalf("Unknown WOL warning lost: %+v (%v)", reply, err)
+	}
+	var out bytes.Buffer
+	showInstallationOutcome(&out, &liveSelection{}, privilegedRequest{Action: "install", WOLPlanDigest: strings.Repeat("a", 64)}, reply)
+	if !strings.Contains(out.String(), "Wake-on-LAN could not be checked") ||
+		strings.Contains(out.String(), "Persistent WOL configuration was verified") {
+		t.Fatal(out.String())
+	}
+	if _, err := validatedPrivilegedReply([]byte(`{"schema_version":1,"operation":"status","status":"passed","wol_status":"capability_unknown","secrets_included":false}`), "status"); err == nil {
+		t.Fatal("Unrelated operation accepted unknown WOL warning")
+	}
+}

@@ -232,8 +232,12 @@ review the policy and confirm INSTALL. Fresh installs default to Configure when 
 suggested, even if ordinary-user hardware capability is unknown.
 Upgrades/repair default to Keep. A positive root-side observation of no magic
 support skips WOL and the interface pin, completes agent installation and
-returns wol_status=unsupported. Unknown capability and unsafe/changed policy
-still refuse rather than silently authorizing a different change. Keep and leave do not change persistent or runtime WOL.
+returns wol_status=unsupported. Unavailable root-side hardware capability likewise skips WOL with
+wol_status=capability_unknown. Unsafe/changed policy and ownership conflicts
+still refuse rather than authorizing a different change. A fresh wizard can
+review a no-WOL fallback on the specific wol_preview_unavailable result;
+CLI configuration and upgrade/repair previews remain strict. Other preview
+errors are not suppressed. Keep and leave do not change persistent or runtime WOL.
 CLI: run cli plan --action upgrade --wol configure --wol-interface IFNAME,
 then cli upgrade --confirm UPGRADE --wol configure --wol-interface IFNAME
 --wol-plan-digest DIGEST using the reviewed digest (install/repair analogous).
@@ -245,3 +249,8 @@ prompt defaults to No. CLI uses wol-check and wol-remove separately. Removal
 never requires reinstalling the agent and does not change agent files or
 services. The protected launcher may be provisioned/updated on authorized
 check/remove; this is not an unprivileged preview operation.
+
+Ordinary-user hydra evidence (2026-11-26): ethtool enp1s0f0 reports
+netlink Operation not permitted, and ethtool --disable-netlink reports
+Cannot get wake-on-lan settings: Operation not permitted. Neither exposes
+Supports Wake-on or Wake-on. This confirms unknown is not unsupported.
