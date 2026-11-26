@@ -29,6 +29,7 @@ import payload_staging as staging
 import runtime_verify
 import credential_continuity as continuity
 import wol_ownership
+from persistent_wol import WolError
 from transaction_journal import ProtectedJournal, JournalConflict, _staged_payload_remains
 
 _MANUAL_LOCK = Path('/run/lock/linux-host-agent-install.lock')
@@ -47,7 +48,8 @@ class ControllerError(RuntimeError):
     """All user-facing errors are fixed, sanitized codes."""
 
     def __init__(self, code: str, *, failure_stage: str | None = None,
-                 credential_result: continuity.Result = continuity.Result()):
+                 credential_result: continuity.Result = continuity.Result(),
+                 wol_review_required: bool = False):
         if code not in ('invalid_request', 'installation_busy', 'aborted',
                         'rolled_back', 'recovery_required',
                         'unsupported_environment', 'adoption_required',
@@ -66,6 +68,7 @@ class ControllerError(RuntimeError):
         super().__init__(message)
         self.code = code
         self.credential_result = credential_result
+        self.wol_review_required = (code == 'rolled_back' and wol_review_required is True)
         # Only a fixed pre-apply stage can appear in the public JSON.
         # No filesystem paths, source data, UUIDs or exception strings.
         self.failure_stage = (failure_stage
@@ -147,6 +150,7 @@ class RecoveryOutcome:
     status: str       # aborted, rolled_back, cleaned
     previous_phase: str | None = None
     operation: str | None = None  # fixed journal operation, never an identifier
+    wol_review_required: bool = False
 
     @property
     def credential_result(self):
@@ -1027,12 +1031,13 @@ class InstallerBackend:
                     if phase == 'COMMITTED':
                         return UninstallOutcome('uninstalled_cleanup_required',
                                                 identity_state, credential_check.result)
+                    wol_review_required = False
                     if phase in _PREAPPLY:
                         journal.abort(lambda _: True)
                         outcome = 'aborted'
                     elif phase in _APPLIED and backup is not None and previous is not None:
-                        self._restore_snapshot(journal, transaction, backup,
-                                               credential_check=credential_check)
+                        wol_review_required = self._restore_snapshot(
+                            journal, transaction, backup, credential_check=credential_check)
                         outcome = 'rolled_back'
                     else:
                         raise ControllerError('recovery_required')
@@ -1046,6 +1051,7 @@ class InstallerBackend:
                 raise ControllerError(
                     outcome,
                     failure_stage=failure_stage if outcome == 'aborted' else None,
+                    wol_review_required=wol_review_required,
                     credential_result=(credential_check.result if credential_check.failed or outcome == 'rolled_back'
                                        else continuity.Result())
                 ) from None
@@ -1164,13 +1170,14 @@ class InstallerBackend:
                                               identity_state if previous is not None and
                                               'identity_state' in locals() else 'not_verified',
                                               credential_result=credential_check.result)
+                    wol_review_required = False
                     if phase in _PREAPPLY:
                         # This controller has not touched managed targets.
                         journal.abort(lambda _: True)
                         outcome = 'aborted'
                     elif phase in _APPLIED and backup is not None and previous is not None:
-                        self._restore_snapshot(journal, transaction, backup,
-                                               credential_check=credential_check)
+                        wol_review_required = self._restore_snapshot(
+                            journal, transaction, backup, credential_check=credential_check)
                         outcome = 'rolled_back'
                     else:
                         raise ControllerError('recovery_required')
@@ -1187,6 +1194,7 @@ class InstallerBackend:
                 raise ControllerError(
                     outcome,
                     failure_stage=failure_stage if outcome == 'aborted' else None,
+                    wol_review_required=wol_review_required,
                     credential_result=(credential_check.result if credential_check.failed or outcome == 'rolled_back'
                                        else continuity.Result())
                 ) from None
@@ -1210,7 +1218,7 @@ class InstallerBackend:
     def _restore_snapshot(self, journal, transaction: core.InstallTransaction,
                           backup: Path, *,
                           journal_owned_fresh_install: bool = False,
-                          credential_check: continuity.Check | None = None) -> None:
+                          credential_check: continuity.Check | None = None) -> bool:
         """Restore and durably verify the snapshot before marking rollback complete.
 
         Only explicit recovery of the protected APPLYING+ journal may use
@@ -1244,14 +1252,24 @@ class InstallerBackend:
                     self.services.verify_restored_services(restored) is True and
                     (not restored['first_install'] or
                      _enablement_absent(transaction)))
+        wol_review_required = False
         if 'persistent_wol' in previous:
-            self._wol.rollback(previous['persistent_wol'],
-                               journal._record()['transaction_id'])
+            try:
+                self._wol.rollback(previous['persistent_wol'],
+                                   journal._record()['transaction_id'])
+            except (WolError, OSError):
+                # Optional network policy must not strand managed recovery.
+                # Preserve unresolved ownership evidence and do not retry
+                # destructive WOL compensation automatically. The agent's
+                # own file/service/credential verification still gates
+                # the terminal record; never report an unverified rollback.
+                wol_review_required = True
         if credential_check is not None:
             # Even after a known mismatch, perform the authorized managed
             # restoration above; never report terminal rollback success.
             credential_check.verify(journal, allow_new=True)
         journal.mark_rolled_back(lambda _: verified)
+        return wol_review_required
 
     def _recover_locked(self, journal, transaction: core.InstallTransaction) -> RecoveryOutcome:
         """Resolve a durable nonterminal transaction, never resume an install.
@@ -1282,12 +1300,13 @@ class InstallerBackend:
                 (self.root == Path('/') and backup_base.stat().st_uid != 0)):
             raise ControllerError('recovery_required')
         backup = backup_base / snapshot_name
-        self._restore_snapshot(journal, transaction, backup,
-                               journal_owned_fresh_install=True)
+        wol_review_required = self._restore_snapshot(
+            journal, transaction, backup, journal_owned_fresh_install=True)
         staging.finish_terminal_stage(journal, root=self.root,
                                       owner_uid=self.owner_uid)
         journal.clear_finished()
-        return RecoveryOutcome('rolled_back', phase, operation)
+        return RecoveryOutcome('rolled_back', phase, operation,
+                               wol_review_required=wol_review_required)
 
     def recover_interrupted(self) -> RecoveryOutcome:
         """Explicitly recover after power loss, SIGKILL or helper crash.

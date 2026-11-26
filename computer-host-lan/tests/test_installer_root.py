@@ -164,6 +164,33 @@ class RootProtocolTests(unittest.TestCase):
         self.assertEqual(self.backend.calls[-1], 'recover')
         self.assertEqual(response['recovery_status'], 'rolled_back')
 
+    def test_recovery_wol_review_warning_is_fixed_and_optional(self):
+        self.backend.recovered.wol_review_required = True
+        result = bridge.dispatch({'action': 'recover'}, self.manifest,
+                                 backend=self.backend, journal=self.journal)
+        self.assertEqual(result['recovery_status'], 'rolled_back')
+        self.assertIs(result['wol_review_required'], True)
+        self.backend.recovered.wol_review_required = 'private network information'
+        result = bridge.dispatch({'action': 'recover'}, self.manifest,
+                                 backend=self.backend, journal=self.journal)
+        self.assertNotIn('wol_review_required', result)
+
+    def test_rollback_wol_review_warning_is_fixed(self):
+        import installer_transaction as engine
+        body = json.dumps(dict(schema_version=1, action='upgrade',
+                               source='/usr/libexec/computer-host-lan/payload',
+                               power='preserve', wol_interface=None)).encode()
+        with mock.patch.object(bridge, '_read_root_manifest', return_value=self.manifest), \
+                mock.patch.object(bridge, 'dispatch', side_effect=engine.ControllerError(
+                    'rolled_back', wol_review_required=True)), \
+                mock.patch.object(bridge.sys, 'stdin', mock.Mock(buffer=io.BytesIO(body))), \
+                mock.patch.object(bridge, '_reply') as reply:
+            rc = bridge.main(['--request-stdin', '--selected-python', '/usr/bin/python3'])
+        self.assertEqual(rc, 3)
+        payload = reply.call_args.args[0]
+        self.assertEqual(payload['error_code'], 'rolled_back')
+        self.assertIs(payload['wol_review_required'], True)
+
     def test_schema_v2_uninstall_is_exact_and_requires_trusted_python(self):
         request = bridge.parse_request(b'{"schema_version":2,"action":"uninstall"}')
         self.assertEqual(request, {'action': 'uninstall'})

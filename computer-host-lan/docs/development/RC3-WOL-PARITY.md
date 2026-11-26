@@ -197,3 +197,23 @@ second configure; changed profiles, uncertain state, and reconfiguration
 requiring explicit removal are refused. The public consent flow, explicit
 removal, runtime-only record lifecycle, recovery ergonomics and additional
 fixture/physical tests remain required before activation.
+
+### Engine review follow-up
+
+Optional WOL rollback errors (WolError or filesystem OSError) no longer
+block verified managed-file/service rollback. The protected WOL ownership
+record is left untouched by the controller on failure. A completed rollback
+returns the fixed optional boolean wol_review_required in the privileged
+JSON/CLI and a manual-check warning in the interactive installer. No raw
+network error or private adapter/profile identity is serialized. Ordinary
+agent recovery/credential checks still gate terminal rollback. If the process
+loses its reply after terminal cleanup, the unresolved ownership record is
+still the evidence; the later Configure/Remove UI must surface it. No new
+journal fields or recovery subsystem.
+
+The user-visible follow-up is limited to approval of visible policy fields
+(or a privileged read-only preview), wizard and CLI keep/configure/leave,
+explicit removal, and actionable existing-ownership guidance. Default Keep
+on upgrade/repair; defer runtime-only lifecycle and existing-link reconfigure
+beyond parity unless required for physical acceptance. No public activation
+in this engine PR.
