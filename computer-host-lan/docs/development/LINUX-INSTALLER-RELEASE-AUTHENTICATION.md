@@ -65,8 +65,8 @@ if draft staging is desired) `computer-host-linux-draft`. For each:
 configure required reviewers, prevent self-review, disable administrator
 bypass, and allow only the exact approved release tag using selected
 deployment tags (no branch or wildcard). An independent authorized
-reviewer is required; if the repository cannot provide one, stop rather
-than weakening the policy. The gate checks reviewer rules, explicit
+reviewer is required by default; the explicitly selected rc.3-only policy
+below is the sole proposed exception. The gate checks reviewer rules, explicit
 disabled administrator bypass (missing or non-false values are refused),
 tag policy and the recorded independent approval after the environment
 gate. The repository owner must confirm repository rulesets and tag
@@ -204,3 +204,9 @@ Keep ordinary-user wizard/CLI behavior; never run the UI as root.
 Detached GPG/minisign is a fallback design only if separately reviewed;
 fingerprint needs an independent trusted channel. No credentials change,
 signing-key creation or publication is authorized by this design.
+
+## Proposed one-tag rc.3 exception (#171)
+
+The maintainer has requested a limited alternative to independent environment approval for rc.3. This policy change requires independent code review before merge and does not itself authorize a tag, environment modification or dispatch. The release-prep manifest must explicitly set `linux_attestation_approval` to `rc3-maintainer-only`; absent that field the existing independent policy remains mandatory. The exception is valid only for integration 1.0.0-rc.3 and its exact tag, only for dispatch by repository maintainer account ID 176927315, and only with create_draft=false. Configure the attestation environment to require that single named user as reviewer, permit self-review, disable administrator bypass and restrict deployment to the exact rc.3 tag. The gate checks these settings and the recorded approval by the named maintainer. Stable and other tags cannot use this mode; restore independent approval and prevent self-review before stable. No draft staging through the exception, no automatic publication, no unsigned elevated fallback.
+
+All exact-main CI, protected-ref requirements, two reproducible builds, provenance, independent verification of bytes and identities, negative tests and physical acceptance remain unchanged. Provenance authenticates build origin, not independent human authorization. The residual risk is that a single compromised or mistaken maintainer can approve malicious or erroneous reviewed source; the exception does not provide two-person separation of duties. Disclose this in rc.3 notes and user verification guidance. Public channel assignment and publication remain separate explicit decisions after private-channel acceptance.

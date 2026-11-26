@@ -4,7 +4,7 @@ from unittest.mock import patch
 
 from attested_release_gate import (
     REPO, REPO_ID, check_approval, check_environment, check_jobs, check_ref,
-    gate, release_identity, select_run,
+    gate, release_identity, select_run, approval_mode, RC3_APPROVAL, MAINTAINER_ID,
 )
 
 SHA = "a" * 40
@@ -42,6 +42,42 @@ class GateTests(unittest.TestCase):
                                       release_stage="attestation-ready-v" + version))
         with self.assertRaises(ValueError):
             release_identity(ENV, dict(MANIFEST, release_stage="rc-published"))
+
+    def test_rc3_exception_identity(self):
+        env = dict(ENV, GITHUB_ACTOR_ID=MAINTAINER_ID, CREATE_DRAFT="false")
+        manifest = dict(MANIFEST, linux_attestation_approval=RC3_APPROVAL)
+        self.assertEqual(approval_mode(env, manifest), RC3_APPROVAL)
+        self.assertEqual(approval_mode(env, MANIFEST), "independent")
+        for bad in (dict(env, GITHUB_ACTOR_ID="2"), dict(env, CREATE_DRAFT="true"),
+                    dict(env, EXPECTED_TAG="computer-host-lan-v1.0.0")):
+            with self.assertRaises(ValueError):
+                approval_mode(bad, manifest)
+        for version in ("1.0.0", "1.0.0-rc.4"):
+            with self.assertRaises(ValueError):
+                approval_mode(env, dict(manifest, integration=version))
+        with self.assertRaises(ValueError):
+            approval_mode(env, dict(manifest, linux_attestation_approval="unknown"))
+
+    def test_rc3_exception_environment_and_approval(self):
+        e = copy.deepcopy(ENVIRONMENT)
+        e["protection_rules"][0]["prevent_self_review"] = False
+        e["protection_rules"][0]["reviewers"][0]["reviewer"]["id"] = int(MAINTAINER_ID)
+        check_environment(e, POLICIES, TAG, RC3_APPROVAL)
+        for bad in (ENVIRONMENT, dict(e, can_admins_bypass=True),
+                    dict(e, protection_rules=[])):
+            with self.assertRaises(ValueError):
+                check_environment(bad, POLICIES, TAG, RC3_APPROVAL)
+        with self.assertRaises(ValueError):
+            check_environment(e, POLICIES, TAG)
+        with self.assertRaises(ValueError):
+            check_environment(e, POLICIES, "computer-host-lan-v1.0.0", RC3_APPROVAL)
+        review = {"state": "approved", "user": {"id": int(MAINTAINER_ID)}, "environments": [{"id": 99}]}
+        check_approval([review], e, MAINTAINER_ID, RC3_APPROVAL)
+        for bad in ([], [dict(review, user={"id": 2})], [dict(review, state="rejected")]):
+            with self.assertRaises(ValueError):
+                check_approval(bad, e, MAINTAINER_ID, RC3_APPROVAL)
+        with self.assertRaises(ValueError):
+            check_approval([review], e, MAINTAINER_ID)
 
     def test_ref(self):
         check_ref({"object": {"type": "commit", "sha": SHA}}, SHA)

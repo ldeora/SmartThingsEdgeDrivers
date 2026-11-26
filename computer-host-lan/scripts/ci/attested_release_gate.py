@@ -20,6 +20,9 @@ WORKFLOWS = {
 }
 ATTEST = "computer-host-linux-attest"
 DRAFT = "computer-host-linux-draft"
+RC3_TAG = PREFIX + "1.0.0-rc.3"
+RC3_APPROVAL = "rc3-maintainer-only"
+MAINTAINER_ID = "176927315"
 
 
 def require(ok, message):
@@ -69,21 +72,51 @@ def select_run(response, sha):
     return latest
 
 
-def check_environment(environment, policies, tag):
+def approval_mode(env, manifest):
+    """Explicit, manifest-bound exception for one candidate; never stable."""
+    mode = manifest.get("linux_attestation_approval", "independent")
+    require(mode in ("independent", RC3_APPROVAL), "unknown approval policy")
+    if mode == RC3_APPROVAL:
+        require(manifest["integration"] == "1.0.0-rc.3" and
+                env["EXPECTED_TAG"] == RC3_TAG, "exception restricted to rc.3")
+        require(env["GITHUB_ACTOR_ID"] == MAINTAINER_ID,
+                "rc.3 exception requires maintainer dispatch")
+        require(env["CREATE_DRAFT"] == "false",
+                "rc.3 exception cannot stage a draft")
+    return mode
+
+
+def check_environment(environment, policies, tag, mode="independent"):
+    require(mode in ("independent", RC3_APPROVAL), "unknown approval policy")
+    require(mode != RC3_APPROVAL or tag == RC3_TAG, "exception restricted to rc.3")
     require(environment.get("can_admins_bypass") is False, "environment must disable administrator bypass")
     rules = [r for r in environment["protection_rules"] if r["type"] == "required_reviewers"]
-    require(len(rules) == 1 and rules[0]["reviewers"] and rules[0]["prevent_self_review"] is True,
-            "environment must require independent approval")
+    if mode == RC3_APPROVAL:
+        require(len(rules) == 1 and rules[0]["prevent_self_review"] is False and
+                len(rules[0]["reviewers"]) == 1 and rules[0]["reviewers"][0]["type"] == "User" and
+                str(rules[0]["reviewers"][0]["reviewer"]["id"]) == MAINTAINER_ID,
+                "rc.3 environment must require only the named maintainer")
+    else:
+        require(len(rules) == 1 and rules[0]["reviewers"] and rules[0]["prevent_self_review"] is True,
+                "environment must require independent approval")
     require(environment["deployment_branch_policy"] == {"protected_branches": False, "custom_branch_policies": True}, "environment must restrict deployment refs")
     require(policies["total_count"] == len(policies["branch_policies"]) == 1 and
             policies["branch_policies"][0]["type"] == "tag" and policies["branch_policies"][0]["name"] == tag,
             "environment must allow only the exact approved tag")
 
 
-def check_approval(reviews, environment, actor_id):
+def check_approval(reviews, environment, actor_id, mode="independent"):
+    require(mode in ("independent", RC3_APPROVAL), "unknown approval policy")
     matches = [r for r in reviews if any(e["id"] == environment["id"] for e in r["environments"])]
-    require(matches and all(r["state"] == "approved" for r in matches) and
-            any(str(r["user"]["id"]) != actor_id for r in matches), "independent environment approval not recorded")
+    require(matches and all(r["state"] == "approved" for r in matches),
+            "environment approval not recorded")
+    if mode == RC3_APPROVAL:
+        require(actor_id == MAINTAINER_ID and
+                all(str(r["user"]["id"]) == MAINTAINER_ID for r in matches),
+                "named maintainer approval not recorded")
+    else:
+        require(any(str(r["user"]["id"]) != actor_id for r in matches),
+                "independent environment approval not recorded")
 
 
 def api(path, paginate=False):
@@ -103,6 +136,7 @@ def gate(phase):
     require(phase != "draft" or DRAFT in environments, "invalid phase")
     manifest = json.loads(Path("computer-host-lan/release.json").read_text())
     sha, tag = release_identity(env, manifest)
+    mode = approval_mode(env, manifest)
     check_ref(api("git/ref/heads/main"), sha)
     check_ref(api("git/ref/tags/" + tag), sha)
     require(subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip() == sha, "checkout mismatch")
@@ -116,10 +150,10 @@ def gate(phase):
     require(not any(release["tag_name"] == tag for page in releases for release in page), "release already exists; never replace assets")
     for name in environments:
         environment = api("environments/" + name)
-        check_environment(environment, api("environments/" + name + "/deployment-branch-policies?per_page=100"), tag)
+        check_environment(environment, api("environments/" + name + "/deployment-branch-policies?per_page=100"), tag, mode)
         if phase == "draft" or (phase == "attest" and name == ATTEST):
-            check_approval(api("actions/runs/" + env["GITHUB_RUN_ID"] + "/approvals"), environment, env["GITHUB_ACTOR_ID"])
-    print(f"Eligible: {tag} at {sha} ({phase})")
+            check_approval(api("actions/runs/" + env["GITHUB_RUN_ID"] + "/approvals"), environment, env["GITHUB_ACTOR_ID"], mode)
+    print(f"Eligible: {tag} at {sha} ({phase}, {mode})")
 
 
 if __name__ == "__main__":
