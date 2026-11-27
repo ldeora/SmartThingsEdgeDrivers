@@ -55,13 +55,18 @@ esac
 """ % (INSPECT, PLAN)
 
 
-def exercise(binary: str, api: str, *, fresh: bool = False, width: int = 110) -> None:
+def exercise(binary: str, api: str, *, fresh: bool = False, width: int = 110,
+             short_color: bool = False) -> None:
+    height = 18 if short_color else 40
     pid, master = pty.fork()
     if pid == 0:
         try:
+            fcntl.ioctl(0, termios.TIOCSWINSZ, struct.pack('HHHH', height, width, 0, 0))
             env = os.environ.copy()
             env.update(TERM='xterm-256color', NO_COLOR='1',
                        PATH=str(Path(api).parent) + os.pathsep + env.get('PATH', ''))
+            if short_color:
+                env.update(NO_COLOR='', COLORTERM='truecolor')
             if fresh:
                 env['COMPUTER_HOST_FRESH_WOL_PTY_API'] = api
                 os.execve(binary, [binary, '-test.run=^TestFreshWOLPreviewPTY$'], env)
@@ -70,7 +75,6 @@ def exercise(binary: str, api: str, *, fresh: bool = False, width: int = 110) ->
             print(f'PTY execution failed: {exc}', file=sys.stderr)
             os._exit(127)
 
-    fcntl.ioctl(master, termios.TIOCSWINSZ, struct.pack('HHHH', 40, width, 0, 0))
     os.set_blocking(master, False)
     captured = bytearray()
     child_status = None
@@ -101,7 +105,12 @@ def exercise(binary: str, api: str, *, fresh: bool = False, width: int = 110) ->
         return mark
 
     try:
+        if short_color:
+            wait_for(b'Enlarge terminal to 64x22')
+            # Resize before navigating; unit tests exercise the blocked Enter.
+            fcntl.ioctl(master, termios.TIOCSWINSZ, struct.pack('HHHH', 22, width, 0, 0))
         wait_for(b'1. Welcome')
+        wait_for(b'Ctrl+C Cancel')
         if width >= 100:
             wait_for(b'Power & WOL')
         elif b'Power & WOL' in captured:
@@ -110,9 +119,22 @@ def exercise(binary: str, api: str, *, fresh: bool = False, width: int = 110) ->
         wait_for(b'2. SmartThings hub', mark)
         wait_for(b'192.168.1.103', mark)
 
-        # A single discovered hub must be preselected: Enter should advance,
-        # not force a user to choose an IP or hunt for a network interface.
-        mark = send(b'\r')
+        if short_color:
+            # Exercise physical key events, not synthetic Huh navigation
+            # messages. Arrow Down must choose the manual hub option.
+            send(b'\x1b[B')
+            time.sleep(0.15)
+            mark = send(b'\r')
+            wait_for(b'SmartThings hub IP address', mark)
+            # Q is ordinary field input, not a global quit shortcut.
+            send(b'Q\x7f192.168.1.104')
+            time.sleep(0.15)
+            fcntl.ioctl(master, termios.TIOCSWINSZ, struct.pack('HHHH', 40, width, 0, 0))
+            time.sleep(0.15)
+            mark = send(b'\r')
+        else:
+            # The normal path keeps the preselected discovered hub.
+            mark = send(b'\r')
         wait_for(b'3. Power control', mark)
         # Both power choices and advanced-network choices are fields in
         # one Huh page. The second title is already rendered before we
@@ -127,14 +149,24 @@ def exercise(binary: str, api: str, *, fresh: bool = False, width: int = 110) ->
             wait_for(b'LAN0', mark)
             mark = send(b'\r')
         wait_for(b'4. Review', mark)
-        wait_for(b'192.168.1.103 (found automatically)', mark)
+        wait_for(b'192.168.1.104 (entered manually)' if short_color else
+                 b'192.168.1.103 (found automatically)', mark)
         if fresh:
             wait_for(b'Wake-on-LAN: configure LAN0', mark)
         else:
             wait_for(b'Keep power control enabled', mark)
 
+        if short_color:
+            mark = send(b'\x1b[Z')  # Shift+Tab, native Back from Review.
+            wait_for(b'3. Power control', mark)
+            mark = send(b'\r')
+            wait_for(b'4. Review', mark)
+            wait_for(b'192.168.1.104 (entered manually)', mark)
         mark = send(b'\x03')
         wait_for(b'Setup preview cancelled. No changes made.', mark, 6)
+        attrs = termios.tcgetattr(master)
+        if not attrs[3] & termios.ICANON or not attrs[3] & termios.ECHO:
+            raise AssertionError('terminal still in raw/no-echo mode after wizard exit')
         deadline = time.monotonic() + 4
         while time.monotonic() < deadline:
             done, status = os.waitpid(pid, os.WNOHANG)
@@ -177,6 +209,8 @@ def main() -> int:
         avahi.chmod(0o755)
         exercise(sys.argv[1], str(api))
         exercise(sys.argv[1], str(api), width=80)
+        exercise(sys.argv[1], str(api), short_color=True)
+        print('PASS colored short/resized wizard: real arrow, manual input, Back, cancel')
         inspect = json.loads(INSPECT)
         inspect['installation'].update(detected=False, service_file='absent',
                                        power_dropin='absent', avahi_service_file='absent',
