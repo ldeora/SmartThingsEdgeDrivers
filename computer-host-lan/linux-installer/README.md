@@ -30,6 +30,14 @@ selecting a task is never authorization. `NO_COLOR` with a non-empty value
 disables colors. Accessible mode and non-terminal/unsupported maintenance
 streams retain the original plain prompts.
 
+The interactive setup and preview use the same color palette, with a step
+sidebar on terminals at least 100 columns wide and the original single-column
+form on narrower terminals. The sidebar follows the active form field, including
+optional address and network pages. Huh still controls field validation,
+contextual help, Back navigation and cancellation (Ctrl+C). The wizard exits
+before the existing typed confirmation and administrator authorization. The
+full-screen setup shell and result screens are separate integration work.
+
 The previous `-live -install` spelling remains supported.
 Real installation uses an embedded inspector
 by default and requests administrator authorization only after explicit
