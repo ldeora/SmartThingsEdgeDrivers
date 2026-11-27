@@ -77,7 +77,10 @@ def smoke(binary: str, mode: str) -> None:
         elif mode.startswith('backup-'):
             pump_until(b'Backup 1 of 32')
             os.write(master, b'\x1b[F')  # End selects the oldest fixture
-            pump_until(b'Backup 32 of 32')
+            # Bubble Tea updates the existing screen with cursor movement
+            # and changed text, rather than retransmitting the whole row.
+            # The unchanged "Backup " prefix need not be on the wire again.
+            pump_until(b'32 of 32 | Enter opens review, not restore')
             if mode == 'backup-cancel':
                 os.write(master, b'q')
             else:
