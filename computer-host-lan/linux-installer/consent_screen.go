@@ -150,6 +150,9 @@ func (m operationConsentScreen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	m.operation = next.(operationScreen)
 	if m.operation.chosen == "continue" {
 		rows := append([]detailRow(nil), m.operation.review...)
+		if len(rows) > 0 && strings.HasPrefix(rows[len(rows)-1].text, "Next: type ") {
+			rows = rows[:len(rows)-1]
+		}
 		if m.token == "UNINSTALL" {
 			rows = append(rows,
 				detailRow{"Also keeps ownership record, linuxhost account and", "normal"},
