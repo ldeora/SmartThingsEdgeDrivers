@@ -1,12 +1,13 @@
 # Computer Host LAN — change log
 
-## Unreleased
+## v1.0.0-rc.3
 
-- Linux release: new asset `computer-host-lan-v<version>-linux-x64-third-party-notices.txt` with the full licence texts of the Go modules and runtime compiled into the installer, covered by `SHA256SUMS.txt` and the release asset check (#190). CI fails when a dependency changes without a matching notices update.
-- Edge: the device tile shows Host Status instead of on/off for Linux and Windows computers; the tile button still switches on/off (#192). Unreachable is shown as inactive, like Stopped (account-level presentation update, see `docs/development/DEVICE-TILE-ROLLOUT.md`). Pending hub test.
-- Windows Setup: plainer power wording ("Allow SmartThings to shut down, restart and put this PC to sleep"), a Wake-on-LAN hint on the power page, the upgrade note only on upgrades, "Hide advanced options", a separate fixed-address tip on the hub page, and a hub status that names the typed address (#191). The Windows quick start shows the Setup pages.
-
-## v1.0.0-rc.3 (candidate, not published)
+- Linux: unified full-screen maintenance/setup, review and literal consent, structured results, genuine terminal authorization, and deterministic terminal input ownership (#194, #200–#203). Plain accessible and CLI paths remain available. Historical restore and WOL check/removal retain separate authorization where needed.
+- Linux release: full Go module/runtime notices asset, included in the unified checksums and documentation archive (#190/#206).
+- Edge: Host Status on Linux/Windows device tiles with the existing switch action (#192/#205). Existing Linux device, routines and physical switch actions tested on the private channel. Unreachable inactive colour is a separate account-level presentation rollout.
+- Windows Setup: plainer power wording, manual WOL hint, conditional upgrade note, fixed hub address tip, and current selection status that follows typed/cleared addresses and the local-network choice (#191/#207). Illustrated Windows quick start; screenshots included in the Windows ZIP.
+- CI: transient HTTP request timeouts in the Windows recovery test are retried without weakening the overall test deadline (#204).
+- Known limitation (#193): host power enablement may take time to appear in SmartThings; about one minute was observed on hydra, not a guaranteed maximum. Accepted for v1.0; metadata refresh improvement remains a follow-up.
 
 - Linux: standalone release installer, protected install/upgrade/repair/uninstall/recovery; persistent wired WOL with explicit owned removal (#183–#185), retained rc.2 identity reuse (#186), historical restore (#187), maintenance menu (#188). Normal uninstall keeps credentials, snapshots and NIC WOL. Release builds require byte-identical Linux replicas and unified SHA-256/build metadata.
 - Windows: preserve validated firewall scope and power preference during Setup/ZIP upgrades; runtime retained-state checks, DNS-SD retry and per-source connection limits (#173/#174/#179/#180).

@@ -1,6 +1,6 @@
 # Computer Host LAN v1.0.0-rc.3 — release notes
 
-**Upgrading? Run the new installer over your existing installation. Your device, settings, routines and key are kept; nothing needs to be changed in SmartThings.**
+**Upgrading? Run the new installer over your existing installation. Normal upgrades are designed to retain your device, settings, routines and key. Refresh the existing device rather than pairing again.**
 
 This document describes v1.0.0-rc.3. [Versioned downloads](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v1.0.0-rc.3).
 GitHub release availability and SmartThings channel assignment are separate actions.
@@ -19,7 +19,7 @@ GitHub release availability and SmartThings channel assignment are separate acti
 mutating source scripts. Run it as your ordinary user; protected operations
 require review and explicit authorization. Fresh setup, upgrade, repair,
 uninstall and interrupted recovery share the protected transaction engine.
-Maintenance menu options make these workflows discoverable.
+The new full-screen terminal interface provides a unified maintenance menu, setup wizard, inspection, explicit typed consent and structured results. Genuine administrator prompts run on the ordinary terminal, with input ownership restored before handoff. Plain accessible and machine CLI paths remain available. Historical restore and installer-owned WOL operations can require separate authorization for their protected read and change steps.
 
 - Persistent wired Wake-on-LAN using NetworkManager or systemd .link policy,
   with reviewed settings and explicit installer-owned removal. Existing
@@ -38,7 +38,7 @@ preserved on upgrade, including the ZIP/PowerShell path. Setup offers a
 keep-current-settings summary. Runtime private-state checks refuse unsafe
 identity state; an unsafe or missing power token disables power rather than
 resetting the key. DNS-SD asynchronous registration failures can retry.
-The Windows service has a descriptive name/description.
+The Windows service has a descriptive name/description. Setup uses clearer power wording, explains manual Wake-on-LAN setup, shows a fixed hub address tip and updates its status as the user changes the hub address or local-network choice. The Windows quick start includes illustrated pages.
 
 **Edge and reliability:** The switch acknowledges accepted shutdown and
 successful Wake transmission promptly while Host Status reflects the actual
@@ -49,6 +49,8 @@ eight-second cooperative request budget; Linux and Windows add per-source
 connection admission limits. Discovery prefers a responsive known matching
 endpoint and confirms migration before updating WOL metadata or issuing power
 requests. These measures improve robustness, not authentication.
+
+**SmartThings device tile:** Linux and Windows profiles show Host Status rather than only On/Off while retaining the switch action, metrics and routine capabilities. The existing Linux device was physically tested without re-pairing. The Unreachable inactive colour is a separate account-level capability presentation update, not part of the driver installation.
 
 ## Release downloads
 
@@ -88,13 +90,14 @@ computer gets a separate identity. Power actions remain opt-in.
 
 ## Known limitations
 
+- After enabling host power control, SmartThings may take time to recognize the newly available actions. About one minute was observed on Gentoo during qualification (#193); this is not a guaranteed upper bound. Refresh and check the host/device opt-in settings; do not retry an uncertain accepted power request. The metadata-refresh improvement is deferred.
 - A refused power command can still show the generic SmartThings network or server error. Check host power opt-in and matching key; do not blindly retry a request with uncertain acceptance.
 - Both platform binaries are unsigned. The normal Linux release workflow does not generate independent artifact attestation. SHA-256 checks bytes, not publisher identity. Do not bypass platform protections.
 - Automated Linux WOL setup supports wired Ethernet only; Wi-Fi wake is not supported by this installer.
 - WOL depends on wired NIC, firmware, network and OS power state. The installer
   cannot promise wake from every sleep/shutdown state. Windows NIC WOL setup
   is manual. Linux refuses ambiguous administrator network policy.
-- Windows first-search UI painting needs physical confirmation; ARM64 is
+- Windows first-search UI painting, display scaling and the Windows device presentation need physical confirmation; ARM64 is
   cross-build-only, not an x64 Setup target. Linux container tests do not
   certify physical WOL or every distribution. Linux firewall/Avahi setup
   may require manual administration.
@@ -109,6 +112,10 @@ computer gets a separate identity. Power actions remain opt-in.
   Backup pruning is deferred to v1.1. No automatic key rotation or pairing.
 - Existing protocol-v2 agents are intended to coexist; no simultaneous upgrade is required by the protocol.
 
+
+## Qualification
+
+Earlier unpublished rc.3 builds passed scoped Gentoo installer and private-channel Linux tile tests. These results are not a claim that every final-release byte or platform has been qualified. Exact-source CI, Windows 11 hardware, a second supported Linux host, the account-level Unreachable colour and stable-release soak are tracked in the maintainer readiness record. See the release availability and separately verified channel assignment rather than treating this document as publication evidence.
 
 ## Help us test
 

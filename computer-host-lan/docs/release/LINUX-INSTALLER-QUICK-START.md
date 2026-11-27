@@ -37,7 +37,7 @@ chmod u+x ./computer-host-linux-installer
 ./computer-host-linux-installer
 ```
 
-A clean host opens setup directly. On an existing installation choose
+The full-screen terminal interface keeps setup, review and literal consent together; the actual administrator prompt appears on the ordinary terminal. On completion, review the structured result before exiting. A clean host opens setup directly. On an existing installation choose
 **1 — Upgrade**; for retained data choose **1 — Install / reinstall**. Confirm or enter
 your hub's IPv4, or choose it later. Leave remote power at its default for
 initial monitoring; an existing power preference is retained unless changed.
@@ -71,7 +71,7 @@ the completion screen's network guidance.
 Remote power is optional and requires opt-in on the host and in SmartThings.
 Only if needed, retrieve the private key using the completion instructions;
 enter it in **Power control key (64 hex chars)** and turn on
-**Enable shutdown/reboot/suspend**. Do not share the key. Save your work and
+**Enable shutdown/reboot/suspend**. Do not share the key. After enabling power on an existing monitoring-only installation, SmartThings may take time to recognize the newly available commands; about one minute was observed during qualification, not a guaranteed maximum. Save your work and
 keep physical access before testing shutdown, reboot or suspend. Wake-on-LAN
 depends on wired Ethernet, BIOS/UEFI support and the network. Test shutdown
 from SmartThings and switch on again, then reboot and repeat. To enable

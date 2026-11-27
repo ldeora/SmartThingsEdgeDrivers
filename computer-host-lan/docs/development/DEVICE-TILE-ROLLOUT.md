@@ -1,6 +1,6 @@
 # Host Status on the device tile (#192) — test and rollout
 
-**Status:** implemented in the repository, not yet tested on a hub. Requested by rc.2 testers.
+**Status:** #205 merged; the maintainer reported 12/12 existing Linux device checks passed on the private channel at `bbbd679fdde197cd40b4caed9a9dd7326fa5971f` (see #192). The Windows profile, English labels and account-level Unreachable colour rollout still need confirmation. Requested by rc.2 testers.
 
 ## What changes
 
@@ -35,7 +35,7 @@ An embedded `deviceConfig` replaces the presentation SmartThings would otherwise
    - [ ] An existing routine using switch, Host Status, a metric or a Wake/Restart/Sleep button still runs.
    - [ ] A new routine offers all conditions (switch, Host Status, metrics) and all actions (switch, Wake, Restart, Sleep).
 
-4. **Update the Host Status presentation** (account-level). It applies immediately to every device using the capability, including rc.2 installations, without a driver update. It only changes the colour of Unreachable.
+4. **Update the Host Status presentation** (account-level), only with separate maintainer approval after backup and comparison. It affects every device using the capability, including rc.2 installations, without a driver update. Allow for app/cloud propagation; verify the result. It only changes the colour of Unreachable.
 
    ```sh
    cd computer-host-lan/edge-driver

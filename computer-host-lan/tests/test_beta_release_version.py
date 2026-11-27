@@ -117,6 +117,18 @@ class ReleaseVersionTests(unittest.TestCase):
                 if "linux_installer" in manifest:
                     quick = ROOT / "docs/release/WINDOWS-QUICK-START.md"
                     self.assertEqual(zip_file.read("docs/START-HERE.md"), quick.read_bytes())
+                    # Every relative screenshot in the quick start must be
+                    # present beside it in the fallback ZIP and checksummed.
+                    import hashlib
+                    images = re.findall(r"!\[[^\]]*\]\((images/windows-setup/[^)]+)\)",
+                                        quick.read_text(encoding="utf-8"))
+                    self.assertTrue(images, "Windows quick start screenshots missing")
+                    sums = zip_file.read("FILES.sha256").decode("utf-8")
+                    for rel in images:
+                        member = "docs/" + rel
+                        data = (quick.parent / rel).read_bytes()
+                        self.assertEqual(zip_file.read(member), data)
+                        self.assertIn(f"{hashlib.sha256(data).hexdigest()}  {member}\n", sums)
                     self.assertEqual(zip_file.read("docs/TEST-CHECKLIST.md"),
                                      (ROOT / "docs/release/RC3-READINESS.md").read_bytes())
 

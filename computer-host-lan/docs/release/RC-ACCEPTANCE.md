@@ -32,4 +32,4 @@
 
 ## v1.0.0-rc.3 candidate
 
-The rc.2 rows above remain historical. rc.3 is not published or physically accepted. Use the [rc.3 readiness record](RC3-READINESS.md#rc3-acceptance-evidence-119) for exact-candidate evidence, including the standalone installer, both persistent WOL backends, retained rc.2 reinstall, historical restore, maintenance menu and mixed-version private-channel checks. Do not copy rc.2 PASS results to rc.3.
+The rc.2 rows above remain historical. Scoped unpublished rc.3 Gentoo and Linux tile qualification is recorded in the readiness record; final replacement candidate qualification and publication are separate. Use the [rc.3 readiness record](RC3-READINESS.md#rc3-acceptance-evidence-119) for exact-candidate evidence, including the standalone installer, both persistent WOL backends, retained rc.2 reinstall, historical restore, maintenance menu and mixed-version private-channel checks. Do not copy rc.2 PASS results to rc.3.
