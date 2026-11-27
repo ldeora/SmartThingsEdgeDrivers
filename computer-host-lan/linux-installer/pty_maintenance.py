@@ -80,12 +80,13 @@ def smoke(binary: str, mode: str) -> None:
                 pump_until(b'PTY CONFIGURE HANDOFF wol')
             else:
                 token = b'RECOVER' if mode == 'recover' else b'UNINSTALL'
-                pump_until(b'Type ' + token + b' to authorize')
+                pump_until(b'Type ' + token + b' to authorize:')
+                pump_until(b'Enter Submit | Ctrl+U Clear')
+                os.write(master, b'NO\r')
+                pump_until(b'PTY CONSENT CANCELLED')
                 attrs = termios.tcgetattr(master)
                 if not attrs[3] & termios.ICANON or not attrs[3] & termios.ECHO:
-                    raise AssertionError('operation review still in raw/no-echo mode')
-                os.write(master, b'NO\n')
-                pump_until(b'cancelled. No changes made.')
+                    raise AssertionError('terminal still in raw/no-echo mode after consent')
             pump_until(b'PTY OPERATION CLOSED')
         elif mode == 'inspect':
             pump_until(b'Read-only snapshot')
