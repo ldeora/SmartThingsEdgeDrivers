@@ -35,6 +35,9 @@ def smoke(binary: str, mode: str) -> None:
             env.update(TERM='xterm-256color', NO_COLOR='1',
                        COMPUTER_HOST_TEST_MAINTENANCE_PTY='1')
             harness = 'TestMaintenanceScreenPTYHarness'
+            if mode == 'input-ownership':
+                env['COMPUTER_HOST_TEST_INPUT_PTY'] = '1'
+                harness = 'TestFramedInputPTYHarness'
             if detail:
                 env['COMPUTER_HOST_TEST_DETAIL_PTY'] = mode
                 harness = 'TestDetailScreenPTYHarness'
@@ -80,7 +83,11 @@ def smoke(binary: str, mode: str) -> None:
             # exercise the actual SIGWINCH/render path without an input race.
             resize(master, 100, 28)
 
-        if result:
+        if mode == 'input-ownership':
+            pump_until(b'PTY INPUT REVOKED')
+            os.write(master, b'ordinary terminal input\n')
+            pump_until(b'PTY INPUT OWNER VERIFIED')
+        elif result:
             pump_until(b'No intermediate progress is reported.')
             pump_until(b'COMPUTER HOST LAN / RESULT')
             if mode == 'result-failure':
@@ -241,12 +248,21 @@ def smoke(binary: str, mode: str) -> None:
 
 
 def main() -> int:
-    if len(sys.argv) != 2 or not os.path.isabs(sys.argv[1]):
-        print('Usage: python3 pty_maintenance.py /absolute/path/to/Go-test-binary', file=sys.stderr)
-        return 2
-    for mode in ('route', 'cancel', 'resize', 'inspect', 'backup-cancel', 'backup-review', 'backup-approve',
-                 'configure', 'recover', 'uninstall', 'app-recover', 'app-wol', 'app-install', 'result-success', 'result-failure'):
-        smoke(sys.argv[1], mode)
+    import argparse
+
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('binary')
+    parser.add_argument('--repeat', type=int, default=1)
+    args = parser.parse_args()
+    if not os.path.isabs(args.binary) or args.repeat < 1:
+        parser.error('absolute test binary path and positive repeat count required')
+    modes = ('route', 'cancel', 'resize', 'inspect', 'backup-cancel', 'backup-review', 'backup-approve',
+             'configure', 'recover', 'uninstall', 'app-recover', 'app-wol', 'app-install',
+             'result-success', 'result-failure', 'input-ownership')
+    for iteration in range(1, args.repeat + 1):
+        for mode in modes:
+            smoke(args.binary, mode)
+        print(f'PASS full PTY iteration {iteration}/{args.repeat}', flush=True)
     return 0
 
 
