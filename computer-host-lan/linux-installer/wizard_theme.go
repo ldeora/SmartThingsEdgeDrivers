@@ -1,11 +1,15 @@
 package main
 
 import (
+	"errors"
+	"fmt"
 	"os"
 	"strings"
 
+	tea "charm.land/bubbletea/v2"
 	"charm.land/huh/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/term"
 )
 
 // Shared palette for the maintenance chooser and setup wizard. The sidebar
@@ -91,10 +95,12 @@ func wizardTheme(monochrome bool) huh.Theme {
 
 const wizardSidebarWidth = 22
 const wizardSidebarMinWidth = 100
+const wizardMinWidth = 64
+const wizardMinHeight = 22
+const wizardMaxWidth = 106
 
-// The step indicator is derived from the actual focused Huh field. Optional
-// hub-address and network-interface pages belong to their parent stages.
-// It neither tracks a separate navigation counter nor influences validation.
+// The step and group indicators are derived from the actual focused Huh
+// field. Conditional pages belong to their parent stages.
 func wizardStage(key string) int {
 	switch key {
 	case "welcome":
@@ -110,64 +116,235 @@ func wizardStage(key string) int {
 	}
 }
 
+func wizardGroupIndex(key string) int {
+	switch key {
+	case "welcome":
+		return 0
+	case "hub":
+		return 1
+	case "hub-address":
+		return 2
+	case "power", "wol":
+		return 3
+	case "network":
+		return 4
+	case "review":
+		return 5
+	default:
+		return -1
+	}
+}
+
 type wizardLayout struct {
-	width      int
-	monochrome bool
+	width, height int
+	monochrome    bool
+	installing    bool
+	groups        []*huh.Group
+}
+
+func (l *wizardLayout) panelWidth() int {
+	return min(l.width, wizardMaxWidth)
+}
+
+func (l *wizardLayout) wide() bool {
+	return l.width >= wizardSidebarMinWidth
 }
 
 func (l *wizardLayout) GroupWidth(_ *huh.Form, _ *huh.Group, width int) int {
 	l.width = width
-	if width >= wizardSidebarMinWidth {
-		return width - wizardSidebarWidth - 1
+	available := l.panelWidth() - 4 // frame and content padding
+	if l.wide() {
+		available -= wizardSidebarWidth + 1 // sidebar and divider
 	}
-	return width
+	return max(1, available)
 }
 
-func (l *wizardLayout) sidebar(stage int) string {
-	style := func(s, fg, bg string, bold bool) string {
-		s = maintenanceFit(s, wizardSidebarWidth)
-		if l.monochrome {
-			return s
-		}
-		return lipgloss.NewStyle().Foreground(lipgloss.Color(fg)).
-			Background(lipgloss.Color(bg)).Bold(bold).Render(s)
+func (l *wizardLayout) paint(s, fg, bg string, bold bool) string {
+	if l.monochrome {
+		return s
 	}
-	lines := []string{
-		style(" COMPUTER HOST LAN", uiCyan, uiPanel, true),
-		style(" SETUP", uiMuted, uiNavy, false),
-		style("", uiText, uiNavy, false),
-	}
-	for i, label := range []string{"Welcome", "Hub", "Power & WOL", "Review"} {
-		marker, fg, bg := "  ", uiMuted, uiNavy
+	return lipgloss.NewStyle().Foreground(lipgloss.Color(fg)).
+		Background(lipgloss.Color(bg)).Bold(bold).Render(s)
+}
+
+func (l *wizardLayout) sidebarLine(stage, row int) string {
+	label, fg, bg := "", uiMuted, uiPanel
+	bold := false
+	if row == 0 {
+		label, fg, bold = " SETUP", uiCyan, true
+	} else if row >= 2 && row < 6 {
+		i := row - 2
+		label = []string{"Welcome", "Hub", "Power & WOL", "Review"}[i]
+		marker := "  "
 		if i == stage {
-			marker, fg, bg = "> ", uiSelected, uiHighlight
+			marker, fg, bg, bold = "> ", uiSelected, uiHighlight, true
 		} else if stage >= 0 && i < stage {
 			marker, fg = "* ", uiTeal
 		}
-		lines = append(lines, style(marker+label, fg, bg, i == stage))
+		label = marker + label
 	}
-	return strings.Join(lines, "\n")
+	return l.paint(maintenanceFit(label, wizardSidebarWidth), fg, bg, bold)
+}
+
+func wizardLines(s string) []string {
+	if s == "" {
+		return nil
+	}
+	return strings.Split(strings.TrimRight(s, "\n"), "\n")
+}
+
+// render returns whether the entire active page, including its native
+// validation/help footer, fits. Never crop a review or accept a hidden
+// control. Unlike Group.View, Content is not clipped by the group viewport.
+// The native fields (including their own option scrolling) remain intact.
+func (l *wizardLayout) render(f *huh.Form) (string, bool) {
+	if l.width < wizardMinWidth || l.height < wizardMinHeight {
+		return fmt.Sprintf("Enlarge terminal to 64x22 (now %dx%d). Ctrl+C cancels.", l.width, l.height), false
+	}
+	key := f.GetFocusedField().GetKey()
+	stage, index := wizardStage(key), wizardGroupIndex(key)
+	if index < 0 || index >= len(l.groups) {
+		return "Cannot display the current setup page. Ctrl+C cancels.", false
+	}
+	g := l.groups[index]
+	body := append(wizardLines(g.Header()), "")
+	body = append(body, wizardLines(g.Content())...)
+	help := wizardLines(g.Footer())
+	inner := l.panelWidth() - 2
+	pane := inner
+	if l.wide() {
+		pane -= wizardSidebarWidth + 1
+	}
+	for _, lines := range [][]string{body, help} {
+		for _, line := range lines {
+			if lipgloss.Width(line) > pane-2 {
+				return "Setup content is too wide. Enlarge the terminal or use -accessible. Ctrl+C cancels.", false
+			}
+		}
+	}
+	// Three header rows, three bottom rows, and a blank separator before
+	// native help. The sidebar extends across the entire content region.
+	required := len(body) + len(help) + 7
+	if required > l.height {
+		return fmt.Sprintf("This page needs %d rows (now %d). Enlarge the terminal or use -accessible. Ctrl+C cancels.", required, l.height), false
+	}
+	height := max(required, min(l.height, 30))
+	contentHeight := height - 6
+	margin := strings.Repeat(" ", (l.width-l.panelWidth())/2)
+	border := func(left, mid, right string) string {
+		return margin + l.paint(left+strings.Repeat(mid, inner)+right, uiCyan, uiNavy, false)
+	}
+	vertical := l.paint("│", uiCyan, uiNavy, false)
+	full := func(label string) string {
+		return margin + vertical + l.paint(maintenanceFit(" "+label, inner), uiCyan, uiPanel, true) + vertical
+	}
+	mode := "SETUP PREVIEW — no changes"
+	if l.installing {
+		mode = "LINUX INSTALLATION"
+	}
+	lines := []string{
+		border("┌", "─", "┐"),
+		full("COMPUTER HOST LAN / " + mode),
+		border("├", "─", "┤"),
+	}
+	helpStart := contentHeight - len(help)
+	for i := 0; i < contentHeight; i++ {
+		value := ""
+		if i < len(body) {
+			value = body[i]
+		} else if i >= helpStart && len(help) > 0 {
+			value = help[i-helpStart]
+		}
+		// Native styled strings are preserved. Padding never truncates,
+		// reflows or escapes a field's text.
+		value = " " + value + strings.Repeat(" ", pane-1-lipgloss.Width(value))
+		if !l.monochrome {
+			value = lipgloss.NewStyle().Background(lipgloss.Color(uiNavy)).Render(value)
+		}
+		if l.wide() {
+			value = l.sidebarLine(stage, i) + vertical + value
+		}
+		lines = append(lines, margin+vertical+value+vertical)
+	}
+	lines = append(lines,
+		border("├", "─", "┤"),
+		full(fmt.Sprintf("Step %d of 4  |  Ctrl+C Cancel", stage+1)),
+		border("└", "─", "┘"),
+	)
+	return strings.Join(lines, "\n"), true
 }
 
 func (l *wizardLayout) View(f *huh.Form) string {
-	body := huh.LayoutDefault.View(f)
-	// Render only the selected Huh group, including its native help and
-	// validation messages. No custom clipping, key handling or scrolling.
-	if l.width >= wizardSidebarMinWidth {
-		sidebar := l.sidebar(wizardStage(f.GetFocusedField().GetKey()))
-		body = lipgloss.JoinHorizontal(lipgloss.Top, sidebar, " ", body)
-	}
-	if !l.monochrome {
-		// Fill the gaps and native viewport padding as well as styled text.
-		// Do not impose a width/height that could wrap or clip review content.
-		body = lipgloss.NewStyle().Background(lipgloss.Color(uiNavy)).Render(body)
-	}
-	return body
+	view, _ := l.render(f)
+	return view
 }
 
-func styledLiveForm(s *liveSelection, installing bool) *huh.Form {
-	monochrome := os.Getenv("NO_COLOR") != ""
-	return liveFormMode(s, installing).
-		WithTheme(wizardTheme(monochrome)).
-		WithLayout(&wizardLayout{monochrome: monochrome})
+// The wrapper owns only terminal geometry and lifetime. Huh still owns
+// every selection, input, conditional group, validation and review command.
+// Resize messages are handled here rather than letting Huh size its group
+// viewport to the entire terminal (which hides the bottom help in short
+// windows). No privileged operation is reachable from this model.
+type wizardScreen struct {
+	form   *huh.Form
+	layout *wizardLayout
+}
+
+func newWizardScreen(s *liveSelection, installing, monochrome bool) wizardScreen {
+	groups := liveFormGroups(s, installing)
+	layout := &wizardLayout{monochrome: monochrome, installing: installing, groups: groups}
+	form := huh.NewForm(groups...).WithTheme(wizardTheme(monochrome)).WithLayout(layout)
+	form.SubmitCmd = tea.Quit
+	form.CancelCmd = tea.Quit
+	return wizardScreen{form: form, layout: layout}
+}
+
+func (m wizardScreen) Init() tea.Cmd { return m.form.Init() }
+
+func (m wizardScreen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch event := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.layout.width, m.layout.height = event.Width, event.Height
+		if event.Width >= wizardMinWidth && event.Height >= wizardMinHeight {
+			m.form.WithWidth(event.Width)
+		}
+		return m, nil
+	case tea.KeyPressMsg:
+		if event.String() != "ctrl+c" {
+			if _, fits := m.layout.render(m.form); !fits {
+				return m, nil
+			}
+		}
+	case tea.PasteMsg:
+		if _, fits := m.layout.render(m.form); !fits {
+			return m, nil
+		}
+	}
+	_, cmd := m.form.Update(msg)
+	return m, cmd
+}
+
+func (m wizardScreen) View() tea.View {
+	v := tea.NewView(m.form.View())
+	v.AltScreen = true
+	return v
+}
+
+func runStyledLiveWizard(s *liveSelection, installing bool) error {
+	if !visualMaintenanceAllowed(false, term.IsTerminal(os.Stdin.Fd()), term.IsTerminal(os.Stdout.Fd()), os.Getenv("TERM")) {
+		return liveFormMode(s, installing).Run()
+	}
+	m := newWizardScreen(s, installing, os.Getenv("NO_COLOR") != "")
+	_, err := tea.NewProgram(m, tea.WithInput(os.Stdin), tea.WithOutput(os.Stdout)).Run()
+	if errors.Is(err, tea.ErrInterrupted) || m.form.State == huh.StateAborted {
+		return huh.ErrUserAborted
+	}
+	if err != nil {
+		return err
+	}
+	// Only the native form's completed state can reach the existing
+	// confirmation caller. An unexpected program exit fails closed.
+	if m.form.State != huh.StateCompleted {
+		return huh.ErrUserAborted
+	}
+	return nil
 }
