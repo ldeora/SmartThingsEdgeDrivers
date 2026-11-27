@@ -20,6 +20,7 @@ type consentScreen struct {
 	prompt    string // Optional non-authorization field label.
 	input     string
 	invalid   bool
+	mistyped  bool
 	submitted bool
 	done      bool
 }
@@ -51,7 +52,9 @@ func (m consentScreen) page() ([]detailRow, bool) {
 	}
 	rows = append(rows, detailRow{"> " + text + "_", "selected"})
 	if m.invalid {
-		rows = append(rows, detailRow{"Invalid or too long input. Ctrl+U clears.", "warning"})
+		rows = append(rows, detailRow{"Invalid input. Edit or Ctrl+U to clear.", "warning"})
+	} else if m.mistyped {
+		rows = append(rows, detailRow{"Type " + m.token + " exactly, or Esc to go back.", "warning"})
 	}
 	return rows, len(rows) <= m.frame.capacity()
 }
@@ -70,6 +73,9 @@ func (m *consentScreen) insert(value string) {
 		}
 	}
 	m.input += value
+	if value != "" {
+		m.invalid, m.mistyped = false, false
+	}
 }
 
 func (m consentScreen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -86,18 +92,26 @@ func (m consentScreen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.submitted = false
 			return m, tea.Quit
 		case "ctrl+u":
-			m.input, m.invalid = "", false
+			m.input, m.invalid, m.mistyped = "", false, false
 			return m, nil
 		case "backspace":
 			if len(m.input) > 0 {
 				m.input = m.input[:len(m.input)-1]
 			}
+			m.invalid, m.mistyped = false, false
 			return m, nil
 		}
 		if _, fits := m.page(); !fits {
 			return m, nil
 		}
 		if event.String() == "enter" {
+			if m.invalid {
+				return m, nil
+			}
+			if m.token != "" && strings.TrimSpace(m.input) != m.token {
+				m.mistyped = true
+				return m, nil
+			}
 			m.done = true
 			m.submitted = true
 			return m, tea.Quit
@@ -115,7 +129,7 @@ func (m consentScreen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m consentScreen) View() tea.View {
 	rows, fits := m.page()
-	status := "Exact word required; any other submission cancels"
+	status := "Exact word required; Esc goes back"
 	if m.prompt != "" {
 		status = "Enter submits the interface name"
 	}
@@ -124,7 +138,7 @@ func (m consentScreen) View() tea.View {
 		status = "Resize required"
 	}
 	v := tea.NewView(m.frame.render(m.title, rows, status,
-		"Enter Submit | Ctrl+U Clear | Esc/Ctrl+C Cancel"))
+		"Enter Submit | Ctrl+U Clear | Esc Back | Ctrl+C Exit"))
 	v.AltScreen = true
 	return v
 }
@@ -141,6 +155,12 @@ func (m operationConsentScreen) Init() tea.Cmd { return nil }
 
 func (m operationConsentScreen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if m.consent != nil {
+		if key, ok := msg.(tea.KeyPressMsg); ok && key.String() == "esc" && !m.consent.done {
+			m.operation.frame = m.consent.frame
+			m.operation.chosen = ""
+			m.consent = nil
+			return m, nil
+		}
 		next, cmd := m.consent.Update(msg)
 		value := next.(consentScreen)
 		m.consent = &value
@@ -152,14 +172,6 @@ func (m operationConsentScreen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		rows := append([]detailRow(nil), m.operation.review...)
 		if len(rows) > 0 && strings.HasPrefix(rows[len(rows)-1].text, "Next: type ") {
 			rows = rows[:len(rows)-1]
-		}
-		if m.token == "UNINSTALL" {
-			rows = append(rows,
-				detailRow{"Also keeps ownership record, linuxhost account and", "normal"},
-				detailRow{"the trusted recovery helper. Not a full purge.", "normal"})
-		}
-		if m.token == "RECOVER" {
-			rows = append(rows, detailRow{"Protected state has not yet been checked.", "muted"})
 		}
 		m.consent = &consentScreen{
 			frame: m.operation.frame, title: m.operation.title,
