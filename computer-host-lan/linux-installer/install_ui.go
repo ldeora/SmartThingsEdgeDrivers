@@ -682,7 +682,7 @@ func runInstallingWizardMode(accessible bool, apiPath string, reader io.Reader, 
 	s.firewalldActive = firewalldRunning()
 	fmt.Fprintln(writer, "COMPUTER HOST LAN — LINUX INSTALLATION")
 	fmt.Fprintln(writer, "The agent will not be changed until you approve the final confirmation.")
-	if err := liveFormMode(s, true).Run(); err != nil {
+	if err := styledLiveForm(s, true).Run(); err != nil {
 		if errors.Is(err, huh.ErrUserAborted) {
 			fmt.Fprintln(writer, "Cancelled. No changes made.")
 			return nil
