@@ -106,8 +106,9 @@ continuity and WOL/discovery verification limits are stated explicitly.
 Close the result to see the existing detailed console summary and diagnostics;
 closing does not retry, recover or execute another operation. The original
 return status is preserved even if the result screen cannot be displayed.
-Optional WOL cleanup after a successful uninstall remains separately authorized;
-a failed result-screen terminal handoff suppresses that optional workflow.
+Optional WOL cleanup after a successful uninstall remains separately authorized.
+Enter on a clean uninstall result opens WOL options; Esc, Q or Ctrl+C finishes.
+A failed result-screen terminal handoff suppresses that optional workflow.
 Successful read-only backup listing and WOL checks retain their chooser/review
 without another result screen. Plain accessible/CLI output remains unchanged.
 
