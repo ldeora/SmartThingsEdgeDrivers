@@ -320,7 +320,7 @@ func runInspectionPresentation(accessible bool, reader io.Reader, writer io.Writ
 		frame: detailFrame{monochrome: os.Getenv("NO_COLOR") != ""},
 		rows:  inspectionRows(info, installedAgentVersion()),
 	}
-	_, err := tea.NewProgram(m).Run()
+	_, err := runFramedProgram(m)
 	return err
 }
 
@@ -485,7 +485,7 @@ func selectBackupScreen(backups []backupSummary, current string) (int, error) {
 		current:  current,
 		selected: -1,
 	}
-	result, err := tea.NewProgram(m).Run()
+	result, err := runFramedProgram(m)
 	if err != nil {
 		return -1, err
 	}
@@ -545,7 +545,7 @@ func selectBackupConsent(backups []backupSummary, current string) (backupApprova
 		current:  current,
 		selected: -1,
 	}}
-	result, err := tea.NewProgram(m).Run()
+	result, err := runFramedProgram(m)
 	if err != nil {
 		return backupApproval{}, err
 	}
