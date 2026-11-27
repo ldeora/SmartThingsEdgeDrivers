@@ -130,12 +130,26 @@ func showWOLStatus(w io.Writer, r privilegedResult) {
 }
 
 func runWOLManagement(reader io.Reader, writer io.Writer, method string, remove bool) error {
-	return manageWOL(reader, writer, remove, func(req privilegedRequest) (privilegedResult, error) {
+	return runWOLPresentation(false, reader, writer, method, remove)
+}
+
+func runWOLPresentation(accessible bool, reader io.Reader, writer io.Writer, method string, remove bool) error {
+	var review func(string, privilegedResult) (bool, error)
+	if detailTerminal(accessible, reader, writer) {
+		review = func(nic string, result privilegedResult) (bool, error) {
+			return operationReview(false, reader, writer, savedWOLScreen(nic, result))
+		}
+	}
+	return manageWOLWithReview(reader, writer, remove, func(req privilegedRequest) (privilegedResult, error) {
 		return executeAuthorizedBootstrap(req, true, method)
-	})
+	}, review)
 }
 
 func manageWOL(reader io.Reader, writer io.Writer, remove bool, authorize func(privilegedRequest) (privilegedResult, error)) error {
+	return manageWOLWithReview(reader, writer, remove, authorize, nil)
+}
+
+func manageWOLWithReview(reader io.Reader, writer io.Writer, remove bool, authorize func(privilegedRequest) (privilegedResult, error), review func(string, privilegedResult) (bool, error)) error {
 	fmt.Fprintln(writer, "Configure — Wake-on-LAN")
 	fmt.Fprintln(writer, "Check or remove only settings previously recorded by Computer Host LAN. To enable Wake-on-LAN later, run setup again (Configure → Change power or WOL settings) and select Configure in the Wake-on-LAN step.")
 	nic := suggestedNIC("")
@@ -159,10 +173,21 @@ func manageWOL(reader io.Reader, writer io.Writer, remove bool, authorize func(p
 		return err
 	}
 	showWOLStatus(writer, result)
-	if result.WOLStatus == "not_managed" {
+	if review != nil {
+		if result.Status != "passed" || !validWOLStatus(result, "wol-check") {
+			return fmt.Errorf("invalid Wake-on-LAN status")
+		}
+		proceed, err := review(nic, result)
+		if err != nil {
+			return err
+		}
+		if !proceed || result.WOLStatus == "not_managed" {
+			return nil
+		}
+	} else if result.WOLStatus == "not_managed" {
 		return nil
 	}
-	if !remove {
+	if review == nil && !remove {
 		fmt.Fprint(writer, "Remove the installer setting? [y/N]: ")
 		answer, err := readConfirmationLine(reader)
 		if err != nil || !strings.EqualFold(strings.TrimSpace(answer), "y") {
