@@ -168,17 +168,14 @@ func dispatchMaintenance(choice string, accessible bool, apiPath string, reader 
 			return dispatchMaintenance(action, accessible, apiPath, reader, writer, method, info)
 		})
 	case "inspect":
-		fmt.Fprintln(writer, info.brief())
-		fmt.Fprintln(writer, "Installed agent file version (not runtime-verified):", installedAgentVersion())
-		fmt.Fprintln(writer, "For protected transaction status, run cli status. Choose Recover for an interrupted operation.")
-		return nil
+		return runInspectionPresentation(accessible, reader, writer, info)
 	case "restore", "wol", "recover", "uninstall":
 		if !stdinIsTerminal() {
 			return fmt.Errorf("this maintenance task requires a terminal")
 		}
 		switch choice {
 		case "restore":
-			return runRestoreWizard(reader, writer, method)
+			return runRestorePresentation(accessible, reader, writer, method)
 		case "wol":
 			return runWOLManagement(reader, writer, method, false)
 		case "recover":
