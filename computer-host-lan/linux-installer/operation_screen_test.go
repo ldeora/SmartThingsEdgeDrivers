@@ -124,28 +124,23 @@ func TestOperationScreenPTYHarness(t *testing.T) {
 	default:
 		t.Fatal("invalid PTY fixture mode")
 	}
-	action, err := runOperationScreen(m)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if action != "" && mode == "configure" {
-		if action != "wol" {
-			t.Fatal("wrong configuration selection")
+	if mode == "configure" {
+		action, err := runOperationScreen(m)
+		if err != nil || action != "wol" {
+			t.Fatalf("configuration selection: %q, %v", action, err)
 		}
 		fmt.Println("PTY CONFIGURE HANDOFF wol")
-	} else if action == "continue" {
-		authorize := func(req privilegedRequest) (privilegedResult, error) {
-			t.Fatal("PTY cancellation reached authorization")
-			return privilegedResult{}, nil
+	} else {
+		token := "RECOVER"
+		if mode == "uninstall" {
+			token = "UNINSTALL"
 		}
-		if mode == "recover" {
-			err = confirmRecovery(os.Stdin, os.Stdout, authorize)
-		} else {
-			err = confirmUninstall(os.Stdin, os.Stdout, authorize)
+		m.frame.monochrome = true
+		accepted, err := runOperationConsent(m, token)
+		if err != nil || accepted {
+			t.Fatalf("unexpected operation approval: %t, %v", accepted, err)
 		}
-		if err != nil {
-			t.Fatal(err)
-		}
+		fmt.Println("PTY CONSENT CANCELLED")
 	}
 	fmt.Println("PTY OPERATION CLOSED")
 }
