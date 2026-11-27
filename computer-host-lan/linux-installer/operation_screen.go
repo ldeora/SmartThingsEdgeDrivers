@@ -37,7 +37,13 @@ func (m operationScreen) page() ([]detailRow, bool) {
 		if i == m.cursor {
 			marker, tone = "> ", "selected"
 		}
-		rows = append(rows, wrapDetail(detailRow{marker + "[" + choice.key + "] " + choice.label, tone}, width)...)
+		label := marker + "[" + choice.key + "] " + choice.label
+		// Preserve the two-space unselected marker for aligned choices.
+		if len(label) <= width {
+			rows = append(rows, detailRow{label, tone})
+		} else {
+			rows = append(rows, wrapDetail(detailRow{label, tone}, width)...)
+		}
 	}
 	return rows, len(rows) <= m.frame.capacity()
 }
