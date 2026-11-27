@@ -539,6 +539,12 @@ func executeAuthorizedBootstrap(request privilegedRequest, interactive bool, met
 }
 
 func installSelection(s *liveSelection, w io.Writer, interactive bool, method string) error {
+	return installSelectionWithAuthorization(s, w, method, func(req privilegedRequest) (privilegedResult, error) {
+		return executeAuthorizedBootstrap(req, interactive, method)
+	})
+}
+
+func installSelectionWithAuthorization(s *liveSelection, w io.Writer, method string, authorize func(privilegedRequest) (privilegedResult, error)) error {
 	req, err := approvedRootRequest(s)
 	if err != nil {
 		return err
@@ -547,7 +553,7 @@ func installSelection(s *liveSelection, w io.Writer, interactive bool, method st
 	if method != "auto" {
 		fmt.Fprintln(w, "Administrator authorization method explicitly selected:", method)
 	}
-	result, err := executeAuthorizedBootstrap(req, interactive, method)
+	result, err := authorize(req)
 	if err != nil {
 		if result.ErrorCode == "rolled_back" {
 			showCredentialContinuity(w, result)
@@ -694,7 +700,7 @@ func runInstallingWizardMode(accessible bool, apiPath string, reader io.Reader, 
 		}
 		// Native terminal ownership has been restored; no input is
 		// forwarded from the confirmation editor to the provider.
-		return installSelection(s, writer, true, method)
+		return installSelectionPresentation(s, writer, method)
 	}
 	fmt.Fprintln(writer, "COMPUTER HOST LAN — LINUX INSTALLATION")
 	fmt.Fprintln(writer, "The agent will not be changed until you approve the final confirmation.")
@@ -831,7 +837,9 @@ func finishUninstall(accessible bool, reader io.Reader, writer io.Writer, method
 	}
 	var err error
 	if confirmed {
-		err = executeConfirmedUninstall(writer, authorize)
+		var report operationReport
+		err = executeConfirmedUninstall(writer, report.observe(writer, authorize))
+		err = report.present(writer, err)
 	} else {
 		err = confirmUninstall(reader, writer, authorize)
 	}
@@ -902,7 +910,7 @@ func runRecoveryPresentation(accessible bool, reader io.Reader, writer io.Writer
 			fmt.Fprintln(writer, "Recovery cancelled. No changes made.")
 			return nil
 		}
-		return executeConfirmedRecovery(writer, authorize)
+		return recoverPresentation(writer, method)
 	}
 	return confirmRecovery(reader, writer, authorize)
 }
