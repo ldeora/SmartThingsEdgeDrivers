@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 )
 
 type operationReport struct {
@@ -103,12 +104,11 @@ func (r operationReport) rows(err error) []detailRow {
 			}
 			// This existing formatter uses only validated enum values
 			// and fixed text, never raw subprocess stderr or secrets.
-			add(userFacingPrivilegeFailure(reply).Error(), "normal")
+			add(resultPrivilegeFailure(reply), "normal")
 		default:
-			add("Outcome not confirmed", "warning")
-			add("Authorization or helper execution did not yield a reliable outcome.", "normal")
-			add("Inspect the installation and recovery state before retrying.", "normal")
-			add("Do not assume the operation failed before making changes.", "muted")
+			add("No confirmed result", "warning")
+			add("If authorization failed before the helper started, no changes were made.", "normal")
+			add("If unsure, open Inspect or choose Recover in the menu before retrying.", "normal")
 		}
 		return rows
 	}
@@ -118,38 +118,42 @@ func (r operationReport) rows(err error) []detailRow {
 			add("Outcome not confirmed", "warning")
 			return rows
 		}
-		add("Agent installation completed", "success")
-		rows = append(rows, continuityRows(reply)...)
+		completion := "Installation complete"
+		switch r.action {
+		case "upgrade":
+			completion = "Upgrade complete"
+		case "repair":
+			completion = "Repair complete"
+		}
+		add(completion, "success")
 		if reply.Status == "installed_cleanup_required" {
-			add("Cleanup required: run -recover before another installation.", "warning")
+			add("Cleanup required: choose Recover in the menu.", "warning")
 		}
 		if reply.IdentityPreserved == "verified" {
-			add("Refresh your existing SmartThings device first.", "normal")
+			add("Existing device: refresh in the SmartThings app.", "normal")
 		} else {
-			add("Check an existing device first; otherwise use Scan nearby.", "normal")
+			add("Check your existing device; if it does not respond, use Scan nearby.", "normal")
 		}
 		switch r.power {
 		case "enable":
-			add("Remote power enabled on the computer; check device settings.", "normal")
+			add("Power control: enabled on this computer", "normal")
 		case "disable":
-			add("Remote power disabled; monitoring remains available.", "normal")
+			add("Power control: disabled", "normal")
 		default:
-			add("Power choice retained; test if enabled.", "normal")
+			add("Power control: unchanged", "normal")
 		}
 		switch reply.WOLStatus {
 		case "unsupported":
-			add("Wake-on-LAN unsupported; not configured.", "warning")
+			add("Wake-on-LAN: unsupported; not configured", "warning")
 		case "capability_unknown":
-			add("Wake-on-LAN capability unknown; not configured.", "warning")
+			add("Wake-on-LAN: capability unknown; not configured", "warning")
 		default:
 			if r.wolConfigured {
-				add("Persistent Wake-on-LAN configuration verified.", "normal")
+				add("Wake-on-LAN: persistent configuration verified", "normal")
 			} else {
-				add("Persistent Wake-on-LAN left unchanged.", "normal")
+				add("Wake-on-LAN: unchanged", "normal")
 			}
 		}
-		add("Discovery, hub connectivity and power operation not tested.", "muted")
-		add("No automatic pairing or firewall changes.", "muted")
 	case "restore":
 		if reply.Status != "restored" && reply.Status != "restored_cleanup_required" {
 			add("Outcome not confirmed", "warning")
@@ -158,7 +162,7 @@ func (r operationReport) rows(err error) []detailRow {
 		add("Historical backup restored", "success")
 		rows = append(rows, continuityRows(reply)...)
 		if reply.Status == "restored_cleanup_required" {
-			add("Restore committed; run -recover to finish cleanup.", "warning")
+			add("Restore committed; choose Recover in the menu to finish cleanup.", "warning")
 		}
 		add("Refresh the existing SmartThings device and test operation.", "normal")
 	case "uninstall":
@@ -169,7 +173,7 @@ func (r operationReport) rows(err error) []detailRow {
 		add("Agent uninstalled", "success")
 		rows = append(rows, continuityRows(reply)...)
 		if reply.Status == "uninstalled_cleanup_required" {
-			add("Uninstall committed; run -recover to finish cleanup.", "warning")
+			add("Uninstall committed; choose Recover in the menu to finish cleanup.", "warning")
 		}
 		add("Private state and recovery backups retained.", "normal")
 		add("SmartThings device not deleted.", "normal")
@@ -213,6 +217,17 @@ func (r operationReport) rows(err error) []detailRow {
 	return rows
 }
 
+// Translate only known CLI navigation phrases for the interactive screen.
+// The original enum-based diagnostic remains unchanged on the terminal.
+func resultPrivilegeFailure(reply privilegedResult) string {
+	return strings.NewReplacer(
+		"Run -recover for managed-state recovery", "Choose Recover in the menu for managed-state recovery",
+		"Run this wizard with -recover before retrying", "Choose Recover in the menu before retrying",
+		"Configure (-configure)", "Configure in the menu",
+		"run -uninstall again", "choose Uninstall in the menu again",
+	).Replace(userFacingPrivilegeFailure(reply).Error())
+}
+
 // Keep the established console transcript, including the complete network,
 // onboarding and recovery guidance, for scrollback after closing the screen.
 // Preserve the original operation error/exit status even if rendering fails.
@@ -235,7 +250,7 @@ func (r *operationReport) presentWith(w io.Writer, err error, show func(inspecti
 		return err
 	}
 	rows := r.rows(err)
-	rows = append(rows, detailRow{"Close for the terminal summary and diagnostics.", "muted"})
+	rows = append(rows, detailRow{"Close for the full terminal summary.", "muted"})
 	m := inspectionScreen{
 		frame: detailFrame{monochrome: os.Getenv("NO_COLOR") != ""},
 		rows:  rows, title: "RESULT", statusPrefix: "Operation result",

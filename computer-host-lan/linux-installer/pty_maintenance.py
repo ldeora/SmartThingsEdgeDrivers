@@ -86,7 +86,7 @@ def smoke(binary: str, mode: str) -> None:
             if mode == 'result-failure':
                 pump_until(b'Operation rolled back')
             else:
-                pump_until(b'Cleanup required: run -recover')
+                pump_until(b'Cleanup required: choose Recover in the menu.')
             pump_until(b'Enter/Esc/Q Close')
             os.write(master, b'\r')
             pump_until(b'PTY RESULT CLOSED')

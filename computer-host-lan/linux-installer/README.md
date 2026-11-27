@@ -102,7 +102,10 @@ based on the validated helper reply and process outcome. Committed operations
 requiring cleanup, rollback, aborted changes, recovery required, pre-start
 failure and unconfirmed outcomes are distinguished. Success data with an
 unsuccessful process exit is not treated as confirmed success. Credential
-continuity and WOL/discovery verification limits are stated explicitly.
+continuity and WOL/discovery verification limits remain in the detailed terminal
+summary; the install result shows the requested power policy and WOL outcome
+without treating unchanged settings as verified. An unconfirmed result advises
+inspection or recovery rather than assuming authorization was refused.
 Close the result to see the existing detailed console summary and diagnostics;
 closing does not retry, recover or execute another operation. The original
 return status is preserved even if the result screen cannot be displayed.

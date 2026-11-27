@@ -28,13 +28,13 @@ func TestResultClassification(t *testing.T) {
 		err    error
 		want   string
 	}{
-		{"install", privilegedResult{Status: "installed"}, nil, "Agent installation completed"},
-		{"upgrade", privilegedResult{Status: "installed_cleanup_required"}, nil, "Cleanup required: run -recover"},
+		{"install", privilegedResult{Status: "installed"}, nil, "Installation complete"},
+		{"upgrade", privilegedResult{Status: "installed_cleanup_required"}, nil, "Cleanup required: choose Recover"},
 		{"repair", privilegedResult{Status: "error", ErrorCode: "rolled_back", WOLReviewRequired: true}, failed, "Operation rolled back"},
 		{"install", privilegedResult{Status: "error", ErrorCode: "aborted", FailureStage: "plan"}, failed, "Aborted before managed changes"},
 		{"uninstall", privilegedResult{Status: "error", ErrorCode: "recovery_required"}, failed, "Recovery required"},
-		{"restore", privilegedResult{Status: "restored_cleanup_required"}, nil, "Restore committed; run -recover"},
-		{"uninstall", privilegedResult{Status: "uninstalled_cleanup_required"}, nil, "Uninstall committed; run -recover"},
+		{"restore", privilegedResult{Status: "restored_cleanup_required"}, nil, "Restore committed; choose Recover"},
+		{"uninstall", privilegedResult{Status: "uninstalled_cleanup_required"}, nil, "Uninstall committed; choose Recover"},
 		{"recover", privilegedResult{Status: "passed", RecoveryStatus: "nothing_to_recover"}, nil, "No protected transaction needs recovery"},
 		{"recover", privilegedResult{Status: "passed", RecoveryStatus: "rolled_back"}, nil, "Previous files and service state restored"},
 		{"recover", privilegedResult{Status: "passed", RecoveryStatus: "aborted"}, nil, "Interrupted operation aborted before managed changes"},
@@ -42,8 +42,8 @@ func TestResultClassification(t *testing.T) {
 		{"wol-remove", privilegedResult{Status: "passed", WOLStatus: "removed"}, nil, "Installer-owned Wake-on-LAN setting removed"},
 		{"wol-remove", privilegedResult{Status: "passed", WOLStatus: "not_managed"}, nil, "No installer-owned setting to remove"},
 		{"wol-check", privilegedResult{Status: "error", ErrorCode: "wol_review_required"}, failed, "Wake-on-LAN needs review"},
-		{"backups", privilegedResult{}, failed, "Outcome not confirmed"},
-		{"install", privilegedResult{Status: "installed"}, failed, "Outcome not confirmed"},
+		{"backups", privilegedResult{}, failed, "No confirmed result"},
+		{"install", privilegedResult{Status: "installed"}, failed, "No confirmed result"},
 		{"install", privilegedResult{}, &authorizationUnavailableError{cause: failed}, "Not started"},
 	} {
 		r := operationReport{action: tc.action, reply: tc.reply, runErr: tc.err, called: true}
@@ -76,17 +76,55 @@ func TestResultVerificationLimits(t *testing.T) {
 	r := operationReport{action: "upgrade", power: "enable", wolConfigured: true,
 		reply: privilegedResult{Status: "installed", IdentityPreserved: "verified", WOLStatus: "capability_unknown"}}
 	got := resultText(r.rows(nil))
-	for _, want := range []string{"Credential continuity: not verified", "Refresh your existing SmartThings device", "Wake-on-LAN capability unknown", "power operation not tested"} {
+	for _, want := range []string{"Upgrade complete", "Existing device: refresh in the SmartThings app.", "Power control: enabled on this computer", "Wake-on-LAN: capability unknown; not configured"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("missing %q: %s", want, got)
 		}
 	}
-	if strings.Contains(got, "Wake-on-LAN configuration verified") {
+	if strings.Contains(got, "Wake-on-LAN: persistent configuration verified") {
 		t.Fatal("unsupported observation presented as verified")
 	}
 	r = operationReport{action: "recover", reply: privilegedResult{Status: "passed", RecoveryStatus: "rolled_back", WOLReviewRequired: true}}
 	if got := resultText(r.rows(nil)); !strings.Contains(got, "do not repeat recovery for WOL alone") || !strings.Contains(got, "Credential continuity: not verified") {
 		t.Fatal(got)
+	}
+}
+
+func TestResultShortSuccessAndUnknownGuidance(t *testing.T) {
+	r := operationReport{action: "upgrade", power: "preserve", called: true,
+		reply: privilegedResult{Status: "installed", IdentityPreserved: "verified", CredentialContinuity: "verified"}}
+	rows := r.rows(nil)
+	got := resultText(rows)
+	if len(rows) != 5 || !strings.Contains(got, "Power control: unchanged") || !strings.Contains(got, "Wake-on-LAN: unchanged") {
+		t.Fatal(got)
+	}
+	if strings.Contains(got, "Power control: enabled") || strings.Contains(got, "persistent configuration verified") {
+		t.Fatal("unchanged settings presented as verified")
+	}
+	r.reply.IdentityPreserved = "not_verified"
+	if got := resultText(r.rows(nil)); !strings.Contains(got, "Scan nearby") || strings.Contains(got, "Existing device: refresh") {
+		t.Fatal(got)
+	}
+	failed := errors.New("unconfirmed")
+	r.runErr = failed
+	r.reply = privilegedResult{}
+	got = resultText(r.rows(failed))
+	for _, want := range []string{"No confirmed result", "If authorization failed before the helper started", "If unsure, open Inspect or choose Recover"} {
+		if !strings.Contains(got, want) {
+			t.Fatal(got)
+		}
+	}
+	for _, reply := range []privilegedResult{
+		{Status: "error", ErrorCode: "recovery_required"},
+		{Status: "error", ErrorCode: "wol_review_required"},
+		{Status: "error", ErrorCode: "rolled_back", ContinuityReason: "credential_continuity_unverified"},
+		{Status: "error", ErrorCode: "rolled_back", Operation: "uninstall"},
+	} {
+		r.reply = reply
+		got = resultText(r.rows(failed))
+		if strings.Contains(got, "-recover") || strings.Contains(got, "-configure") || strings.Contains(got, "-uninstall") {
+			t.Fatal(got)
+		}
 	}
 }
 
