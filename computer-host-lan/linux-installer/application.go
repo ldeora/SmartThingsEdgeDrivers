@@ -24,9 +24,60 @@ type maintenanceApplication struct {
 	nic        string
 	err        error
 	done       bool
+	fromConfig bool
+	pending    bool
+	generation uint64
+}
+
+type preparedSetup struct {
+	generation uint64
+	selection  *liveSelection
+	err        error
+}
+
+// Read-only preparation has no authorization capability. The generation
+// identifies this visit so a late reply cannot reopen a cancelled screen.
+type preparingScreen struct {
+	frame detailFrame
+}
+
+func (m preparingScreen) Init() tea.Cmd { return nil }
+
+func (m preparingScreen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if size, ok := msg.(tea.WindowSizeMsg); ok {
+		m.frame.width, m.frame.height = size.Width, size.Height
+	}
+	return m, nil
+}
+
+func (m preparingScreen) View() tea.View {
+	v := tea.NewView(m.frame.render("SETUP", []detailRow{
+		{"Searching for SmartThings hubs...", "header"},
+		{"Checking the local installation and network.", "normal"},
+	}, "Preparing setup", "Esc Back | Ctrl+C Exit"))
+	v.AltScreen = true
+	return v
 }
 
 func (m maintenanceApplication) Init() tea.Cmd { return nil }
+
+func (m maintenanceApplication) backToMenu() (tea.Model, tea.Cmd) {
+	m.pending = false
+	m.fromConfig = false
+	m.selection = nil
+	m.menu.chosen = ""
+	return m.switchScreen(m.menu)
+}
+
+func (m maintenanceApplication) backFromTask() (tea.Model, tea.Cmd) {
+	m.pending = false
+	m.selection = nil
+	if m.fromConfig {
+		m.fromConfig = false
+		return m.open("configure")
+	}
+	return m.backToMenu()
+}
 
 func (m maintenanceApplication) switchScreen(screen tea.Model) (tea.Model, tea.Cmd) {
 	init := screen.Init()
@@ -64,15 +115,16 @@ func (m maintenanceApplication) open(action string) (tea.Model, tea.Cmd) {
 		// Protected listing requires its own genuine authorization.
 		return m.finish("restore")
 	case "install", "upgrade", "repair":
-		s, err := m.prepare(action)
-		if err != nil {
-			m.err = err
-			return m.finish("")
-		}
-		m.selection = s
-		return m.switchScreen(installConsentWizard{
-			wizard: newWizardScreen(s, true, m.menu.monochrome), state: s,
+		m.generation++
+		m.pending = true
+		generation, prepare := m.generation, m.prepare
+		next, _ := m.switchScreen(preparingScreen{
+			frame: detailFrame{monochrome: m.menu.monochrome},
 		})
+		return next, func() tea.Msg {
+			s, err := prepare(action)
+			return preparedSetup{generation: generation, selection: s, err: err}
+		}
 	default:
 		m.err = fmt.Errorf("invalid maintenance selection")
 		return m.finish("")
@@ -84,11 +136,45 @@ func (m maintenanceApplication) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	switch event := msg.(type) {
+	case preparedSetup:
+		if !m.pending || event.generation != m.generation {
+			return m, nil
+		}
+		m.pending = false
+		if event.err != nil || event.selection == nil {
+			m.err = event.err
+			if m.err == nil {
+				m.err = fmt.Errorf("setup preparation returned no selection")
+			}
+			return m.finish("")
+		}
+		m.selection = event.selection
+		return m.switchScreen(installConsentWizard{
+			wizard: newWizardScreen(event.selection, true, m.menu.monochrome), state: event.selection,
+		})
 	case tea.WindowSizeMsg:
 		m.window = event
 	case tea.KeyPressMsg:
 		if event.String() == "ctrl+c" {
 			return m.finish("")
+		}
+		if event.String() == "esc" {
+			switch screen := m.screen.(type) {
+			case preparingScreen, operationScreen:
+				return m.backFromTask()
+			case operationConsentScreen:
+				if screen.consent == nil {
+					return m.backFromTask()
+				}
+			case nicSelectionScreen:
+				if screen.manual == nil {
+					return m.backFromTask()
+				}
+			case installConsentWizard:
+				if screen.consent == nil && screen.wizard.form.GetFocusedField().GetKey() == "welcome" {
+					return m.backFromTask()
+				}
+			}
 		}
 	}
 	next, cmd := m.screen.Update(msg)
@@ -110,15 +196,16 @@ func (m maintenanceApplication) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.finish("")
 	case inspectionScreen:
 		if cmd != nil {
-			return m.switchScreen(m.menu)
+			return m.backToMenu()
 		}
 	case operationScreen:
 		if cmd != nil {
 			switch current.chosen {
 			case "upgrade", "wol":
+				m.fromConfig = true
 				return m.open(current.chosen)
 			case "":
-				return m.finish("")
+				return m.backToMenu()
 			default:
 				m.err = fmt.Errorf("invalid configuration selection")
 				return m.finish("")
@@ -137,7 +224,7 @@ func (m maintenanceApplication) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.finish("")
 		}
 		if current.consent == nil && cmd != nil {
-			return m.finish("")
+			return m.backFromTask()
 		}
 	case nicSelectionScreen:
 		if current.done {
@@ -145,12 +232,14 @@ func (m maintenanceApplication) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.nic = current.chosen
 				return m.finish("wol")
 			}
-			return m.finish("")
+			return m.backFromTask()
 		}
 	case installConsentWizard:
-		if current.wizard.form.State == huh.StateAborted ||
-			(current.wizard.form.State == huh.StateCompleted && !*current.wizard.reviewChoice) {
+		if current.wizard.form.State == huh.StateAborted {
 			return m.finish("")
+		}
+		if current.wizard.form.State == huh.StateCompleted && !*current.wizard.reviewChoice {
+			return m.backFromTask()
 		}
 		if current.consent != nil && current.consent.done {
 			if current.consent.accepted() &&
