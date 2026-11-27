@@ -25,7 +25,7 @@ bundled version is recommended only when the installed file version can be
 reliably compared. Arrow keys or fixed numeric keys highlight tasks; Enter
 selects, Esc or Q exits. Unavailable tasks remain visible with an explanation.
 Protected backup availability and recovery state are not guessed by the menu.
-The full-screen chooser exits before invoking the existing operation wizard;
+The full-screen chooser opens ordinary operation screens in the same session;
 selecting a task is never authorization. `NO_COLOR` with a non-empty value
 disables colors. Accessible mode and non-terminal/unsupported maintenance
 streams retain the original plain prompts.
@@ -41,10 +41,11 @@ The framed wizard presents concise keyboard hints from the active native
 bindings; optional hints may be shortened to fit, but review text and
 validation errors are not clipped. Enter selects or advances; Shift+Tab goes
 Back when available. Review defaults to Continue, which is not authorization.
-Q is not a quit shortcut in the wizard. The alternate screen closes before
-the original typed confirmation and administrator authorization.
+Q is not a quit shortcut in the wizard. The literal confirmation stays in the
+same frame; the alternate screen closes before administrator authorization.
 Inspect opens a scrollable, read-only snapshot of installation, service,
-network and requirement observations, with a concise overview first. Verification limits are shown explicitly:
+network and requirement observations, with a concise overview first.
+Verification limits are shown explicitly:
 no runtime power/WOL test, private credentials or protected recovery inspection
 is implied. Use Up/Down, PgUp/PgDn or Home/End to navigate; Enter, Esc or Q closes
 the view and returns to the interactive maintenance menu. Plain inspection
@@ -54,8 +55,9 @@ Restore still requests administrator authorization to list private local
 backups before opening the full-screen chooser. The list is newest first,
 with the complete selected version, snapshot name, capture time, saved
 service/power settings and coverage shown below. Up/Down, PgUp/PgDn and Home/End
-navigate; Enter selects a backup for review, not restoration. The selected review and exact typed RESTORE confirmation remain inside the
-frame; it closes before administrator authorization.
+navigate; Enter selects a backup for review, not restoration. The review and
+exact typed RESTORE confirmation remain inside the frame; it closes before
+administrator authorization.
 Esc/Q cancels without restoring anything. Accessible maintenance and
 unsupported terminal streams keep the original plain prompts. CLI behavior
 and protected restore eligibility are unchanged.
