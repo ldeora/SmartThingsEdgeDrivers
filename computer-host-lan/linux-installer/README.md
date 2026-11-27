@@ -54,29 +54,40 @@ Restore still requests administrator authorization to list private local
 backups before opening the full-screen chooser. The list is newest first,
 with the complete selected version, snapshot name, capture time, saved
 service/power settings and coverage shown below. Up/Down, PgUp/PgDn and Home/End
-navigate; Enter selects a backup for review, not restoration. The alternate
-screen closes before the existing review and exact typed RESTORE confirmation.
+navigate; Enter selects a backup for review, not restoration. The selected review and exact typed RESTORE confirmation remain inside the
+frame; it closes before administrator authorization.
 Esc/Q cancels without restoring anything. Accessible maintenance and
 unsupported terminal streams keep the original plain prompts. CLI behavior
 and protected restore eligibility are unchanged.
 
-Configure opens a framed task chooser. Recovery and Uninstall show concise
-reviews. Non-removal reviews default to Continue; removal reviews default
-to Cancel. Continue opens the original typed RECOVER or UNINSTALL prompt.
-No authorization occurs in the review.
+On supported interactive terminals, the maintenance menu, Inspect, Configure,
+setup, recovery and uninstall reviews share one alternate-screen lifetime.
+Ordinary questions and the final INSTALL, REUSE, RECOVER and UNINSTALL words
+are entered inside the frame. Continue for non-removal reviews and Cancel
+for removal reviews remain the defaults; neither button alone authorizes
+changes. Literal fields require a separately submitted exact, case-sensitive
+word (surrounding spaces ignored), reject control/multiline and oversized
+input, and are limited to 127 bytes. Q is ordinary field input. Esc or Ctrl+C
+cancels; Ctrl+U clears the field. No hidden review can accept a submission.
 
-Saved Wake-on-LAN deliberately stays on the normal terminal from interface
-entry through status, separate REMOVE consent and result. This avoids an
-extra screen transition before the unified input and authorization work.
-The optional post-uninstall WOL question remains separate. Plain accessible
-maintenance paths and the machine-readable CLI retain their prior behavior.
+Protected restore listing and saved WOL checks need their own administrator
+authorization before informed consent. Restore selection and RESTORE review
+share the next full-screen session; the approved snapshot name/digest still
+binds to the original validated list. Saved WOL lists detected physical wired
+interfaces, preselects the unique suggestion when available and offers manual
+entry. After the protected check, status and REMOVE consent stay in one frame.
+Runtime-only and review-required statuses disclose restoration/retry limits;
+the helper still revalidates ownership. Optional WOL after uninstall defaults
+to keeping the existing setting. No password or elevated session is retained.
 
-The next presentation phase brings all questions and literal confirmation
-input into the full-screen flow, releasing the terminal only for genuine
-privileged handoffs. Protected listing/checking and subsequent mutations
-remain independently authorized unless a separately reviewed security
-design establishes an equivalent boundary. Structured results and actual
-transaction progress are also planned in that phase.
+Every framed program exits before privileged execution. The wrapper captures
+and verifies original tty modes and refuses handoff if restoration fails.
+Plain accessible and non-terminal fallback prompts, existing provider
+selection and request validation, and machine-readable CLI remain unchanged.
+Real provider prompts/privileged execution still run on the normal terminal;
+results still use the existing console summaries pending structured phase 4c.
+A mode check is not proof of input-loop quiescence; real provider and repeated
+PTY acceptance remain required.
 
 The previous `-live -install` spelling remains supported.
 Real installation uses an embedded inspector
