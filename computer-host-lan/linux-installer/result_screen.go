@@ -17,6 +17,7 @@ type operationReport struct {
 	runErr        error
 	called        bool
 	screenFailed  bool
+	continueWOL   bool
 }
 
 func operationLabel(action string) string {
@@ -216,13 +217,20 @@ func (r operationReport) rows(err error) []detailRow {
 // onboarding and recovery guidance, for scrollback after closing the screen.
 // Preserve the original operation error/exit status even if rendering fails.
 func (r *operationReport) present(w io.Writer, err error) error {
-	return r.presentWith(w, err, func(m inspectionScreen) error {
-		_, screenErr := runFramedProgram(m)
-		return screenErr
+	return r.presentWith(w, err, func(m inspectionScreen) (string, error) {
+		result, screenErr := runFramedProgram(m)
+		if screenErr != nil {
+			return "", screenErr
+		}
+		final, ok := result.(inspectionScreen)
+		if !ok {
+			return "", fmt.Errorf("unexpected result screen")
+		}
+		return final.closedBy, nil
 	})
 }
 
-func (r *operationReport) presentWith(w io.Writer, err error, show func(inspectionScreen) error) error {
+func (r *operationReport) presentWith(w io.Writer, err error, show func(inspectionScreen) (string, error)) error {
 	if !r.visible(err) {
 		return err
 	}
@@ -233,7 +241,13 @@ func (r *operationReport) presentWith(w io.Writer, err error, show func(inspecti
 		rows:  rows, title: "RESULT", statusPrefix: "Operation result",
 		closeHelp: "Up/Down Scroll | PgUp/PgDn Page | Enter/Esc/Q Close",
 	}
-	if screenErr := show(m); screenErr != nil {
+	optionalWOL := err == nil && r.action == "uninstall" && r.reply.Status == "uninstalled"
+	if optionalWOL {
+		m.closeHelp = "Scroll | Enter WOL options | Esc/Q/Ctrl+C Finish"
+	}
+	key, screenErr := show(m)
+	r.continueWOL = screenErr == nil && optionalWOL && key == "enter"
+	if screenErr != nil {
 		r.screenFailed = true
 		fmt.Fprintln(w, "Result screen unavailable. Use the terminal summary; do not repeat an operation just to see its result.")
 	}
