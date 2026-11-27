@@ -807,7 +807,7 @@ func runUninstallPresentation(accessible bool, reader io.Reader, writer io.Write
 	if err != nil || !strings.EqualFold(strings.TrimSpace(answer), "y") {
 		return nil
 	}
-	if err := runWOLPresentation(accessible, reader, writer, method, true); err != nil {
+	if err := runWOLManagement(reader, writer, method, true); err != nil {
 		fmt.Fprintln(writer, "Agent uninstalled. WOL removal was not completed:", err)
 	}
 	return nil
