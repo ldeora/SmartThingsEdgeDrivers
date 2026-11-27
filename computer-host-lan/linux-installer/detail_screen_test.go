@@ -68,7 +68,7 @@ func TestInspectionFrameObservationsAndScroll(t *testing.T) {
 			joined := strings.Join(text, "\n")
 			for _, want := range []string{"Service file: unsafe", "Power opt-in file: unreadable",
 				"Agent service: failed", "Start at boot: masked", "Managed file integrity: blocked",
-				"Recovery not inspected; identity/key not accessed or verified."} {
+				"Recovery not inspected; identity/key not read or verified."} {
 				if !strings.Contains(joined, want) {
 					t.Fatalf("missing observation %q", want)
 				}
@@ -80,7 +80,7 @@ func TestInspectionFrameObservationsAndScroll(t *testing.T) {
 			m = model.(inspectionScreen)
 			view = m.View().Content
 			assertDetailBounds(t, view, size[0], size[1], mono)
-			if m.offset != m.maxOffset() || !strings.Contains(view, "not accessed or verified.") {
+			if m.offset != m.maxOffset() || !strings.Contains(view, "not read or verified.") {
 				t.Fatal("last inspection page not reachable")
 			}
 		}
@@ -332,5 +332,25 @@ func TestBackupPlainLanguage(t *testing.T) {
 			rows[5].tone != "warning" {
 			t.Fatalf("unexpected backup details: %+v", rows)
 		}
+	}
+}
+
+func TestBackupListingAuthorizationFailureDoesNotOpenChooser(t *testing.T) {
+	var out bytes.Buffer
+	calls := 0
+	denied := fmt.Errorf("authorization cancelled")
+	err := restoreWizardWithChooser(strings.NewReader("RESTORE\n"), &out,
+		func(req privilegedRequest) (privilegedResult, error) {
+			calls++
+			if req.Action != "backups" {
+				t.Fatal("unexpected action")
+			}
+			return privilegedResult{}, denied
+		}, "unknown", func(_ []backupSummary, _ string) (int, error) {
+			t.Fatal("failed authorization opened chooser")
+			return -1, nil
+		})
+	if err != denied || calls != 1 {
+		t.Fatalf("unexpected authorization result: %v, %d", err, calls)
 	}
 }
