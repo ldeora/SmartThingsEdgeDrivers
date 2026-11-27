@@ -267,9 +267,8 @@ func manageWOLSelected(writer io.Writer, nic string,
 }
 
 func runSelectedWOL(writer io.Writer, method, nic string) error {
-	return manageWOLSelected(writer, nic, func(req privilegedRequest) (privilegedResult, error) {
-		return executeAuthorizedBootstrap(req, true, method)
-	}, func(nic string, reply privilegedResult) (bool, error) {
+	var report operationReport
+	err := manageWOLSelected(writer, nic, observedAuthorization(writer, method, &report), func(nic string, reply privilegedResult) (bool, error) {
 		m := wolRemovalReview(nic, reply)
 		m.frame.monochrome = os.Getenv("NO_COLOR") != ""
 		if reply.WOLStatus == "not_managed" {
@@ -278,6 +277,7 @@ func runSelectedWOL(writer io.Writer, method, nic string) error {
 		}
 		return runOperationConsent(m, "REMOVE")
 	})
+	return report.present(writer, err)
 }
 
 func runWOLPresentation(accessible bool, reader io.Reader, writer io.Writer, method string, optional bool) error {

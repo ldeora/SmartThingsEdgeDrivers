@@ -92,8 +92,29 @@ Every framed program exits before privileged execution. The wrapper captures
 and verifies original tty modes and refuses handoff if restoration fails.
 Plain accessible and non-terminal fallback prompts, existing provider
 selection and request validation, and machine-readable CLI remain unchanged.
-Real provider prompts/privileged execution still run on the normal terminal;
-results still use the existing console summaries pending structured phase 4c.
+Real provider prompts and privileged execution still run on the normal
+terminal. The helper has no intermediate progress stream: the installer
+displays an indeterminate waiting message before authorization, not invented
+transaction stages or a spinner that could overwrite password prompts.
+
+After execution, interactive terminals display a scrollable result screen
+based on the validated helper reply and process outcome. Committed operations
+requiring cleanup, rollback, aborted changes, recovery required, pre-start
+failure and unconfirmed outcomes are distinguished. Success data with an
+unsuccessful process exit is not treated as confirmed success. Credential
+continuity and WOL/discovery verification limits remain in the detailed terminal
+summary; the install result shows the requested power policy and WOL outcome
+without treating unchanged settings as verified. An unconfirmed result advises
+inspection or recovery rather than assuming authorization was refused.
+Close the result to see the existing detailed console summary and diagnostics;
+closing does not retry, recover or execute another operation. The original
+return status is preserved even if the result screen cannot be displayed.
+Optional WOL cleanup after a successful uninstall remains separately authorized.
+Enter on a clean uninstall result opens WOL options; Esc, Q or Ctrl+C finishes.
+A failed result-screen terminal handoff suppresses that optional workflow.
+Successful read-only backup listing and WOL checks retain their chooser/review
+without another result screen. Plain accessible/CLI output remains unchanged.
+
 A mode check is not proof of input-loop quiescence; real provider and repeated
 PTY acceptance remain required.
 
