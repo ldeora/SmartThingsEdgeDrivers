@@ -5,6 +5,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/huh/v2"
@@ -221,7 +222,14 @@ func TestMaintenanceApplicationPTYHarness(t *testing.T) {
 	if mode == "" {
 		t.Skip("external PTY harness")
 	}
-	result, err := runFramedProgram(fixtureApplication(t))
+	m := fixtureApplication(t)
+	prepare := m.prepare
+	m.prepare = func(action string) (*liveSelection, error) {
+		// Make the read-only preparation screen observable in the PTY.
+		time.Sleep(300 * time.Millisecond)
+		return prepare(action)
+	}
+	result, err := runFramedProgram(m)
 	if err != nil {
 		t.Fatal(err)
 	}
