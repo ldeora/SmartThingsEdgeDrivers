@@ -52,11 +52,23 @@ func TestApplicationNavigationAndApproval(t *testing.T) {
 	if _, ok := m.screen.(operationScreen); !ok || m.done {
 		t.Fatal("Configure left the application")
 	}
+	m, _ = appEvent(m, tea.KeyPressMsg{Code: tea.KeyEscape})
+	if _, ok := m.screen.(maintenanceScreen); !ok || m.done {
+		t.Fatal("Configure Escape did not return to menu")
+	}
+	m, _ = appKey(m, '2')
+	m, _ = appEvent(m, tea.KeyPressMsg{Code: tea.KeyEnter})
 	m, _ = appKey(m, '2')
 	m, _ = appEvent(m, tea.KeyPressMsg{Code: tea.KeyEnter})
 	if _, ok := m.screen.(nicSelectionScreen); !ok || m.done {
 		t.Fatal("WOL selection left the application before interface selection")
 	}
+	m, _ = appEvent(m, tea.KeyPressMsg{Code: tea.KeyEscape})
+	if _, ok := m.screen.(operationScreen); !ok || m.done {
+		t.Fatal("WOL Escape did not return to Configure")
+	}
+	m, _ = appKey(m, '2')
+	m, _ = appEvent(m, tea.KeyPressMsg{Code: tea.KeyEnter})
 	m, cmd := appEvent(m, tea.KeyPressMsg{Code: tea.KeyEnter})
 	if !m.done || cmd == nil || m.action != "wol" || m.nic != "LAN1" {
 		t.Fatal("selected interface not returned for authorized check")
@@ -148,6 +160,11 @@ func TestApplicationSetupRequiresLiteralAfterNativeReview(t *testing.T) {
 			}
 			if reopened.wizard.form.State != huh.StateNormal || reopened.state != wizard.state {
 				t.Fatal("review did not preserve the original choices")
+			}
+			// A delayed navigation message from the old completed form is ignored.
+			m, cmd = appEvent(m, wizardCommandMsg{form: wizard.wizard.form, msg: huh.NextField()})
+			if cmd != nil || m.done || m.screen.(installConsentWizard).consent != nil {
+				t.Fatal("stale form command advanced reopened Review")
 			}
 			// A second approval must run through native Review again.
 			m, cmd = appEvent(m, huh.NextField())
