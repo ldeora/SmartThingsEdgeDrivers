@@ -55,7 +55,7 @@ esac
 """ % (INSPECT, PLAN)
 
 
-def exercise(binary: str, api: str, *, fresh: bool = False) -> None:
+def exercise(binary: str, api: str, *, fresh: bool = False, width: int = 110) -> None:
     pid, master = pty.fork()
     if pid == 0:
         try:
@@ -70,7 +70,7 @@ def exercise(binary: str, api: str, *, fresh: bool = False) -> None:
             print(f'PTY execution failed: {exc}', file=sys.stderr)
             os._exit(127)
 
-    fcntl.ioctl(master, termios.TIOCSWINSZ, struct.pack('HHHH', 40, 110, 0, 0))
+    fcntl.ioctl(master, termios.TIOCSWINSZ, struct.pack('HHHH', 40, width, 0, 0))
     os.set_blocking(master, False)
     captured = bytearray()
     child_status = None
@@ -102,6 +102,10 @@ def exercise(binary: str, api: str, *, fresh: bool = False) -> None:
 
     try:
         wait_for(b'1. Welcome')
+        if width >= 100:
+            wait_for(b'Power & WOL')
+        elif b'Power & WOL' in captured:
+            raise AssertionError('wide sidebar displayed in compact terminal')
         mark = send(b'\r')
         wait_for(b'2. SmartThings hub', mark)
         wait_for(b'192.168.1.103', mark)
@@ -172,6 +176,7 @@ def main() -> int:
             encoding='utf-8')
         avahi.chmod(0o755)
         exercise(sys.argv[1], str(api))
+        exercise(sys.argv[1], str(api), width=80)
         inspect = json.loads(INSPECT)
         inspect['installation'].update(detected=False, service_file='absent',
                                        power_dropin='absent', avahi_service_file='absent',
