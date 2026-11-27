@@ -626,11 +626,11 @@ func liveForm(s *liveSelection) *huh.Form {
 }
 
 func liveFormMode(s *liveSelection, installing bool) *huh.Form {
-	return huh.NewForm(liveFormGroups(s, installing)...)
+	return huh.NewForm(liveFormGroups(s, installing, &s.finished)...)
 }
 
 // Keep one source of truth for both native and framed presentation.
-func liveFormGroups(s *liveSelection, installing bool) []*huh.Group {
+func liveFormGroups(s *liveSelection, installing bool, reviewChoice *bool) []*huh.Group {
 	nicHelp := "Select the wired Ethernet interface. The persistent policy will be shown before confirmation."
 	if s.wolNIC == "" {
 		nicHelp = "Enter your wired Ethernet interface name (for example enp1s0f0)."
@@ -724,7 +724,7 @@ func liveFormGroups(s *liveSelection, installing bool) []*huh.Group {
 						return errors.New("Python changed since the initial check. Please restart.")
 					}
 					return nil
-				}).Value(&s.finished),
+				}).Value(reviewChoice),
 		).Title("4. Review"),
 	}
 }
