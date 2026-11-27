@@ -125,7 +125,7 @@ CLI users can review `cli backups` and then use `cli restore --backup NAME
 ### Maintenance menu
 
 Run `./computer-host-linux-installer` again as your normal user. The menu
-uses fixed keys; options not shown do not apply to the observed state.
+uses fixed keys. In the full-screen menu, use Up/Down or a number to highlight a task, then Enter to select it. Esc or Q exits the menu without changes. Unavailable tasks may be shown disabled; read the reason before proceeding.
 
 | Key | Action |
 | --- | --- |
@@ -136,7 +136,7 @@ uses fixed keys; options not shown do not apply to the observed state.
 | 5 | Recover an interrupted operation |
 | 6 | Inspect installation status, read-only |
 | 7 | Uninstall agent (existing agent); keep private state and backups |
-| 0 / Enter | Exit without changes |
+| 0 | Highlight Exit; press Enter to leave without changes |
 
 Selecting a task is not authorization. Follow its separate confirmation.
 Inspect does not verify the protected journal; use `cli status` for that.

@@ -1,6 +1,6 @@
 # Upgrade, reinstall and maintenance — v1.0.0-rc.3
 
-**Upgrading? Run the new installer over your existing installation. Your device, settings, routines and key are kept; nothing needs to be changed in SmartThings.**
+**Upgrading? Run the new installer over your existing installation. Normal upgrades are designed to retain your device, settings, routines and key. Refresh the existing device rather than pairing again.**
 
 This guide is for v1.0.0-rc.3. Use the
 [Linux Quick Start](LINUX-INSTALLER-QUICK-START.md) or
@@ -28,7 +28,7 @@ need a simultaneous update; test that both devices still work after an upgrade.
 ## Upgrade in place
 
 Linux: run the verified standalone installer as your normal user and choose
-**1 — Upgrade**. An existing rc.2 v2 installation is eligible for migration
+**1 — Upgrade** (highlight, then Enter in the full-screen menu). An existing rc.2 v2 installation is eligible for migration
 without uninstalling. Keep power and WOL unless intentionally changing them.
 Python 3.10+ is selected automatically; no elevated interpreter override.
 Review and type INSTALL. Windows: run the newer Setup over the existing
