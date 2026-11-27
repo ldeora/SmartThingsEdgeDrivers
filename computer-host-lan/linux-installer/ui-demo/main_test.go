@@ -135,3 +135,15 @@ func TestSmallWindowAndExit(t *testing.T) {
 		t.Fatal("exit task did not quit")
 	}
 }
+
+func TestNoColorConvention(t *testing.T) {
+	for _, tc := range []struct {
+		value string
+		want  bool
+	}{{"", false}, {"1", true}, {"0", true}, {"false", true}} {
+		t.Setenv("NO_COLOR", tc.value)
+		if got := noColor(); got != tc.want {
+			t.Errorf("NO_COLOR=%q: got %t, want %t", tc.value, got, tc.want)
+		}
+	}
+}
