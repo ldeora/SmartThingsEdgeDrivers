@@ -46,6 +46,12 @@ jobs:
         run: |
           cd ../scripts/ci
           python3 -B -m unittest -v test_collect_license_evidence
+      - name: Test Linux third-party notices generator (fixtures only)
+        run: |
+          cd ../scripts/ci
+          python3 -B -m unittest -v test_linux_third_party_notices
+      - name: Check Linux third-party notices match the module graph
+        run: python3 -B ../scripts/ci/linux_third_party_notices.py check
       - name: Test embedded bundle generator
         run: python3 -B -m unittest -v test_sync_bundle
       - name: Check generated embedded bundle is current
@@ -74,6 +80,8 @@ jobs:
       - name: Build and non-interactive smoke test
         run: |
           go build -o "$RUNNER_TEMP/computer-host-linux-tui-demo" .
+          go version -m "$RUNNER_TEMP/computer-host-linux-tui-demo" > "$RUNNER_TEMP/tui-build-info.txt"
+          python3 -B ../scripts/ci/linux_third_party_notices.py check --build-info "$RUNNER_TEMP/tui-build-info.txt"
           "$RUNNER_TEMP/computer-host-linux-tui-demo" -preview > "$RUNNER_TEMP/tui-preview.txt"
           grep -q 'DEMO ONLY — NO CHANGES WILL BE MADE' "$RUNNER_TEMP/tui-preview.txt"
           grep -q 'Power management: false' "$RUNNER_TEMP/tui-preview.txt"

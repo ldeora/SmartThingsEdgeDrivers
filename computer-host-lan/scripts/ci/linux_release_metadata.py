@@ -9,12 +9,31 @@ from pathlib import Path
 import re
 import shutil
 
+if __package__:
+    from .linux_third_party_notices import NoticeError, check_build_info as notices_match
+else:
+    from linux_third_party_notices import NoticeError, check_build_info as notices_match
+
 
 def asset_name(manifest: dict) -> str:
     version = manifest["integration"]
     if not re.fullmatch(r"\d+\.\d+\.\d+(?:-rc\.\d+|-beta\.\d+)?", version):
         raise ValueError("invalid integration version")
     return f"computer-host-lan-v{version}-linux-x64-unsigned-installer"
+
+
+def notices_name(manifest: dict) -> str:
+    return asset_name(manifest).replace("-unsigned-installer", "-third-party-notices.txt")
+
+
+def check_notices(path: Path, build_info: str) -> None:
+    """The notices asset must name exactly the modules linked into the binary."""
+    if path.is_symlink() or not path.is_file():
+        raise ValueError("missing Linux third-party notices")
+    try:
+        notices_match(path.read_text(encoding="utf-8"), build_info)
+    except NoticeError as exc:
+        raise ValueError(f"Linux third-party notices: {exc}") from exc
 
 
 def file_hash(path: Path) -> str:
@@ -76,7 +95,8 @@ def check_checksum(path: Path, name: str, digest: str) -> None:
         raise ValueError("Linux executable checksum mismatch")
 
 
-def assemble(a: Path, b: Path, output: Path, manifest: dict, commit: str) -> None:
+def assemble(a: Path, b: Path, output: Path, manifest: dict, commit: str,
+             notices: Path) -> None:
     name = asset_name(manifest)
     digest = file_hash(a / name)
     expected = expected_fields(manifest, commit, digest)
@@ -88,10 +108,12 @@ def assemble(a: Path, b: Path, output: Path, manifest: dict, commit: str) -> Non
     check_build_info(info, expected)
     for replica in (a, b):
         check_checksum(replica / f"{name}.sha256", name, digest)
+    check_notices(notices, info)
     output.mkdir(parents=True, exist_ok=False)
     shutil.copyfile(a / name, output / name)
     (output / name).chmod(0o755)
     shutil.copyfile(a / f"{name}.sha256", output / f"{name}.sha256")
+    shutil.copyfile(notices, output / notices_name(manifest))
     (output / f"{name}.build-info.json").write_text(
         json.dumps({**expected, "go_build_info": info}, indent=2) + "\n",
         encoding="utf-8")
@@ -114,6 +136,7 @@ def validate_metadata(directory: Path, manifest: dict, commit: str) -> None:
         if type(metadata[key]) is not type(value) or metadata[key] != value:
             raise ValueError(f"Linux BUILD-INFO {key} mismatch")
     check_build_info(metadata["go_build_info"], expected)
+    check_notices(directory / notices_name(manifest), metadata["go_build_info"])
 
 
 def main() -> None:
@@ -123,9 +146,12 @@ def main() -> None:
     parser.add_argument("--replica-a", type=Path, required=True)
     parser.add_argument("--replica-b", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument("--notices", type=Path, required=True,
+                        help="committed linux-installer/THIRD-PARTY-NOTICES.txt")
     args = parser.parse_args()
     assemble(args.replica_a, args.replica_b, args.output_dir,
-             json.loads(args.manifest.read_text(encoding="utf-8")), args.source_commit)
+             json.loads(args.manifest.read_text(encoding="utf-8")), args.source_commit,
+             args.notices)
 
 
 if __name__ == "__main__":

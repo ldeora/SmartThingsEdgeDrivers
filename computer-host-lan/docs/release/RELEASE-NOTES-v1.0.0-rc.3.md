@@ -59,6 +59,7 @@ checks exact VCS revision, compares bytes and emits matching build metadata.
 - `computer-host-lan-v1.0.0-rc.3-linux-x64-unsigned-installer`
 - `computer-host-lan-v1.0.0-rc.3-linux-x64-unsigned-installer.sha256` — executable checksum
 - `computer-host-lan-v1.0.0-rc.3-linux-x64-unsigned-installer.build-info.json` — exact source, component versions, toolchain and digest
+- `computer-host-lan-v1.0.0-rc.3-linux-x64-third-party-notices.txt` — licence texts of the Go modules and runtime compiled into the Linux installer
 - `computer-host-lan-v1.0.0-rc.3-windows-x64-unsigned-setup.exe`
 - `computer-host-lan-v1.0.0-rc.3-windows-x64-unsigned.zip`
 - `computer-host-lan-v1.0.0-rc.3-source.zip` — **source only**, not an installer

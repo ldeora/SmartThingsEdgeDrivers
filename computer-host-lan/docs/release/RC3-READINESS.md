@@ -217,13 +217,14 @@ or rebuild the accepted assets just to change a banner.
    ordinary wizard integration artifact. Record the run and artifact IDs.
    Preserve an immutable local copy (artifact retention is seven days).
 2. In the extracted candidate directory run
-   `sha256sum --check SHA256SUMS.txt`. Verify the seven manifest entries,
+   `sha256sum --check SHA256SUMS.txt`. Verify the eight manifest entries,
    Linux .sha256 and .build-info.json (source_commit, versions, Go 1.25.14,
    unsigned=true, attested=false, reproducible=true). Check the Windows ZIP's
    BUILD-INFO.json against the same source SHA. Validate the complete set
    with the exact source's `scripts/ci/verify_release_bundle.py`, specifying
    --directory, --manifest and --source-commit. Record exact asset digests.
-   Confirm notices and redistribution terms; no automated license sign-off
+   Confirm notices and redistribution terms, including the Linux
+   third-party notices asset; no automated license sign-off
    is implied. Test only these checked candidate bytes.
 3. Check out the recorded source SHA in a clean checkout. Use the existing
    Computer Host LAN driver identity and package its edge-driver directory
@@ -246,7 +247,7 @@ or rebuild the accepted assets just to change a banner.
 5. Obtain explicit maintainer approval for the exact commit, asset digests
    and tested driver version. Create the immutable
    computer-host-lan-v1.0.0-rc.3 tag pointing to that commit, then create a
-   draft GitHub prerelease with the exact seven assets plus SHA256SUMS.txt.
+   draft GitHub prerelease with the exact eight assets plus SHA256SUMS.txt.
    Use the versioned release notes as the body; do not upload replica logs,
    intermediate hashes or development artifacts. Re-download draft assets,
    verify their hashes and source metadata, tag target and draft state.

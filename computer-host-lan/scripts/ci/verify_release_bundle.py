@@ -13,9 +13,9 @@ import re
 from zipfile import ZipFile
 
 if __package__:
-    from .linux_release_metadata import validate_metadata
+    from .linux_release_metadata import notices_name, validate_metadata
 else:
-    from linux_release_metadata import validate_metadata
+    from linux_release_metadata import notices_name, validate_metadata
 
 
 def validate_bundle(directory: Path, manifest: dict, commit: str) -> None:
@@ -66,7 +66,8 @@ def validate_bundle(directory: Path, manifest: dict, commit: str) -> None:
         installer = f"{name}-linux-x64-unsigned-installer"
         published = expected_zips | {setups[0], installer,
                                      installer + ".sha256",
-                                     installer + ".build-info.json"}
+                                     installer + ".build-info.json",
+                                     notices_name(manifest)}
         sums = directory / "SHA256SUMS.txt"
         entries = {}
         for line in sums.read_text(encoding="ascii").splitlines():

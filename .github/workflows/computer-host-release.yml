@@ -73,6 +73,7 @@ jobs:
           go mod verify
           go mod tidy -diff
           python3 -B sync_bundle.py --check
+          python3 -B ../scripts/ci/linux_third_party_notices.py check
           go test -count=1 ./...
           go vet ./...
           test -z "$(git status --porcelain)"
@@ -85,6 +86,7 @@ jobs:
           go version -m "$out/$name" > "$out/go-build-info.txt"
           grep -F "vcs.revision=$GITHUB_SHA" "$out/go-build-info.txt"
           grep -F "vcs.modified=false" "$out/go-build-info.txt"
+          python3 -B ../scripts/ci/linux_third_party_notices.py check --build-info "$out/go-build-info.txt"
           # The inert preview must never elevate or touch host state.
           "$out/$name" -preview > "$RUNNER_TEMP/linux-preview.txt"
           grep -F 'DEMO ONLY' "$RUNNER_TEMP/linux-preview.txt"
@@ -124,6 +126,7 @@ jobs:
             --source-commit "$GITHUB_SHA" \
             --replica-a "$RUNNER_TEMP/linux-a" \
             --replica-b "$RUNNER_TEMP/linux-b" \
+            --notices computer-host-lan/linux-installer/THIRD-PARTY-NOTICES.txt \
             --output-dir "$RUNNER_TEMP/computer-host-linux"
       - uses: actions/upload-artifact@v7
         with:
@@ -291,7 +294,8 @@ jobs:
           sha256sum -c ./computer-host-lan-v*-SHA256SUMS.txt
           sha256sum -c ./*-linux-x64-unsigned-installer.sha256
           sha256sum -- *.zip *setup.exe *-linux-x64-unsigned-installer \
-            *-linux-x64-unsigned-installer.sha256 *-linux-x64-unsigned-installer.build-info.json > SHA256SUMS.txt
+            *-linux-x64-unsigned-installer.sha256 *-linux-x64-unsigned-installer.build-info.json \
+            *-linux-x64-third-party-notices.txt > SHA256SUMS.txt
           sha256sum -c SHA256SUMS.txt
           python3 "$GITHUB_WORKSPACE/computer-host-lan/scripts/ci/verify_release_bundle.py" \
             --directory "$PWD" \
@@ -305,7 +309,7 @@ jobs:
             "Linux executable is unsigned, reproduced independently, and not attested." \
             "Real Linux and Windows hub/mDNS/WOL, lifecycle and Windows first-paint tests remain pending." \
             > RELEASE-CANDIDATE-NOTICE.txt
-          ls -lh *.zip *setup.exe *-linux-x64-unsigned-installer* SHA256SUMS.txt
+          ls -lh *.zip *setup.exe *-linux-x64-unsigned-installer* *-linux-x64-third-party-notices.txt SHA256SUMS.txt
       - name: Upload one complete unsigned candidate set
         uses: actions/upload-artifact@v7
         with:
