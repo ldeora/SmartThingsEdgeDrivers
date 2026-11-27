@@ -433,7 +433,10 @@ func scopedWizardCommand(form *huh.Form, cmd tea.Cmd) tea.Cmd {
 }
 
 func (m installConsentWizard) Init() tea.Cmd {
-	return scopedWizardCommand(m.wizard.form, m.wizard.Init())
+	// Huh Init uses Bubble Tea's private Sequence message and terminal
+	// size request. Let Bubble Tea dispatch those native startup commands.
+	// Subsequent field navigation commands are scoped to this form.
+	return m.wizard.Init()
 }
 
 // A completed Huh form cannot be reopened. Reconstruct the native form
