@@ -56,8 +56,8 @@ esac
 
 
 def exercise(binary: str, api: str, *, fresh: bool = False, width: int = 110,
-             short_color: bool = False) -> None:
-    height = 18 if short_color else 40
+             short_color: bool = False, finish: bool = False) -> None:
+    height = 18 if short_color else (24 if finish else 40)
     pid, master = pty.fork()
     if pid == 0:
         try:
@@ -162,8 +162,12 @@ def exercise(binary: str, api: str, *, fresh: bool = False, width: int = 110,
             mark = send(b'\r')
             wait_for(b'4. Review', mark)
             wait_for(b'192.168.1.104 (entered manually)', mark)
-        mark = send(b'\x03')
-        wait_for(b'Setup preview cancelled. No changes made.', mark, 6)
+        if finish:
+            mark = send(b'\r')  # Continue is the default, not Cancel.
+            wait_for(b'SETUP PREVIEW COMPLETE', mark, 6)
+        else:
+            mark = send(b'\x03')
+            wait_for(b'Setup preview cancelled. No changes made.', mark, 6)
         attrs = termios.tcgetattr(master)
         if not attrs[3] & termios.ICANON or not attrs[3] & termios.ECHO:
             raise AssertionError('terminal still in raw/no-echo mode after wizard exit')
@@ -176,7 +180,8 @@ def exercise(binary: str, api: str, *, fresh: bool = False, width: int = 110,
             time.sleep(0.05)
         if child_status is None or not os.WIFEXITED(child_status) or os.WEXITSTATUS(child_status):
             raise AssertionError(f'Expected clean cancellation, got status={child_status}')
-        print('PASS novice live PTY: welcome -> preselected hub -> power -> Review -> cancel')
+        outcome = 'finish preview' if finish else 'cancel'
+        print(f'PASS novice live PTY: welcome -> hub -> power -> Review -> {outcome}')
     except Exception:
         print('Captured terminal tail:', bytes(captured[-9000:]).decode(errors='replace'), file=sys.stderr)
         raise
@@ -209,6 +214,8 @@ def main() -> int:
         avahi.chmod(0o755)
         exercise(sys.argv[1], str(api))
         exercise(sys.argv[1], str(api), width=80)
+        exercise(sys.argv[1], str(api), width=100, finish=True)
+        print('PASS 100x24 preview: Enter accepts Review without mutation')
         exercise(sys.argv[1], str(api), short_color=True)
         print('PASS colored short/resized wizard: real arrow, manual input, Back, cancel')
         inspect = json.loads(INSPECT)
