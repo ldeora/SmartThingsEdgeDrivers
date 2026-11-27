@@ -22,7 +22,7 @@ def resize(fd: int, width: int, height: int) -> None:
 
 
 def smoke(binary: str, mode: str) -> None:
-    detail = mode in ('inspect', 'backup-cancel', 'backup-review')
+    detail = mode in ('inspect', 'backup-cancel', 'backup-review', 'backup-approve')
     operation = mode in ('configure', 'recover', 'uninstall')
     app = mode.startswith('app-')
     width, height = (60, 20) if mode == 'resize' else ((64, 22) if detail or operation else (110, 40) if app else (100, 28))
@@ -157,14 +157,13 @@ def smoke(binary: str, mode: str) -> None:
                 os.write(master, b'q')
             else:
                 os.write(master, b'\r')
-                pump_until(b'Type RESTORE to authorize this backup')
-                if b'Restore agent 0.4.6-rc.2 from snapshot-test32' not in collected:
-                    raise AssertionError('selected backup changed at terminal handoff')
-                attrs = termios.tcgetattr(master)
-                if not attrs[3] & termios.ICANON or not attrs[3] & termios.ECHO:
-                    raise AssertionError('restore review still in raw/no-echo mode')
-                os.write(master, b'NO\n')
-                pump_until(b'No agent changes made.')
+                pump_until(b'Type RESTORE to authorize:')
+                pump_until(b'Enter Submit | Ctrl+U Clear')
+                if b'\x1b[?1049l' in collected:
+                    raise AssertionError('backup chooser exited before literal consent')
+                os.write(master, b'RESTORE\r' if mode == 'backup-approve' else b'NO\r')
+                if mode == 'backup-approve':
+                    pump_until(b'Historical backup restored.')
             pump_until(b'PTY RESTORE CLOSED')
         elif mode == 'cancel':
             pump_until(b'(recommended)')
@@ -214,7 +213,7 @@ def main() -> int:
     if len(sys.argv) != 2 or not os.path.isabs(sys.argv[1]):
         print('Usage: python3 pty_maintenance.py /absolute/path/to/Go-test-binary', file=sys.stderr)
         return 2
-    for mode in ('route', 'cancel', 'resize', 'inspect', 'backup-cancel', 'backup-review',
+    for mode in ('route', 'cancel', 'resize', 'inspect', 'backup-cancel', 'backup-review', 'backup-approve',
                  'configure', 'recover', 'uninstall', 'app-recover', 'app-wol', 'app-install'):
         smoke(sys.argv[1], mode)
     return 0
