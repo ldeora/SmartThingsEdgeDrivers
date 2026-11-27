@@ -362,7 +362,7 @@ func backupPowerLabel(value string) string {
 func backupDetails(b backupSummary) []detailRow {
 	coverage, tone := "Complete managed-file coverage", "normal"
 	if b.Coverage == "partial" {
-		coverage, tone = "Some optional settings were not saved; current ones are kept.", "warning"
+		coverage, tone = "Unsaved optional settings are kept as they are.", "warning"
 	}
 	return []detailRow{
 		{"SELECTED BACKUP", "header"},
