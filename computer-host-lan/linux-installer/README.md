@@ -60,7 +60,18 @@ Esc/Q cancels without restoring anything. Accessible maintenance and
 unsupported terminal streams keep the original plain prompts. CLI behavior
 and protected restore eligibility are unchanged.
 
-Structured operation/result screens remain separate integration work.
+Configure opens a framed task chooser. Recovery and Uninstall show a
+concise review of what will change and what is retained, with Cancel selected
+by default. Enter on Continue closes the full screen and opens the original
+typed RECOVER or UNINSTALL prompt. No authorization occurs in the review.
+Saved Wake-on-LAN retains the normal terminal's interface entry and authorized
+check, then shows the validated policy status in a framed review. Cancel keeps
+the policy; Continue still requires the exact REMOVE token before removal.
+The optional post-uninstall WOL question remains separate. Plain accessible
+maintenance paths and the machine-readable CLI retain their prior behavior.
+
+Structured result screens and actual transaction progress remain separate
+integration work.
 
 The previous `-live -install` spelling remains supported.
 Real installation uses an embedded inspector
