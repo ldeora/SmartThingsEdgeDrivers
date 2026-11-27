@@ -99,6 +99,7 @@ def smoke(binary: str, mode: str) -> None:
                 pump_until(b'PTY APP HANDOFF wol')
             else:
                 os.write(master, b'1\r')
+                pump_until(b'Searching for SmartThings hubs')
                 pump_until(b'1. Welcome')
                 os.write(master, b'\r')
                 pump_until(b'2. SmartThings hub')
@@ -115,7 +116,11 @@ def smoke(binary: str, mode: str) -> None:
                 pump_until(b'Enter Submit | Ctrl+U Clear')
                 if b'\x1b[?1049l' in collected:
                     raise AssertionError('application exited before setup consent')
-                os.write(master, b'INSTALL\r')
+                os.write(master, b'INSTAL\r')
+                pump_until(b'exactly, or Esc to go back.')
+                if b'\x1b[?1049l' in collected:
+                    raise AssertionError('mistyped confirmation exited the application')
+                os.write(master, b'L\r')
                 pump_until(b'PTY APP HANDOFF install-reviewed')
             attrs = termios.tcgetattr(master)
             if not attrs[3] & termios.ICANON or not attrs[3] & termios.ECHO:
@@ -135,6 +140,8 @@ def smoke(binary: str, mode: str) -> None:
                 pump_until(b'Type ' + token + b' to authorize:')
                 pump_until(b'Enter Submit | Ctrl+U Clear')
                 os.write(master, b'NO\r')
+                pump_until(b'exactly, or Esc to go back.')
+                os.write(master, b'\x03')
                 pump_until(b'PTY CONSENT CANCELLED')
                 attrs = termios.tcgetattr(master)
                 if not attrs[3] & termios.ICANON or not attrs[3] & termios.ECHO:
@@ -164,6 +171,9 @@ def smoke(binary: str, mode: str) -> None:
                 os.write(master, b'RESTORE\r' if mode == 'backup-approve' else b'NO\r')
                 if mode == 'backup-approve':
                     pump_until(b'Historical backup restored.')
+                else:
+                    pump_until(b'exactly, or Esc to go back.')
+                    os.write(master, b'\x03')
             pump_until(b'PTY RESTORE CLOSED')
         elif mode == 'cancel':
             pump_until(b'(recommended)')
