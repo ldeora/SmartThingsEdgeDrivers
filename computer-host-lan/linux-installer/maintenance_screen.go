@@ -55,18 +55,40 @@ func menuVersion(s string) ([5]uint64, bool) {
 	return v, true
 }
 
-func menuNewerVersion(installed, bundled string) bool {
+// A negative result means the installed version is older; a positive result
+// means it is newer. Unknown versions never imply equality.
+func compareMenuVersions(installed, bundled string) (int, bool) {
 	a, okA := menuVersion(installed)
 	b, okB := menuVersion(bundled)
 	if !okA || !okB {
-		return false
+		return 0, false
 	}
 	for i := range a {
-		if a[i] != b[i] {
-			return a[i] < b[i]
+		if a[i] < b[i] {
+			return -1, true
+		}
+		if a[i] > b[i] {
+			return 1, true
 		}
 	}
-	return false
+	return 0, true
+}
+
+func menuServiceLabel(state string) string {
+	switch state {
+	case "active":
+		return "running"
+	case "inactive":
+		return "stopped"
+	case "failed":
+		return "failed"
+	case "activating":
+		return "starting"
+	case "deactivating":
+		return "stopping"
+	default:
+		return "unknown"
+	}
 }
 
 type visualMaintenanceChoice struct {
@@ -77,7 +99,7 @@ type visualMaintenanceChoice struct {
 type maintenanceScreen struct {
 	choices                    []visualMaintenanceChoice
 	installed, bundled, status string
-	service                    string
+	service, statusTone        string
 	width, height, cursor      int
 	recommended, monochrome    bool
 	chosen                     string
@@ -100,8 +122,9 @@ func newMaintenanceScreen(info apiInspect, installed, bundled string, monochrome
 	}
 	m := maintenanceScreen{
 		installed: installed, bundled: bundled, monochrome: monochrome,
-		status:  "Installation state needs attention",
-		service: info.Installation.AgentServiceState,
+		status:     "Installation state needs attention",
+		statusTone: "muted",
+		service:    menuServiceLabel(info.Installation.AgentServiceState),
 		choices: []visualMaintenanceChoice{
 			choice("1", first, "Review setup using the bundled version."),
 			choice("2", second, "Review power or network settings."),
@@ -128,9 +151,21 @@ func newMaintenanceScreen(info apiInspect, installed, bundled string, monochrome
 	// The installed version is an observed file version, not a runtime
 	// result. Do not recommend changes on ambiguous service-file state.
 	if info.Installation.Detected && info.Installation.ServiceFile == "present" {
-		if menuNewerVersion(installed, bundled) {
+		order, known := compareMenuVersions(installed, bundled)
+		switch {
+		case !known:
+			m.status = "Version comparison unavailable"
+		case order < 0:
+			m.status = "Newer bundled version available"
+			m.statusTone = "success"
 			m.recommended = true
 			m.cursor = 0
+		case order > 0:
+			m.status = "Installed version is newer than this installer"
+			m.statusTone = "warning"
+		default:
+			m.status = "Up to date (bundled version)"
+			m.statusTone = "success"
 		}
 	} else if !info.Installation.Detected && info.Installation.RetainedStatePresent && info.Installation.ServiceFile == "absent" {
 		m.cursor = 0
@@ -233,7 +268,7 @@ func (m maintenanceScreen) paint(s string, width int, kind string) string {
 
 func (m maintenanceScreen) render() string {
 	if m.width < maintenanceMinWidth || m.height < maintenanceMinHeight {
-		return strings.TrimRight(maintenanceFit("Enlarge terminal to 64x22. Q quits.", m.width), " ")
+		return strings.TrimRight(maintenanceFit(fmt.Sprintf("Enlarge terminal to 64x22 (now %dx%d). Q quits.", m.width, m.height), m.width), " ")
 	}
 	width := min(m.width, 106)
 	inner := width - 2
@@ -247,10 +282,10 @@ func (m maintenanceScreen) render() string {
 	lines := []string{
 		border("┌", "─", "┐"),
 		line("COMPUTER HOST LAN   /   LINUX INSTALLER", "header"),
-		line("Installed file: "+m.installed, "normal"),
-		line("Bundled agent:  "+m.bundled, "normal"),
-		line(m.status, "muted"),
-		line("Agent service: "+m.service+" (observed; runtime not verified)", "muted"),
+		line("Installed: "+m.installed, "normal"),
+		line("Bundled:   "+m.bundled, "normal"),
+		line("Service:   "+m.service, "normal"),
+		line(m.status, m.statusTone),
 		border("├", "─", "┤"),
 		line("MAINTENANCE", "header"),
 	}
@@ -275,9 +310,7 @@ func (m maintenanceScreen) render() string {
 	lines = append(lines,
 		border("├", "─", "┤"),
 		line(m.choices[m.cursor].detail, detailKind),
-		line("Selecting a task does not authorize system changes.", "muted"),
-		line("Protected recovery status: unknown (not inspected).", "muted"),
-		line("Up/Down Navigate | 0-7 Highlight | Enter Select | Esc Exit", "header"),
+		line("Up/Down Navigate | 0-7 Highlight | Enter Select | Esc/Q Exit", "header"),
 		border("└", "─", "┘"),
 	)
 	return strings.Join(lines, "\n")
