@@ -518,8 +518,7 @@ func (m backupConsentScreen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		b := m.chooser.backups[m.chooser.selected]
 		rows := backupDetails(b)
 		rows = append(rows,
-			detailRow{"Older software may have known defects.", "warning"},
-			detailRow{"Current files and service state are backed up first.", "normal"},
+			detailRow{"Older software may have defects. Back up files/services first.", "warning"},
 			detailRow{"Current identity, key and persistent WOL are retained.", "normal"},
 			detailRow{"The saved agent interface pin may be restored.", "normal"})
 		m.consent = &consentScreen{
