@@ -46,6 +46,35 @@ func TestWizardThemeMonochromeAndHelpContrast(t *testing.T) {
 	}
 }
 
+// The terminal may report a light background or never answer the query.
+// Neither case should make the dark application panel unreadable.
+func TestWizardThemeUsesMatchedColorsRegardlessOfBackgroundReport(t *testing.T) {
+	for _, dark := range []bool{false, true} {
+		styles := wizardTheme(false).Theme(dark)
+		for _, tc := range []struct {
+			style lipgloss.Style
+			fg    string
+			bg    string
+		}{
+			{styles.Group.Title, uiCyan, uiNavy},
+			{styles.Focused.Title, uiCyan, uiNavy},
+			{styles.Focused.Description, uiMuted, uiNavy},
+			{styles.Blurred.Description, uiMuted, uiNavy},
+			{styles.Focused.UnselectedOption, uiText, uiNavy},
+			{styles.Focused.SelectedOption, uiSelected, uiHighlight},
+			{styles.Blurred.SelectSelector, uiCyan, uiNavy},
+			{styles.Focused.TextInput.Text, uiText, uiNavy},
+			{styles.Focused.TextInput.Placeholder, uiMuted, uiNavy},
+			{styles.Focused.ErrorMessage, uiWarning, uiNavy},
+		} {
+			if !reflect.DeepEqual(tc.style.GetForeground(), lipgloss.Color(tc.fg)) ||
+				!reflect.DeepEqual(tc.style.GetBackground(), lipgloss.Color(tc.bg)) {
+				t.Errorf("background report %t: expected paired colors %s on %s", dark, tc.fg, tc.bg)
+			}
+		}
+	}
+}
+
 func TestStyledLiveWizardTracksActualFields(t *testing.T) {
 	t.Setenv("NO_COLOR", "1")
 	t.Setenv("TERM", "xterm-256color")
