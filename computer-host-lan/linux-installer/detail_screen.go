@@ -256,6 +256,7 @@ type inspectionScreen struct {
 	title        string
 	statusPrefix string
 	closeHelp    string
+	closedBy     string
 }
 
 func (m inspectionScreen) Init() tea.Cmd { return nil }
@@ -278,6 +279,7 @@ func (m inspectionScreen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyPressMsg:
 		switch event.String() {
 		case "esc", "q", "ctrl+c", "enter":
+			m.closedBy = event.String()
 			return m, tea.Quit
 		}
 		if m.frame.ready() {
