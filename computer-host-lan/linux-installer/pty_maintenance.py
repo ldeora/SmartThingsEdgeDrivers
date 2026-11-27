@@ -25,7 +25,8 @@ def smoke(binary: str, mode: str) -> None:
     detail = mode in ('inspect', 'backup-cancel', 'backup-review', 'backup-approve')
     operation = mode in ('configure', 'recover', 'uninstall')
     app = mode.startswith('app-')
-    width, height = (60, 20) if mode == 'resize' else ((64, 22) if detail or operation else (110, 40) if app else (100, 28))
+    result = mode.startswith('result-')
+    width, height = (60, 20) if mode == 'resize' else ((64, 22) if detail or operation or result else (110, 40) if app else (100, 28))
     pid, master = pty.fork()
     if pid == 0:
         try:
@@ -43,6 +44,9 @@ def smoke(binary: str, mode: str) -> None:
             if app:
                 env['COMPUTER_HOST_TEST_APP_PTY'] = mode
                 harness = 'TestMaintenanceApplicationPTYHarness'
+            if result:
+                env['COMPUTER_HOST_TEST_RESULT_PTY'] = mode
+                harness = 'TestResultScreenPTYHarness'
             os.execve(binary, [binary, f'-test.run=^{harness}$', '-test.v'], env)
         except Exception as exc:
             print(f'PTY exec failed: {exc}', file=sys.stderr)
@@ -76,7 +80,24 @@ def smoke(binary: str, mode: str) -> None:
             # exercise the actual SIGWINCH/render path without an input race.
             resize(master, 100, 28)
 
-        if app:
+        if result:
+            pump_until(b'No intermediate progress is reported.')
+            pump_until(b'COMPUTER HOST LAN / RESULT')
+            if mode == 'result-failure':
+                pump_until(b'Operation rolled back')
+            else:
+                pump_until(b'Cleanup required: run -recover')
+            pump_until(b'Enter/Esc/Q Close')
+            os.write(master, b'\r')
+            pump_until(b'PTY RESULT CLOSED')
+            attrs = termios.tcgetattr(master)
+            if not attrs[3] & termios.ICANON or not attrs[3] & termios.ECHO:
+                raise AssertionError('terminal still in raw/no-echo mode after result')
+            if b'\x1b[?1049l' not in collected:
+                raise AssertionError('result screen not restored')
+            os.write(master, b'ordinary terminal input\n')
+            pump_until(b'PTY RESULT INPUT PRESERVED')
+        elif app:
             pump_until(b'(recommended)')
             if mode == 'app-recover':
                 os.write(master, b'5\r')
@@ -224,7 +245,7 @@ def main() -> int:
         print('Usage: python3 pty_maintenance.py /absolute/path/to/Go-test-binary', file=sys.stderr)
         return 2
     for mode in ('route', 'cancel', 'resize', 'inspect', 'backup-cancel', 'backup-review', 'backup-approve',
-                 'configure', 'recover', 'uninstall', 'app-recover', 'app-wol', 'app-install'):
+                 'configure', 'recover', 'uninstall', 'app-recover', 'app-wol', 'app-install', 'result-success', 'result-failure'):
         smoke(sys.argv[1], mode)
     return 0
 
