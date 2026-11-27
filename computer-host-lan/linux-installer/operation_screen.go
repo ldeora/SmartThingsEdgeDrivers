@@ -96,7 +96,7 @@ func (m operationScreen) View() tea.View {
 
 func runOperationScreen(m operationScreen) (string, error) {
 	m.frame.monochrome = os.Getenv("NO_COLOR") != ""
-	result, err := tea.NewProgram(m).Run()
+	result, err := runFramedProgram(m)
 	if err != nil {
 		return "", err
 	}
