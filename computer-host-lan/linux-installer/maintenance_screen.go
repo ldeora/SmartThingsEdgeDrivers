@@ -71,16 +71,16 @@ func menuNewerVersion(installed, bundled string) bool {
 
 type visualMaintenanceChoice struct {
 	key, action, title, detail string
-	enabled                    bool
+	enabled                   bool
 }
 
 type maintenanceScreen struct {
-	choices                     []visualMaintenanceChoice
-	installed, bundled, status  string
-	service                     string
-	width, height, cursor       int
-	recommended, monochrome     bool
-	chosen                      string
+	choices                    []visualMaintenanceChoice
+	installed, bundled, status string
+	service                    string
+	width, height, cursor      int
+	recommended, monochrome    bool
+	chosen                     string
 }
 
 func newMaintenanceScreen(info apiInspect, installed, bundled string, monochrome bool) maintenanceScreen {
@@ -100,7 +100,7 @@ func newMaintenanceScreen(info apiInspect, installed, bundled string, monochrome
 	}
 	m := maintenanceScreen{
 		installed: installed, bundled: bundled, monochrome: monochrome,
-		status: "Installation state needs attention",
+		status:  "Installation state needs attention",
 		service: info.Installation.AgentServiceState,
 		choices: []visualMaintenanceChoice{
 			choice("1", first, "Review setup using the bundled version."),
@@ -262,7 +262,7 @@ func (m maintenanceScreen) render() string {
 		label := marker + "[" + c.key + "] " + c.title
 		if !c.enabled {
 			kind = "disabled"
-			label += " (unavailable)"
+			label += " — " + c.detail
 		} else if i == 0 && m.recommended {
 			label += " (recommended)"
 		}
