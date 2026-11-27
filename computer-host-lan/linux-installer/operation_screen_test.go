@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"errors"
+	"fmt"
+	"os"
 	"strings"
 	"testing"
 
@@ -172,4 +174,46 @@ func TestFailedWOLCheckCannotOpenReview(t *testing.T) {
 			t.Fatal("failed WOL check was not reported")
 		}
 	}
+}
+
+func TestOperationScreenPTYHarness(t *testing.T) {
+	mode := os.Getenv("COMPUTER_HOST_TEST_OPERATION_PTY")
+	if mode == "" {
+		t.Skip("external PTY harness")
+	}
+	var m operationScreen
+	switch mode {
+	case "configure":
+		m = configurationScreen()
+	case "recover":
+		m = recoveryScreen()
+	case "uninstall":
+		m = uninstallScreen()
+	default:
+		t.Fatal("invalid PTY fixture mode")
+	}
+	action, err := runOperationScreen(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if action != "" && mode == "configure" {
+		if action != "wol" {
+			t.Fatal("wrong configuration selection")
+		}
+		fmt.Println("PTY CONFIGURE HANDOFF wol")
+	} else if action == "continue" {
+		authorize := func(req privilegedRequest) (privilegedResult, error) {
+			t.Fatal("PTY cancellation reached authorization")
+			return privilegedResult{}, nil
+		}
+		if mode == "recover" {
+			err = confirmRecovery(os.Stdin, os.Stdout, authorize)
+		} else {
+			err = confirmUninstall(os.Stdin, os.Stdout, authorize)
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	fmt.Println("PTY OPERATION CLOSED")
 }
