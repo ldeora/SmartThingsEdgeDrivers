@@ -23,7 +23,8 @@ def resize(fd: int, width: int, height: int) -> None:
 
 def smoke(binary: str, mode: str) -> None:
     detail = mode in ('inspect', 'backup-cancel', 'backup-review')
-    width, height = (60, 20) if mode == 'resize' else ((64, 22) if detail else (100, 28))
+    operation = mode in ('configure', 'recover', 'uninstall')
+    width, height = (60, 20) if mode == 'resize' else ((64, 22) if detail or operation else (100, 28))
     pid, master = pty.fork()
     if pid == 0:
         try:
@@ -35,6 +36,9 @@ def smoke(binary: str, mode: str) -> None:
             if detail:
                 env['COMPUTER_HOST_TEST_DETAIL_PTY'] = mode
                 harness = 'TestDetailScreenPTYHarness'
+            if operation:
+                env['COMPUTER_HOST_TEST_OPERATION_PTY'] = mode
+                harness = 'TestOperationScreenPTYHarness'
             os.execve(binary, [binary, f'-test.run=^{harness}$', '-test.v'], env)
         except Exception as exc:
             print(f'PTY exec failed: {exc}', file=sys.stderr)
@@ -68,7 +72,22 @@ def smoke(binary: str, mode: str) -> None:
             # exercise the actual SIGWINCH/render path without an input race.
             resize(master, 100, 28)
 
-        if mode == 'inspect':
+        if operation:
+            pump_until(b'COMPUTER HOST LAN / ' + mode.upper().encode())
+            pump_until(b'Enter Select | Esc/Q Cancel')
+            os.write(master, b'2\r' if mode == 'configure' else b'1\r')
+            if mode == 'configure':
+                pump_until(b'PTY CONFIGURE HANDOFF wol')
+            else:
+                token = b'RECOVER' if mode == 'recover' else b'UNINSTALL'
+                pump_until(b'Type ' + token + b' to authorize')
+                attrs = termios.tcgetattr(master)
+                if not attrs[3] & termios.ICANON or not attrs[3] & termios.ECHO:
+                    raise AssertionError('operation review still in raw/no-echo mode')
+                os.write(master, b'NO\n')
+                pump_until(b'cancelled. No changes made.')
+            pump_until(b'PTY OPERATION CLOSED')
+        elif mode == 'inspect':
             pump_until(b'Read-only snapshot')
             os.write(master, b'\x1b[F')  # End
             pump_until(b'Recovery not inspected; identity/key not read or verified.')
@@ -142,7 +161,8 @@ def main() -> int:
     if len(sys.argv) != 2 or not os.path.isabs(sys.argv[1]):
         print('Usage: python3 pty_maintenance.py /absolute/path/to/Go-test-binary', file=sys.stderr)
         return 2
-    for mode in ('route', 'cancel', 'resize', 'inspect', 'backup-cancel', 'backup-review'):
+    for mode in ('route', 'cancel', 'resize', 'inspect', 'backup-cancel', 'backup-review',
+                 'configure', 'recover', 'uninstall'):
         smoke(sys.argv[1], mode)
     return 0
 
