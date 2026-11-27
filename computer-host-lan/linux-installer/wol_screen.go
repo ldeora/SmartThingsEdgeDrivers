@@ -182,7 +182,7 @@ func actualNICSelection(optional bool) nicSelectionScreen {
 }
 
 func selectWOLInterface(optional bool) (string, error) {
-	result, err := tea.NewProgram(actualNICSelection(optional)).Run()
+	result, err := runFramedProgram(actualNICSelection(optional))
 	if err != nil {
 		return "", err
 	}
