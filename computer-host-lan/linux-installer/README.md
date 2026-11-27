@@ -43,6 +43,22 @@ validation errors are not clipped. Enter selects or advances; Shift+Tab goes
 Back when available. Review defaults to Continue, which is not authorization.
 Q is not a quit shortcut in the wizard. The alternate screen closes before
 the original typed confirmation and administrator authorization.
+Inspect opens a scrollable, read-only snapshot of installation, service,
+network and requirement observations. Verification limits are shown explicitly:
+no runtime power/WOL test, private credentials or protected recovery inspection
+is implied. Use Up/Down, PgUp/PgDn or Home/End to navigate; Enter, Esc or Q closes
+the view.
+
+Restore still requests administrator authorization to list private local
+backups before opening the full-screen chooser. The list is newest first,
+with the complete selected version, snapshot name, capture time, saved
+service/power settings and coverage shown below. Up/Down, PgUp/PgDn and Home/End
+navigate; Enter selects a backup for review, not restoration. The alternate
+screen closes before the existing review and exact typed RESTORE confirmation.
+Esc/Q cancels without restoring anything. Accessible maintenance and
+unsupported terminal streams keep the original plain prompts. CLI behavior
+and protected restore eligibility are unchanged.
+
 Structured operation/result screens remain separate integration work.
 
 The previous `-live -install` spelling remains supported.
