@@ -176,6 +176,9 @@ type inspectionScreen struct {
 func (m inspectionScreen) Init() tea.Cmd { return nil }
 
 func (m inspectionScreen) content() []detailRow {
+	if !m.frame.ready() {
+		return nil
+	}
 	return wrapDetailRows(m.rows, m.frame.bodyWidth())
 }
 
@@ -254,13 +257,14 @@ func backupTime(b backupSummary) string {
 }
 
 func backupDetails(b backupSummary) []detailRow {
-	coverage, tone := "Complete optional-file coverage", "normal"
+	coverage, tone := "Complete managed-file coverage", "normal"
 	if b.Coverage == "partial" {
 		coverage, tone = "Partial optional-file coverage; unrecorded settings kept", "warning"
 	}
 	return []detailRow{
 		{"SELECTED BACKUP", "header"},
 		{"Agent version: " + b.Version, "normal"},
+		{"Captured: " + backupTime(b) + " (local time)", "normal"},
 		{"Snapshot: " + b.Name, "normal"},
 		{fmt.Sprintf("Saved running: %t | Start at boot: %t | Power: %s", b.AgentActive, b.AgentEnabled, b.Power), "normal"},
 		{coverage, tone},
@@ -270,6 +274,9 @@ func backupDetails(b backupSummary) []detailRow {
 // Return all rows for the current page; the selected name and version are
 // always shown in full, even when their list preview is shortened.
 func (m backupScreen) page() ([]detailRow, string, int, bool) {
+	if !m.frame.ready() {
+		return nil, "Enlarge the terminal.", 0, false
+	}
 	if len(m.backups) == 0 || m.cursor < 0 || m.cursor >= len(m.backups) {
 		return nil, "No suitable backups", 0, false
 	}
