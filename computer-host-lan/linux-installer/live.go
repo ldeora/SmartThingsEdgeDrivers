@@ -626,6 +626,11 @@ func liveForm(s *liveSelection) *huh.Form {
 }
 
 func liveFormMode(s *liveSelection, installing bool) *huh.Form {
+	return huh.NewForm(liveFormGroups(s, installing)...)
+}
+
+// Keep one source of truth for both native and framed presentation.
+func liveFormGroups(s *liveSelection, installing bool) []*huh.Group {
 	nicHelp := "Select the wired Ethernet interface. The persistent policy will be shown before confirmation."
 	if s.wolNIC == "" {
 		nicHelp = "Enter your wired Ethernet interface name (for example enp1s0f0)."
@@ -638,7 +643,7 @@ func liveFormMode(s *liveSelection, installing bool) *huh.Form {
 		reviewDescription = func() string { return s.installPreview() }
 		welcome = s.installationSummary()
 	}
-	return huh.NewForm(
+	return []*huh.Group{
 		huh.NewGroup(
 			huh.NewSelect[string]().
 				Key("welcome").
@@ -721,7 +726,7 @@ func liveFormMode(s *liveSelection, installing bool) *huh.Form {
 					return nil
 				}).Value(&s.finished),
 		).Title("4. Review"),
-	)
+	}
 }
 
 func defaultWOLChoice(existing bool, wiredNIC string) string {
@@ -766,7 +771,7 @@ func runLiveInteractive(w io.Writer, api apiClient, info apiInspect) error {
 func runLiveInteractiveSelection(w io.Writer, s *liveSelection) error {
 	fmt.Fprintln(w, "COMPUTER HOST LAN — SETUP PREVIEW")
 	fmt.Fprintln(w, "No installation or system changes will be made.")
-	err := styledLiveForm(s, false).Run()
+	err := runStyledLiveWizard(s, false)
 	if errors.Is(err, huh.ErrUserAborted) {
 		fmt.Fprintln(w, "Setup preview cancelled. No changes made.")
 		return nil
