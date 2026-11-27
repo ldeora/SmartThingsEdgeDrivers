@@ -75,17 +75,22 @@ func TestWizardThemeUsesMatchedColorsRegardlessOfBackgroundReport(t *testing.T) 
 	}
 }
 
-func TestStyledLiveWizardTracksActualFields(t *testing.T) {
-	t.Setenv("NO_COLOR", "1")
-	t.Setenv("TERM", "xterm-256color")
+func fixtureWizard(t *testing.T, monochrome bool) (wizardScreen, *liveSelection) {
+	t.Helper()
 	client := fixtureClient(t)
 	ins, err := client.inspect()
 	if err != nil {
 		t.Fatal(err)
 	}
-	s := liveSelection{api: client, inspection: ins, hubChoice: "skip", powerChoice: "keep", wolChoice: "keep"}
+	s := &liveSelection{api: client, inspection: ins, hubChoice: "skip", powerChoice: "keep", wolChoice: "keep"}
 	s.recordHubChoice("skip")
-	form := styledLiveForm(&s, false).WithWidth(110).WithHeight(40)
+	return newWizardScreen(s, false, monochrome), s
+}
+
+func TestStyledLiveWizardTracksActualFields(t *testing.T) {
+	m, s := fixtureWizard(t, true)
+	m.Update(tea.WindowSizeMsg{Width: 110, Height: 40})
+	form := m.form
 	for i, want := range []string{"welcome", "hub", "power", "wol", "review"} {
 		if i > 0 {
 			deliverFormMessage(t, form, huh.NextField())
@@ -93,20 +98,21 @@ func TestStyledLiveWizardTracksActualFields(t *testing.T) {
 		if key := form.GetFocusedField().GetKey(); key != want {
 			t.Fatalf("step %d: field %q, want %q", i, key, want)
 		}
-		view := form.View()
+		view, fits := m.layout.render(form)
 		label := []string{"Welcome", "Hub", "Power & WOL", "Review"}[wizardStage(want)]
-		if !strings.Contains(view, "> "+label) || !strings.Contains(view, "COMPUTER HOST LAN") {
-			t.Fatalf("sidebar lost active field %q:\n%s", want, view)
+		if !fits || !strings.Contains(view, "> "+label) || !strings.Contains(view, "COMPUTER HOST LAN") ||
+			!strings.Contains(view, "Ctrl+C Cancel") {
+			t.Fatalf("frame lost active field %q:\n%s", want, view)
 		}
-		if lipgloss.Width(view) > 110 {
-			t.Fatalf("wide layout exceeds terminal width: %d", lipgloss.Width(view))
+		if lipgloss.Width(view) > 110 || lipgloss.Height(view) > 40 {
+			t.Fatalf("wide layout exceeds terminal: %dx%d", lipgloss.Width(view), lipgloss.Height(view))
 		}
 	}
 	if !strings.Contains(form.View(), "Power control: Keep power control enabled") {
 		t.Fatal("styled review lost actual plan")
 	}
 
-	// Changing a selection must still invalidate the native Huh description.
+	// The native Review description must still update after changes.
 	s.powerChoice = "disabled"
 	deliverFormMessage(t, form, tea.WindowSizeMsg{Width: 110, Height: 40})
 	if view := form.View(); !strings.Contains(view, "Power control: Monitoring only (power control off)") ||
@@ -114,15 +120,12 @@ func TestStyledLiveWizardTracksActualFields(t *testing.T) {
 		t.Fatalf("styled review kept stale plan:\n%s", view)
 	}
 
-	// Explicit width changes model the layout's wide/compact sizing contract.
-	form.WithWidth(80)
-	deliverFormMessage(t, form, tea.WindowSizeMsg{Width: 80, Height: 40})
-	if view := form.View(); strings.Contains(view, "COMPUTER HOST LAN") ||
+	m.Update(tea.WindowSizeMsg{Width: 80, Height: 40})
+	if view, fits := m.layout.render(form); !fits || strings.Contains(view, "> Review") ||
 		!strings.Contains(view, "Review your choices") || lipgloss.Width(view) > 80 {
 		t.Fatalf("compact review lost content or retained sidebar:\n%s", view)
 	}
-	form.WithWidth(110)
-	deliverFormMessage(t, form, tea.WindowSizeMsg{Width: 110, Height: 40})
+	m.Update(tea.WindowSizeMsg{Width: 110, Height: 40})
 	if !strings.Contains(form.View(), "> Review") {
 		t.Fatal("sidebar did not return after widening")
 	}
@@ -136,15 +139,39 @@ func TestWizardLayoutWidth(t *testing.T) {
 	l := &wizardLayout{monochrome: true}
 	for _, size := range []int{64, 80, 99, 100, 110, 132} {
 		got := l.GroupWidth(nil, nil, size)
-		want := size
+		want := min(size, wizardMaxWidth) - 4
 		if size >= wizardSidebarMinWidth {
 			want -= wizardSidebarWidth + 1
 		}
 		if got != want || l.width != size {
 			t.Errorf("width %d: got %d, want %d", size, got, want)
 		}
-		if lipgloss.Width(l.sidebar(2)) != wizardSidebarWidth {
+		if lipgloss.Width(l.sidebarLine(2, 4)) != wizardSidebarWidth {
 			t.Fatal("sidebar width changed")
+		}
+	}
+}
+
+func TestWizardFrameResizeAndCancel(t *testing.T) {
+	for _, mono := range []bool{false, true} {
+		m, _ := fixtureWizard(t, mono)
+		m.Update(tea.WindowSizeMsg{Width: 60, Height: 18})
+		if view, fits := m.layout.render(m.form); fits || !strings.Contains(view, "60x18") {
+			t.Fatal("undersized terminal did not show resize notice")
+		}
+		m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+		if m.form.GetFocusedField().GetKey() != "welcome" || m.form.State != huh.StateNormal {
+			t.Fatal("invisible page accepted Enter")
+		}
+		m.Update(tea.WindowSizeMsg{Width: 110, Height: 22})
+		if view, fits := m.layout.render(m.form); !fits || lipgloss.Height(view) > 22 ||
+			!strings.Contains(view, "Ctrl+C Cancel") {
+			t.Fatalf("22-row welcome cannot be displayed:\n%s", view)
+		}
+		m.Update(tea.WindowSizeMsg{Width: 110, Height: 18})
+		m.Update(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
+		if m.form.State != huh.StateAborted {
+			t.Fatal("Ctrl+C cannot cancel an undersized terminal")
 		}
 	}
 }
