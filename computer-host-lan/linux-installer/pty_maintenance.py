@@ -24,7 +24,8 @@ def resize(fd: int, width: int, height: int) -> None:
 def smoke(binary: str, mode: str) -> None:
     detail = mode in ('inspect', 'backup-cancel', 'backup-review')
     operation = mode in ('configure', 'recover', 'uninstall')
-    width, height = (60, 20) if mode == 'resize' else ((64, 22) if detail or operation else (100, 28))
+    app = mode.startswith('app-')
+    width, height = (60, 20) if mode == 'resize' else ((64, 22) if detail or operation else (110, 40) if app else (100, 28))
     pid, master = pty.fork()
     if pid == 0:
         try:
@@ -39,6 +40,9 @@ def smoke(binary: str, mode: str) -> None:
             if operation:
                 env['COMPUTER_HOST_TEST_OPERATION_PTY'] = mode
                 harness = 'TestOperationScreenPTYHarness'
+            if app:
+                env['COMPUTER_HOST_TEST_APP_PTY'] = mode
+                harness = 'TestMaintenanceApplicationPTYHarness'
             os.execve(binary, [binary, f'-test.run=^{harness}$', '-test.v'], env)
         except Exception as exc:
             print(f'PTY exec failed: {exc}', file=sys.stderr)
@@ -72,7 +76,55 @@ def smoke(binary: str, mode: str) -> None:
             # exercise the actual SIGWINCH/render path without an input race.
             resize(master, 100, 28)
 
-        if operation:
+        if app:
+            pump_until(b'(recommended)')
+            if mode == 'app-recover':
+                os.write(master, b'5\r')
+                pump_until(b'Recover an interrupted operation')
+                os.write(master, b'\r')
+                pump_until(b'Type RECOVER to authorize:')
+                pump_until(b'Enter Submit | Ctrl+U Clear')
+                if b'\x1b[?1049l' in collected:
+                    raise AssertionError('application exited before recovery consent')
+                os.write(master, b'RECOVER\r')
+                pump_until(b'PTY APP HANDOFF recover')
+            elif mode == 'app-wol':
+                os.write(master, b'2\r')
+                pump_until(b'Choose what to configure')
+                os.write(master, b'2\r')
+                pump_until(b'LAN1 (suggested)')
+                if b'\x1b[?1049l' in collected:
+                    raise AssertionError('application exited before WOL interface choice')
+                os.write(master, b'\r')
+                pump_until(b'PTY APP HANDOFF wol')
+            else:
+                os.write(master, b'1\r')
+                pump_until(b'1. Welcome')
+                os.write(master, b'\r')
+                pump_until(b'2. SmartThings hub')
+                os.write(master, b'\r')
+                pump_until(b'3. Power control')
+                pump_until(b'Wake-on-LAN')
+                os.write(master, b'\r')
+                time.sleep(0.15)
+                os.write(master, b'\r')
+                pump_until(b'4. Review')
+                pump_until(b'Continue to confirmation')
+                os.write(master, b'\r')
+                pump_until(b'Type INSTALL to authorize:')
+                pump_until(b'Enter Submit | Ctrl+U Clear')
+                if b'\x1b[?1049l' in collected:
+                    raise AssertionError('application exited before setup consent')
+                os.write(master, b'INSTALL\r')
+                pump_until(b'PTY APP HANDOFF install-reviewed')
+            attrs = termios.tcgetattr(master)
+            if not attrs[3] & termios.ICANON or not attrs[3] & termios.ECHO:
+                raise AssertionError('application still owns terminal at handoff')
+            if b'\x1b[?1049l' not in collected:
+                raise AssertionError('alternate screen not restored')
+            os.write(master, b'ordinary terminal input\n')
+            pump_until(b'PTY APP INPUT PRESERVED')
+        elif operation:
             pump_until(b'COMPUTER HOST LAN / ' + mode.upper().encode())
             pump_until(b'Enter Select | Esc/Q Cancel')
             os.write(master, b'2\r' if mode == 'configure' else b'1\r')
@@ -163,7 +215,7 @@ def main() -> int:
         print('Usage: python3 pty_maintenance.py /absolute/path/to/Go-test-binary', file=sys.stderr)
         return 2
     for mode in ('route', 'cancel', 'resize', 'inspect', 'backup-cancel', 'backup-review',
-                 'configure', 'recover', 'uninstall'):
+                 'configure', 'recover', 'uninstall', 'app-recover', 'app-wol', 'app-install'):
         smoke(sys.argv[1], mode)
     return 0
 
