@@ -9,7 +9,8 @@ import (
 )
 
 // Shared palette for the maintenance chooser and setup wizard. The sidebar
-// has its own navy background; the form body respects the terminal background.
+// and form use matched foreground/background pairs, independent of the
+// terminal's reported (or missing) background color.
 const (
 	uiNavy      = "#0D1729"
 	uiPanel     = "#16283C"
@@ -38,26 +39,29 @@ func wizardTheme(monochrome bool) huh.Theme {
 		// styles. Replace those above and the help styles below explicitly.
 		helpKey, helpText := plain.Bold(true), plain
 		if !monochrome {
-			text, muted, accent, errorColor := uiText, uiMuted, uiCyan, uiWarning
-			if !dark {
-				text, muted, accent, errorColor = "#1E293B", "#475569", "#075985", "#9A3412"
+			// A terminal may never answer the background-color query. Huh's
+			// initial dark flag is false, which is not evidence of a light
+			// terminal. Pair each visible text color with our own background.
+			pair := func(style lipgloss.Style, fg string) lipgloss.Style {
+				return style.Foreground(lipgloss.Color(fg)).Background(lipgloss.Color(uiNavy))
 			}
-			t.Focused.Base = t.Focused.Base.BorderForeground(lipgloss.Color(accent))
-			t.Focused.Title = t.Focused.Title.Foreground(lipgloss.Color(accent))
-			t.Focused.Description = plain.Foreground(lipgloss.Color(muted))
-			t.Focused.ErrorIndicator = t.Focused.ErrorIndicator.Foreground(lipgloss.Color(errorColor))
-			t.Focused.ErrorMessage = t.Focused.ErrorMessage.Foreground(lipgloss.Color(errorColor))
-			t.Focused.SelectSelector = t.Focused.SelectSelector.Foreground(lipgloss.Color(accent))
-			t.Focused.Option = plain.Foreground(lipgloss.Color(text))
+			t.Focused.Base = t.Focused.Base.Background(lipgloss.Color(uiNavy)).
+				BorderForeground(lipgloss.Color(uiCyan)).BorderBackground(lipgloss.Color(uiNavy))
+			t.Focused.Title = pair(t.Focused.Title, uiCyan)
+			t.Focused.Description = pair(plain, uiMuted)
+			t.Focused.ErrorIndicator = pair(t.Focused.ErrorIndicator, uiWarning)
+			t.Focused.ErrorMessage = pair(t.Focused.ErrorMessage, uiWarning)
+			t.Focused.SelectSelector = pair(t.Focused.SelectSelector, uiCyan)
+			t.Focused.Option = pair(plain, uiText)
 			t.Focused.UnselectedOption = t.Focused.Option
 			t.Focused.SelectedOption = t.Focused.SelectedOption.Foreground(lipgloss.Color(uiSelected)).
 				Background(lipgloss.Color(uiHighlight))
-			t.Focused.NextIndicator = t.Focused.NextIndicator.Foreground(lipgloss.Color(accent))
-			t.Focused.PrevIndicator = t.Focused.PrevIndicator.Foreground(lipgloss.Color(accent))
-			t.Focused.TextInput.Text = plain.Foreground(lipgloss.Color(text))
-			t.Focused.TextInput.Placeholder = plain.Foreground(lipgloss.Color(muted))
-			t.Focused.TextInput.Prompt = plain.Foreground(lipgloss.Color(accent))
-			t.Focused.TextInput.Cursor = plain.Foreground(lipgloss.Color(accent))
+			t.Focused.NextIndicator = pair(t.Focused.NextIndicator, uiCyan)
+			t.Focused.PrevIndicator = pair(t.Focused.PrevIndicator, uiCyan)
+			t.Focused.TextInput.Text = pair(plain, uiText)
+			t.Focused.TextInput.Placeholder = pair(plain, uiMuted)
+			t.Focused.TextInput.Prompt = pair(plain, uiCyan)
+			t.Focused.TextInput.Cursor = plain.Foreground(lipgloss.Color(uiCyan))
 			t.Focused.FocusedButton = button.Bold(true).Foreground(lipgloss.Color(uiSelected)).
 				Background(lipgloss.Color(uiHighlight))
 			t.Focused.BlurredButton = button.Foreground(lipgloss.Color(uiText)).
@@ -76,7 +80,7 @@ func wizardTheme(monochrome bool) huh.Theme {
 		t.Blurred = t.Focused
 		t.Blurred.Base = t.Focused.Base.BorderStyle(lipgloss.HiddenBorder())
 		t.Blurred.Card = t.Blurred.Base
-		t.Blurred.SelectSelector = plain.SetString("* ")
+		t.Blurred.SelectSelector = t.Focused.SelectSelector.SetString("* ")
 		t.Blurred.SelectedOption = t.Focused.Option.Bold(true)
 		t.Blurred.NextIndicator, t.Blurred.PrevIndicator = plain, plain
 		t.Group.Title = t.Focused.Title
@@ -147,12 +151,18 @@ func (l *wizardLayout) sidebar(stage int) string {
 
 func (l *wizardLayout) View(f *huh.Form) string {
 	body := huh.LayoutDefault.View(f)
-	if l.width < wizardSidebarMinWidth {
-		return body
-	}
 	// Render only the selected Huh group, including its native help and
 	// validation messages. No custom clipping, key handling or scrolling.
-	return lipgloss.JoinHorizontal(lipgloss.Top, l.sidebar(wizardStage(f.GetFocusedField().GetKey())), " ", body)
+	if l.width >= wizardSidebarMinWidth {
+		sidebar := l.sidebar(wizardStage(f.GetFocusedField().GetKey()))
+		body = lipgloss.JoinHorizontal(lipgloss.Top, sidebar, " ", body)
+	}
+	if !l.monochrome {
+		// Fill the gaps and native viewport padding as well as styled text.
+		// Do not impose a width/height that could wrap or clip review content.
+		body = lipgloss.NewStyle().Background(lipgloss.Color(uiNavy)).Render(body)
+	}
+	return body
 }
 
 func styledLiveForm(s *liveSelection, installing bool) *huh.Form {
