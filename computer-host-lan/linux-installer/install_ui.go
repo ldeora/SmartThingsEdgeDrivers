@@ -657,6 +657,9 @@ func runInstallingWizardMode(accessible bool, apiPath string, reader io.Reader, 
 		return err
 	}
 	if startMenu && maintenanceNeeded(info) {
+		if detailTerminal(accessible, reader, writer) {
+			return runMaintenanceApplication(api, info, reader, writer, method)
+		}
 		return runMaintenancePresentation(accessible, reader, writer, info, func(choice string) error {
 			return dispatchMaintenance(choice, accessible, apiPath, reader, writer, method, info)
 		})
@@ -802,6 +805,24 @@ func runUninstallPresentation(accessible bool, reader io.Reader, writer io.Write
 		return errors.New("interactive uninstall needs a terminal")
 	}
 	visual := detailTerminal(accessible, reader, writer)
+	if visual {
+		screen := uninstallScreen()
+		screen.frame.monochrome = os.Getenv("NO_COLOR") != ""
+		proceed, err := runOperationConsent(screen, "UNINSTALL")
+		if err != nil {
+			return err
+		}
+		if !proceed {
+			fmt.Fprintln(writer, "Uninstall cancelled. No changes made.")
+			return nil
+		}
+	}
+	return finishUninstall(accessible, reader, writer, method, visual)
+}
+
+// The visual callers have already submitted the exact UNINSTALL token.
+// Plain callers still use the original review and literal input.
+func finishUninstall(accessible bool, reader io.Reader, writer io.Writer, method string, confirmed bool) error {
 	removed := false
 	authorize := func(request privilegedRequest) (privilegedResult, error) {
 		result, err := executeAuthorizedBootstrap(request, true, method)
@@ -809,17 +830,7 @@ func runUninstallPresentation(accessible bool, reader io.Reader, writer io.Write
 		return result, err
 	}
 	var err error
-	if visual {
-		screen := uninstallScreen()
-		screen.frame.monochrome = os.Getenv("NO_COLOR") != ""
-		proceed, reviewErr := runOperationConsent(screen, "UNINSTALL")
-		if reviewErr != nil {
-			return reviewErr
-		}
-		if !proceed {
-			fmt.Fprintln(writer, "Uninstall cancelled. No changes made.")
-			return nil
-		}
+	if confirmed {
 		err = executeConfirmedUninstall(writer, authorize)
 	} else {
 		err = confirmUninstall(reader, writer, authorize)
@@ -827,7 +838,7 @@ func runUninstallPresentation(accessible bool, reader io.Reader, writer io.Write
 	if err != nil || !removed {
 		return err
 	}
-	if visual {
+	if confirmed {
 		if err := runWOLPresentation(false, reader, writer, method, true); err != nil {
 			fmt.Fprintln(writer, "Agent uninstalled. WOL removal was not completed:", err)
 		}
