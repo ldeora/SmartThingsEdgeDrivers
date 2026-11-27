@@ -827,12 +827,18 @@ func runUninstallPresentation(accessible bool, reader io.Reader, writer io.Write
 	if err != nil || !removed {
 		return err
 	}
+	if visual {
+		if err := runWOLPresentation(false, reader, writer, method, true); err != nil {
+			fmt.Fprintln(writer, "Agent uninstalled. WOL removal was not completed:", err)
+		}
+		return nil
+	}
 	fmt.Fprint(writer, "Also remove the Wake-on-LAN setting this installer made? [y/N]: ")
 	answer, err := readConfirmationLine(reader)
 	if err != nil || !strings.EqualFold(strings.TrimSpace(answer), "y") {
 		return nil
 	}
-	if err := runWOLManagement(reader, writer, method, true); err != nil {
+	if err := runWOLPresentation(accessible, reader, writer, method, true); err != nil {
 		fmt.Fprintln(writer, "Agent uninstalled. WOL removal was not completed:", err)
 	}
 	return nil
