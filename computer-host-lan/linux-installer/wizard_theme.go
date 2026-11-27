@@ -381,7 +381,7 @@ func runStyledLiveWizard(s *liveSelection, installing bool) error {
 		return liveFormMode(s, installing).Run()
 	}
 	m := newWizardScreen(s, installing, os.Getenv("NO_COLOR") != "")
-	_, err := tea.NewProgram(m, tea.WithInput(os.Stdin), tea.WithOutput(os.Stdout)).Run()
+	_, err := runFramedProgram(m)
 	if errors.Is(err, tea.ErrInterrupted) || m.form.State == huh.StateAborted {
 		return huh.ErrUserAborted
 	}
@@ -450,7 +450,7 @@ func runInstallConsentWizard(s *liveSelection) (bool, error) {
 	m := installConsentWizard{
 		wizard: newWizardScreen(s, true, os.Getenv("NO_COLOR") != ""), state: s,
 	}
-	result, err := tea.NewProgram(m, tea.WithInput(os.Stdin), tea.WithOutput(os.Stdout)).Run()
+	result, err := runFramedProgram(m)
 	if errors.Is(err, tea.ErrInterrupted) {
 		return false, nil
 	}
