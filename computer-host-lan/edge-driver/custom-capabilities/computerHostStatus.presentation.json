@@ -42,7 +42,7 @@
           {
             "key": "unreachable",
             "value": "{{i18n.attributes.status.i18n.value.unreachable.label}}",
-            "type": "active"
+            "type": "inactive"
           },
           {
             "key": "unknown",
@@ -100,7 +100,7 @@
           {
             "key": "unreachable",
             "value": "{{i18n.attributes.status.i18n.value.unreachable.label}}",
-            "type": "active"
+            "type": "inactive"
           },
           {
             "key": "unknown",
@@ -158,7 +158,7 @@
             {
               "key": "unreachable",
               "value": "{{i18n.attributes.status.i18n.value.unreachable.label}}",
-              "type": "active"
+              "type": "inactive"
             },
             {
               "key": "unknown",

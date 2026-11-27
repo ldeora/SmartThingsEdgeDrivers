@@ -107,6 +107,13 @@ and agent rollout in [DISK-CAPACITY-ROLLOUT.md](../../docs/development/DISK-CAPA
 Do **not** run `capabilities:create` again or update the public channel
 before verifying the live schema and presentation on the test hub.
 
+## Host Status tile and Unreachable colour (#192)
+
+The `computerHostStatus` presentation now shows Unreachable as inactive. Only
+that presentation changes; update it alone with the backup and checks in
+[DEVICE-TILE-ROLLOUT.md](../../docs/development/DEVICE-TILE-ROLLOUT.md). The
+tile layout itself is part of the driver profiles and needs no account change.
+
 ## Development v0.4.0: Create new generic capabilities, then update presentations
 
 If all six capabilities already exist in `oceancircle09600`, DO NOT run

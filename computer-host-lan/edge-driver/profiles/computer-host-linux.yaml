@@ -139,3 +139,94 @@ preferences:
   preferenceType: boolean
   definition:
     default: false
+
+# Embedded device presentation (#192). It replaces the generated one, so every
+# component and capability must stay listed in detailView and automation.
+# tests/test_device_presentation.py enforces this.
+deviceConfig:
+  dashboard:
+    states:
+    - component: main
+      capability: oceancircle09600.computerHostStatus
+      version: 1
+    actions:
+    - component: main
+      capability: switch
+      version: 1
+    basicPlus: []
+  detailView:
+  - component: main
+    capability: switch
+    version: 1
+  - component: main
+    capability: oceancircle09600.computerHostStatus
+    version: 1
+  - component: main
+    capability: temperatureMeasurement
+    version: 1
+  - component: main
+    capability: oceancircle09600.computerCpuUsage
+    version: 1
+  - component: main
+    capability: oceancircle09600.computerMemoryUsage
+    version: 1
+  - component: main
+    capability: oceancircle09600.computerDiskUsage
+    version: 1
+  - component: main
+    capability: oceancircle09600.computerUptime
+    version: 1
+  - component: main
+    capability: oceancircle09600.linuxLoad
+    version: 1
+  - component: main
+    capability: refresh
+    version: 1
+  - component: wake
+    capability: momentary
+    version: 1
+  - component: reboot
+    capability: momentary
+    version: 1
+  - component: suspend
+    capability: momentary
+    version: 1
+  automation:
+    conditions:
+    - component: main
+      capability: switch
+      version: 1
+    - component: main
+      capability: oceancircle09600.computerHostStatus
+      version: 1
+    - component: main
+      capability: temperatureMeasurement
+      version: 1
+    - component: main
+      capability: oceancircle09600.computerCpuUsage
+      version: 1
+    - component: main
+      capability: oceancircle09600.computerMemoryUsage
+      version: 1
+    - component: main
+      capability: oceancircle09600.computerDiskUsage
+      version: 1
+    - component: main
+      capability: oceancircle09600.computerUptime
+      version: 1
+    - component: main
+      capability: oceancircle09600.linuxLoad
+      version: 1
+    actions:
+    - component: main
+      capability: switch
+      version: 1
+    - component: wake
+      capability: momentary
+      version: 1
+    - component: reboot
+      capability: momentary
+      version: 1
+    - component: suspend
+      capability: momentary
+      version: 1
