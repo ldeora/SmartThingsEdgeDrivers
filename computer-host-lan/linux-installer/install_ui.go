@@ -724,8 +724,7 @@ func readConfirmationLine(reader io.Reader) (string, error) {
 	return "", errors.New("confirmation line too long")
 }
 
-// Plain text is intentional: uninstall uses the same accessible review
-// and literal confirmation on every terminal, without a default Yes action.
+// Plain fallback preserves the complete original review and literal consent.
 func confirmUninstall(reader io.Reader, writer io.Writer,
 	authorize func(privilegedRequest) (privilegedResult, error)) error {
 	fmt.Fprintln(writer, "COMPUTER HOST LAN — LINUX UNINSTALL")
@@ -746,6 +745,10 @@ func confirmUninstall(reader io.Reader, writer io.Writer,
 		fmt.Fprintln(writer, "Uninstall cancelled. No changes made.")
 		return nil
 	}
+	return executeConfirmedUninstall(writer, authorize)
+}
+
+func executeConfirmedUninstall(writer io.Writer, authorize func(privilegedRequest) (privilegedResult, error)) error {
 	fmt.Fprintln(writer, "Authorizing uninstall. This can take several minutes.")
 	reply, err := authorize(privilegedRequest{SchemaVersion: 2, Action: "uninstall"})
 	if err != nil {
@@ -785,20 +788,29 @@ func runUninstallPresentation(accessible bool, reader io.Reader, writer io.Write
 	if !stdinIsTerminal() {
 		return errors.New("interactive uninstall needs a terminal")
 	}
-	proceed, err := operationReview(accessible, reader, writer, uninstallScreen())
-	if err != nil {
-		return err
-	}
-	if !proceed {
-		fmt.Fprintln(writer, "Uninstall cancelled. No changes made.")
-		return nil
-	}
+	visual := detailTerminal(accessible, reader, writer)
 	removed := false
-	err = confirmUninstall(reader, writer, func(request privilegedRequest) (privilegedResult, error) {
+	authorize := func(request privilegedRequest) (privilegedResult, error) {
 		result, err := executeAuthorizedBootstrap(request, true, method)
 		removed = err == nil && result.Status == "uninstalled"
 		return result, err
-	})
+	}
+	var err error
+	if visual {
+		screen := uninstallScreen()
+		screen.frame.monochrome = os.Getenv("NO_COLOR") != ""
+		proceed, reviewErr := runOperationConsent(screen, "UNINSTALL")
+		if reviewErr != nil {
+			return reviewErr
+		}
+		if !proceed {
+			fmt.Fprintln(writer, "Uninstall cancelled. No changes made.")
+			return nil
+		}
+		err = executeConfirmedUninstall(writer, authorize)
+	} else {
+		err = confirmUninstall(reader, writer, authorize)
+	}
 	if err != nil || !removed {
 		return err
 	}
@@ -846,17 +858,23 @@ func runRecoveryPresentation(accessible bool, reader io.Reader, writer io.Writer
 	if !stdinIsTerminal() {
 		return errors.New("interactive recovery needs a terminal")
 	}
-	proceed, err := operationReview(accessible, reader, writer, recoveryScreen())
-	if err != nil {
-		return err
-	}
-	if !proceed {
-		fmt.Fprintln(writer, "Recovery cancelled. No changes made.")
-		return nil
-	}
-	return confirmRecovery(reader, writer, func(request privilegedRequest) (privilegedResult, error) {
+	authorize := func(request privilegedRequest) (privilegedResult, error) {
 		return executeAuthorizedBootstrap(request, true, method)
-	})
+	}
+	if detailTerminal(accessible, reader, writer) {
+		screen := recoveryScreen()
+		screen.frame.monochrome = os.Getenv("NO_COLOR") != ""
+		proceed, err := runOperationConsent(screen, "RECOVER")
+		if err != nil {
+			return err
+		}
+		if !proceed {
+			fmt.Fprintln(writer, "Recovery cancelled. No changes made.")
+			return nil
+		}
+		return executeConfirmedRecovery(writer, authorize)
+	}
+	return confirmRecovery(reader, writer, authorize)
 }
 
 func confirmRecovery(reader io.Reader, writer io.Writer, authorize func(privilegedRequest) (privilegedResult, error)) error {
@@ -871,6 +889,10 @@ func confirmRecovery(reader io.Reader, writer io.Writer, authorize func(privileg
 		fmt.Fprintln(writer, "Recovery cancelled. No changes made.")
 		return nil
 	}
+	return executeConfirmedRecovery(writer, authorize)
+}
+
+func executeConfirmedRecovery(writer io.Writer, authorize func(privilegedRequest) (privilegedResult, error)) error {
 	response, err := authorize(privilegedRequest{SchemaVersion: 1, Action: "recover"})
 	if err != nil {
 		return err
