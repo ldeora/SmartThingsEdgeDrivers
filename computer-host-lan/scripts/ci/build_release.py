@@ -65,7 +65,7 @@ def main():
     inputs = list(source_files())
     write_archive(full, f'computer-host-lan-v{VERSION}', inputs, include_manifest=True)
     selected = [(rel, p) for rel, p in inputs
-                if str(rel).startswith(('docs/development/', 'docs/beta/', 'docs/release/', 'docs/history/')) or str(rel) in ('README.md', 'PROTOCOL.md', 'INSTALLATION.md', 'SECURITY.md', 'release.json', 'windows-agent/README.md', 'windows-agent/installer/README.md', 'windows-agent/installer/CONNECT-TO-SMARTTHINGS.html')]
+                if str(rel).startswith(('docs/development/', 'docs/beta/', 'docs/release/', 'docs/history/')) or str(rel) in ('README.md', 'PROTOCOL.md', 'INSTALLATION.md', 'SECURITY.md', 'release.json', 'windows-agent/README.md', 'windows-agent/installer/README.md', 'windows-agent/installer/CONNECT-TO-SMARTTHINGS.html', 'linux-installer/THIRD-PARTY-NOTICES.txt')]
     write_archive(guide, f'computer-host-lan-docs-v{VERSION}', selected, include_manifest=True)
     checksum_file = args.output_dir / f'computer-host-lan-v{VERSION}-SHA256SUMS.txt'
     checksum_file.write_text(''.join(f'{hashlib.sha256(p.read_bytes()).hexdigest()}  {p.name}\n' for p in (full, guide)))

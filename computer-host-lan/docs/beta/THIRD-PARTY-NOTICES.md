@@ -1,9 +1,34 @@
 # Computer Host LAN — third-party components and redistribution notices
 
 This project is licensed under Apache-2.0 (see the project LICENSE).
-The Windows application and its self-contained packages also incorporate
-third-party software with different licenses. This document is a component
-inventory, **not** a replacement for the complete upstream license texts.
+The Windows application, its self-contained packages and the Linux installer
+also incorporate third-party software with different licenses. This document
+is a component inventory, **not** a replacement for the complete upstream
+license texts.
+
+## Linux installer
+
+The Linux installer is a statically linked Go program. Every release ships
+`computer-host-lan-v<version>-linux-x64-third-party-notices.txt`, covered by
+`SHA256SUMS.txt`, with the full licence text of each component compiled into
+it; the same file is `linux-installer/THIRD-PARTY-NOTICES.txt` in the source
+and documentation archives. It is generated from the module graph of the
+release build by `scripts/ci/linux_third_party_notices.py`, and CI fails when
+a dependency changes without a matching update or when the built binary links
+a module the file does not name.
+
+| Component | License |
+| --- | --- |
+| Go standard library and runtime | BSD-3-Clause |
+| `golang.org/x/sys`, `golang.org/x/sync` | BSD-3-Clause |
+| `github.com/atotto/clipboard` | BSD-3-Clause |
+| Charm modules: `charm.land/bubbletea/v2`, `huh/v2`, `bubbles/v2`, `lipgloss/v2`; `github.com/charmbracelet/ultraviolet`, `colorprofile`, `x/ansi`, `x/term`, `x/termios`, `x/windows`, `x/exp/ordered`, `x/exp/strings` | MIT |
+| Other modules: `catppuccin/go`, `clipperhouse/displaywidth`, `clipperhouse/uax29/v2`, `dustin/go-humanize`, `lucasb-eyer/go-colorful`, `mattn/go-runewidth`, `mitchellh/hashstructure/v2`, `muesli/cancelreader`, `rivo/uniseg`, `xo/terminfo` | MIT |
+
+Exact module versions are listed in the notices file and in the release's
+`build-info.json`.
+
+## Windows application
 
 | Component | Version / purpose | License / authoritative notice |
 | --- | --- | --- |

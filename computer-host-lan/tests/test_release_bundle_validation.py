@@ -87,7 +87,11 @@ class LinuxReleaseTests(unittest.TestCase):
             f"\tbuild\t{k}={v}\n" for k, v in (
                 ("GOOS", "linux"), ("GOARCH", "amd64"), ("GOAMD64", "v1"),
                 ("CGO_ENABLED", "0"), ("-trimpath", "true"), ("vcs", "git"),
-                ("vcs.revision", self.commit), ("vcs.modified", "false")))
+                ("vcs.revision", self.commit), ("vcs.modified", "false"))) + (
+            "\tdep\texample.com/mod\tv1.0.0\th1:fixture=\n")
+        self.notices = self.root / "THIRD-PARTY-NOTICES.txt"
+        self.notices.write_text("Go standard library and runtime\n"
+                                "Module: example.com/mod v1.0.0\n")
         for folder in (self.a, self.b):
             folder.mkdir()
             (folder / self.name).write_bytes(data)
@@ -96,7 +100,7 @@ class LinuxReleaseTests(unittest.TestCase):
 
     def assemble(self):
         from scripts.ci.linux_release_metadata import assemble
-        assemble(self.a, self.b, self.out, self.manifest, self.commit)
+        assemble(self.a, self.b, self.out, self.manifest, self.commit, self.notices)
 
     def test_equal_replicas_and_metadata(self):
         from scripts.ci.linux_release_metadata import validate_metadata
@@ -104,6 +108,27 @@ class LinuxReleaseTests(unittest.TestCase):
         validate_metadata(self.out, self.manifest, self.commit)
         self.assertEqual((self.out / self.name).read_bytes(),
                          (self.a / self.name).read_bytes())
+
+    def test_notices_asset_matches_linked_modules(self):
+        from scripts.ci.linux_release_metadata import notices_name, validate_metadata
+        self.assemble()
+        asset = self.out / notices_name(self.manifest)
+        self.assertEqual(asset.name,
+                         "computer-host-lan-v1.0.0-rc.3-linux-x64-third-party-notices.txt")
+        self.assertEqual(asset.read_text(), self.notices.read_text())
+        asset.write_text("Go standard library and runtime\n")
+        with self.assertRaisesRegex(ValueError, "third-party notices.*example.com/mod"):
+            validate_metadata(self.out, self.manifest, self.commit)
+        asset.unlink()
+        with self.assertRaisesRegex(ValueError, "missing Linux third-party notices"):
+            validate_metadata(self.out, self.manifest, self.commit)
+
+    def test_reject_notices_missing_a_linked_module(self):
+        self.notices.write_text("Go standard library and runtime\n"
+                                "Module: example.com/other v1.0.0\n")
+        with self.assertRaisesRegex(ValueError, "missing \\['example.com/mod v1.0.0'\\]"):
+            self.assemble()
+        self.assertFalse(self.out.exists())
 
     def test_reject_different_replicas(self):
         (self.b / self.name).write_bytes(b"different")
