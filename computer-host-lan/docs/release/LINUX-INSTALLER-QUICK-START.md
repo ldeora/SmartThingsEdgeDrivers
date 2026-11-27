@@ -37,7 +37,7 @@ chmod u+x ./computer-host-linux-installer
 ./computer-host-linux-installer
 ```
 
-A clean host opens setup directly. On an existing installation choose
+The full-screen terminal interface keeps setup, review and literal consent together; the actual administrator prompt appears on the ordinary terminal. On completion, review the structured result before exiting. A clean host opens setup directly. On an existing installation choose
 **1 — Upgrade**; for retained data choose **1 — Install / reinstall**. Confirm or enter
 your hub's IPv4, or choose it later. Leave remote power at its default for
 initial monitoring; an existing power preference is retained unless changed.
@@ -71,7 +71,7 @@ the completion screen's network guidance.
 Remote power is optional and requires opt-in on the host and in SmartThings.
 Only if needed, retrieve the private key using the completion instructions;
 enter it in **Power control key (64 hex chars)** and turn on
-**Enable shutdown/reboot/suspend**. Do not share the key. Save your work and
+**Enable shutdown/reboot/suspend**. Do not share the key. After enabling power on an existing monitoring-only installation, SmartThings may take time to recognize the newly available commands; about one minute was observed during qualification, not a guaranteed maximum. Save your work and
 keep physical access before testing shutdown, reboot or suspend. Wake-on-LAN
 depends on wired Ethernet, BIOS/UEFI support and the network. Test shutdown
 from SmartThings and switch on again, then reboot and repeat. To enable
@@ -125,7 +125,8 @@ CLI users can review `cli backups` and then use `cli restore --backup NAME
 ### Maintenance menu
 
 Run `./computer-host-linux-installer` again as your normal user. The menu
-uses fixed keys; options not shown do not apply to the observed state.
+uses fixed keys. In the full-screen menu, use Up/Down or a number to highlight a task, then Enter to select it. Esc or Q exits the menu without changes. Unavailable tasks may be shown disabled; read the reason before proceeding.
+In accessible mode, type the number and press Enter; 0 or Enter alone exits.
 
 | Key | Action |
 | --- | --- |
@@ -136,7 +137,7 @@ uses fixed keys; options not shown do not apply to the observed state.
 | 5 | Recover an interrupted operation |
 | 6 | Inspect installation status, read-only |
 | 7 | Uninstall agent (existing agent); keep private state and backups |
-| 0 / Enter | Exit without changes |
+| 0 | Highlight Exit; press Enter to leave without changes |
 
 Selecting a task is not authorization. Follow its separate confirmation.
 Inspect does not verify the protected journal; use `cli status` for that.

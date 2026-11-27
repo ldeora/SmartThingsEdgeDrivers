@@ -9,7 +9,9 @@
     "Linux Gentoo hydra / SmartThings hub: diskTotalGiB 431.8 accepted after hub reboot following account-level capability update (2026-11-18)",
     "Linux Gentoo hydra / SmartThings Android app: PR #15 four RAM/root filesystem values in German detail view, validated against protocol v2 /v2/metrics and SmartThings devices:status (2026-11-18); app renders responsive 3+1 layout",
     "Windows 11 Pro / SmartThings hub: volunteer confirms in-place v0.5.4 to v0.5.5 graphical upgrade retained device/settings; accurate CPU, RAM and disk stats; service stop -> Off/Unreachable and restart -> On/Running after polling; Wake, Restart, Sleep and WOL all verified; agent version 0.2.4-beta.1 (2026-11-20). The subsequent v0.5.6 hardening and v1.0.0-rc.1 candidate remain unverified on this hardware.",
-    "2026-11-21: Publisher reports v1.0.0-rc.2 running successfully after Linux/Gentoo hydra upgrade with SmartThings. This is a general positive smoke report, not separate evidence for each power transition or the seven-day soak. Physical Windows 11 rc.2 testing remains pending."
+    "2026-11-21: Publisher reports v1.0.0-rc.2 running successfully after Linux/Gentoo hydra upgrade with SmartThings. This is a general positive smoke report, not separate evidence for each power transition or the seven-day soak. Physical Windows 11 rc.2 testing remains pending.",
+    "2026-11-27: preliminary unpublished rc.3 Gentoo hydra qualification: original #189 baseline fb896a0; full-screen installer build bdd708cbba04e8438551dcbd4fd783b46716058c passed 10 authorization and 15 lifecycle checklist items as reported by maintainer (#202, #194). Power availability after re-enable took about one minute (#193); accepted limitation, not immediate availability. Exact final release bytes still require qualification.",
+    "2026-11-27: private-channel Edge profile test at #205 head bbbd679fdde197cd40b4caed9a9dd7326fa5971f: 12/12 existing Linux device presentation/routine/power checks passed, German labels, no re-pairing (#192). Windows presentation and account-wide Unreachable colour change remain unverified."
   ],
   "ci_validated": [
     "Linux Python 3.10–3.14 and Debian 12–13, Ubuntu 24.04–26.04, Fedora 43–44 source/container smoke: GitHub Actions run 43827358342",
@@ -20,7 +22,9 @@
     "PR #17 merged Windows Inno Setup 7 guided installer at 06cf471ffb18; full native GUI/clipboard, ZIP-to-Setup migration, service safety, upgrade and uninstall passed on Windows Server 2025 in run 44515639490; physical Windows 11 pairing still a beta test",
     "PR #19 stabilization merged as 0978dd75557ce8b3b38693cdf740aaa2585ab0fa; four main-branch Windows GUI, Windows agent, Linux reference and release packaging workflows passed 2026-11-19 (44585312974, 44585313017, 44585312967, 44585313041). New v0.5.5 beta must pass its own exact-commit CI.",
     "v0.5.5-beta.1 final main commit f7e2bccec348876ddfa40c3256b35b002a7cd3a8: all four native Windows GUI, Windows agent, Linux reference and full packaging CI workflows passed (44607053260, 44607053390, 44607053363, 44607053262). v0.5.6 requires fresh CI and physical checks.",
-    "v1.0.0-rc.2 released from immutable merge commit 72e4a99c4b2e8f958ce771152826319318d0d537: final-main Linux 44933351339, Windows 44933351147, Inno GUI 44933351273 and release packaging 44933351260 GitHub Actions all passed (2026-11-21). GitHub prerelease published 2026-11-21 19:17:25 UTC."
+    "v1.0.0-rc.2 released from immutable merge commit 72e4a99c4b2e8f958ce771152826319318d0d537: final-main Linux 44933351339, Windows 44933351147, Inno GUI 44933351273 and release packaging 44933351260 GitHub Actions all passed (2026-11-21). GitHub prerelease published 2026-11-21 19:17:25 UTC.",
+    "2026-11-27: #203 head 659babab3cd6156f0734b18dd63187d67569a2ca integration run 46041885460, 50/50 complete PTY iterations, 800/800 exercises. #206 notices and #207 Windows UI regressions passed on their own heads.",
+    "2026-11-27: implementation baseline 269b7ecb6331cb059a039671e6e7c33d9845c260 after #207: Linux 46067518052, Windows 46067518061, Inno 46067518097 and full release workflow 46067518146 all passed. Final release preparation commit requires its own CI and byte verification."
   ],
   "managed_state": "/var/lib/linux-host-agent",
   "windows_managed_state": "%ProgramData%/ComputerHostAgent",
@@ -48,5 +52,5 @@
     "unsigned": true,
     "reproducible_build_required": true
   },
-  "candidate_acceptance": "pending exact-source CI and physical acceptance; not published or assigned to SmartThings channel"
+  "candidate_acceptance": "Build-stage identity only. See docs/release/RC3-READINESS.md for prior scoped hardware evidence, pending exact-source CI, asset digests, physical qualification and separate publication/channel approvals."
 }

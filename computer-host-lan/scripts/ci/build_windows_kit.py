@@ -90,6 +90,12 @@ def build(published: Path, output_dir: Path, runtime: str, commit: str) -> Path:
                 src = ROOT / ("docs/release/RC3-READINESS.md" if "linux_installer" in release
                               else "docs/release/RC-ACCEPTANCE.md")
         add_source(entries, dst, src)
+    # The current quick start embeds these relative screenshots. Keep them
+    # next to the copied guide, covered by the same internal checksum manifest.
+    if stage != "beta" and "linux_installer" in release:
+        for name in ("01-welcome.png", "02-upgrade.png", "04-connect.png"):
+            rel = f"images/windows-setup/{name}"
+            add_source(entries, f"docs/{rel}", ROOT / "docs/release" / rel)
     add_source(entries, "docs/RELEASE-NOTES.md", ROOT / "docs" / notes_directory / f"RELEASE-NOTES-v{version}.md")
     add_source(entries, "LICENSE", ROOT / "LICENSE")
     entries["README.md"] = (f"""# Computer Host LAN — Windows package

@@ -7,6 +7,65 @@ Published rc.2 and its immutable assets remain unchanged. The existing
 maintainer's subsequent release-scope decision. No hardware result is inferred
 from a merged PR.
 
+## Final candidate preparation — 2026-11-27
+
+Implementation baseline after #207: `269b7ecb6331cb059a039671e6e7c33d9845c260`.
+All four automatic baseline workflows passed: Linux 46067518052, Windows
+46067518061, Inno 46067518097, release packaging 46067518146.
+This is not the final preparation PR's SHA or evidence for its rebuilt bytes.
+
+**Proposed identity for maintainer approval:** keep integration
+`1.0.0-rc.3`, Linux/Edge `0.4.7-rc.3`, Windows `0.2.8-rc.3`.
+No rc.3 release or tag exists as of preparation. The earlier unpublished
+builds must be preserved unchanged and identified by exact source SHA,
+asset digest and installed Edge package version, not by their shared
+semantic version alone. The replacement candidate is built once on the final
+merged preparation commit, with all five workflows (dispatch installer
+integration on that exact main ref if not triggered). Its SHA and digests
+are recorded externally after build. Approving this preparation PR approves
+the proposed identity, not a tag, release, upload or channel change.
+
+The feature set is frozen after #205–#207. The only preparation changes
+are release records, user documentation and packaging of referenced
+Windows quick-start screenshots. No runtime, protocol, dependencies,
+capability schemas or channel identity changes. Fix only demonstrated
+release defects from here; rebuild/requalify affected bytes after any fix.
+
+### Prior physical evidence (not final-byte acceptance)
+
+| Scope | Exact prior source | Reported result / evidence |
+| --- | --- | --- |
+| Original rc.3 Gentoo lifecycle | `fb896a07631f258f435abfb0865c0c01d132f285` | #193 records rc.2 migration, repair, historical restore, re-upgrade and physical power; immediate post-enable commands initially failed, later recovered. Original executable SHA-256 `2d73f477a25c41cb21e445e8309e88b6c96d4b186d67ab946dc23c44d560ed4f`. |
+| Terminal input | #203 head `659babab3cd6156f0734b18dd63187d67569a2ca` | [Stress job](https://github.com/ldeora/SmartThingsEdgeDrivers/actions/runs/46041885460/job/140651387186): 50 complete iterations, 800 exercises, zero reported failures. |
+| Full-screen installer on Gentoo | `bdd708cbba04e8438551dcbd4fd783b46716058c` | Maintainer reported 10/10 authorization checks (real su refusal, cancellation, successful upgrade) and 15 checked lifecycle items (repair, restore, re-upgrade, no pending recovery, WOL inspection/removal cancellation, uninstall/reinstall, existing device and credential continuity, physical power/WOL, terminal restoration). Checksum/build metadata verified; literal digest not supplied in report. Immediate power availability qualified below. [#202](https://github.com/ldeora/SmartThingsEdgeDrivers/issues/202), [#194](https://github.com/ldeora/SmartThingsEdgeDrivers/issues/194). |
+| Power availability after enable | same Gentoo build | #193: commands became available after about one minute, then reboot, suspend/wake and shutdown/WOL passed. **Immediate availability not demonstrated.** Maintainer explicitly accepted observed delay for v1.0; retain #193 open as non-blocking follow-up, disclose limitation, no maximum or root-cause claim. |
+| Existing Linux device tile | #205 head `bbbd679fdde197cd40b4caed9a9dd7326fa5971f` | [#192](https://github.com/ldeora/SmartThingsEdgeDrivers/issues/192): 12/12 reported; status, switch shutdown/WOL, metrics, controls, routines, German labels, retained preferences/no duplicate. Windows, English labels and separate account-wide colour rollout are not evidenced. |
+| Windows Setup text/status | #207 head `c1360d7f5dd5ae024378a3f292cc4a3651c658a9` | Native GUI CI [46066553030](https://github.com/ldeora/SmartThingsEdgeDrivers/actions/runs/46066553030): typed/replaced/cleared addresses, local-network checkbox, retained settings, WOL hint and upgrade text passed. Real Windows 11 rendering/discovery remains pending. |
+| Linux distribution notices | #206 head `0a03089012fd1aeeb40f9162c3fc0ea3f6a3e24d` | All three workflows passed, including reproducible Linux binary, linked module inventory and eight-asset checksum coverage. This is not a legal licence audit. |
+
+### Final qualification record (#119)
+
+Fill these fields in the tracking issue **after** the final main build;
+do not modify tested package bytes to insert their own digest.
+
+- Final merged commit, five workflow run IDs/results, candidate artifact ID,
+  all eight distributable asset SHA-256 values and checksum manifest digest.
+- Linux/Windows metadata, actual installed agent and Edge package version,
+  private channel assignment, hub firmware, OS/build and NIC type.
+- Per-platform test results with date, PASS/FAIL/NOT TESTED/N/A and redacted
+  evidence. The prior scoped passes above guide affected retesting; none
+  certify the replacement candidate by version label alone.
+- Pending: exact-byte Gentoo smoke/lifecycle confirmation, starting with a known-good rc.2 installation rather than the earlier equal-version rc.3 build; second supported
+  Linux system and appropriate authorization providers, accessibility/resize
+  and remaining negative tests; two independent physical Windows 11 hosts
+  including first paint, display scaling, dark mode and tile/routines;
+  mixed-agent/network/transport tests and separate approved account-level
+  Unreachable colour update with live backup, comparison and verification.
+- Publication requires explicit approval of exact tested commit, digests,
+  installed driver and outstanding gate dispositions. Stable requires
+  the existing minimum seven-day Linux and Windows real-hub soak, plus
+  final security/platform sign-off. Do not waive remaining gates implicitly.
+
 ## Implementation freeze
 
 The intended v1.0 Linux installer entry points use the same protected
@@ -16,8 +75,7 @@ network guidance (#168), ordinary-user default launch and prospective
 [Linux Quick Start](LINUX-INSTALLER-QUICK-START.md) (#169) are merged.
 The parity fixes #183–#185 (persistent WOL), #186 (explicit rc.2 state reuse),
 #187 (historical restore) and #188 (maintenance menu) are merged. Freeze
-installer features; fix only concrete release defects. The normal release binary is implemented in #189; exact-main CI, migration and
-physical acceptance remain open.
+installer features; fix only concrete release defects. The normal release binary is implemented in #189. The later scoped CI and physical evidence is recorded above; final-byte acceptance remains open.
 
 ## Remaining critical path
 
@@ -130,8 +188,7 @@ changes explicitly identified; they are not new hardware certifications. Do not 
 
 ## rc.3 acceptance evidence (#119)
 
-Populate after candidate preparation; all entries below are **NOT TESTED**
-against rc.3. Keep the older [rc.2 checklist](RC-ACCEPTANCE.md) as historical
+Populate after the replacement candidate is built; all entries below are **NOT TESTED** against the final replacement bytes. Prior unpublished rc.3 evidence is recorded above. Keep the older [rc.2 checklist](RC-ACCEPTANCE.md) as historical
 evidence, not a substitute. Use exact artifact SHA-256, integration/agent/Edge
 version, OS build, NIC, hub model/firmware, date, PASS/FAIL/NOT TESTED/N/A
 and redacted reference per result. Never include key, UUID, IP or MAC in
@@ -211,8 +268,7 @@ There is no pre-tag publication-only commit and no rebuild after acceptance.
 If desired, update main's publication record *after* publication, never retag
 or rebuild the accepted assets just to change a banner.
 
-1. After #189 merges, record exact main SHA and all five required workflow
-   run IDs. Run the normal release workflow on that exact SHA if needed.
+1. After the final preparation PR merges, record exact main SHA and all five required workflow run IDs. Run the normal release workflow and dispatch the Linux installer integration workflow on that exact main SHA if needed; verify the returned run heads before accepting them.
    Download the complete unsigned candidate artifact from that run, not the
    ordinary wizard integration artifact. Record the run and artifact IDs.
    Preserve an immutable local copy (artifact retention is seven days).
@@ -236,12 +292,11 @@ or rebuild the accepted assets just to change a banner.
    version on the test hub (`smartthings edge:channels:drivers` and
    `smartthings edge:drivers:installed --hub HUB_ID --verbose`).
    Do not assign to the public channel or delete existing devices.
-4. Record the acceptance rows above: hydra upgrade and menu, WOL
+4. Exercise the actual tester upgrade path from published rc.2 to the final rc.3 candidate. On hydra, first select and restore the known-good rc.2 snapshot using the supported restore workflow, retaining identity/key and WOL; verify service health and the actual running rc.2 agent version before upgrading. Alternatively use a second host still running rc.2. The earlier rc.3 build has the same semantic version as the final candidate, so a same-version maintenance operation alone does not establish rc.2 migration. Record the exact candidate asset hash and installed platform-generated Edge driver package version as well as the agent and driver semantic versions. Save work and keep physical access before any power test. Record the acceptance rows above: hydra upgrade and menu, WOL
    shutdown/wake/reboot/repeat, restore and re-upgrade, rc.3 uninstall/reinstall;
    second machine or VM rc.2 uninstall and REUSE; physical NetworkManager
    WOL; minimal host without ethtool; Windows 11; private-channel rc.2/rc.3
-   mixed agents, same devices and routines. Include exact artifact hashes and
-   driver version. VM tests do not establish physical WOL. Stop on concrete
+   mixed agents, same devices and routines. Verify the Windows tile and the separate account-wide colour update as described above; do not change the live capability presentation without explicit approval and backup. Include exact artifact hashes and driver version. VM tests do not establish physical WOL. Stop on concrete
    failures; any fixed source requires fresh candidate CI and relevant
    acceptance, not substitution of unchecked binaries.
 5. Obtain explicit maintainer approval for the exact commit, asset digests
