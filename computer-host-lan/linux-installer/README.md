@@ -44,10 +44,11 @@ Back when available. Review defaults to Continue, which is not authorization.
 Q is not a quit shortcut in the wizard. The alternate screen closes before
 the original typed confirmation and administrator authorization.
 Inspect opens a scrollable, read-only snapshot of installation, service,
-network and requirement observations. Verification limits are shown explicitly:
+network and requirement observations, with a concise overview first. Verification limits are shown explicitly:
 no runtime power/WOL test, private credentials or protected recovery inspection
 is implied. Use Up/Down, PgUp/PgDn or Home/End to navigate; Enter, Esc or Q closes
-the view.
+the view and returns to the interactive maintenance menu. Plain inspection
+retains its previous output and exit behavior.
 
 Restore still requests administrator authorization to list private local
 backups before opening the full-screen chooser. The list is newest first,
