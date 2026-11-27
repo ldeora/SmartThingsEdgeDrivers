@@ -71,7 +71,7 @@ def smoke(binary: str, mode: str) -> None:
         if mode == 'inspect':
             pump_until(b'Read-only snapshot')
             os.write(master, b'\x1b[F')  # End
-            pump_until(b'Credentials and identity: Not accessed or verified')
+            pump_until(b'Recovery not inspected; identity/key not accessed or verified.')
             os.write(master, b'q')
             pump_until(b'PTY INSPECTION CLOSED')
         elif mode.startswith('backup-'):
