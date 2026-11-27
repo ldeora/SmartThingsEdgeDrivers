@@ -303,13 +303,11 @@ func runMaintenanceApplication(api apiClient, info apiInspect, reader io.Reader,
 		if final.selection == nil || !final.selection.finished {
 			return fmt.Errorf("missing installation approval")
 		}
-		return installSelection(final.selection, writer, true, method)
+		return installSelectionPresentation(final.selection, writer, method)
 	case "restore":
 		return runRestorePresentation(false, reader, writer, method)
 	case "recover":
-		return executeConfirmedRecovery(writer, func(req privilegedRequest) (privilegedResult, error) {
-			return executeAuthorizedBootstrap(req, true, method)
-		})
+		return recoverPresentation(writer, method)
 	case "uninstall":
 		return finishUninstall(false, reader, writer, method, true)
 	case "wol":
