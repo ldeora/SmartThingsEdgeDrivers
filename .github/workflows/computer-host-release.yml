@@ -67,7 +67,8 @@ jobs:
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           test "$(go env GOVERSION)" = "go$GO_RELEASE_VERSION"
           test -z "$(git status --porcelain)"
-          test -z "$(gofmt -l ./*.go)"
+          unformatted="$(gofmt -l .)"
+          test -z "$unformatted" || { printf 'Unformatted Go sources:\n%s\n' "$unformatted"; exit 1; }
           go mod download
           go mod verify
           go mod tidy -diff

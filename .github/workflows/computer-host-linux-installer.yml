@@ -27,11 +27,11 @@ jobs:
           cache: false
       - name: Enforce gofmt source formatting
         run: |
-          unformatted="$(gofmt -l ./*.go)"
+          unformatted="$(gofmt -l .)"
           if [ -n "$unformatted" ]; then
             echo "Unformatted Go sources:"
             printf '%s\n' "$unformatted"
-            gofmt -d ./*.go
+            gofmt -d .
             exit 1
           fi
       - name: Ensure module files are tidy and unchanged
