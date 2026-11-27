@@ -364,7 +364,7 @@ func runMaintenanceHub(choose func(func(string) error) error, dispatch func(stri
 }
 
 func runMaintenanceScreen(m maintenanceScreen, writer io.Writer, dispatch func(string) error) error {
-	result, err := tea.NewProgram(m).Run()
+	result, err := runFramedProgram(m)
 	if err != nil {
 		return err
 	}

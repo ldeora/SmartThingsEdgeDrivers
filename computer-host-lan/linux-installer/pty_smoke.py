@@ -76,7 +76,7 @@ def smoke(binary: str, width: int, height: int, *, mode: str) -> None:
             time.sleep(0.05)
         if child_status is None or not os.WIFEXITED(child_status) or os.WEXITSTATUS(child_status) != 0:
             raise AssertionError(f'TUI did not exit with code 0: status={child_status}')
-        if mode == 'install' and b'COMPUTER HOST LAN \xe2\x80\x94 LINUX INSTALLATION' not in collected:
+        if mode == 'install' and b'COMPUTER HOST LAN / LINUX INSTALLATION' not in collected:
             raise AssertionError('installation welcome heading missing')
         print(f'PASS {mode} TUI PTY startup/cancel at {width}x{height}')
     except Exception:

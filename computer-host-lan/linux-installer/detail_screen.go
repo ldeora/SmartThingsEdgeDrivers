@@ -320,7 +320,7 @@ func runInspectionPresentation(accessible bool, reader io.Reader, writer io.Writ
 		frame: detailFrame{monochrome: os.Getenv("NO_COLOR") != ""},
 		rows:  inspectionRows(info, installedAgentVersion()),
 	}
-	_, err := tea.NewProgram(m).Run()
+	_, err := runFramedProgram(m)
 	return err
 }
 
@@ -485,7 +485,7 @@ func selectBackupScreen(backups []backupSummary, current string) (int, error) {
 		current:  current,
 		selected: -1,
 	}
-	result, err := tea.NewProgram(m).Run()
+	result, err := runFramedProgram(m)
 	if err != nil {
 		return -1, err
 	}
@@ -494,4 +494,77 @@ func selectBackupScreen(backups []backupSummary, current string) (int, error) {
 		return -1, fmt.Errorf("invalid backup selection")
 	}
 	return final.selected, nil
+}
+
+// Keep backup selection, complete review and literal consent in one
+// terminal lifetime. Listing and restoring remain independent requests.
+type backupConsentScreen struct {
+	chooser backupScreen
+	consent *consentScreen
+}
+
+func (m backupConsentScreen) Init() tea.Cmd { return nil }
+
+func (m backupConsentScreen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if m.consent != nil {
+		if key, ok := msg.(tea.KeyPressMsg); ok && key.String() == "esc" && !m.consent.done {
+			m.chooser.frame = m.consent.frame
+			m.chooser.selected = -1
+			m.consent = nil
+			return m, nil
+		}
+		next, cmd := m.consent.Update(msg)
+		value := next.(consentScreen)
+		m.consent = &value
+		return m, cmd
+	}
+	next, cmd := m.chooser.Update(msg)
+	m.chooser = next.(backupScreen)
+	if m.chooser.selected >= 0 && m.chooser.selected < len(m.chooser.backups) {
+		b := m.chooser.backups[m.chooser.selected]
+		rows := backupDetails(b)
+		rows = append(rows,
+			detailRow{"Older software may have defects. Back up files/services first.", "warning"},
+			detailRow{"Current identity, key and persistent WOL are retained.", "normal"},
+			detailRow{"The saved agent interface pin may be restored.", "normal"})
+		m.consent = &consentScreen{
+			frame: m.chooser.frame, title: "RESTORE",
+			review: rows, token: "RESTORE",
+		}
+		return m, nil
+	}
+	return m, cmd
+}
+
+func (m backupConsentScreen) View() tea.View {
+	if m.consent != nil {
+		return m.consent.View()
+	}
+	return m.chooser.View()
+}
+
+func selectBackupConsent(backups []backupSummary, current string) (backupApproval, error) {
+	m := backupConsentScreen{chooser: backupScreen{
+		frame:    detailFrame{monochrome: os.Getenv("NO_COLOR") != ""},
+		backups:  append([]backupSummary(nil), backups...),
+		current:  current,
+		selected: -1,
+	}}
+	result, err := runFramedProgram(m)
+	if err != nil {
+		return backupApproval{}, err
+	}
+	final, ok := result.(backupConsentScreen)
+	if !ok {
+		return backupApproval{}, fmt.Errorf("unexpected backup confirmation result")
+	}
+	if final.consent == nil || !final.consent.accepted() {
+		return backupApproval{}, nil
+	}
+	i := final.chooser.selected
+	if i < 0 || i >= len(final.chooser.backups) {
+		return backupApproval{}, fmt.Errorf("invalid backup selection")
+	}
+	b := final.chooser.backups[i]
+	return backupApproval{index: i, name: b.Name, digest: b.Digest, approved: true}, nil
 }

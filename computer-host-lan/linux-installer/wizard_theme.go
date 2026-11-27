@@ -381,7 +381,7 @@ func runStyledLiveWizard(s *liveSelection, installing bool) error {
 		return liveFormMode(s, installing).Run()
 	}
 	m := newWizardScreen(s, installing, os.Getenv("NO_COLOR") != "")
-	_, err := tea.NewProgram(m, tea.WithInput(os.Stdin), tea.WithOutput(os.Stdout)).Run()
+	_, err := runFramedProgram(m)
 	if errors.Is(err, tea.ErrInterrupted) || m.form.State == huh.StateAborted {
 		return huh.ErrUserAborted
 	}
@@ -395,4 +395,144 @@ func runStyledLiveWizard(s *liveSelection, installing bool) error {
 	}
 	s.finished = *m.reviewChoice
 	return nil
+}
+
+// The normal setup model and its original validators own Review. Only
+// a completed positive Review may transition to literal confirmation.
+// No privilege provider is invoked while the Bubble Tea program is alive.
+type installConsentWizard struct {
+	wizard  wizardScreen
+	state   *liveSelection
+	consent *consentScreen
+}
+
+// Native Huh commands belong to the form instance that produced them.
+// Late messages from a superseded form cannot advance a reopened review.
+type wizardCommandMsg struct {
+	form *huh.Form
+	msg  tea.Msg
+}
+
+func scopedWizardCommand(form *huh.Form, cmd tea.Cmd) tea.Cmd {
+	if cmd == nil {
+		return nil
+	}
+	return func() tea.Msg {
+		msg := cmd()
+		if batch, ok := msg.(tea.BatchMsg); ok {
+			var scoped []tea.Cmd
+			for _, child := range batch {
+				if child != nil {
+					scoped = append(scoped, scopedWizardCommand(form, child))
+				}
+			}
+			return tea.BatchMsg(scoped)
+		}
+		return wizardCommandMsg{form: form, msg: msg}
+	}
+}
+
+func (m installConsentWizard) Init() tea.Cmd {
+	// Huh Init uses Bubble Tea's private Sequence message and terminal
+	// size request. Let Bubble Tea dispatch those native startup commands.
+	// Subsequent field navigation commands are scoped to this form.
+	return m.wizard.Init()
+}
+
+// A completed Huh form cannot be reopened. Reconstruct the native form
+// from the existing selections and navigate to Review, not through a new
+// submission. The review validator still runs on the next Continue.
+func (m installConsentWizard) reopenReview() (tea.Model, tea.Cmd) {
+	frame := m.consent.frame
+	m.consent = nil
+	m.wizard = newWizardScreen(m.state, true, frame.monochrome)
+	next, _ := m.wizard.Update(tea.WindowSizeMsg{Width: frame.width, Height: frame.height})
+	m.wizard = next.(wizardScreen)
+	var cmd tea.Cmd
+	for i := 0; i < 6 && m.wizard.form.GetFocusedField().GetKey() != "review"; i++ {
+		cmd = m.wizard.form.NextGroup()
+	}
+	if m.wizard.form.State != huh.StateNormal || m.wizard.form.GetFocusedField().GetKey() != "review" {
+		return m, tea.Quit
+	}
+	return m, scopedWizardCommand(m.wizard.form, cmd)
+}
+
+func (m installConsentWizard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if event, ok := msg.(wizardCommandMsg); ok {
+		if event.form != m.wizard.form || m.consent != nil {
+			return m, nil
+		}
+		msg = event.msg
+	}
+	if m.consent != nil {
+		if key, ok := msg.(tea.KeyPressMsg); ok && key.String() == "esc" && !m.consent.done {
+			return m.reopenReview()
+		}
+		next, cmd := m.consent.Update(msg)
+		value := next.(consentScreen)
+		m.consent = &value
+		return m, cmd
+	}
+	if key, ok := msg.(tea.KeyPressMsg); ok && key.String() == "esc" {
+		if m.wizard.form.GetFocusedField().GetKey() == "welcome" {
+			return m, tea.Quit
+		}
+		msg = huh.PrevField()
+	}
+	next, cmd := m.wizard.Update(msg)
+	m.wizard = next.(wizardScreen)
+	if m.wizard.form.State == huh.StateCompleted && *m.wizard.reviewChoice {
+		token := m.state.installConfirmation()
+		rows := []detailRow{
+			{"Confirm your reviewed installation plan", "header"},
+			{"Agent files and services will change.", "normal"},
+			{"Next: administrator authorization (password if needed).", "muted"},
+		}
+		if token == "REUSE" {
+			rows = append(rows, detailRow{"Reuse the retained installation identity and key.", "warning"})
+		}
+		m.consent = &consentScreen{
+			frame: detailFrame{
+				width: m.wizard.layout.width, height: m.wizard.layout.height,
+				monochrome: m.wizard.layout.monochrome,
+			},
+			title: "INSTALLATION", review: rows, token: token,
+		}
+		return m, nil // Consume the native form's completion Quit.
+	}
+	if m.wizard.form.State != huh.StateNormal {
+		return m, cmd
+	}
+	return m, scopedWizardCommand(m.wizard.form, cmd)
+}
+
+func (m installConsentWizard) View() tea.View {
+	if m.consent != nil {
+		return m.consent.View()
+	}
+	return m.wizard.View()
+}
+
+func runInstallConsentWizard(s *liveSelection) (bool, error) {
+	m := installConsentWizard{
+		wizard: newWizardScreen(s, true, os.Getenv("NO_COLOR") != ""), state: s,
+	}
+	result, err := runFramedProgram(m)
+	if errors.Is(err, tea.ErrInterrupted) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	final, ok := result.(installConsentWizard)
+	if !ok {
+		return false, fmt.Errorf("unexpected installation confirmation result")
+	}
+	// Recheck the required word against the same reviewed plan before the
+	// original request builder runs. Never convert INSTALL into REUSE.
+	accepted := final.wizard.form.State == huh.StateCompleted && *final.wizard.reviewChoice &&
+		final.consent != nil && final.consent.accepted() && final.consent.token == s.installConfirmation()
+	s.finished = accepted
+	return accepted, nil
 }

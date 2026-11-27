@@ -657,6 +657,9 @@ func runInstallingWizardMode(accessible bool, apiPath string, reader io.Reader, 
 		return err
 	}
 	if startMenu && maintenanceNeeded(info) {
+		if detailTerminal(accessible, reader, writer) {
+			return runMaintenanceApplication(api, info, reader, writer, method)
+		}
 		return runMaintenancePresentation(accessible, reader, writer, info, func(choice string) error {
 			return dispatchMaintenance(choice, accessible, apiPath, reader, writer, method, info)
 		})
@@ -680,6 +683,19 @@ func runInstallingWizardMode(accessible bool, apiPath string, reader io.Reader, 
 			})
 	}
 	s.firewalldActive = firewalldRunning()
+	if detailTerminal(accessible, reader, writer) {
+		accepted, err := runInstallConsentWizard(s)
+		if err != nil {
+			return err
+		}
+		if !accepted {
+			fmt.Fprintln(writer, "Cancelled. No changes made.")
+			return nil
+		}
+		// Native terminal ownership has been restored; no input is
+		// forwarded from the confirmation editor to the provider.
+		return installSelection(s, writer, true, method)
+	}
 	fmt.Fprintln(writer, "COMPUTER HOST LAN — LINUX INSTALLATION")
 	fmt.Fprintln(writer, "The agent will not be changed until you approve the final confirmation.")
 	if err := runStyledLiveWizard(s, true); err != nil {
@@ -724,8 +740,7 @@ func readConfirmationLine(reader io.Reader) (string, error) {
 	return "", errors.New("confirmation line too long")
 }
 
-// Plain text is intentional: uninstall uses the same accessible review
-// and literal confirmation on every terminal, without a default Yes action.
+// Plain fallback preserves the complete original review and literal consent.
 func confirmUninstall(reader io.Reader, writer io.Writer,
 	authorize func(privilegedRequest) (privilegedResult, error)) error {
 	fmt.Fprintln(writer, "COMPUTER HOST LAN — LINUX UNINSTALL")
@@ -746,6 +761,10 @@ func confirmUninstall(reader io.Reader, writer io.Writer,
 		fmt.Fprintln(writer, "Uninstall cancelled. No changes made.")
 		return nil
 	}
+	return executeConfirmedUninstall(writer, authorize)
+}
+
+func executeConfirmedUninstall(writer io.Writer, authorize func(privilegedRequest) (privilegedResult, error)) error {
 	fmt.Fprintln(writer, "Authorizing uninstall. This can take several minutes.")
 	reply, err := authorize(privilegedRequest{SchemaVersion: 2, Action: "uninstall"})
 	if err != nil {
@@ -785,29 +804,52 @@ func runUninstallPresentation(accessible bool, reader io.Reader, writer io.Write
 	if !stdinIsTerminal() {
 		return errors.New("interactive uninstall needs a terminal")
 	}
-	proceed, err := operationReview(accessible, reader, writer, uninstallScreen())
-	if err != nil {
-		return err
+	visual := detailTerminal(accessible, reader, writer)
+	if visual {
+		screen := uninstallScreen()
+		screen.frame.monochrome = os.Getenv("NO_COLOR") != ""
+		proceed, err := runOperationConsent(screen, "UNINSTALL")
+		if err != nil {
+			return err
+		}
+		if !proceed {
+			fmt.Fprintln(writer, "Uninstall cancelled. No changes made.")
+			return nil
+		}
 	}
-	if !proceed {
-		fmt.Fprintln(writer, "Uninstall cancelled. No changes made.")
-		return nil
-	}
+	return finishUninstall(accessible, reader, writer, method, visual)
+}
+
+// The visual callers have already submitted the exact UNINSTALL token.
+// Plain callers still use the original review and literal input.
+func finishUninstall(accessible bool, reader io.Reader, writer io.Writer, method string, confirmed bool) error {
 	removed := false
-	err = confirmUninstall(reader, writer, func(request privilegedRequest) (privilegedResult, error) {
+	authorize := func(request privilegedRequest) (privilegedResult, error) {
 		result, err := executeAuthorizedBootstrap(request, true, method)
 		removed = err == nil && result.Status == "uninstalled"
 		return result, err
-	})
+	}
+	var err error
+	if confirmed {
+		err = executeConfirmedUninstall(writer, authorize)
+	} else {
+		err = confirmUninstall(reader, writer, authorize)
+	}
 	if err != nil || !removed {
 		return err
+	}
+	if confirmed {
+		if err := runWOLPresentation(false, reader, writer, method, true); err != nil {
+			fmt.Fprintln(writer, "Agent uninstalled. WOL removal was not completed:", err)
+		}
+		return nil
 	}
 	fmt.Fprint(writer, "Also remove the Wake-on-LAN setting this installer made? [y/N]: ")
 	answer, err := readConfirmationLine(reader)
 	if err != nil || !strings.EqualFold(strings.TrimSpace(answer), "y") {
 		return nil
 	}
-	if err := runWOLManagement(reader, writer, method, true); err != nil {
+	if err := runWOLPresentation(accessible, reader, writer, method, true); err != nil {
 		fmt.Fprintln(writer, "Agent uninstalled. WOL removal was not completed:", err)
 	}
 	return nil
@@ -846,17 +888,23 @@ func runRecoveryPresentation(accessible bool, reader io.Reader, writer io.Writer
 	if !stdinIsTerminal() {
 		return errors.New("interactive recovery needs a terminal")
 	}
-	proceed, err := operationReview(accessible, reader, writer, recoveryScreen())
-	if err != nil {
-		return err
-	}
-	if !proceed {
-		fmt.Fprintln(writer, "Recovery cancelled. No changes made.")
-		return nil
-	}
-	return confirmRecovery(reader, writer, func(request privilegedRequest) (privilegedResult, error) {
+	authorize := func(request privilegedRequest) (privilegedResult, error) {
 		return executeAuthorizedBootstrap(request, true, method)
-	})
+	}
+	if detailTerminal(accessible, reader, writer) {
+		screen := recoveryScreen()
+		screen.frame.monochrome = os.Getenv("NO_COLOR") != ""
+		proceed, err := runOperationConsent(screen, "RECOVER")
+		if err != nil {
+			return err
+		}
+		if !proceed {
+			fmt.Fprintln(writer, "Recovery cancelled. No changes made.")
+			return nil
+		}
+		return executeConfirmedRecovery(writer, authorize)
+	}
+	return confirmRecovery(reader, writer, authorize)
 }
 
 func confirmRecovery(reader io.Reader, writer io.Writer, authorize func(privilegedRequest) (privilegedResult, error)) error {
@@ -871,6 +919,10 @@ func confirmRecovery(reader io.Reader, writer io.Writer, authorize func(privileg
 		fmt.Fprintln(writer, "Recovery cancelled. No changes made.")
 		return nil
 	}
+	return executeConfirmedRecovery(writer, authorize)
+}
+
+func executeConfirmedRecovery(writer io.Writer, authorize func(privilegedRequest) (privilegedResult, error)) error {
 	response, err := authorize(privilegedRequest{SchemaVersion: 1, Action: "recover"})
 	if err != nil {
 		return err

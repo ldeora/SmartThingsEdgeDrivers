@@ -49,15 +49,13 @@ func runRestoreWizard(reader io.Reader, writer io.Writer, method string) error {
 }
 
 func runRestorePresentation(accessible bool, reader io.Reader, writer io.Writer, method string) error {
-	choose := func(backups []backupSummary, currentVersion string) (int, error) {
-		if detailTerminal(accessible, reader, writer) {
-			return selectBackupScreen(backups, currentVersion)
-		}
-		return selectBackupPlain(reader, writer, backups, currentVersion)
-	}
-	return restoreWizardWithChooser(reader, writer, func(req privilegedRequest) (privilegedResult, error) {
+	authorize := func(req privilegedRequest) (privilegedResult, error) {
 		return executeAuthorizedBootstrap(req, true, method)
-	}, installedAgentVersion(), choose)
+	}
+	if detailTerminal(accessible, reader, writer) {
+		return restoreWizardWithApproval(writer, authorize, installedAgentVersion(), selectBackupConsent)
+	}
+	return restoreWizard(reader, writer, authorize, installedAgentVersion())
 }
 
 func restoreWizard(reader io.Reader, writer io.Writer, authorize func(privilegedRequest) (privilegedResult, error), currentVersion string) error {
@@ -67,7 +65,40 @@ func restoreWizard(reader io.Reader, writer io.Writer, authorize func(privileged
 		})
 }
 
+type backupApproval struct {
+	index        int
+	name, digest string
+	approved     bool
+}
+
 func restoreWizardWithChooser(reader io.Reader, writer io.Writer, authorize func(privilegedRequest) (privilegedResult, error), currentVersion string, choose func([]backupSummary, string) (int, error)) error {
+	return restoreWizardWithApproval(writer, authorize, currentVersion,
+		func(backups []backupSummary, version string) (backupApproval, error) {
+			index, err := choose(append([]backupSummary(nil), backups...), version)
+			if err != nil || index == -1 {
+				return backupApproval{}, err
+			}
+			if index < 0 || index >= len(backups) {
+				return backupApproval{}, fmt.Errorf("invalid backup selection")
+			}
+			b := backups[index]
+			fmt.Fprintf(writer, "Restore agent %s from %s\n", b.Version, b.Name)
+			fmt.Fprintf(writer, "Agent running: %t; enabled at boot: %t; saved power preference: %s\n", b.AgentActive, b.AgentEnabled, b.Power)
+			if b.Coverage == "partial" {
+				fmt.Fprintln(writer, "This backup records only some optional files. Unrecorded optional settings are kept.")
+			}
+			fmt.Fprintln(writer, "Older software may have known defects. The current agent files and service state will be backed up first. Your current identity, key and persistent NIC Wake-on-LAN settings are retained. The saved agent interface pin may be restored.")
+			fmt.Fprint(writer, "Type RESTORE to authorize this backup (anything else cancels): ")
+			line, err := readConfirmationLine(reader)
+			if err != nil || strings.TrimSpace(line) != "RESTORE" {
+				fmt.Fprintln(writer, "No agent changes made.")
+				return backupApproval{}, nil
+			}
+			return backupApproval{index: index, name: b.Name, digest: b.Digest, approved: true}, nil
+		})
+}
+
+func restoreWizardWithApproval(writer io.Writer, authorize func(privilegedRequest) (privilegedResult, error), currentVersion string, approve func([]backupSummary, string) (backupApproval, error)) error {
 	fmt.Fprintln(writer, "Computer Host LAN — Restore a historical backup")
 	fmt.Fprintln(writer, "Administrator authorization is needed to list local private backups. Listing does not restore agent files.")
 	reply, err := authorize(privilegedRequest{SchemaVersion: 2, Action: "backups"})
@@ -88,30 +119,21 @@ func restoreWizardWithChooser(reader io.Reader, writer io.Writer, authorize func
 		fmt.Fprintln(writer, "No suitable installed-state v2 backups were found.")
 		return nil
 	}
-	// Give the chooser a copy of the sorted validated list, but select
-	// from our original list so the exact name/digest binding is preserved.
-	index, err := choose(append([]backupSummary(nil), backups...), currentVersion)
+	// The selection and exact literal consent must bind to our original
+	// validated list, never a modified presentation copy.
+	approval, err := approve(append([]backupSummary(nil), backups...), currentVersion)
 	if err != nil {
 		return err
 	}
-	if index == -1 {
+	if !approval.approved {
 		return nil
 	}
-	if index < 0 || index >= len(backups) {
+	if approval.index < 0 || approval.index >= len(backups) {
 		return fmt.Errorf("invalid backup selection")
 	}
-	b := backups[index]
-	fmt.Fprintf(writer, "Restore agent %s from %s\n", b.Version, b.Name)
-	fmt.Fprintf(writer, "Agent running: %t; enabled at boot: %t; saved power preference: %s\n", b.AgentActive, b.AgentEnabled, b.Power)
-	if b.Coverage == "partial" {
-		fmt.Fprintln(writer, "This backup records only some optional files. Unrecorded optional settings are kept.")
-	}
-	fmt.Fprintln(writer, "Older software may have known defects. The current agent files and service state will be backed up first. Your current identity, key and persistent NIC Wake-on-LAN settings are retained. The saved agent interface pin may be restored.")
-	fmt.Fprint(writer, "Type RESTORE to authorize this backup (anything else cancels): ")
-	line, err := readConfirmationLine(reader)
-	if err != nil || strings.TrimSpace(line) != "RESTORE" {
-		fmt.Fprintln(writer, "No agent changes made.")
-		return nil
+	b := backups[approval.index]
+	if approval.name != b.Name || approval.digest != b.Digest {
+		return fmt.Errorf("backup approval no longer matches selection")
 	}
 	reply, err = authorize(privilegedRequest{SchemaVersion: 2, Action: "restore", Backup: b.Name, BackupDigest: b.Digest})
 	if err != nil {
