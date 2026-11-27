@@ -268,3 +268,24 @@ jobs:
             ${{ runner.temp }}/computer-host-linux-installer-test.sha256
           if-no-files-found: error
           retention-days: 7
+
+  terminal-handoff-stress:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: computer-host-lan/linux-installer
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.25.x'
+          cache: false
+      - name: Build unprivileged fixture test binary
+        run: go test -c -o "$RUNNER_TEMP/computer-host-terminal.test" .
+      - name: Repeat full PTY suite 50 times (no elevation)
+        run: |
+          git rev-parse HEAD
+          go version
+          uname -srmo
+          python3 pty_maintenance.py "$RUNNER_TEMP/computer-host-terminal.test" --repeat 50

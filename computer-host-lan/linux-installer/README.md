@@ -115,8 +115,28 @@ A failed result-screen terminal handoff suppresses that optional workflow.
 Successful read-only backup listing and WOL checks retain their chooser/review
 without another result screen. Plain accessible/CLI output remains unchanged.
 
-A mode check is not proof of input-loop quiescence; real provider and repeated
-PTY acceptance remain required.
+A mode check alone is not proof of input ownership. The pinned Bubble Tea
+v2.0.2 waits for its event loop (at most 500 ms on cancellable input), but
+Ultraviolet's byte-reading goroutine is separate and is not joined on context
+cancellation. The pinned cancelreader also has a gap between readiness and
+its underlying read. This is a plausible explanation for the intermittent
+post-close input loss; the historical failures have not been independently
+reproduced here.
+
+Each framed program now uses a revocable reader with a private nonblocking
+descriptor reopened through /proc/self/fd and checked against the original
+terminal. The original stdin flags and descriptor are untouched. Closing the
+reader wakes its poll, joins the read critical section and permanently denies
+late reads before the original tty modes are verified. We guarantee terminal
+read exclusion, not termination of every dependency goroutine. If the private
+reader or handoff cannot be established, the operation does not proceed from
+that screen. Plain/CLI paths are unchanged. Framed programs remain one-shot;
+they do not launch providers or suspend/resume input inside the model.
+
+The unprivileged integration stress job runs the full maintenance PTY suite
+50 times, including immediate post-close writes and direct reader revocation.
+Run locally with a Go test binary using pty_maintenance.py --repeat 50.
+Physical native-provider acceptance is still required.
 
 The previous `-live -install` spelling remains supported.
 Real installation uses an embedded inspector

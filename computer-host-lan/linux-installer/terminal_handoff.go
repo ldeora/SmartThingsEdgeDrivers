@@ -8,11 +8,11 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// Bubble Tea owns the input loop during Run. It restores the tty on exit,
-// but its shutdown path ignores a restoration error. Verify the original
-// modes explicitly before any caller can hand the terminal to a provider.
-// This does not claim that a mode check proves the input reader stopped.
-func runFramedProgram(model tea.Model) (tea.Model, error) {
+// Bubble Tea owns terminal presentation during Run, but its event-loop
+// shutdown is not a join of the underlying byte reader. Independently
+// revoke access to terminal input and verify the original tty modes before
+// returning a selected/confirmed operation to the caller.
+func runFramedProgram(model tea.Model) (result tea.Model, runErr error) {
 	in, out := int(os.Stdin.Fd()), int(os.Stdout.Fd())
 	input, err := unix.IoctlGetTermios(in, unix.TCGETS)
 	if err != nil {
@@ -22,15 +22,24 @@ func runFramedProgram(model tea.Model) (tea.Model, error) {
 	if err != nil {
 		return nil, fmt.Errorf("cannot capture terminal output state")
 	}
-	result, runErr := tea.NewProgram(model, tea.WithInput(os.Stdin), tea.WithOutput(os.Stdout)).Run()
-	// Attempt both even if one fails. A failed restoration prevents
-	// execution of any previously selected or confirmed operation.
-	outErr := verifyTerminalState(out, output)
-	inErr := verifyTerminalState(in, input)
-	if outErr != nil || inErr != nil {
-		return nil, fmt.Errorf("terminal restoration failed; operation not started")
+	reader, err := newFramedInput(os.Stdin)
+	if err != nil {
+		return nil, fmt.Errorf("cannot establish exclusive terminal input: %w", err)
 	}
-	return result, runErr
+	defer func() {
+		// Revocation waits for the last permitted kernel read and closes
+		// only our private descriptors. Even a late library goroutine can
+		// never read the terminal after this point.
+		readErr := reader.Close()
+		// Attempt both mode checks even if revocation or one check fails.
+		outErr := verifyTerminalState(out, output)
+		inErr := verifyTerminalState(in, input)
+		if readErr != nil || outErr != nil || inErr != nil {
+			result = nil
+			runErr = fmt.Errorf("terminal handoff failed; cannot safely continue")
+		}
+	}()
+	return tea.NewProgram(model, tea.WithInput(reader), tea.WithOutput(os.Stdout)).Run()
 }
 
 func verifyTerminalState(fd int, original *unix.Termios) error {
