@@ -16,6 +16,7 @@ type operationReport struct {
 	reply         privilegedResult
 	runErr        error
 	called        bool
+	screenFailed  bool
 }
 
 func operationLabel(action string) string {
@@ -104,7 +105,7 @@ func (r operationReport) rows(err error) []detailRow {
 			add(userFacingPrivilegeFailure(reply).Error(), "normal")
 		default:
 			add("Outcome not confirmed", "warning")
-			add("No reliable final outcome was established.", "normal")
+			add("Authorization or helper execution did not yield a reliable outcome.", "normal")
 			add("Inspect the installation and recovery state before retrying.", "normal")
 			add("Do not assume the operation failed before making changes.", "muted")
 		}
@@ -214,18 +215,26 @@ func (r operationReport) rows(err error) []detailRow {
 // Keep the established console transcript, including the complete network,
 // onboarding and recovery guidance, for scrollback after closing the screen.
 // Preserve the original operation error/exit status even if rendering fails.
-func (r operationReport) present(w io.Writer, err error) error {
+func (r *operationReport) present(w io.Writer, err error) error {
+	return r.presentWith(w, err, func(m inspectionScreen) error {
+		_, screenErr := runFramedProgram(m)
+		return screenErr
+	})
+}
+
+func (r *operationReport) presentWith(w io.Writer, err error, show func(inspectionScreen) error) error {
 	if !r.visible(err) {
 		return err
 	}
 	rows := r.rows(err)
-	rows = append(rows, detailRow{"Detailed instructions remain in the terminal output.", "muted"})
+	rows = append(rows, detailRow{"Close for the terminal summary and diagnostics.", "muted"})
 	m := inspectionScreen{
 		frame: detailFrame{monochrome: os.Getenv("NO_COLOR") != ""},
 		rows:  rows, title: "RESULT", statusPrefix: "Operation result",
 		closeHelp: "Up/Down Scroll | PgUp/PgDn Page | Enter/Esc/Q Close",
 	}
-	if _, screenErr := runFramedProgram(m); screenErr != nil {
+	if screenErr := show(m); screenErr != nil {
+		r.screenFailed = true
 		fmt.Fprintln(w, "Result screen unavailable. Use the terminal summary; do not repeat an operation just to see its result.")
 	}
 	return err
@@ -242,7 +251,14 @@ func installSelectionPresentation(s *liveSelection, w io.Writer, method string) 
 	err := installSelectionWithAuthorization(s, w, method, observedAuthorization(w, method, &report))
 	if !report.called && err != nil {
 		// The reviewed plan was rejected locally, before any helper call.
-		report = operationReport{action: s.requestedAction, called: true,
+		action := s.requestedAction
+		if action == "" {
+			action = "install"
+			if s.inspection.Installation.Detected {
+				action = "upgrade"
+			}
+		}
+		report = operationReport{action: action, called: true,
 			runErr: &authorizationUnavailableError{cause: err}}
 	}
 	return report.present(w, err)
