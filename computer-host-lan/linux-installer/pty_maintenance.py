@@ -35,7 +35,7 @@ def smoke(binary: str, mode: str) -> None:
             if detail:
                 env['COMPUTER_HOST_TEST_DETAIL_PTY'] = mode
                 harness = 'TestDetailScreenPTYHarness'
-            os.execve(binary, [binary, f'-test.run=^{harness}
+            os.execve(binary, [binary, f'-test.run=^{harness}$', '-test.v'], env)
         except Exception as exc:
             print(f'PTY exec failed: {exc}', file=sys.stderr)
             os._exit(127)
