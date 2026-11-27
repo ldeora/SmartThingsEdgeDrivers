@@ -246,7 +246,7 @@ func inspectionRows(info apiInspect, installed string) []detailRow {
 	}
 	return append(rows,
 		detailRow{"Snapshot only; runtime version, power/WOL, discovery not tested.", "muted"},
-		detailRow{"Recovery not inspected; identity/key not accessed or verified.", "muted"})
+		detailRow{"Recovery not inspected; identity/key not read or verified.", "muted"})
 }
 
 type inspectionScreen struct {
