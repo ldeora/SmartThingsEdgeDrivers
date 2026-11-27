@@ -91,6 +91,7 @@ func TestBackupFrameAllSelectionsAndResize(t *testing.T) {
 	items := detailBackupFixtures()
 	items[31].Name = "snapshot-" + strings.Repeat("z", 64)
 	items[31].Version = strings.Repeat("v", 64)
+	items[31].Power = "keep"
 	for _, mono := range []bool{false, true} {
 		m := backupScreen{frame: detailFrame{monochrome: mono}, backups: items,
 			current: strings.Repeat("c", 64), selected: -1}
@@ -102,7 +103,7 @@ func TestBackupFrameAllSelectionsAndResize(t *testing.T) {
 				rows, status, _, fits := m.page()
 				if !fits || len(rows) != m.frame.capacity() ||
 					!strings.Contains(status, fmt.Sprintf("Backup %d of 32", index+1)) {
-					t.Fatalf("selected backup %d not fully displayed at %v", index+1, size)
+					t.Fatalf("selected backup %d not fully displayed at %v: fits=%t rows=%d status=%q", index+1, size, fits, len(rows), status)
 				}
 				var text []string
 				for _, row := range rows {
