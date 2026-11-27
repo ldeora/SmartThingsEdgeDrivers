@@ -192,7 +192,7 @@ func runMaintenanceApplication(api apiClient, info apiInspect, reader io.Reader,
 		s.firewalldActive = firewalldRunning()
 		return s, nil
 	}, func() nicSelectionScreen { return actualNICSelection(false) })
-	result, err := tea.NewProgram(m).Run()
+	result, err := runFramedProgram(m)
 	if err != nil {
 		return err
 	}
