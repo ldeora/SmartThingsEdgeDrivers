@@ -85,12 +85,20 @@ func TestApplicationNavigationAndApproval(t *testing.T) {
 				t.Fatal("typing alone returned a privileged intent")
 			}
 			m, cmd = appEvent(m, tea.KeyPressMsg{Code: tea.KeyEnter})
-			want := ""
-			if accept {
-				want = tc.want
-			}
-			if !m.done || cmd == nil || m.action != want {
-				t.Fatalf("unexpected application intent %q, want %q", m.action, want)
+			if !accept {
+				if m.done || cmd != nil || m.action != "" || !strings.Contains(m.View().Content, "exactly") {
+					t.Fatal("wrong word did not remain in the editor")
+				}
+				m, _ = appEvent(m, tea.KeyPressMsg{Code: tea.KeyEscape})
+				if screen, ok := m.screen.(operationConsentScreen); !ok || screen.consent != nil || m.done {
+					t.Fatal("Escape did not return to review")
+				}
+				m, _ = appEvent(m, tea.KeyPressMsg{Code: tea.KeyEscape})
+				if _, ok := m.screen.(maintenanceScreen); !ok || m.done {
+					t.Fatal("Escape did not return to menu")
+				}
+			} else if !m.done || cmd == nil || m.action != tc.want {
+				t.Fatalf("unexpected application intent %q, want %q", m.action, tc.want)
 			}
 		}
 	}
@@ -101,7 +109,11 @@ func TestApplicationSetupRequiresLiteralAfterNativeReview(t *testing.T) {
 		m := fixtureApplication(t)
 		m, _ = appEvent(m, tea.WindowSizeMsg{Width: 110, Height: 40})
 		m, _ = appKey(m, '1')
-		m, _ = appEvent(m, tea.KeyPressMsg{Code: tea.KeyEnter})
+		m, prepare := appEvent(m, tea.KeyPressMsg{Code: tea.KeyEnter})
+		if prepare == nil || !strings.Contains(m.View().Content, "Searching for SmartThings hubs") {
+			t.Fatal("setup preparation is not a visible command")
+		}
+		m, _ = appEvent(m, prepare())
 		wizard, ok := m.screen.(installConsentWizard)
 		if !ok || m.done {
 			t.Fatal("setup left the application")
@@ -113,7 +125,9 @@ func TestApplicationSetupRequiresLiteralAfterNativeReview(t *testing.T) {
 			t.Fatal("did not reach native Review")
 		}
 		m, cmd := appEvent(m, huh.NextField())
-		if m.done || cmd != nil || !strings.Contains(m.View().Content, "Type INSTALL to authorize:") {
+		// Native Huh delivers a next-group command before StateCompleted.
+		m = drainApplicationCommands(t, m, cmd)
+		if m.done || !strings.Contains(m.View().Content, "Type INSTALL to authorize:") {
 			t.Fatal("native Review did not stay in full-screen confirmation")
 		}
 		word := "NO"
@@ -122,13 +136,80 @@ func TestApplicationSetupRequiresLiteralAfterNativeReview(t *testing.T) {
 		}
 		m, _ = appEvent(m, tea.PasteMsg{Content: word})
 		m, cmd = appEvent(m, tea.KeyPressMsg{Code: tea.KeyEnter})
-		want := ""
-		if accepted {
-			want = "install-reviewed"
+		if !accepted {
+			if m.done || cmd != nil || m.action != "" || m.selection.finished {
+				t.Fatal("wrong installation word did not remain retryable")
+			}
+			m, _ = appEvent(m, tea.KeyPressMsg{Code: tea.KeyEscape})
+			reopened, ok := m.screen.(installConsentWizard)
+			if !ok || reopened.consent != nil || reopened.wizard.form.GetFocusedField().GetKey() != "review" || m.done {
+				t.Fatal("Escape did not reopen native review")
+			}
+			if reopened.wizard.form.State != huh.StateNormal || reopened.state != wizard.state {
+				t.Fatal("review did not preserve the original choices")
+			}
+			// A second approval must run through native Review again.
+			m, cmd = appEvent(m, huh.NextField())
+			m = drainApplicationCommands(t, m, cmd)
+			if !strings.Contains(m.View().Content, "Type INSTALL to authorize:") || m.done {
+				t.Fatal("second review did not reach confirmation")
+			}
+			m, _ = appEvent(m, tea.PasteMsg{Content: "INSTALL"})
+			m, cmd = appEvent(m, tea.KeyPressMsg{Code: tea.KeyEnter})
 		}
-		if !m.done || cmd == nil || m.action != want || m.selection.finished != accepted {
+		if !m.done || cmd == nil || m.action != "install-reviewed" || !m.selection.finished {
 			t.Fatalf("unexpected installation approval: %q, finished=%t", m.action, m.selection.finished)
 		}
+	}
+}
+
+// Drain the same command/message chain Bubble Tea runs. Do not expect
+// Huh's native field transition to complete the form synchronously.
+func drainApplicationCommands(t *testing.T, m maintenanceApplication, first tea.Cmd) maintenanceApplication {
+	t.Helper()
+	queue := []tea.Cmd{first}
+	for steps := 0; len(queue) > 0; steps++ {
+		if steps >= 300 {
+			t.Fatal("application command chain did not settle")
+		}
+		cmd := queue[0]
+		queue = queue[1:]
+		if cmd == nil {
+			continue
+		}
+		msg := cmd()
+		if batch, ok := msg.(tea.BatchMsg); ok {
+			queue = append(queue, batch...)
+			continue
+		}
+		var next tea.Cmd
+		m, next = appEvent(m, msg)
+		if w, ok := m.screen.(installConsentWizard); ok && w.consent != nil {
+			return m
+		}
+		queue = append(queue, next)
+	}
+	return m
+}
+
+func TestPreparationBackDiscardsStaleResult(t *testing.T) {
+	m := fixtureApplication(t)
+	m, _ = appEvent(m, tea.WindowSizeMsg{Width: 100, Height: 30})
+	m, _ = appKey(m, '1')
+	m, old := appEvent(m, tea.KeyPressMsg{Code: tea.KeyEnter})
+	m, _ = appEvent(m, tea.KeyPressMsg{Code: tea.KeyEscape})
+	if _, ok := m.screen.(maintenanceScreen); !ok || m.done || m.pending {
+		t.Fatal("Escape did not cancel pending preparation")
+	}
+	m, _ = appKey(m, '1')
+	m, fresh := appEvent(m, tea.KeyPressMsg{Code: tea.KeyEnter})
+	m, _ = appEvent(m, old())
+	if _, ok := m.screen.(preparingScreen); !ok || !m.pending {
+		t.Fatal("stale reply reopened the wizard")
+	}
+	m, _ = appEvent(m, fresh())
+	if _, ok := m.screen.(installConsentWizard); !ok || m.pending {
+		t.Fatal("current preparation did not open the wizard")
 	}
 }
 
