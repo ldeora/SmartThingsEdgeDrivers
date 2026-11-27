@@ -57,6 +57,59 @@ func TestMaintenanceVersionRecommendation(t *testing.T) {
 	}
 }
 
+func TestMaintenanceVersionStatus(t *testing.T) {
+	for _, tc := range []struct {
+		installed, bundled string
+		want, tone         string
+		recommended        bool
+	}{
+		{"0.4.6-rc.2", "0.4.7-rc.3", "Newer bundled version available", "success", true},
+		{"0.4.7-rc.3", "0.4.7-rc.3", "Up to date (bundled version)", "success", false},
+		{"0.4.7", "0.4.7-rc.3", "Installed version is newer than this installer", "warning", false},
+		{"0.4.10", "0.4.9", "Installed version is newer than this installer", "warning", false},
+		{"unknown", "0.4.7", "Version comparison unavailable", "muted", false},
+		{"0.4.6+build", "0.4.6+build", "Version comparison unavailable", "muted", false},
+	} {
+		m := newMaintenanceScreen(existingMenuFixture(), tc.installed, tc.bundled, true)
+		m.width, m.height = 64, 22
+		view := m.render()
+		if m.status != tc.want || m.statusTone != tc.tone || m.recommended != tc.recommended ||
+			!strings.Contains(view, tc.want) || (m.cursor == 0) != tc.recommended {
+			t.Errorf("%s -> %s: unexpected version status: %+v", tc.installed, tc.bundled, m)
+		}
+		for _, unwanted := range []string{"runtime not verified", "Selecting a task does not authorize", "Protected recovery status"} {
+			if strings.Contains(view, unwanted) {
+				t.Errorf("maintenance screen still contains %q", unwanted)
+			}
+		}
+	}
+	info := existingMenuFixture()
+	info.Installation.ServiceFile = "unsafe"
+	m := testMaintenanceScreen(info)
+	if m.recommended || m.statusTone != "muted" || strings.Contains(m.render(), "Up to date") {
+		t.Fatal("ambiguous installation state implies known version status")
+	}
+}
+
+func TestMaintenanceServiceLabels(t *testing.T) {
+	for state, want := range map[string]string{
+		"active":       "running",
+		"inactive":     "stopped",
+		"failed":       "failed",
+		"activating":   "starting",
+		"deactivating": "stopping",
+		"unknown":      "unknown",
+		"":             "unknown",
+	} {
+		info := existingMenuFixture()
+		info.Installation.AgentServiceState = state
+		m := testMaintenanceScreen(info)
+		if m.service != want || !strings.Contains(m.render(), "Service:   "+want) {
+			t.Errorf("service %q: got %q, want %q", state, m.service, want)
+		}
+	}
+}
+
 func TestVisualMaintenanceRoutes(t *testing.T) {
 	for _, info := range []apiInspect{existingMenuFixture(), {}} {
 		for _, opt := range maintenanceOptions(info) {
@@ -116,7 +169,7 @@ func TestVisualMaintenanceBoundsAndFallback(t *testing.T) {
 					t.Fatal("menu exceeds terminal width")
 				}
 			}
-			for _, want := range []string{"0.4.6-rc.2", "0.4.7-rc.3", "recommended", "not inspected"} {
+			for _, want := range []string{"0.4.6-rc.2", "0.4.7-rc.3", "recommended", "Service:   running", "Newer bundled version available", "Esc/Q Exit"} {
 				if !strings.Contains(view, want) {
 					t.Errorf("missing %q", want)
 				}
@@ -127,7 +180,7 @@ func TestVisualMaintenanceBoundsAndFallback(t *testing.T) {
 		}
 	}
 	m.width, m.height = 60, 20
-	if !strings.Contains(m.render(), "Enlarge terminal") || m.handleKey("enter") || m.chosen != "" || !m.handleKey("q") {
+	if !strings.Contains(m.render(), "Enlarge terminal to 64x22 (now 60x20). Q quits.") || m.handleKey("enter") || m.chosen != "" || !m.handleKey("q") {
 		t.Fatal("small terminal allowed invisible navigation or could not exit")
 	}
 	for _, tc := range []struct {
