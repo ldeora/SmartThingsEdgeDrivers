@@ -132,6 +132,87 @@ func observedTone(value string) string {
 	}
 }
 
+// A configured file or running daemon is not proof of actual discovery
+// or remote power operation. Summaries deliberately describe observations.
+func inspectionSummary(info apiInspect, installed string) []detailRow {
+	i := info.Installation
+	agent := menuServiceLabel(i.AgentServiceState)
+	tone := observedTone(i.AgentServiceState)
+	if i.Detected && i.AgentServiceState == "inactive" {
+		tone = "warning"
+	}
+	boot := i.AgentServiceEnabled
+	switch boot {
+	case "enabled":
+		boot = "starts at boot"
+	case "disabled":
+		boot = "does not start at boot"
+	default:
+		boot = "boot: " + boot
+	}
+	if i.ServiceFile != "present" {
+		tone = observedTone(i.ServiceFile)
+		if i.Detected && i.ServiceFile == "absent" {
+			tone = "warning"
+		}
+	}
+	power, powerTone := "Unknown", "warning"
+	switch i.PowerDropin {
+	case "present":
+		power, powerTone = "Configured on", "normal"
+	case "absent":
+		power, powerTone = "Not opted in", "normal"
+	}
+	discovery, discoveryTone := "Not confirmed", "warning"
+	switch {
+	case i.AvahiServiceFile == "present" && info.Avahi.DaemonState == "active" && info.Avahi.ServicesDirectory == "present":
+		discovery, discoveryTone = "Advertisement configured", "normal"
+	case i.AvahiServiceFile == "absent":
+		discovery = "Advertisement file missing"
+		if !i.Detected && i.ServiceFile == "absent" {
+			discoveryTone = "normal"
+		}
+	case i.AvahiServiceFile == "present":
+		discovery = "Advertisement configured; Avahi not ready"
+	}
+	return []detailRow{
+		{"OVERVIEW", "header"},
+		{"Agent: " + agent + ", " + boot, tone},
+		{"Installed: " + installed, "normal"},
+		{"Power control: " + power, powerTone},
+		{"Hub discovery: " + discovery, discoveryTone},
+	}
+}
+
+func inspectionCheckLabel(id string) string {
+	switch id {
+	case "linux":
+		return "Linux"
+	case "python_3_10_plus":
+		return "Python 3.10 or newer"
+	case "systemd_pid1":
+		return "systemd running as PID 1"
+	case "tool_systemctl":
+		return "systemctl available"
+	case "tool_useradd":
+		return "useradd available"
+	case "tool_getent":
+		return "getent available"
+	case "tool_install":
+		return "install available"
+	case "tool_sed":
+		return "sed available"
+	case "avahi_discovery":
+		return "Avahi discovery prerequisites"
+	case "managed_path_integrity":
+		return "Managed file integrity"
+	case "managed_path_visibility":
+		return "Managed file visibility"
+	default:
+		return "Unknown check"
+	}
+}
+
 func inspectionRows(info apiInspect, installed string) []detailRow {
 	python := info.Python.SelectedInterpreter
 	if python == "" {
@@ -141,30 +222,31 @@ func inspectionRows(info apiInspect, installed string) []detailRow {
 	if info.Installation.RetainedStatePresent {
 		retained = "Detected"
 	}
-	rows := []detailRow{
-		{"INSTALLATION", "header"},
-		{"Installed agent file: " + installed, "normal"},
-		{"Service file: " + info.Installation.ServiceFile, observedTone(info.Installation.ServiceFile)},
-		{"Agent service: " + menuServiceLabel(info.Installation.AgentServiceState), observedTone(info.Installation.AgentServiceState)},
-		{"Start at boot: " + info.Installation.AgentServiceEnabled, observedTone(info.Installation.AgentServiceEnabled)},
-		{"Retained state: " + retained, "normal"},
-		{"Power opt-in file: " + info.Installation.PowerDropin, observedTone(info.Installation.PowerDropin)},
-		{"NETWORK AND DISCOVERY", "header"},
-		{"Avahi daemon: " + menuServiceLabel(info.Avahi.DaemonState), observedTone(info.Avahi.DaemonState)},
-		{"Avahi services directory: " + info.Avahi.ServicesDirectory, "normal"},
-		{"Agent advertisement file: " + info.Installation.AvahiServiceFile, observedTone(info.Installation.AvahiServiceFile)},
-		{"SYSTEM REQUIREMENTS", "header"},
-		{"Compatible Python: " + python, "normal"},
+	advertisementTone := observedTone(info.Installation.AvahiServiceFile)
+	if info.Installation.Detected && info.Installation.AvahiServiceFile == "absent" {
+		advertisementTone = "warning"
 	}
+	rows := append(inspectionSummary(info, installed),
+		detailRow{"INSTALLATION DETAILS", "header"},
+		detailRow{"Service file: " + info.Installation.ServiceFile, observedTone(info.Installation.ServiceFile)},
+		detailRow{"Agent service: " + menuServiceLabel(info.Installation.AgentServiceState), observedTone(info.Installation.AgentServiceState)},
+		detailRow{"Start at boot: " + info.Installation.AgentServiceEnabled, observedTone(info.Installation.AgentServiceEnabled)},
+		detailRow{"Retained state: " + retained, "normal"},
+		detailRow{"Power opt-in file: " + info.Installation.PowerDropin, observedTone(info.Installation.PowerDropin)},
+		detailRow{"NETWORK AND DISCOVERY", "header"},
+		detailRow{"Avahi daemon: " + menuServiceLabel(info.Avahi.DaemonState), observedTone(info.Avahi.DaemonState)},
+		detailRow{"Avahi services directory: " + info.Avahi.ServicesDirectory, "normal"},
+		detailRow{"Agent advertisement file: " + info.Installation.AvahiServiceFile, advertisementTone},
+		detailRow{"SYSTEM REQUIREMENTS", "header"},
+		detailRow{"Compatible Python: " + python, "normal"},
+	)
 	for _, c := range preflightChecks(info) {
-		rows = append(rows, detailRow{c.ID + ": " + c.Status, observedTone(c.Status)})
+		status := strings.ReplaceAll(c.Status, "_", " ")
+		rows = append(rows, detailRow{inspectionCheckLabel(c.ID) + ": " + status, observedTone(c.Status)})
 	}
 	return append(rows,
-		detailRow{"VERIFICATION LIMITS", "header"},
-		detailRow{"Runtime agent version and power/WOL operation: Not verified", "muted"},
-		detailRow{"Protected recovery state: Not inspected", "muted"},
-		detailRow{"Credentials and identity: Not accessed or verified", "muted"},
-		detailRow{"Use Recover for an interrupted operation, or cli status.", "muted"})
+		detailRow{"File/service snapshot; runtime version, power/WOL and discovery not tested.", "muted"},
+		detailRow{"Protected recovery state not inspected; credentials not accessed or verified.", "muted"})
 }
 
 type inspectionScreen struct {
@@ -222,7 +304,7 @@ func (m inspectionScreen) View() tea.View {
 	end := min(len(rows), start+m.frame.capacity())
 	status := fmt.Sprintf("Read-only snapshot | Lines %d-%d of %d", start+1, end, len(rows))
 	v := tea.NewView(m.frame.render("INSPECT", rows[start:end], status,
-		"Up/Down Scroll | PgUp/PgDn Page | Enter/Esc/Q Close"))
+		"Up/Down Scroll | PgUp/PgDn Page | Enter/Esc/Q Back"))
 	v.AltScreen = true
 	return v
 }
@@ -247,6 +329,7 @@ type backupScreen struct {
 	backups  []backupSummary
 	current  string
 	cursor   int
+	first    int
 	selected int // -1 until explicit Enter on a fully displayed choice.
 }
 
@@ -256,17 +339,37 @@ func backupTime(b backupSummary) string {
 	return time.Unix(b.CapturedAt, 0).Local().Format("2006-01-02 15:04")
 }
 
+func backupYesNo(value bool) string {
+	if value {
+		return "yes"
+	}
+	return "no"
+}
+
+func backupPowerLabel(value string) string {
+	switch value {
+	case "enabled":
+		return "on"
+	case "disabled":
+		return "off"
+	case "keep":
+		return "keep current"
+	default:
+		return "unknown"
+	}
+}
+
 func backupDetails(b backupSummary) []detailRow {
 	coverage, tone := "Complete managed-file coverage", "normal"
 	if b.Coverage == "partial" {
-		coverage, tone = "Partial optional-file coverage; unrecorded settings kept", "warning"
+		coverage, tone = "Some optional settings were not saved; current ones are kept.", "warning"
 	}
 	return []detailRow{
 		{"SELECTED BACKUP", "header"},
 		{"Agent version: " + b.Version, "normal"},
 		{"Captured: " + backupTime(b) + " (local time)", "normal"},
 		{"Snapshot: " + b.Name, "normal"},
-		{fmt.Sprintf("Saved running: %t | Start at boot: %t | Power: %s", b.AgentActive, b.AgentEnabled, b.Power), "normal"},
+		{fmt.Sprintf("Running: %s | Starts at boot: %s | Power: %s", backupYesNo(b.AgentActive), backupYesNo(b.AgentEnabled), backupPowerLabel(b.Power)), "normal"},
 		{coverage, tone},
 	}
 }
@@ -282,7 +385,7 @@ func (m backupScreen) page() ([]detailRow, string, int, bool) {
 	}
 	width := m.frame.bodyWidth()
 	header := wrapDetailRows([]detailRow{
-		{"Installed agent file: " + m.current, "normal"},
+		{"Installed: " + m.current, "normal"},
 		{"HISTORICAL BACKUPS (newest first)", "header"},
 	}, width)
 	details := wrapDetailRows(backupDetails(m.backups[m.cursor]), width)
@@ -290,7 +393,7 @@ func (m backupScreen) page() ([]detailRow, string, int, bool) {
 	if available < 1 {
 		return nil, "Enlarge the terminal to see all selected backup details.", 0, false
 	}
-	first := max(0, min(m.cursor-available+1, len(m.backups)-available))
+	first := m.windowStart(available)
 	last := min(len(m.backups), first+available)
 	rows := append([]detailRow(nil), header...)
 	for i := first; i < last; i++ {
@@ -311,6 +414,16 @@ func (m backupScreen) page() ([]detailRow, string, int, bool) {
 	rows = append(rows, details...)
 	status := fmt.Sprintf("Backup %d of %d | Enter opens review, not restore", m.cursor+1, len(m.backups))
 	return rows, status, available, true
+}
+
+func (m backupScreen) windowStart(available int) int {
+	first := min(max(0, m.first), max(0, len(m.backups)-available))
+	if m.cursor < first {
+		first = m.cursor
+	} else if m.cursor >= first+available {
+		first = m.cursor - available + 1
+	}
+	return max(0, first)
 }
 
 func (m backupScreen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -347,6 +460,9 @@ func (m backupScreen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.cursor = len(m.backups) - 1
 		}
 		m.cursor = min(max(0, m.cursor), max(0, len(m.backups)-1))
+	}
+	if _, _, size, fits := m.page(); fits {
+		m.first = m.windowStart(size)
 	}
 	return m, nil
 }
