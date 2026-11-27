@@ -76,6 +76,11 @@ func (m nicSelectionScreen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if m.manual != nil {
+		if key, ok := msg.(tea.KeyPressMsg); ok && key.String() == "esc" && !m.manual.done {
+			m.frame = m.manual.frame
+			m.manual = nil
+			return m, nil
+		}
 		next, cmd := m.manual.Update(msg)
 		v := next.(consentScreen)
 		m.manual = &v
@@ -223,8 +228,8 @@ func wolRemovalReview(nic string, reply privilegedResult) operationScreen {
 		return operationScreen{title: "WAKE-ON-LAN", review: rows,
 			choices: []operationChoice{{"0", "", "Close"}}}
 	}
-	rows = append(rows, detailRow{"Restore recorded settings only if the helper verifies them.", "normal"},
-		detailRow{"The agent is unchanged. Administrator policy is protected.", "muted"})
+	rows = append(rows, detailRow{"Only the installer's recorded setting can be removed.", "normal"},
+		detailRow{"The agent is unchanged.", "muted"})
 	return confirmationScreen("WAKE-ON-LAN", rows, true)
 }
 
