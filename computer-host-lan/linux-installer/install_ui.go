@@ -657,7 +657,7 @@ func runInstallingWizardMode(accessible bool, apiPath string, reader io.Reader, 
 		return err
 	}
 	if startMenu && maintenanceNeeded(info) {
-		return runMaintenanceMenu(reader, writer, info, func(choice string) error {
+		return runMaintenancePresentation(accessible, reader, writer, info, func(choice string) error {
 			return dispatchMaintenance(choice, accessible, apiPath, reader, writer, method, info)
 		})
 	}

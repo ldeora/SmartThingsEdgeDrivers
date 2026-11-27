@@ -65,6 +65,8 @@ jobs:
             COMPUTER_HOST_CI_ROOT_SMOKE=1 \
             "$RUNNER_TEMP/computer-host-root-status.test" \
             -test.run '^TestRootInstalledHelperStatusSmoke$' -test.v
+      - name: Maintenance chooser PTY and terminal handoff (fixture only)
+        run: python3 pty_maintenance.py "$RUNNER_TEMP/computer-host-root-status.test"
       - name: Race detector (Review DescriptionFunc vs Validate)
         run: go test -race ./...
       - name: Static checks
