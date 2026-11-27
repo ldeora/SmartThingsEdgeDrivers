@@ -507,6 +507,12 @@ func (m backupConsentScreen) Init() tea.Cmd { return nil }
 
 func (m backupConsentScreen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if m.consent != nil {
+		if key, ok := msg.(tea.KeyPressMsg); ok && key.String() == "esc" && !m.consent.done {
+			m.chooser.frame = m.consent.frame
+			m.chooser.selected = -1
+			m.consent = nil
+			return m, nil
+		}
 		next, cmd := m.consent.Update(msg)
 		value := next.(consentScreen)
 		m.consent = &value
