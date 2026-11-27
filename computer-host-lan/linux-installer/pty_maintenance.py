@@ -59,8 +59,8 @@ def smoke(binary: str, mode: str) -> None:
     try:
         if mode == 'resize':
             pump_until(b'Enlarge terminal to 64x22.')
-            # Enter while the choices are not visible must not dispatch.
-            os.write(master, b'\r')
+            # The model tests cover selection while too small. Here we
+            # exercise the actual SIGWINCH/render path without an input race.
             resize(master, 100, 28)
 
         pump_until(b'(recommended)')
