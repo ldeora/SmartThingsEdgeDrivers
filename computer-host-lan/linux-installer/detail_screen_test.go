@@ -67,8 +67,8 @@ func TestInspectionFrameObservationsAndScroll(t *testing.T) {
 			}
 			joined := strings.Join(text, "\n")
 			for _, want := range []string{"Service file: unsafe", "Power opt-in file: unreadable",
-				"Agent service: failed", "Start at boot: masked", "managed_path_integrity: blocked",
-				"Protected recovery state: Not inspected", "Credentials and identity: Not accessed or verified"} {
+				"Agent service: failed", "Start at boot: masked", "Managed file integrity: blocked",
+				"Recovery not inspected; identity/key not accessed or verified."} {
 				if !strings.Contains(joined, want) {
 					t.Fatalf("missing observation %q", want)
 				}
@@ -80,7 +80,7 @@ func TestInspectionFrameObservationsAndScroll(t *testing.T) {
 			m = model.(inspectionScreen)
 			view = m.View().Content
 			assertDetailBounds(t, view, size[0], size[1], mono)
-			if m.offset != m.maxOffset() || !strings.Contains(view, "Not accessed or verified") {
+			if m.offset != m.maxOffset() || !strings.Contains(view, "not accessed or verified.") {
 				t.Fatal("last inspection page not reachable")
 			}
 		}
@@ -234,4 +234,103 @@ func TestDetailScreenPTYHarness(t *testing.T) {
 		t.Fatalf("unexpected restore cancellation: %v, calls=%d", err, calls)
 	}
 	fmt.Println("PTY RESTORE CLOSED")
+}
+
+func TestInspectionOverviewDoesNotImplyRuntimeVerification(t *testing.T) {
+	info := detailInspectFixture(t)
+	info.Installation.Detected = true
+	info.Installation.ServiceFile = "present"
+	info.Installation.AgentServiceState = "active"
+	info.Installation.AgentServiceEnabled = "enabled"
+	info.Installation.PowerDropin = "present"
+	info.Installation.AvahiServiceFile = "absent"
+	rows := inspectionSummary(info, "0.4.7-rc.3")
+	if rows[1].text != "Agent: running, starts at boot" ||
+		rows[3].text != "Power control: Configured on" ||
+		rows[4].text != "Hub discovery: Advertisement file missing" || rows[4].tone != "warning" {
+		t.Fatalf("unexpected installed summary: %+v", rows)
+	}
+	info.Installation.AvahiServiceFile = "present"
+	info.Avahi.ServicesDirectory = "present"
+	info.Avahi.DaemonState = "active"
+	rows = inspectionSummary(info, "0.4.7-rc.3")
+	if rows[4].text != "Hub discovery: Advertisement configured" {
+		t.Fatal("configured advertisement was not described accurately")
+	}
+	info.Avahi.DaemonState = "inactive"
+	info.Installation.PowerDropin = "unreadable"
+	rows = inspectionSummary(info, "unknown")
+	if rows[3].text != "Power control: Unknown" || rows[3].tone != "warning" || rows[4].tone != "warning" {
+		t.Fatal("uncertain power or discovery state was presented as healthy")
+	}
+	info.Installation.Detected = false
+	info.Installation.ServiceFile = "absent"
+	info.Installation.AvahiServiceFile = "absent"
+	if inspectionSummary(info, "unknown")[4].tone == "warning" {
+		t.Fatal("expected missing advertisement on an uninstalled host")
+	}
+}
+
+func TestMaintenanceHubReturnsOnlyAfterInspection(t *testing.T) {
+	for _, actions := range [][]string{{"inspect", "inspect", ""}, {"inspect", "restore"}, {"upgrade"}, {""}} {
+		calls := 0
+		var dispatched []string
+		err := runMaintenanceHub(func(dispatch func(string) error) error {
+			if calls >= len(actions) {
+				t.Fatal("unexpected menu reopen")
+			}
+			action := actions[calls]
+			calls++
+			if action == "" {
+				return nil
+			}
+			return dispatch(action)
+		}, func(action string) error {
+			dispatched = append(dispatched, action)
+			return nil
+		})
+		if err != nil || calls != len(actions) {
+			t.Fatalf("unexpected navigation: %v, %d", err, calls)
+		}
+		if len(dispatched) != len(actions)-1 && actions[len(actions)-1] == "" {
+			t.Fatal("exit dispatched an operation")
+		}
+	}
+}
+
+func TestBackupViewportRemainsStableWhileMovingUp(t *testing.T) {
+	m := backupScreen{
+		frame:   detailFrame{width: 80, height: 24, monochrome: true},
+		backups: detailBackupFixtures(), current: "0.4.7-rc.3", selected: -1,
+	}
+	model, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEnd})
+	m = model.(backupScreen)
+	first := m.first
+	if first == 0 || m.cursor != 31 {
+		t.Fatal("End did not scroll to the final entry")
+	}
+	model, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyUp})
+	m = model.(backupScreen)
+	if m.first != first || m.cursor != 30 {
+		t.Fatal("viewport moved even though selection remained visible")
+	}
+	model, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyHome})
+	m = model.(backupScreen)
+	if m.first != 0 || m.cursor != 0 {
+		t.Fatal("Home did not restore first page")
+	}
+}
+
+func TestBackupPlainLanguage(t *testing.T) {
+	b := testBackup()
+	for _, tc := range []struct {
+		power, want string
+	}{{"enabled", "on"}, {"disabled", "off"}, {"keep", "keep current"}} {
+		b.Power = tc.power
+		rows := backupDetails(b)
+		if !strings.Contains(rows[4].text, "Running: yes | Starts at boot: yes | Power: "+tc.want) ||
+			rows[5].tone != "warning" {
+			t.Fatalf("unexpected backup details: %+v", rows)
+		}
+	}
 }
