@@ -396,3 +396,75 @@ func runStyledLiveWizard(s *liveSelection, installing bool) error {
 	s.finished = *m.reviewChoice
 	return nil
 }
+
+// The normal setup model and its original validators own Review. Only
+// a completed positive Review may transition to literal confirmation.
+// No privilege provider is invoked while the Bubble Tea program is alive.
+type installConsentWizard struct {
+	wizard  wizardScreen
+	state   *liveSelection
+	consent *consentScreen
+}
+
+func (m installConsentWizard) Init() tea.Cmd { return m.wizard.Init() }
+
+func (m installConsentWizard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if m.consent != nil {
+		next, cmd := m.consent.Update(msg)
+		value := next.(consentScreen)
+		m.consent = &value
+		return m, cmd
+	}
+	next, cmd := m.wizard.Update(msg)
+	m.wizard = next.(wizardScreen)
+	if m.wizard.form.State == huh.StateCompleted && *m.wizard.reviewChoice {
+		token := m.state.installConfirmation()
+		rows := []detailRow{
+			{"Confirm your reviewed installation plan", "header"},
+			{"Agent files and services will change.", "normal"},
+			{"Administrator authorization follows submission.", "muted"},
+		}
+		if token == "REUSE" {
+			rows = append(rows, detailRow{"Reuse the retained installation identity and key.", "warning"})
+		}
+		m.consent = &consentScreen{
+			frame: detailFrame{
+				width: m.wizard.layout.width, height: m.wizard.layout.height,
+				monochrome: m.wizard.layout.monochrome,
+			},
+			title: "INSTALLATION", review: rows, token: token,
+		}
+		return m, nil // Consume the native form's completion Quit.
+	}
+	return m, cmd
+}
+
+func (m installConsentWizard) View() tea.View {
+	if m.consent != nil {
+		return m.consent.View()
+	}
+	return m.wizard.View()
+}
+
+func runInstallConsentWizard(s *liveSelection) (bool, error) {
+	m := installConsentWizard{
+		wizard: newWizardScreen(s, true, os.Getenv("NO_COLOR") != ""), state: s,
+	}
+	result, err := tea.NewProgram(m, tea.WithInput(os.Stdin), tea.WithOutput(os.Stdout)).Run()
+	if errors.Is(err, tea.ErrInterrupted) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	final, ok := result.(installConsentWizard)
+	if !ok {
+		return false, fmt.Errorf("unexpected installation confirmation result")
+	}
+	// Recheck the required word against the same reviewed plan before the
+	// original request builder runs. Never convert INSTALL into REUSE.
+	accepted := final.wizard.form.State == huh.StateCompleted && *final.wizard.reviewChoice &&
+		final.consent != nil && final.consent.accepted() && final.consent.token == s.installConfirmation()
+	s.finished = accepted
+	return accepted, nil
+}
