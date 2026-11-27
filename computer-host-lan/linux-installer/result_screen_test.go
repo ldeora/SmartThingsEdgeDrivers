@@ -105,12 +105,12 @@ func TestResultObserverAndPresentationPreserveExecution(t *testing.T) {
 		}
 		return privilegedResult{Status: "restored", CredentialContinuity: "verified"}, nil
 	})
-	show := func(m inspectionScreen) error {
+	show := func(m inspectionScreen) (string, error) {
 		screens++
 		if strings.Contains(resultText(m.rows), secret) {
 			t.Fatal("digest leaked")
 		}
-		return errors.New("terminal unavailable")
+		return "", errors.New("terminal unavailable")
 	}
 	_, err := run(privilegedRequest{Action: "backups"})
 	if err != nil || report.presentWith(&out, err, show) != nil || screens != 0 {
@@ -168,5 +168,26 @@ func TestResultCloseIsReadOnly(t *testing.T) {
 	}
 	if _, ok := cmd().(tea.QuitMsg); !ok {
 		t.Fatal("result close does not quit")
+	}
+}
+
+func TestUninstallResultOptionalWOLRequiresExplicitContinue(t *testing.T) {
+	for _, status := range []string{"uninstalled", "uninstalled_cleanup_required"} {
+		for _, key := range []string{"enter", "esc", "q", "ctrl+c", ""} {
+			for _, failed := range []bool{false, true} {
+				var out bytes.Buffer
+				report := operationReport{action: "uninstall", called: true, reply: privilegedResult{Status: status}}
+				err := report.presentWith(&out, nil, func(m inspectionScreen) (string, error) {
+					if failed {
+						return key, errors.New("display failure")
+					}
+					return key, nil
+				})
+				want := status == "uninstalled" && key == "enter" && !failed
+				if err != nil || report.continueWOL != want {
+					t.Fatalf("unexpected continuation: %s %q failure=%t", status, key, failed)
+				}
+			}
+		}
 	}
 }
