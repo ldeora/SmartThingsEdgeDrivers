@@ -10,12 +10,12 @@ import (
 )
 
 type operationReport struct {
-	action string
-	power string
+	action        string
+	power         string
 	wolConfigured bool
-	reply privilegedResult
-	runErr error
-	called bool
+	reply         privilegedResult
+	runErr        error
+	called        bool
 }
 
 func operationLabel(action string) string {
@@ -222,7 +222,7 @@ func (r operationReport) present(w io.Writer, err error) error {
 	rows = append(rows, detailRow{"Detailed instructions remain in the terminal output.", "muted"})
 	m := inspectionScreen{
 		frame: detailFrame{monochrome: os.Getenv("NO_COLOR") != ""},
-		rows: rows, title: "RESULT", statusPrefix: "Operation result",
+		rows:  rows, title: "RESULT", statusPrefix: "Operation result",
 		closeHelp: "Up/Down Scroll | PgUp/PgDn Page | Enter/Esc/Q Close",
 	}
 	if _, screenErr := runFramedProgram(m); screenErr != nil {
@@ -235,4 +235,21 @@ func observedAuthorization(w io.Writer, method string, report *operationReport) 
 	return report.observe(w, func(req privilegedRequest) (privilegedResult, error) {
 		return executeAuthorizedBootstrap(req, true, method)
 	})
+}
+
+func installSelectionPresentation(s *liveSelection, w io.Writer, method string) error {
+	var report operationReport
+	err := installSelectionWithAuthorization(s, w, method, observedAuthorization(w, method, &report))
+	if !report.called && err != nil {
+		// The reviewed plan was rejected locally, before any helper call.
+		report = operationReport{action: s.requestedAction, called: true,
+			runErr: &authorizationUnavailableError{cause: err}}
+	}
+	return report.present(w, err)
+}
+
+func recoverPresentation(w io.Writer, method string) error {
+	var report operationReport
+	err := executeConfirmedRecovery(w, observedAuthorization(w, method, &report))
+	return report.present(w, err)
 }
