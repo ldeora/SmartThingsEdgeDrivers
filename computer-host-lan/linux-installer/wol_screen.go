@@ -80,11 +80,16 @@ func (m nicSelectionScreen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		v := next.(consentScreen)
 		m.manual = &v
 		if v.done {
+			if v.submitted && (v.invalid || !wiredNICName(strings.TrimSpace(v.input))) {
+				// Keep invalid manual names in the editor, never call the backend.
+				v.done, v.submitted, v.invalid = false, false, true
+				m.manual = &v
+				return m, nil
+			}
 			m.done = true
-			if v.submitted && !v.invalid && wiredNICName(strings.TrimSpace(v.input)) {
+			if v.submitted {
 				m.chosen = strings.TrimSpace(v.input)
 			}
-			// Invalid manual names fail closed. No check or mutation.
 			return m, tea.Quit
 		}
 		return m, cmd
