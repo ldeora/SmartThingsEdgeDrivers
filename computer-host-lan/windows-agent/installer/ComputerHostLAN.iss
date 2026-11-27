@@ -77,7 +77,7 @@ var
   ScopeConfirmed, PowerConfirmed, InstallWasUpgrade, RetainedPowerKey, SnapshotRecovered: Boolean;
   HubSelect: TNewComboBox;
   HubStatus, HubTip, LocalHelp, NetworkProfileHint, PowerNote, WolHint: TNewStaticText;
-  HubStatusBase: String;
+  HubStatusBase, HubStatusPrefix: String;
   HubStatusShowsSelection: Boolean;
   LocalSubnetCheck: TNewCheckBox;
   AdvancedButton: TNewButton;
@@ -215,25 +215,21 @@ begin
     AdvancedButton.Caption := 'Advanced options';
 end;
 
-// Every status written by Setup goes through here, so a later manual entry
-// can show the address in use and then restore this text when cleared.
+// The hub status has two parts. HubStatusBase is what Setup found (search
+// result, previous settings) and never names an address the user typed.
+// Once the user changes the address or the local-network option, the shown
+// text is recomputed from the current field and checkbox (RefreshHubStatus).
 procedure SetHubStatus(const Text: String);
 begin
   HubStatus.Caption := Text;
   HubStatusBase := Text;
+  HubStatusPrefix := '';
   HubStatusShowsSelection := False;
 end;
 
 procedure ToggleAdvanced(Sender: TObject);
 begin
   SetAdvancedVisible(not LocalSubnetCheck.Visible);
-end;
-
-procedure ChangeSubnetScope(Sender: TObject);
-begin
-  // A broader firewall scope is never activated silently. The user must
-  // explicitly choose it (or pass /LOCALSUBNET=1 for unattended deployment).
-  HubSelect.Enabled := not LocalSubnetCheck.Checked;
 end;
 
 // Normalise the visible dropdown label before either installation or retry.
@@ -247,23 +243,47 @@ begin
   if CutAt > 0 then Result := Copy(Result, 1, CutAt - 1);
 end;
 
-// A typed or selected address replaces a stale "No hub detected" message.
-// Clearing or invalidating the field restores the last Setup status.
-procedure HubSelectionChanged(Sender: TObject);
+procedure RefreshHubStatus;
 var
   Address: String;
 begin
-  Address := HubIPv4FromSelection(HubSelect.Text);
-  if IsValidIPv4(Address) and not LocalSubnetCheck.Checked then
+  if not HubStatusShowsSelection then
+    HubStatus.Caption := HubStatusBase
+  else if LocalSubnetCheck.Checked then
+    HubStatus.Caption := 'Local-network option selected: devices on this Private network can connect. No hub address is needed.'
+  else
   begin
-    HubStatus.Caption := 'Using ' + Address + '. Click Next to continue.';
-    HubStatusShowsSelection := True;
-  end
-  else if HubStatusShowsSelection then
-  begin
-    HubStatus.Caption := HubStatusBase;
-    HubStatusShowsSelection := False;
+    Address := HubIPv4FromSelection(HubSelect.Text);
+    if IsValidIPv4(Address) then
+      HubStatus.Caption := HubStatusPrefix + 'Using ' + Address + '. Click Next to continue.'
+    else
+      HubStatus.Caption := HubStatusPrefix + 'Enter the hub''s IP address, use Search again, or choose the local-network option.';
   end;
+end;
+
+// Show the address kept after a search, prefixed with the search result.
+procedure ShowEnteredHub(const Prefix: String);
+begin
+  HubStatusPrefix := Prefix;
+  HubStatusShowsSelection := True;
+  RefreshHubStatus;
+end;
+
+// Only user changes on the visible hub page switch the status to the
+// current choice. Programmatic changes before the page opens keep it.
+procedure HubChoiceChanged(Sender: TObject);
+begin
+  if WizardForm.CurPageID <> HubPage.ID then Exit;
+  HubStatusShowsSelection := True;
+  RefreshHubStatus;
+end;
+
+procedure ChangeSubnetScope(Sender: TObject);
+begin
+  // A broader firewall scope is never activated silently. The user must
+  // explicitly choose it (or pass /LOCALSUBNET=1 for unattended deployment).
+  HubSelect.Enabled := not LocalSubnetCheck.Checked;
+  HubChoiceChanged(Sender);
 end;
 
 procedure SearchForHubs(Sender: TObject);
@@ -278,13 +298,15 @@ begin
   // invalid input. This also preserves a manually entered IPv4 address.
   PreviousInput := HubIPv4FromSelection(HubSelect.Text);
   if not IsValidIPv4(PreviousInput) then PreviousInput := '';
+  // Clear the field first: its change handler must not replace the
+  // searching status while the discovery helper runs.
+  HubSelect.Items.Clear;
+  HubSelect.Text := '';
   SetHubStatus('Searching for SmartThings hubs on your network...');
   // Initial discovery starts before the new page necessarily has time to
   // paint. Force the status and controls to render before blocking on the
   // external discovery helper. Keep search behavior and network scope intact.
   WizardForm.Repaint;
-  HubSelect.Items.Clear;
-  HubSelect.Text := '';
   try
     ExtractTemporaryFile('ComputerHost.HubDiscovery.exe');
     FileName := ExpandConstant('{tmp}\smartthings-hubs.txt');
@@ -297,7 +319,7 @@ begin
       if IsValidIPv4(PreviousInput) then
       begin
         HubSelect.Text := PreviousInput;
-        SetHubStatus('Discovery unavailable. Using ' + PreviousInput + ', the address you entered. Click Next to continue.');
+        ShowEnteredHub('Discovery unavailable. ');
       end;
       SetAdvancedVisible(True);
       Exit;
@@ -340,7 +362,7 @@ begin
       if IsValidIPv4(PreviousInput) then
       begin
         HubSelect.Text := PreviousInput;
-        SetHubStatus('No hub detected. Using ' + PreviousInput + ', the address you entered. Click Next to continue.');
+        ShowEnteredHub('No hub detected. ');
       end;
     end;
   except
@@ -349,7 +371,7 @@ begin
     if IsValidIPv4(PreviousInput) then
     begin
       HubSelect.Text := PreviousInput;
-      SetHubStatus('Discovery unavailable. Using ' + PreviousInput + ', the address you entered. Click Next to continue.');
+      ShowEnteredHub('Discovery unavailable. ');
     end;
   end;
 end;
@@ -576,7 +598,7 @@ begin
   HubSelect.Width := HubPage.SurfaceWidth - ScaleX(126);
   HubSelect.Height := ScaleY(23);
   HubSelect.Style := csDropDown;
-  HubSelect.OnChange := @HubSelectionChanged;
+  HubSelect.OnChange := @HubChoiceChanged;
 
   SearchButton := TNewButton.Create(HubPage);
   SearchButton.Parent := HubPage.Surface;
