@@ -680,6 +680,19 @@ func runInstallingWizardMode(accessible bool, apiPath string, reader io.Reader, 
 			})
 	}
 	s.firewalldActive = firewalldRunning()
+	if detailTerminal(accessible, reader, writer) {
+		accepted, err := runInstallConsentWizard(s)
+		if err != nil {
+			return err
+		}
+		if !accepted {
+			fmt.Fprintln(writer, "Cancelled. No changes made.")
+			return nil
+		}
+		// Native terminal ownership has been restored; no input is
+		// forwarded from the confirmation editor to the provider.
+		return installSelection(s, writer, true, method)
+	}
 	fmt.Fprintln(writer, "COMPUTER HOST LAN — LINUX INSTALLATION")
 	fmt.Fprintln(writer, "The agent will not be changed until you approve the final confirmation.")
 	if err := runStyledLiveWizard(s, true); err != nil {
