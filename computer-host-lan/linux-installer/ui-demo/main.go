@@ -56,11 +56,11 @@ var backupChoices = []string{"0.4.7-rc.3  |  2026-11-27 12:56", "0.4.6-rc.2  |  
 var stages = []string{"Administrator authorization", "Inspect protected installation state", "Create recovery snapshot", "Preserve identity and credentials", "Install managed files and services", "Activate services", "Verify installation", "Complete transaction"}
 
 type model struct {
-	page                       screen
-	width, height              int
-	cursor, hub, power, wol    int
-	focus, completed, backup   int
-	monochrome                 bool
+	page                     screen
+	width, height            int
+	cursor, hub, power, wol  int
+	focus, completed, backup int
+	monochrome               bool
 }
 
 func (m model) Init() tea.Cmd { return nil }
@@ -213,8 +213,8 @@ type row struct {
 	tone tone
 }
 
-func plain(s string) row { return row{s, normal} }
-func info(s string) row  { return row{s, muted} }
+func plain(s string) row   { return row{s, normal} }
+func info(s string) row    { return row{s, muted} }
 func heading(s string) row { return row{s, accent} }
 func choice(label string, active, focus bool) row {
 	if active && focus {
@@ -439,13 +439,15 @@ func (m model) View() tea.View {
 	return v
 }
 
+// NO_COLOR opts out only when its value is non-empty.
+func noColor() bool { return os.Getenv("NO_COLOR") != "" }
+
 func main() {
 	if !term.IsTerminal(os.Stdin.Fd()) || !term.IsTerminal(os.Stdout.Fd()) || os.Getenv("TERM") == "dumb" {
 		fmt.Fprintln(os.Stderr, "Visual demo requires an interactive terminal. No host checks or changes performed.")
 		os.Exit(2)
 	}
-	_, monochrome := os.LookupEnv("NO_COLOR")
-	m := model{page: menu, width: 80, height: 24, power: 1, monochrome: monochrome}
+	m := model{page: menu, width: 80, height: 24, power: 1, monochrome: noColor()}
 	if _, err := tea.NewProgram(m).Run(); err != nil {
 		fmt.Fprintln(os.Stderr, "Visual demo:", err)
 		os.Exit(1)
