@@ -53,7 +53,9 @@ func runRestorePresentation(accessible bool, reader io.Reader, writer io.Writer,
 		return executeAuthorizedBootstrap(req, true, method)
 	}
 	if detailTerminal(accessible, reader, writer) {
-		return restoreWizardWithApproval(writer, authorize, installedAgentVersion(), selectBackupConsent)
+		var report operationReport
+		err := restoreWizardWithApproval(writer, report.observe(writer, authorize), installedAgentVersion(), selectBackupConsent)
+		return report.present(writer, err)
 	}
 	return restoreWizard(reader, writer, authorize, installedAgentVersion())
 }
