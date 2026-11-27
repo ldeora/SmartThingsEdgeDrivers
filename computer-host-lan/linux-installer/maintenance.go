@@ -177,7 +177,7 @@ func dispatchMaintenance(choice string, accessible bool, apiPath string, reader 
 		case "restore":
 			return runRestorePresentation(accessible, reader, writer, method)
 		case "wol":
-			return runWOLPresentation(accessible, reader, writer, method, false)
+			return runWOLManagement(reader, writer, method, false)
 		case "recover":
 			return runRecoveryPresentation(accessible, reader, writer, method)
 		case "uninstall":
