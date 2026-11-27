@@ -176,7 +176,7 @@ func (m operationConsentScreen) View() tea.View {
 }
 
 func runOperationConsent(m operationScreen, token string) (bool, error) {
-	result, err := tea.NewProgram(operationConsentScreen{operation: m, token: token}).Run()
+	result, err := runFramedProgram(operationConsentScreen{operation: m, token: token})
 	if err != nil {
 		return false, err
 	}
