@@ -5,13 +5,13 @@ go 1.25.8
 require (
 	charm.land/bubbletea/v2 v2.0.2
 	charm.land/huh/v2 v2.0.3
+	charm.land/lipgloss/v2 v2.0.1
 	github.com/charmbracelet/x/term v0.2.2
 	golang.org/x/sys v0.42.0
 )
 
 require (
 	charm.land/bubbles/v2 v2.0.0 // indirect
-	charm.land/lipgloss/v2 v2.0.1 // indirect
 	github.com/atotto/clipboard v0.1.4 // indirect
 	github.com/catppuccin/go v0.2.0 // indirect
 	github.com/charmbracelet/colorprofile v0.4.2 // indirect
