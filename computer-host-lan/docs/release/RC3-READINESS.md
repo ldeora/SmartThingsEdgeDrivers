@@ -55,7 +55,7 @@ do not modify tested package bytes to insert their own digest.
 - Per-platform test results with date, PASS/FAIL/NOT TESTED/N/A and redacted
   evidence. The prior scoped passes above guide affected retesting; none
   certify the replacement candidate by version label alone.
-- Pending: exact-byte Gentoo smoke/lifecycle confirmation; second supported
+- Pending: exact-byte Gentoo smoke/lifecycle confirmation, starting with a known-good rc.2 installation rather than the earlier equal-version rc.3 build; second supported
   Linux system and appropriate authorization providers, accessibility/resize
   and remaining negative tests; two independent physical Windows 11 hosts
   including first paint, display scaling, dark mode and tile/routines;
@@ -292,7 +292,7 @@ or rebuild the accepted assets just to change a banner.
    version on the test hub (`smartthings edge:channels:drivers` and
    `smartthings edge:drivers:installed --hub HUB_ID --verbose`).
    Do not assign to the public channel or delete existing devices.
-4. Record the acceptance rows above: hydra upgrade and menu, WOL
+4. Exercise the actual tester upgrade path from published rc.2 to the final rc.3 candidate. On hydra, first select and restore the known-good rc.2 snapshot using the supported restore workflow, retaining identity/key and WOL; verify service health and the actual running rc.2 agent version before upgrading. Alternatively use a second host still running rc.2. The earlier rc.3 build has the same semantic version as the final candidate, so a same-version maintenance operation alone does not establish rc.2 migration. Record the exact candidate asset hash and installed platform-generated Edge driver package version as well as the agent and driver semantic versions. Save work and keep physical access before any power test. Record the acceptance rows above: hydra upgrade and menu, WOL
    shutdown/wake/reboot/repeat, restore and re-upgrade, rc.3 uninstall/reinstall;
    second machine or VM rc.2 uninstall and REUSE; physical NetworkManager
    WOL; minimal host without ethtool; Windows 11; private-channel rc.2/rc.3

@@ -115,7 +115,7 @@ computer gets a separate identity. Power actions remain opt-in.
 
 ## Qualification
 
-Earlier unpublished rc.3 builds passed scoped Gentoo installer and private-channel Linux tile tests. These results are not a claim that every final-release byte or platform has been qualified. Exact-source CI, Windows 11 hardware, a second supported Linux host, the account-level Unreachable colour and stable-release soak are tracked in the maintainer readiness record. See the release availability and separately verified channel assignment rather than treating this document as publication evidence.
+Earlier unpublished rc.3 builds passed Gentoo installer and Linux tile tests. Windows 11 hardware and a second supported Linux system remain to be qualified.
 
 ## Help us test
 

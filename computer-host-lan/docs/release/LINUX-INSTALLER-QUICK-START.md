@@ -126,6 +126,7 @@ CLI users can review `cli backups` and then use `cli restore --backup NAME
 
 Run `./computer-host-linux-installer` again as your normal user. The menu
 uses fixed keys. In the full-screen menu, use Up/Down or a number to highlight a task, then Enter to select it. Esc or Q exits the menu without changes. Unavailable tasks may be shown disabled; read the reason before proceeding.
+In accessible mode, type the number and press Enter; 0 or Enter alone exits.
 
 | Key | Action |
 | --- | --- |
