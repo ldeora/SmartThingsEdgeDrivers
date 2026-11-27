@@ -23,7 +23,8 @@ layout (minimum 64 columns by 22 rows). It displays the installed **file**
 version, the bundled agent version and the observed service state. A newer
 bundled version is recommended only when the installed file version can be
 reliably compared. Arrow keys or fixed numeric keys highlight tasks; Enter
-selects, Esc or Q exits. Unavailable tasks remain visible with an explanation.
+selects, Esc or Q exits the top-level menu. Unavailable tasks remain visible
+with an explanation.
 Protected backup availability and recovery state are not guessed by the menu.
 The full-screen chooser opens ordinary operation screens in the same session;
 selecting a task is never authorization. `NO_COLOR` with a non-empty value
@@ -58,7 +59,8 @@ service/power settings and coverage shown below. Up/Down, PgUp/PgDn and Home/End
 navigate; Enter selects a backup for review, not restoration. The review and
 exact typed RESTORE confirmation remain inside the frame; it closes before
 administrator authorization.
-Esc/Q cancels without restoring anything. Accessible maintenance and
+Esc from confirmation returns to the same backup list; Esc/Q from the list
+cancels without restoring anything. Accessible maintenance and
 unsupported terminal streams keep the original plain prompts. CLI behavior
 and protected restore eligibility are unchanged.
 
@@ -69,8 +71,12 @@ are entered inside the frame. Continue for non-removal reviews and Cancel
 for removal reviews remain the defaults; neither button alone authorizes
 changes. Literal fields require a separately submitted exact, case-sensitive
 word (surrounding spaces ignored), reject control/multiline and oversized
-input, and are limited to 127 bytes. Q is ordinary field input. Esc or Ctrl+C
-cancels; Ctrl+U clears the field. No hidden review can accept a submission.
+input, and are limited to 127 bytes. A mistyped word leaves the field open
+for correction without discarding the reviewed choices. Q is ordinary field
+input. Esc returns to the preceding page; Ctrl+C exits. Ctrl+U clears the
+field. At the top-level screen Esc exits. No hidden review can accept a
+submission. Setup checks and hub discovery run as a read-only command;
+a late response from a cancelled visit is ignored.
 
 Protected restore listing and saved WOL checks need their own administrator
 authorization before informed consent. Restore selection and RESTORE review
