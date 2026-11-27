@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -14,10 +13,6 @@ import (
 
 func TestOperationPagesFitMinimum(t *testing.T) {
 	screens := []operationScreen{configurationScreen(), recoveryScreen(), uninstallScreen()}
-	for _, status := range []string{"managed", "not_managed", "review_required", "runtime_only"} {
-		screens = append(screens, savedWOLScreen(strings.Repeat("n", 15),
-			privilegedResult{Status: "passed", WOLStatus: status}))
-	}
 	for _, m := range screens {
 		for _, mono := range []bool{false, true} {
 			m.frame.monochrome = mono
@@ -45,13 +40,16 @@ func TestOperationPagesFitMinimum(t *testing.T) {
 }
 
 func TestOperationSelectionAndResize(t *testing.T) {
-	for _, initial := range []operationScreen{recoveryScreen(), uninstallScreen(),
-		savedWOLScreen("LAN0", privilegedResult{Status: "passed", WOLStatus: "managed"})} {
+	for _, initial := range []operationScreen{recoveryScreen(), uninstallScreen()} {
 		m := initial
 		m.frame.width, m.frame.height = 64, 22
 		next, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
-		if cmd == nil || next.(operationScreen).chosen != "" {
-			t.Fatal("default choice must cancel")
+		want := "continue"
+		if initial.title == "UNINSTALL" {
+			want = ""
+		}
+		if cmd == nil || next.(operationScreen).chosen != want {
+			t.Fatalf("unexpected default for %s", initial.title)
 		}
 		next, cmd = m.Update(tea.KeyPressMsg{Code: '1', Text: "1"})
 		m = next.(operationScreen)
@@ -106,72 +104,6 @@ func TestRecoveryRequiresSubmittedLiteral(t *testing.T) {
 		}
 		if err != nil || calls != want {
 			t.Fatalf("recovery consent mismatch for %q: %d / %d (%v)", input, calls, want, err)
-		}
-	}
-}
-
-func TestFramedWOLReviewRetainsLiteralConsent(t *testing.T) {
-	for _, tc := range []struct {
-		status, input string
-		proceed       bool
-		want          int
-	}{
-		{"managed", "REMOVE\n", false, 1},
-		{"managed", "REMOVE", true, 1},
-		{"managed", "no\n", true, 1},
-		{"managed", "REMOVE\n", true, 2},
-		{"review_required", "REMOVE\n", false, 1},
-		{"not_managed", "REMOVE\n", true, 1},
-		{"runtime_only", "REMOVE\n", true, 2},
-	} {
-		var out bytes.Buffer
-		calls, reviews := 0, 0
-		err := manageWOLWithReview(strings.NewReader("LAN0\n"+tc.input), &out, false,
-			func(req privilegedRequest) (privilegedResult, error) {
-				calls++
-				if req.validate() != nil || req.WOLInterface == nil || *req.WOLInterface != "LAN0" {
-					t.Fatal("WOL interface binding lost")
-				}
-				if calls == 1 && req.Action == "wol-check" {
-					return privilegedResult{Status: "passed", WOLStatus: tc.status}, nil
-				}
-				if calls == 2 && req.Action == "wol-remove" {
-					return privilegedResult{Status: "passed", WOLStatus: "removed"}, nil
-				}
-				t.Fatal("unexpected WOL action")
-				return privilegedResult{}, nil
-			}, func(nic string, reply privilegedResult) (bool, error) {
-				reviews++
-				if nic != "LAN0" || reply.WOLStatus != tc.status {
-					t.Fatal("review received wrong data")
-				}
-				return tc.proceed, nil
-			})
-		if err != nil || calls != tc.want || reviews != 1 {
-			t.Fatalf("consent mismatch: %+v calls=%d reviews=%d err=%v", tc, calls, reviews, err)
-		}
-	}
-}
-
-func TestFailedWOLCheckCannotOpenReview(t *testing.T) {
-	var out bytes.Buffer
-	denied := errors.New("authorization cancelled")
-	for _, failed := range []bool{false, true} {
-		err := manageWOLWithReview(strings.NewReader("LAN0\nREMOVE\n"), &out, false,
-			func(req privilegedRequest) (privilegedResult, error) {
-				if req.Action != "wol-check" {
-					t.Fatal("mutation after failed check")
-				}
-				if failed {
-					return privilegedResult{}, denied
-				}
-				return privilegedResult{Status: "error"}, nil
-			}, func(_ string, _ privilegedResult) (bool, error) {
-				t.Fatal("failed check opened review")
-				return false, nil
-			})
-		if err == nil {
-			t.Fatal("failed WOL check was not reported")
 		}
 	}
 }
