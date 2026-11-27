@@ -406,14 +406,76 @@ type installConsentWizard struct {
 	consent *consentScreen
 }
 
-func (m installConsentWizard) Init() tea.Cmd { return m.wizard.Init() }
+// Native Huh commands belong to the form instance that produced them.
+// Late messages from a superseded form cannot advance a reopened review.
+type wizardCommandMsg struct {
+	form *huh.Form
+	msg  tea.Msg
+}
+
+func scopedWizardCommand(form *huh.Form, cmd tea.Cmd) tea.Cmd {
+	if cmd == nil {
+		return nil
+	}
+	return func() tea.Msg {
+		msg := cmd()
+		if batch, ok := msg.(tea.BatchMsg); ok {
+			var scoped []tea.Cmd
+			for _, child := range batch {
+				if child != nil {
+					scoped = append(scoped, scopedWizardCommand(form, child))
+				}
+			}
+			return tea.BatchMsg(scoped)
+		}
+		return wizardCommandMsg{form: form, msg: msg}
+	}
+}
+
+func (m installConsentWizard) Init() tea.Cmd {
+	return scopedWizardCommand(m.wizard.form, m.wizard.Init())
+}
+
+// A completed Huh form cannot be reopened. Reconstruct the native form
+// from the existing selections and navigate to Review, not through a new
+// submission. The review validator still runs on the next Continue.
+func (m installConsentWizard) reopenReview() (tea.Model, tea.Cmd) {
+	frame := m.consent.frame
+	m.consent = nil
+	m.wizard = newWizardScreen(m.state, true, frame.monochrome)
+	next, _ := m.wizard.Update(tea.WindowSizeMsg{Width: frame.width, Height: frame.height})
+	m.wizard = next.(wizardScreen)
+	var cmd tea.Cmd
+	for i := 0; i < 6 && m.wizard.form.GetFocusedField().GetKey() != "review"; i++ {
+		cmd = m.wizard.form.NextGroup()
+	}
+	if m.wizard.form.State != huh.StateNormal || m.wizard.form.GetFocusedField().GetKey() != "review" {
+		return m, tea.Quit
+	}
+	return m, scopedWizardCommand(m.wizard.form, cmd)
+}
 
 func (m installConsentWizard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if event, ok := msg.(wizardCommandMsg); ok {
+		if event.form != m.wizard.form || m.consent != nil {
+			return m, nil
+		}
+		msg = event.msg
+	}
 	if m.consent != nil {
+		if key, ok := msg.(tea.KeyPressMsg); ok && key.String() == "esc" && !m.consent.done {
+			return m.reopenReview()
+		}
 		next, cmd := m.consent.Update(msg)
 		value := next.(consentScreen)
 		m.consent = &value
 		return m, cmd
+	}
+	if key, ok := msg.(tea.KeyPressMsg); ok && key.String() == "esc" {
+		if m.wizard.form.GetFocusedField().GetKey() == "welcome" {
+			return m, tea.Quit
+		}
+		msg = huh.PrevField()
 	}
 	next, cmd := m.wizard.Update(msg)
 	m.wizard = next.(wizardScreen)
@@ -422,7 +484,7 @@ func (m installConsentWizard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		rows := []detailRow{
 			{"Confirm your reviewed installation plan", "header"},
 			{"Agent files and services will change.", "normal"},
-			{"Administrator authorization follows submission.", "muted"},
+			{"Next: administrator authorization (password if needed).", "muted"},
 		}
 		if token == "REUSE" {
 			rows = append(rows, detailRow{"Reuse the retained installation identity and key.", "warning"})
@@ -436,7 +498,10 @@ func (m installConsentWizard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil // Consume the native form's completion Quit.
 	}
-	return m, cmd
+	if m.wizard.form.State != huh.StateNormal {
+		return m, cmd
+	}
+	return m, scopedWizardCommand(m.wizard.form, cmd)
 }
 
 func (m installConsentWizard) View() tea.View {
