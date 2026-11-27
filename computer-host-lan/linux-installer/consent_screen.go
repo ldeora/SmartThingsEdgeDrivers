@@ -17,6 +17,7 @@ type consentScreen struct {
 	title     string
 	review    []detailRow
 	token     string
+	prompt    string // Optional non-authorization field label.
 	input     string
 	invalid   bool
 	submitted bool
@@ -36,7 +37,11 @@ func (m consentScreen) page() ([]detailRow, bool) {
 	}
 	width := m.frame.bodyWidth()
 	rows := wrapDetailRows(m.review, width)
-	rows = append(rows, detailRow{"Type " + m.token + " to authorize:", "header"})
+	prompt := m.prompt
+	if prompt == "" {
+		prompt = "Type " + m.token + " to authorize:"
+	}
+	rows = append(rows, detailRow{prompt, "header"})
 	// A bounded, append-only editor; show all entered characters without
 	// interpreting terminal escapes. Reserve the cursor cell on each line.
 	text := m.input
@@ -111,6 +116,9 @@ func (m consentScreen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m consentScreen) View() tea.View {
 	rows, fits := m.page()
 	status := "Exact word required; any other submission cancels"
+	if m.prompt != "" {
+		status = "Enter submits the interface name"
+	}
 	if !fits {
 		rows = []detailRow{{"Enlarge the terminal to see the full confirmation.", "warning"}}
 		status = "Resize required"
@@ -141,9 +149,18 @@ func (m operationConsentScreen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	next, cmd := m.operation.Update(msg)
 	m.operation = next.(operationScreen)
 	if m.operation.chosen == "continue" {
+		rows := append([]detailRow(nil), m.operation.review...)
+		if m.token == "UNINSTALL" {
+			rows = append(rows,
+				detailRow{"Also keeps ownership record, linuxhost account and", "normal"},
+				detailRow{"the trusted recovery helper. Not a full purge.", "normal"})
+		}
+		if m.token == "RECOVER" {
+			rows = append(rows, detailRow{"Protected state has not yet been checked.", "muted"})
+		}
 		m.consent = &consentScreen{
 			frame: m.operation.frame, title: m.operation.title,
-			review: m.operation.review, token: m.token,
+			review: rows, token: m.token,
 		}
 		// Consume the review's Quit: advance to the text field instead.
 		return m, nil
