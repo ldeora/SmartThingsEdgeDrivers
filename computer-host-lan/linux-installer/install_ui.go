@@ -840,6 +840,11 @@ func finishUninstall(accessible bool, reader io.Reader, writer io.Writer, method
 		var report operationReport
 		err = executeConfirmedUninstall(writer, report.observe(writer, authorize))
 		err = report.present(writer, err)
+		if report.screenFailed {
+			// A terminal/result display failure must not lead to optional
+			// privileged WOL cleanup, even after a committed uninstall.
+			return err
+		}
 	} else {
 		err = confirmUninstall(reader, writer, authorize)
 	}
