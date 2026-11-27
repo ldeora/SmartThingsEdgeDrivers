@@ -20,6 +20,7 @@ type consentScreen struct {
 	input     string
 	invalid   bool
 	submitted bool
+	done      bool
 }
 
 func (m consentScreen) Init() tea.Cmd { return nil }
@@ -67,12 +68,16 @@ func (m *consentScreen) insert(value string) {
 }
 
 func (m consentScreen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if m.done {
+		return m, nil
+	}
 	switch event := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.frame.width, m.frame.height = event.Width, event.Height
 	case tea.KeyPressMsg:
 		switch event.String() {
 		case "esc", "ctrl+c":
+			m.done = true
 			m.submitted = false
 			return m, tea.Quit
 		case "ctrl+u":
@@ -88,6 +93,7 @@ func (m consentScreen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if event.String() == "enter" {
+			m.done = true
 			m.submitted = true
 			return m, tea.Quit
 		}
