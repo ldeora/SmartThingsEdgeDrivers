@@ -193,8 +193,47 @@ func wizardLines(s string) []string {
 	return strings.Split(strings.TrimRight(s, "\n"), "\n")
 }
 
-// render returns whether the entire active page, including its native
-// validation/help footer, fits. Never crop a review or accept a hidden
+// wizardHelp uses the active field's enabled native bindings. Navigation
+// comes first; redundant yes/no shortcuts need not repeat button labels.
+// Fit optional hints ourselves: Bubbles v2.0.0 ShortHelpView can exceed
+// its width when there is no room left for the ellipsis.
+func (l *wizardLayout) wizardHelp(f *huh.Form, width int) string {
+	var primary, secondary []string
+	for _, binding := range f.GetFocusedField().KeyBinds() {
+		if !binding.Enabled() {
+			continue
+		}
+		h := binding.Help()
+		switch h.Key {
+		case "enter":
+			primary = append(primary, "Enter "+h.Desc)
+		case "shift+tab":
+			primary = append(primary, "Shift+Tab back")
+		case "y", "n":
+			// The labeled confirmation buttons already explain the choices.
+		default:
+			secondary = append(secondary, h.Key+" "+h.Desc)
+		}
+	}
+	var result string
+	for _, item := range append(primary, secondary...) {
+		candidate := item
+		if result != "" {
+			candidate = result + " | " + item
+		}
+		if lipgloss.Width(candidate) > width {
+			if lipgloss.Width(result)+2 <= width {
+				result += " …"
+			}
+			break
+		}
+		result = candidate
+	}
+	return l.paint(result, uiMuted, uiNavy, false)
+}
+
+// render returns whether the entire active page, including native validation,
+// fits. Optional keyboard hints may be shortened. Never crop a review or accept a hidden
 // control. Unlike Group.View, Content is not clipped by the group viewport.
 // The native fields (including their own option scrolling) remain intact.
 func (l *wizardLayout) render(f *huh.Form) (string, bool) {
@@ -207,24 +246,25 @@ func (l *wizardLayout) render(f *huh.Form) (string, bool) {
 		return "Cannot display the current setup page. Ctrl+C cancels.", false
 	}
 	g := l.groups[index]
-	body := append(wizardLines(g.Header()), "")
+	body := wizardLines(g.Header())
 	body = append(body, wizardLines(g.Content())...)
-	help := wizardLines(g.Footer())
+	// Native help is disabled only for the framed groups. Footer therefore
+	// contains validation errors, which must never be treated as optional.
+	body = append(body, wizardLines(g.Footer())...)
 	inner := l.panelWidth() - 2
 	pane := inner
 	if l.wide() {
 		pane -= wizardSidebarWidth + 1
 	}
-	for _, lines := range [][]string{body, help} {
-		for _, line := range lines {
-			if lipgloss.Width(line) > pane-2 {
-				return "Setup content is too wide. Enlarge the terminal or use -accessible. Ctrl+C cancels.", false
-			}
+	for _, line := range body {
+		if lipgloss.Width(line) > pane-2 {
+			return "Setup content is too wide. Enlarge the terminal or use -accessible. Ctrl+C cancels.", false
 		}
 	}
-	// Three header rows, three bottom rows, and a blank separator before
-	// native help. The sidebar extends across the entire content region.
-	required := len(body) + len(help) + 7
+	help := wizardLines(l.wizardHelp(f, pane-2))
+	// Six frame rows. Omit the two ornamental blank rows so standard
+	// pages can fit in short terminals without sacrificing review text.
+	required := len(body) + len(help) + 6
 	if required > l.height {
 		return fmt.Sprintf("This page needs %d rows (now %d). Enlarge the terminal or use -accessible. Ctrl+C cancels.", required, l.height), false
 	}
@@ -285,17 +325,24 @@ func (l *wizardLayout) View(f *huh.Form) string {
 // viewport to the entire terminal (which hides the bottom help in short
 // windows). No privileged operation is reachable from this model.
 type wizardScreen struct {
-	form   *huh.Form
-	layout *wizardLayout
+	form         *huh.Form
+	layout       *wizardLayout
+	reviewChoice *bool
 }
 
 func newWizardScreen(s *liveSelection, installing, monochrome bool) wizardScreen {
-	groups := liveFormGroups(s, installing)
+	// Continue is the default selection, not approval of any changes.
+	// Keep it separate from s.finished until the form actually completes.
+	reviewChoice := true
+	groups := liveFormGroups(s, installing, &reviewChoice)
+	for _, group := range groups {
+		group.WithShowHelp(false)
+	}
 	layout := &wizardLayout{monochrome: monochrome, installing: installing, groups: groups}
 	form := huh.NewForm(groups...).WithTheme(wizardTheme(monochrome)).WithLayout(layout)
 	form.SubmitCmd = tea.Quit
 	form.CancelCmd = tea.Quit
-	return wizardScreen{form: form, layout: layout}
+	return wizardScreen{form: form, layout: layout, reviewChoice: &reviewChoice}
 }
 
 func (m wizardScreen) Init() tea.Cmd { return m.form.Init() }
@@ -346,5 +393,6 @@ func runStyledLiveWizard(s *liveSelection, installing bool) error {
 	if m.form.State != huh.StateCompleted {
 		return huh.ErrUserAborted
 	}
+	s.finished = *m.reviewChoice
 	return nil
 }
