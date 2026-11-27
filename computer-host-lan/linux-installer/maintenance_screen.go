@@ -340,7 +340,27 @@ func runMaintenancePresentation(accessible bool, reader io.Reader, writer io.Wri
 		bundled = agentVersionFromSource(data)
 	}
 	m := newMaintenanceScreen(info, installedAgentVersion(), bundled, os.Getenv("NO_COLOR") != "")
-	return runMaintenanceScreen(m, writer, dispatch)
+	return runMaintenanceHub(func(next func(string) error) error {
+		return runMaintenanceScreen(m, writer, next)
+	}, dispatch)
+}
+
+// Only the read-only inspection returns to the interactive menu for now.
+// Other tasks retain their existing exit/error and authorization contracts.
+func runMaintenanceHub(choose func(func(string) error) error, dispatch func(string) error) error {
+	for {
+		reopen := false
+		err := choose(func(action string) error {
+			if err := dispatch(action); err != nil {
+				return err
+			}
+			reopen = action == "inspect"
+			return nil
+		})
+		if err != nil || !reopen {
+			return err
+		}
+	}
 }
 
 func runMaintenanceScreen(m maintenanceScreen, writer io.Writer, dispatch func(string) error) error {
