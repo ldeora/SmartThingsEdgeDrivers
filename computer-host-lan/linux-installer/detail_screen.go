@@ -250,9 +250,12 @@ func inspectionRows(info apiInspect, installed string) []detailRow {
 }
 
 type inspectionScreen struct {
-	frame  detailFrame
-	rows   []detailRow
-	offset int
+	frame        detailFrame
+	rows         []detailRow
+	offset       int
+	title        string
+	statusPrefix string
+	closeHelp    string
 }
 
 func (m inspectionScreen) Init() tea.Cmd { return nil }
@@ -302,9 +305,12 @@ func (m inspectionScreen) View() tea.View {
 	rows := m.content()
 	start := min(m.offset, m.maxOffset())
 	end := min(len(rows), start+m.frame.capacity())
-	status := fmt.Sprintf("Read-only snapshot | Lines %d-%d of %d", start+1, end, len(rows))
-	v := tea.NewView(m.frame.render("INSPECT", rows[start:end], status,
-		"Up/Down Scroll | PgUp/PgDn Page | Enter/Esc/Q Back"))
+	title, prefix, help := m.title, m.statusPrefix, m.closeHelp
+	if title == "" {
+		title, prefix, help = "INSPECT", "Read-only snapshot", "Up/Down Scroll | PgUp/PgDn Page | Enter/Esc/Q Back"
+	}
+	status := fmt.Sprintf("%s | Lines %d-%d of %d", prefix, start+1, end, len(rows))
+	v := tea.NewView(m.frame.render(title, rows[start:end], status, help))
 	v.AltScreen = true
 	return v
 }
