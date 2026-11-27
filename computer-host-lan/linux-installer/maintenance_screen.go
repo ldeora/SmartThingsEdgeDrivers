@@ -71,7 +71,7 @@ func menuNewerVersion(installed, bundled string) bool {
 
 type visualMaintenanceChoice struct {
 	key, action, title, detail string
-	enabled                   bool
+	enabled                    bool
 }
 
 type maintenanceScreen struct {
