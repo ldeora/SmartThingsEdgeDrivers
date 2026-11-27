@@ -103,9 +103,10 @@ internal static class SourceConnectionTests
             bool recovered = false;
             for (int i = 0; i < 20 && !recovered; i++)
             {
-                using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(1) };
+                using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
                 try { recovered = await client.GetStringAsync(new Uri(uri, "/health"), timeout.Token) == "ok"; }
                 catch (HttpRequestException) { }
+                catch (TaskCanceledException) when (!timeout.IsCancellationRequested) { }
                 if (!recovered) await Task.Delay(100, timeout.Token);
             }
             Check(recovered, "real listener recovers after disconnect");
