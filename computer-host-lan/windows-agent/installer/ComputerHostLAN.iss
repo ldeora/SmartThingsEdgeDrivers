@@ -76,7 +76,9 @@ var
   PreviousPower, ExplicitScope, ExplicitPower, ShowUpgradeSummary: Boolean;
   ScopeConfirmed, PowerConfirmed, InstallWasUpgrade, RetainedPowerKey, SnapshotRecovered: Boolean;
   HubSelect: TNewComboBox;
-  HubStatus, LocalHelp, NetworkProfileHint: TNewStaticText;
+  HubStatus, HubTip, LocalHelp, NetworkProfileHint, PowerNote, WolHint: TNewStaticText;
+  HubStatusBase: String;
+  HubStatusShowsSelection: Boolean;
   LocalSubnetCheck: TNewCheckBox;
   AdvancedButton: TNewButton;
   PowerCheck: TNewCheckBox;
@@ -208,9 +210,18 @@ begin
   LocalSubnetCheck.Visible := ShowAdvanced;
   LocalHelp.Visible := ShowAdvanced;
   if ShowAdvanced then
-    AdvancedButton.Caption := 'Advanced options (hide)'
+    AdvancedButton.Caption := 'Hide advanced options'
   else
     AdvancedButton.Caption := 'Advanced options';
+end;
+
+// Every status written by Setup goes through here, so a later manual entry
+// can show the address in use and then restore this text when cleared.
+procedure SetHubStatus(const Text: String);
+begin
+  HubStatus.Caption := Text;
+  HubStatusBase := Text;
+  HubStatusShowsSelection := False;
 end;
 
 procedure ToggleAdvanced(Sender: TObject);
@@ -236,6 +247,25 @@ begin
   if CutAt > 0 then Result := Copy(Result, 1, CutAt - 1);
 end;
 
+// A typed or selected address replaces a stale "No hub detected" message.
+// Clearing or invalidating the field restores the last Setup status.
+procedure HubSelectionChanged(Sender: TObject);
+var
+  Address: String;
+begin
+  Address := HubIPv4FromSelection(HubSelect.Text);
+  if IsValidIPv4(Address) and not LocalSubnetCheck.Checked then
+  begin
+    HubStatus.Caption := 'Using ' + Address + '. Click Next to continue.';
+    HubStatusShowsSelection := True;
+  end
+  else if HubStatusShowsSelection then
+  begin
+    HubStatus.Caption := HubStatusBase;
+    HubStatusShowsSelection := False;
+  end;
+end;
+
 procedure SearchForHubs(Sender: TObject);
 var
   ExitCode, I, Sep, Count: Integer;
@@ -248,7 +278,7 @@ begin
   // invalid input. This also preserves a manually entered IPv4 address.
   PreviousInput := HubIPv4FromSelection(HubSelect.Text);
   if not IsValidIPv4(PreviousInput) then PreviousInput := '';
-  HubStatus.Caption := 'Searching for SmartThings hubs on your network...';
+  SetHubStatus('Searching for SmartThings hubs on your network...');
   // Initial discovery starts before the new page necessarily has time to
   // paint. Force the status and controls to render before blocking on the
   // external discovery helper. Keep search behavior and network scope intact.
@@ -263,8 +293,12 @@ begin
       '--output "' + FileName + '"', '', SW_HIDE, ewWaitUntilTerminated, ExitCode) or
       (ExitCode <> 0) or (not LoadStringsFromFile(FileName, Lines)) then
     begin
-      HubStatus.Caption := 'Discovery unavailable. Enter the hub address or use the local-network option below.';
-      if IsValidIPv4(PreviousInput) then HubSelect.Text := PreviousInput;
+      SetHubStatus('Discovery unavailable. Enter the hub address or use the local-network option below.');
+      if IsValidIPv4(PreviousInput) then
+      begin
+        HubSelect.Text := PreviousInput;
+        SetHubStatus('Discovery unavailable. Using ' + PreviousInput + ', the address you entered. Click Next to continue.');
+      end;
       SetAdvancedVisible(True);
       Exit;
     end;
@@ -287,7 +321,7 @@ begin
       LocalSubnetCheck.Checked := False;
       HubSelect.Enabled := True;
       SetAdvancedVisible(False);
-      HubStatus.Caption := 'Hub found. Its IP address is already selected; click Next to continue.';
+      SetHubStatus('Hub found. Its IP address is already selected; click Next to continue.');
     end
     else if Count > 0 then
     begin
@@ -297,18 +331,26 @@ begin
       HubSelect.ItemIndex := -1;
       HubSelect.Text := '';
       if IsValidIPv4(PreviousInput) then HubSelect.Text := PreviousInput;
-      HubStatus.Caption := 'Choose the hub you want to use.';
+      SetHubStatus('Choose the hub you want to use.');
     end
     else
     begin
-      if IsValidIPv4(PreviousInput) then HubSelect.Text := PreviousInput;
       SetAdvancedVisible(True);
-      HubStatus.Caption := 'No hub detected. Enter its IP address, or use the local-network option below.';
+      SetHubStatus('No hub detected. Enter its IP address, or use the local-network option below.');
+      if IsValidIPv4(PreviousInput) then
+      begin
+        HubSelect.Text := PreviousInput;
+        SetHubStatus('No hub detected. Using ' + PreviousInput + ', the address you entered. Click Next to continue.');
+      end;
     end;
   except
-    if IsValidIPv4(PreviousInput) then HubSelect.Text := PreviousInput;
     SetAdvancedVisible(True);
-    HubStatus.Caption := 'Discovery unavailable. Enter the hub address or choose the local-network option.';
+    SetHubStatus('Discovery unavailable. Enter the hub address or choose the local-network option.');
+    if IsValidIPv4(PreviousInput) then
+    begin
+      HubSelect.Text := PreviousInput;
+      SetHubStatus('Discovery unavailable. Using ' + PreviousInput + ', the address you entered. Click Next to continue.');
+    end;
   end;
 end;
 
@@ -522,7 +564,7 @@ begin
   HubPage := CreateCustomPage(UpgradePage.ID, 'SmartThings hub', 'Find the hub on your local network');
   LabelText := TNewStaticText.Create(HubPage);
   LabelText.Parent := HubPage.Surface;
-  LabelText.Caption := 'SmartThings hub IPv4 (DHCP reservation recommended):';
+  LabelText.Caption := 'SmartThings hub IP address:';
   LabelText.Top := ScaleY(4);
 
   HubSelect := TNewComboBox.Create(HubPage);
@@ -534,6 +576,7 @@ begin
   HubSelect.Width := HubPage.SurfaceWidth - ScaleX(126);
   HubSelect.Height := ScaleY(23);
   HubSelect.Style := csDropDown;
+  HubSelect.OnChange := @HubSelectionChanged;
 
   SearchButton := TNewButton.Create(HubPage);
   SearchButton.Parent := HubPage.Surface;
@@ -546,17 +589,27 @@ begin
 
   HubStatus := TNewStaticText.Create(HubPage);
   HubStatus.Parent := HubPage.Surface;
-  HubStatus.Top := HubSelect.Top + HubSelect.Height + ScaleY(12);
+  HubStatus.Top := HubSelect.Top + HubSelect.Height + ScaleY(10);
   HubStatus.Width := HubPage.SurfaceWidth;
   HubStatus.AutoSize := False;
-  HubStatus.Height := ScaleY(42);
+  HubStatus.Height := ScaleY(30);
   HubStatus.WordWrap := True;
-  HubStatus.Caption := 'The installer will look for SmartThings hubs when this page opens.';
+  SetHubStatus('The installer will look for SmartThings hubs when this page opens.');
+
+  // Same total height as the former three-line status, so nothing below moves.
+  HubTip := TNewStaticText.Create(HubPage);
+  HubTip.Parent := HubPage.Surface;
+  HubTip.Top := HubStatus.Top + HubStatus.Height;
+  HubTip.Width := HubPage.SurfaceWidth;
+  HubTip.AutoSize := False;
+  HubTip.Height := ScaleY(14);
+  HubTip.WordWrap := False;
+  HubTip.Caption := 'Tip: give the hub a fixed IP address in your router.';
 
   AdvancedButton := TNewButton.Create(HubPage);
   AdvancedButton.Parent := HubPage.Surface;
-  AdvancedButton.Top := HubStatus.Top + HubStatus.Height + ScaleY(5);
-  AdvancedButton.Width := ScaleX(154);
+  AdvancedButton.Top := HubTip.Top + HubTip.Height + ScaleY(5);
+  AdvancedButton.Width := ScaleX(160);
   AdvancedButton.Height := ScaleY(24);
   AdvancedButton.OnClick := @ToggleAdvanced;
 
@@ -604,24 +657,34 @@ begin
   PowerCheck.Top := PowerText.Top + PowerText.Height + ScaleY(16);
   PowerCheck.Width := PowerPage.SurfaceWidth;
   PowerCheck.Height := ScaleY(22);
-  PowerCheck.Caption := 'Enable authenticated shutdown, reboot and suspend';
+  PowerCheck.Caption := 'Allow SmartThings to shut down, restart and put this PC to sleep';
   PowerCheck.Checked := False;
 
-  PowerText := TNewStaticText.Create(PowerPage);
-  PowerText.Parent := PowerPage.Surface;
-  PowerText.Width := PowerPage.SurfaceWidth;
-  PowerText.Top := PowerCheck.Top + PowerCheck.Height + ScaleY(12);
-  PowerText.Height := ScaleY(55);
-  PowerText.WordWrap := True;
-  PowerText.AutoSize := False;
-  PowerText.Caption := 'Upgrades keep your existing power-control setting. The key is available after installation.';
+  // Caption depends on the inspected installation; set in InitializeWizard.
+  PowerNote := TNewStaticText.Create(PowerPage);
+  PowerNote.Parent := PowerPage.Surface;
+  PowerNote.Width := PowerPage.SurfaceWidth;
+  PowerNote.Top := PowerCheck.Top + PowerCheck.Height + ScaleY(12);
+  PowerNote.Height := ScaleY(32);
+  PowerNote.WordWrap := True;
+  PowerNote.AutoSize := False;
   ConfirmPowerCheck := TNewCheckBox.Create(PowerPage);
   ConfirmPowerCheck.Parent := PowerPage.Surface;
-  ConfirmPowerCheck.Top := PowerText.Top + PowerText.Height + ScaleY(5);
+  ConfirmPowerCheck.Top := PowerNote.Top + PowerNote.Height + ScaleY(5);
   ConfirmPowerCheck.Width := PowerPage.SurfaceWidth;
   ConfirmPowerCheck.Height := ScaleY(22);
   ConfirmPowerCheck.Caption := 'I confirm the power setting above';
   ConfirmPowerCheck.Visible := False;
+
+  // Waking is configured outside Setup on Windows; say where, once.
+  WolHint := TNewStaticText.Create(PowerPage);
+  WolHint.Parent := PowerPage.Surface;
+  WolHint.Width := PowerPage.SurfaceWidth;
+  WolHint.Top := ConfirmPowerCheck.Top + ConfirmPowerCheck.Height + ScaleY(12);
+  WolHint.Height := ScaleY(46);
+  WolHint.WordWrap := True;
+  WolHint.AutoSize := False;
+  WolHint.Caption := 'To switch this PC on from SmartThings, enable Wake-on-LAN in the network adapter''s properties and in the BIOS/UEFI. Setup does not change these settings.';
 
   // This page appears only after files and service installation are complete.
   ConnectPage := CreateCustomPage(wpInstalling, 'Connect to SmartThings', 'Complete setup in the SmartThings app');
@@ -752,17 +815,17 @@ begin
     if IsValidIPv4(PreviousScope) then
     begin
       HubSelect.Text := PreviousScope;
-      HubStatus.Caption := 'Keeping previous hub address. Search again to change it.';
+      SetHubStatus('Keeping previous hub address. Search again to change it.');
     end
     else if PreviousScope = 'LocalSubnet' then
     begin
       LocalSubnetCheck.Checked := True;
-      HubStatus.Caption := 'Keeping previous Private local-network scope. Change it if needed.';
+      SetHubStatus('Keeping previous Private local-network scope. Change it if needed.');
       SetAdvancedVisible(True);
     end
     else
     begin
-      HubStatus.Caption := 'Previous firewall scope is missing or ambiguous. Explicitly select a hub or local-network scope.';
+      SetHubStatus('Previous firewall scope is missing or ambiguous. Explicitly select a hub or local-network scope.');
       SetAdvancedVisible(True);
     end;
   end;
@@ -777,7 +840,7 @@ begin
   begin
     LocalSubnetCheck.Checked := False;
     HubSelect.Text := SilentHub;
-    HubStatus.Caption := 'Using the supplied hub IP address. You can change it if necessary.';
+    SetHubStatus('Using the supplied hub IP address. You can change it if necessary.');
   end
   else if SubnetParam = '1' then
   begin
@@ -803,8 +866,12 @@ begin
   UpgradeSummary.Caption := UpgradeSummary.Caption + #13#10#13#10 +
     'Your existing identity and settings will be kept.';
   ConfirmPowerCheck.Visible := InspectionFailed and not ExplicitPower;
+  if ExistingInstallation then
+    PowerNote.Caption := 'Upgrades keep your existing power-control setting. The key is shown after installation.'
+  else
+    PowerNote.Caption := 'If you allow this, the power control key is shown after installation.';
   if InspectionFailed then
-    HubStatus.Caption := 'Could not read previous settings. Select a network scope and confirm your power preference.';
+    SetHubStatus('Could not read previous settings. Select a network scope and confirm your power preference.');
 end;
 
 procedure CurPageChanged(CurPageID: Integer);
