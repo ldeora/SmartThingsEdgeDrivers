@@ -32,13 +32,22 @@ func TestFramedConsentExactSubmission(t *testing.T) {
 				t.Fatal("paste authorized without explicit submission")
 			}
 			m = consentEvent(m, tea.KeyPressMsg{Code: tea.KeyEnter})
-			if m.accepted() != tc.want {
+			if m.done != tc.want || m.accepted() != tc.want {
 				t.Fatalf("%s / %q: accepted=%t want=%t", token, tc.value, m.accepted(), tc.want)
 			}
-			// A queued character or clear cannot alter submitted consent.
-			m = consentEvent(m, tea.KeyPressMsg{Code: 'X', Text: "X"})
-			if m.accepted() != tc.want {
-				t.Fatal("queued input changed submitted approval")
+			if tc.want {
+				// A queued character or clear cannot alter submitted consent.
+				m = consentEvent(m, tea.KeyPressMsg{Code: 'X', Text: "X"})
+				if !m.accepted() {
+					t.Fatal("queued input changed submitted approval")
+				}
+			} else {
+				m = consentEvent(m, tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl})
+				m = consentEvent(m, tea.PasteMsg{Content: token})
+				m = consentEvent(m, tea.KeyPressMsg{Code: tea.KeyEnter})
+				if !m.done || !m.accepted() {
+					t.Fatal("corrected confirmation did not succeed")
+				}
 			}
 		}
 	}
@@ -119,6 +128,11 @@ func TestBackupConsentBindsOriginalIdentity(t *testing.T) {
 		!strings.Contains(view, "Type RESTORE to authorize:") || strings.Contains(view, items[31].Digest) {
 		t.Fatalf("incorrect backup confirmation:\n%s", view)
 	}
+	next, cmd = m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	m = next.(backupConsentScreen)
+	if cmd != nil || m.consent != nil || m.chooser.selected != -1 || m.chooser.cursor != 31 {
+		t.Fatal("Escape did not return to selected backup")
+	}
 	for _, tc := range []struct {
 		approval backupApproval
 		want     int
@@ -163,6 +177,13 @@ func TestNICSelectionAndSeparateWOLConsent(t *testing.T) {
 	if cmd != nil || m.manual == nil {
 		t.Fatal("manual interface selection not available")
 	}
+	next, cmd = m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	m = next.(nicSelectionScreen)
+	if cmd != nil || m.manual != nil || m.done {
+		t.Fatal("Escape did not return to interface list")
+	}
+	next, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	m = next.(nicSelectionScreen)
 	next, _ = m.Update(tea.PasteMsg{Content: "LAN0"})
 	m = next.(nicSelectionScreen)
 	next, cmd = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
@@ -205,5 +226,32 @@ func TestNICSelectionAndSeparateWOLConsent(t *testing.T) {
 				t.Fatalf("WOL status=%s approve=%t calls=%d reviews=%d err=%v", status, approve, calls, reviews, err)
 			}
 		}
+	}
+}
+
+func TestConsentRejectedPasteCanBeCorrected(t *testing.T) {
+	m := consentScreen{frame: detailFrame{width: 64, height: 22, monochrome: true}, token: "INSTALL"}
+	m = consentEvent(m, tea.PasteMsg{Content: "INSTALL\n"})
+	m = consentEvent(m, tea.KeyPressMsg{Code: tea.KeyEnter})
+	if m.done || !m.invalid || m.input != "" {
+		t.Fatal("invalid paste was not rejected atomically")
+	}
+	m = consentEvent(m, tea.PasteMsg{Content: "INSTAL"})
+	m = consentEvent(m, tea.KeyPressMsg{Code: tea.KeyEnter})
+	if m.done || m.invalid || !m.mistyped {
+		t.Fatal("mistyped word did not remain editable")
+	}
+	m = consentEvent(m, tea.KeyPressMsg{Code: 'L', Text: "L"})
+	m = consentEvent(m, tea.KeyPressMsg{Code: tea.KeyEnter})
+	if !m.accepted() {
+		t.Fatal("corrected word did not authorize")
+	}
+	m = consentScreen{frame: m.frame, token: "INSTALL"}
+	m = consentEvent(m, tea.PasteMsg{Content: "INSTALLX"})
+	m = consentEvent(m, tea.PasteMsg{Content: "\n"})
+	m = consentEvent(m, tea.KeyPressMsg{Code: tea.KeyBackspace})
+	m = consentEvent(m, tea.KeyPressMsg{Code: tea.KeyEnter})
+	if !m.accepted() {
+		t.Fatal("Backspace did not clear the rejected-input flag")
 	}
 }
