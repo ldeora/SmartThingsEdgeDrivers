@@ -306,10 +306,10 @@ func (m model) content() (string, []row, string) {
 	case review:
 		return "4. REVIEW", []row{
 			heading("Review your example choices"), plain(""),
-			info("Action: "+menuItems[m.cursor].title),
-			plain("Hub: "+hubChoices[m.hub]),
-			plain("Power: "+powerChoices[m.power]),
-			plain("WOL: "+wolChoices[m.wol]), plain(""),
+			info("Action: " + menuItems[m.cursor].title),
+			plain("Hub: " + hubChoices[m.hub]),
+			plain("Power: " + powerChoices[m.power]),
+			plain("WOL: " + wolChoices[m.wol]), plain(""),
 			row{"No changes or administrator requests will occur.", warning},
 			choice("Show simulated installation progress", true, true),
 		}, "Enter Show demo  |  Esc Back  |  Q Quit"
@@ -333,8 +333,8 @@ func (m model) content() (string, []row, string) {
 			row{"* Example installation successful", success}, plain(""),
 			plain("Agent version: 0.4.7-rc.3 (simulated)"),
 			plain("Service: running / enabled (simulated)"),
-			plain("Power: "+powerChoices[m.power]),
-			plain("WOL: "+wolChoices[m.wol]),
+			plain("Power: " + powerChoices[m.power]),
+			plain("WOL: " + wolChoices[m.wol]),
 			plain("Credentials: example preserved (not verified)"), plain(""),
 			heading("Next step in the real installer"),
 			plain("Refresh the existing SmartThings computer device."),
@@ -361,7 +361,7 @@ func (m model) content() (string, []row, string) {
 			info("and restoration of a selected local backup."))
 		return "RESTORE DEMO", rows, "Up/Down Select  |  Enter Review  |  Esc Back  |  Q Quit"
 	case operation:
-		rows := []row{heading(menuItems[m.cursor].title+" - layout preview"), plain("")}
+		rows := []row{heading(menuItems[m.cursor].title + " - layout preview"), plain("")}
 		if m.cursor == 3 {
 			rows = append(rows, plain("Example backup: "+backupChoices[m.backup]))
 		}
