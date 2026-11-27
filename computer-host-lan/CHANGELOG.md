@@ -4,6 +4,7 @@
 
 - Linux release: new asset `computer-host-lan-v<version>-linux-x64-third-party-notices.txt` with the full licence texts of the Go modules and runtime compiled into the installer, covered by `SHA256SUMS.txt` and the release asset check (#190). CI fails when a dependency changes without a matching notices update.
 - Edge: the device tile shows Host Status instead of on/off for Linux and Windows computers; the tile button still switches on/off (#192). Unreachable is shown as inactive, like Stopped (account-level presentation update, see `docs/development/DEVICE-TILE-ROLLOUT.md`). Pending hub test.
+- Windows Setup: plainer power wording ("Allow SmartThings to shut down, restart and put this PC to sleep"), a Wake-on-LAN hint on the power page, the upgrade note only on upgrades, "Hide advanced options", a separate fixed-address tip on the hub page, and a hub status that names the typed address (#191). The Windows quick start shows the Setup pages.
 
 ## v1.0.0-rc.3 (candidate, not published)
 

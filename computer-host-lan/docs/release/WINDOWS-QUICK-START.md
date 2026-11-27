@@ -14,11 +14,27 @@ Compare the full hash with the corresponding manifest entry. Stop on mismatch. W
 
 ## 2. Run Setup
 
-Run the verified Setup as administrator. Confirm the discovered SmartThings hub, use Search again, or enter its IPv4 address. Prefer the hub-only Private firewall rule; choose the local-network scope explicitly only if necessary. Leave remote power off for first-time monitoring. An existing installation shows a keep-current-settings summary when its hub/firewall scope and power preference are valid. Choose Change settings only when needed. Run Setup directly over the previous Setup or ZIP installation; do not uninstall or purge state first. Missing or ambiguous scope requires an explicit selection. See [upgrade](https://github.com/ldeora/SmartThingsEdgeDrivers/blob/computer-host-lan-v1.0.0-rc.3/computer-host-lan/docs/release/UPGRADE.md).
+Run the verified Setup as administrator.
+
+![Setup welcome page](images/windows-setup/01-welcome.png)
+
+**Upgrading?** Run Setup directly over the previous Setup or ZIP installation; do not uninstall or purge state first. An existing installation shows a keep-current-settings summary when its hub/firewall scope and power preference are valid. Click Next to keep them; choose Change settings only when needed. Missing or ambiguous scope requires an explicit selection. See [upgrade](https://github.com/ldeora/SmartThingsEdgeDrivers/blob/computer-host-lan-v1.0.0-rc.3/computer-host-lan/docs/release/UPGRADE.md).
+
+![Upgrade page that keeps the current settings](images/windows-setup/02-upgrade.png)
+
+**SmartThings hub.** Confirm the discovered hub, use Search again, or type its IP address; the status line then shows the address Setup will use. Give the hub a fixed IP address in your router. Prefer the hub-only Private firewall rule; choose the local-network option under Advanced options only if necessary.
+
+**Power management.** Leave "Allow SmartThings to shut down, restart and put this PC to sleep" off for first-time monitoring. To switch the PC on from SmartThings, enable Wake-on-LAN in the network adapter's properties and in the BIOS/UEFI; Setup does not change these settings.
 
 ## 3. Connect to SmartThings
 
 Open the [driver invitation](https://bestow-regional.api.smartthings.com/invite/1J2Qy7ZkxL20), enroll your hub if necessary, install Computer Host LAN, then Add device → Scan nearby for a new computer. Existing device? Refresh it; do not re-pair.
+
+After a new installation, Setup shows the same steps and the invitation link:
+
+![Connect to SmartThings page](images/windows-setup/04-connect.png)
+
+If you allowed power control, the next page shows the power control key; keep it private.
 
 ## 4. Check operation
 

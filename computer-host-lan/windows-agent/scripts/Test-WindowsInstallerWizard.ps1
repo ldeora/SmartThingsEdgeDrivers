@@ -98,6 +98,28 @@ public static class ComputerHostWizardProbe {
         return SendMessageTimeout(hwnd, 0x000C, UIntPtr.Zero, value,
             0x0002, 2000, out accepted) != IntPtr.Zero && accepted != UIntPtr.Zero;
     }
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern IntPtr FindWindowEx(IntPtr parent, IntPtr after, string cls, string title);
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern IntPtr SendMessageTimeout(IntPtr h, uint m, IntPtr w, IntPtr l,
+        uint flags, uint timeout, out UIntPtr result);
+    // Type like a user: select the field's text and replace it with WM_CHAR
+    // through the combo box's edit, so Setup's change handler runs.
+    // WM_SETTEXT (SetHubAddress) changes the text without that notification.
+    public static bool TypeHubAddress(IntPtr hwnd, string value) {
+        RequireHubSelector(hwnd);
+        IntPtr edit = FindWindowEx(hwnd, IntPtr.Zero, "Edit", null);
+        if (edit == IntPtr.Zero) return false;
+        UIntPtr ignored;
+        if (SendMessageTimeout(edit, 0x00B1, IntPtr.Zero, new IntPtr(-1), 0x0002, 2000, out ignored) == IntPtr.Zero)
+            return false; // EM_SETSEL all
+        string keys = value.Length == 0 ? "\b" : value;
+        foreach (char c in keys) {
+            if (SendMessageTimeout(edit, 0x0102, new IntPtr(c), new IntPtr(1), 0x0002, 2000, out ignored) == IntPtr.Zero)
+                return false; // WM_CHAR
+        }
+        return true;
+    }
     public static string HubAddressOf(IntPtr hwnd) {
         RequireHubSelector(hwnd);
         var text = new StringBuilder(512);
@@ -271,7 +293,7 @@ try {
     for ($attempt = 0; $attempt -lt 70; $attempt++) {
         $children = @([ComputerHostWizardProbe]::Children($window.Handle))
         if (@($children | Where-Object {
-            $_.Visible -and $_.Text -match 'SmartThings hub IPv4 \(DHCP reservation recommended'
+            $_.Visible -and $_.Text -match '^SmartThings hub IP address:$'
         }).Count -gt 0) {
             $onHub = $true
             break
@@ -299,6 +321,10 @@ try {
         throw "Hub IPv4 input falls outside the Setup window: $input"
     }
     Write-Host "PASS visible, on-screen, editable hub address selector: $input"
+    if (@($children | Where-Object { $_.Visible -and $_.Text -eq 'Tip: give the hub a fixed IP address in your router.' }).Count -ne 1) {
+        throw 'Fixed hub address tip missing on the hub page'
+    }
+    Write-Host 'PASS fixed hub address tip shown separately from the field label'
     if ($ExpectRetainedScope) {
         if ($ExpectRetainedScope -eq 'LocalSubnet') {
             $scopeCheck = $children | Where-Object {
@@ -316,12 +342,15 @@ try {
             }
         }
         ClickWizardButton $window.Handle 'Next'
-        WaitForWizardText $window.Handle 'Enable authenticated shutdown, reboot and suspend' 'retained power page'
+        WaitForWizardText $window.Handle 'Allow SmartThings to shut down, restart and put this PC to sleep' 'retained power page'
         $power = VisibleControls $window.Handle | Where-Object {
-            $_.Class -match 'CheckBox' -and $_.Text -match 'Enable authenticated shutdown'
+            $_.Class -match 'CheckBox' -and $_.Text -match 'Allow SmartThings to shut down'
         } | Select-Object -First 1
         if (-not $power -or [ComputerHostWizardProbe]::IsChecked($power.Handle) -ne [bool]$ExpectRetainedPower) {
             throw 'Existing power preference not prefilled'
+        }
+        if (@(VisibleControls $window.Handle | Where-Object { $_.Text -match '^Upgrades keep your existing power-control setting' }).Count -ne 1) {
+            throw 'Upgrade power note missing on an upgrade'
         }
         Write-Host 'PASS graphical upgrade prefilled retained scope and power without command-line overrides'
         return
@@ -351,6 +380,31 @@ try {
             throw "Failed hub rediscovery lost previously entered valid IPv4 address: expected '192.0.2.20', observed '$rescanAddress'"
         }
         Write-Host 'PASS failed rediscovery preserves manually entered hub IPv4 address'
+        if (@(VisibleControls $window.Handle | Where-Object { $_.Text -eq 'No hub detected. Using 192.0.2.20. Click Next to continue.' }).Count -ne 1) {
+            throw 'Hub status does not show the manually entered address after a failed search'
+        }
+        Write-Host 'PASS hub status names the address in use after a failed search'
+        # Replace, clear and re-enter the address as a user would type it.
+        foreach ($step in @(
+            @{ Value = '192.0.2.21'; Status = 'No hub detected. Using 192.0.2.21. Click Next to continue.' },
+            @{ Value = ''; Status = 'No hub detected. Enter the hub''s IP address, use Search again, or choose the local-network option.' },
+            @{ Value = '192.0.2.20'; Status = 'No hub detected. Using 192.0.2.20. Click Next to continue.' })) {
+            if (-not [ComputerHostWizardProbe]::TypeHubAddress($rescanInput.Handle, $step.Value)) {
+                throw "Could not type '$($step.Value)' into the hub selector"
+            }
+            Start-Sleep -Milliseconds 150
+            if ([ComputerHostWizardProbe]::HubAddressOf($rescanInput.Handle) -ne $step.Value) {
+                throw "Typed hub address not shown: expected '$($step.Value)'"
+            }
+            if (@(VisibleControls $window.Handle | Where-Object { $_.Text -eq $step.Status }).Count -ne 1) {
+                VisibleControls $window.Handle | Where-Object { $_.Text -match 'hub|Using' } | ForEach-Object { Write-Host "Status candidate: $_" }
+                throw "Hub status after typing '$($step.Value)' is not '$($step.Status)'"
+            }
+        }
+        if (@(VisibleControls $window.Handle | Where-Object { $_.Text -match '192\.0\.2\.21' }).Count -ne 0) {
+            throw 'Hub status still names a replaced address'
+        }
+        Write-Host 'PASS hub status follows typed, replaced and cleared addresses'
     } else {
         Write-Host 'INFO hub(s) found on runner; no-results regression assertion skipped'
     }
@@ -365,8 +419,44 @@ try {
         $_.Text -match '^Allow connections from devices on my local network$'
     }).Count -gt 0
     if ($before -eq $after) { throw 'Advanced options did not toggle the local-network fallback' }
+    $expectedCaption = if ($after) { '^Hide advanced options$' } else { '^Advanced options$' }
+    if (-not (FindVisibleButton $window.Handle $expectedCaption)) {
+        throw "Advanced options button caption does not match its state (expected $expectedCaption)"
+    }
     ClickWizardButton $window.Handle 'Advanced options'
     Write-Host 'PASS Advanced options shows/hides the local-network firewall fallback'
+    # The status follows the local-network option and returns to the address.
+    # Needs the typed address kept after a failed search (no hub on the runner).
+    if ($rescanStatus) {
+        $localCheck = VisibleControls $window.Handle | Where-Object {
+            $_.Text -match '^Allow connections from devices on my local network$'
+        } | Select-Object -First 1
+        $openedAdvanced = $false
+        if (-not $localCheck) {
+            ClickWizardButton $window.Handle 'Advanced options'
+            $openedAdvanced = $true
+            $localCheck = VisibleControls $window.Handle | Where-Object {
+                $_.Text -match '^Allow connections from devices on my local network$'
+            } | Select-Object -First 1
+        }
+        if (-not $localCheck) { throw 'Local-network option not visible for the status check' }
+        $localStatus = 'Local-network option selected: devices on this Private network can connect. No hub address is needed.'
+        [ComputerHostWizardProbe]::Click($localCheck.Handle)
+        Start-Sleep -Milliseconds 150
+        if (-not [ComputerHostWizardProbe]::IsChecked($localCheck.Handle) -or
+            @(VisibleControls $window.Handle | Where-Object { $_.Text -eq $localStatus }).Count -ne 1 -or
+            @(VisibleControls $window.Handle | Where-Object { $_.Text -match '^(No hub detected\. )?Using 192\.0\.2\.20' }).Count -ne 0) {
+            throw 'Hub status does not show the local-network option after selecting it'
+        }
+        [ComputerHostWizardProbe]::Click($localCheck.Handle)
+        Start-Sleep -Milliseconds 150
+        if ([ComputerHostWizardProbe]::IsChecked($localCheck.Handle) -or
+            @(VisibleControls $window.Handle | Where-Object { $_.Text -match '^(No hub detected\. )?Using 192\.0\.2\.20\. Click Next to continue\.$' }).Count -ne 1) {
+            throw 'Hub status does not return to the typed address after clearing the local-network option'
+        }
+        if ($openedAdvanced) { ClickWizardButton $window.Handle 'Advanced options' }
+        Write-Host 'PASS hub status follows selecting and clearing the local-network option'
+    }
     if ($SubnetFallback) {
         if (-not [ComputerHostWizardProbe]::SetHubAddress($rescanInput.Handle, '')) {
             throw 'Could not clear manual hub address to test LocalSubnet fallback (WM_SETTEXT)'
@@ -404,16 +494,24 @@ try {
     if (-not $next -or -not [ComputerHostWizardProbe]::PostMessage($next.Handle, 0x00F5, [IntPtr]::Zero, [IntPtr]::Zero)) {
         throw 'Could not advance from hub configuration page'
     }
-    WaitForWizardText $window.Handle 'Enable authenticated shutdown, reboot and suspend' 'power-management page after hub selection'
+    WaitForWizardText $window.Handle 'Allow SmartThings to shut down, restart and put this PC to sleep' 'power-management page after hub selection'
     if ($rescanStatus -and -not $SubnetFallback) {
         Write-Host 'PASS manual hub selection accepted after failed discovery'
     }
     if ($FullInstall) {
         $cb = VisibleControls $window.Handle |
-            Where-Object { $_.Class -match 'CheckBox' -and $_.Text -match 'Enable authenticated shutdown' } |
+            Where-Object { $_.Class -match 'CheckBox' -and $_.Text -match 'Allow SmartThings to shut down' } |
             Select-Object -First 1
         if (-not $cb) { throw 'Power-management checkbox is not visible' }
         Write-Host 'PASS power-management checkbox visible'
+        if (@(VisibleControls $window.Handle | Where-Object { $_.Text -match '^To switch this PC on from SmartThings, enable Wake-on-LAN' }).Count -ne 1) {
+            throw 'Wake-on-LAN hint missing on the power page'
+        }
+        $upgradeNote = @(VisibleControls $window.Handle | Where-Object { $_.Text -match '^Upgrades keep your existing power-control setting' }).Count -eq 1
+        if ($upgradeNote -ne $wasUpgrade) {
+            throw "Upgrade power note shown=$upgradeNote, but upgrade=$wasUpgrade"
+        }
+        Write-Host 'PASS power page shows the Wake-on-LAN hint and the upgrade note only on upgrades'
         $powerEnabled = [ComputerHostWizardProbe]::IsChecked($cb.Handle)
         if ($MonitoringOnly -and $powerEnabled) { throw 'Monitoring-only interactive install unexpectedly prechecked power' }
         if (-not $MonitoringOnly -and -not $powerEnabled) { throw 'Power-enabled interactive install did not precheck power' }
