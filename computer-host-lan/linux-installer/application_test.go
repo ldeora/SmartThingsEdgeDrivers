@@ -140,7 +140,7 @@ func TestMaintenanceApplicationPTYHarness(t *testing.T) {
 	if mode == "" {
 		t.Skip("external PTY harness")
 	}
-	result, err := tea.NewProgram(fixtureApplication(t)).Run()
+	result, err := runFramedProgram(fixtureApplication(t))
 	if err != nil {
 		t.Fatal(err)
 	}
