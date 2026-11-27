@@ -224,15 +224,23 @@ func TestDetailScreenPTYHarness(t *testing.T) {
 	}
 	items := detailBackupFixtures()
 	calls := 0
-	err := restoreWizardWithChooser(os.Stdin, os.Stdout, func(req privilegedRequest) (privilegedResult, error) {
+	err := restoreWizardWithApproval(os.Stdout, func(req privilegedRequest) (privilegedResult, error) {
 		calls++
-		if req.Action != "backups" {
-			t.Fatal("mutation reached PTY fixture")
+		if req.Action == "backups" {
+			return privilegedResult{Status: "passed", Backups: &items}, nil
 		}
-		return privilegedResult{Status: "passed", Backups: &items}, nil
-	}, "0.4.7-rc.3", selectBackupScreen)
-	if err != nil || calls != 1 {
-		t.Fatalf("unexpected restore cancellation: %v, calls=%d", err, calls)
+		if mode != "backup-approve" || req.Action != "restore" ||
+			req.Backup != items[31].Name || req.BackupDigest != items[31].Digest {
+			t.Fatal("unexpected restore request in PTY fixture")
+		}
+		return privilegedResult{Status: "restored", IdentityPreserved: "verified", CredentialContinuity: "verified"}, nil
+	}, "0.4.7-rc.3", selectBackupConsent)
+	want := 1
+	if mode == "backup-approve" {
+		want = 2
+	}
+	if err != nil || calls != want {
+		t.Fatalf("unexpected restore result: %v, calls=%d", err, calls)
 	}
 	fmt.Println("PTY RESTORE CLOSED")
 }
