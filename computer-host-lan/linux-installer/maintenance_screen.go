@@ -245,20 +245,20 @@ func (m maintenanceScreen) paint(s string, width int, kind string) string {
 	if m.monochrome {
 		return s
 	}
-	fg, bg, bold := "#E2E8F0", "#0D1729", false
+	fg, bg, bold := uiText, uiNavy, false
 	switch kind {
 	case "header":
-		fg, bg, bold = "#7DD3FC", "#16283C", true
+		fg, bg, bold = uiCyan, uiPanel, true
 	case "selected":
-		fg, bg, bold = "#CFFAFE", "#164E63", true
+		fg, bg, bold = uiSelected, uiHighlight, true
 	case "muted":
-		fg = "#A8BDD3"
+		fg = uiMuted
 	case "disabled":
 		fg = "#8296AB"
 	case "success":
-		fg = "#5EEAD4"
+		fg = uiTeal
 	case "warning":
-		fg = "#FBBF24"
+		fg = uiWarning
 	}
 	return lipgloss.NewStyle().
 		Foreground(lipgloss.Color(fg)).

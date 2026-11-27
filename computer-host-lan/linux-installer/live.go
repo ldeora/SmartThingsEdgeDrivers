@@ -626,6 +626,11 @@ func liveForm(s *liveSelection) *huh.Form {
 }
 
 func liveFormMode(s *liveSelection, installing bool) *huh.Form {
+	return huh.NewForm(liveFormGroups(s, installing, &s.finished)...)
+}
+
+// Keep one source of truth for both native and framed presentation.
+func liveFormGroups(s *liveSelection, installing bool, reviewChoice *bool) []*huh.Group {
 	nicHelp := "Select the wired Ethernet interface. The persistent policy will be shown before confirmation."
 	if s.wolNIC == "" {
 		nicHelp = "Enter your wired Ethernet interface name (for example enp1s0f0)."
@@ -634,19 +639,21 @@ func liveFormMode(s *liveSelection, installing bool) *huh.Form {
 	reviewDescription := func() string { return s.preview() }
 	welcome := s.inspectionSummary()
 	if installing {
-		reviewTitle = "Continue to installation confirmation"
+		reviewTitle = "Continue to confirmation"
 		reviewDescription = func() string { return s.installPreview() }
 		welcome = s.installationSummary()
 	}
-	return huh.NewForm(
+	return []*huh.Group{
 		huh.NewGroup(
 			huh.NewSelect[string]().
+				Key("welcome").
 				Title("Welcome to Computer Host LAN").
 				Description(welcome).
 				Options(huh.NewOption("Continue", "continue")),
 		).Title("1. Welcome"),
 		huh.NewGroup(
 			huh.NewSelect[string]().
+				Key("hub").
 				Title("Which SmartThings hub do you use?").
 				Description("A hub found on your network is already selected. Press Enter to continue, or choose another.").
 				Options(liveHubOptions(s.hubs)...).
@@ -658,6 +665,7 @@ func liveFormMode(s *liveSelection, installing bool) *huh.Form {
 		).Title("2. SmartThings hub"),
 		huh.NewGroup(
 			huh.NewInput().
+				Key("hub-address").
 				Title("SmartThings hub IP address").
 				Description("Enter your hub's IPv4 address. You can find it in your router or SmartThings hub settings.").
 				Placeholder("e.g. 192.168.1.20").
@@ -672,11 +680,13 @@ func liveFormMode(s *liveSelection, installing bool) *huh.Form {
 		).Title("Hub address").WithHideFunc(func() bool { return s.hubChoice != "manual" }),
 		huh.NewGroup(
 			huh.NewSelect[string]().
+				Key("power").
 				Title("What should SmartThings be allowed to do?").
 				Description("Monitoring works without power control. Upgrades keep the current setting unless you change it.").
 				Options(livePowerOptions(s.inspection)...).
 				Value(&s.powerChoice),
 			huh.NewSelect[string]().
+				Key("wol").
 				Title("Wake-on-LAN").
 				Description("Configure is recommended for new wired computers; Keep for upgrades. Hardware support is checked after authorization.").
 				Options(
@@ -688,6 +698,7 @@ func liveFormMode(s *liveSelection, installing bool) *huh.Form {
 		).Title("3. Power control"),
 		huh.NewGroup(
 			huh.NewInput().
+				Key("network").
 				Title("Network interface (advanced)").
 				Description(nicHelp).
 				Placeholder("e.g. enp1s0f0").
@@ -696,10 +707,11 @@ func liveFormMode(s *liveSelection, installing bool) *huh.Form {
 		).Title("Network details").WithHideFunc(func() bool { return s.wolChoice != "pin" && s.wolChoice != "configure" }),
 		huh.NewGroup(
 			huh.NewConfirm().
+				Key("review").
 				Title("Review your choices").
 				DescriptionFunc(reviewDescription,
 					[]any{&s.powerChoice, &s.wolChoice, &s.wolNIC, &s.hubChoice, &s.hubManual}).
-				Affirmative(reviewTitle).Negative("Exit without changes").
+				Affirmative(reviewTitle).Negative("Cancel").
 				Validate(func(accepted bool) error {
 					if !accepted {
 						return nil
@@ -712,9 +724,9 @@ func liveFormMode(s *liveSelection, installing bool) *huh.Form {
 						return errors.New("Python changed since the initial check. Please restart.")
 					}
 					return nil
-				}).Value(&s.finished),
+				}).Value(reviewChoice),
 		).Title("4. Review"),
-	)
+	}
 }
 
 func defaultWOLChoice(existing bool, wiredNIC string) string {
@@ -759,7 +771,7 @@ func runLiveInteractive(w io.Writer, api apiClient, info apiInspect) error {
 func runLiveInteractiveSelection(w io.Writer, s *liveSelection) error {
 	fmt.Fprintln(w, "COMPUTER HOST LAN — SETUP PREVIEW")
 	fmt.Fprintln(w, "No installation or system changes will be made.")
-	err := liveForm(s).Run()
+	err := runStyledLiveWizard(s, false)
 	if errors.Is(err, huh.ErrUserAborted) {
 		fmt.Fprintln(w, "Setup preview cancelled. No changes made.")
 		return nil

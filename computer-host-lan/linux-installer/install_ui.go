@@ -682,7 +682,7 @@ func runInstallingWizardMode(accessible bool, apiPath string, reader io.Reader, 
 	s.firewalldActive = firewalldRunning()
 	fmt.Fprintln(writer, "COMPUTER HOST LAN — LINUX INSTALLATION")
 	fmt.Fprintln(writer, "The agent will not be changed until you approve the final confirmation.")
-	if err := liveFormMode(s, true).Run(); err != nil {
+	if err := runStyledLiveWizard(s, true); err != nil {
 		if errors.Is(err, huh.ErrUserAborted) {
 			fmt.Fprintln(writer, "Cancelled. No changes made.")
 			return nil
@@ -693,7 +693,7 @@ func runInstallingWizardMode(accessible bool, apiPath string, reader io.Reader, 
 		fmt.Fprintln(writer, "Exited without changes.")
 		return nil
 	}
-	// At this point Huh has exited; the terminal is no longer in raw mode.
+	// The form runner has exited and restored the normal terminal.
 	fmt.Fprintf(writer, "\nType %s to authorize system changes (anything else cancels): ", s.installConfirmation())
 	line, err := readConfirmationLine(reader)
 	if err != nil && err != io.EOF {

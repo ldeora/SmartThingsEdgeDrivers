@@ -30,6 +30,21 @@ selecting a task is never authorization. `NO_COLOR` with a non-empty value
 disables colors. Accessible mode and non-terminal/unsupported maintenance
 streams retain the original plain prompts.
 
+The interactive setup and preview use the same full-screen application frame
+and color palette. The step sidebar appears at 100 columns or wider; narrower
+terminals use a framed single-column form. The wizard needs at least 64 columns
+by 22 rows and may require more rows for a detailed review. Resize if prompted,
+or use `-accessible`. Input is paused while the complete current page cannot fit,
+except for Ctrl+C cancellation. Text and backgrounds are paired explicitly.
+Huh still controls the actual fields, validation and conditional pages.
+The framed wizard presents concise keyboard hints from the active native
+bindings; optional hints may be shortened to fit, but review text and
+validation errors are not clipped. Enter selects or advances; Shift+Tab goes
+Back when available. Review defaults to Continue, which is not authorization.
+Q is not a quit shortcut in the wizard. The alternate screen closes before
+the original typed confirmation and administrator authorization.
+Structured operation/result screens remain separate integration work.
+
 The previous `-live -install` spelling remains supported.
 Real installation uses an embedded inspector
 by default and requests administrator authorization only after explicit
