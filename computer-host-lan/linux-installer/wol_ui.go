@@ -130,9 +130,7 @@ func showWOLStatus(w io.Writer, r privilegedResult) {
 }
 
 func runWOLManagement(reader io.Reader, writer io.Writer, method string, remove bool) error {
-	return manageWOL(reader, writer, remove, func(req privilegedRequest) (privilegedResult, error) {
-		return executeAuthorizedBootstrap(req, true, method)
-	})
+	return runWOLPresentation(false, reader, writer, method, remove)
 }
 
 func manageWOL(reader io.Reader, writer io.Writer, remove bool, authorize func(privilegedRequest) (privilegedResult, error)) error {
