@@ -30,15 +30,17 @@ selecting a task is never authorization. `NO_COLOR` with a non-empty value
 disables colors. Accessible mode and non-terminal/unsupported maintenance
 streams retain the original plain prompts.
 
-The interactive setup and preview use the same color palette, with a step
-sidebar on terminals at least 100 columns wide and the original single-column
-form on narrower terminals. The colored form pairs its own navy background
-with readable foreground colors, independent of terminal background detection.
-The sidebar follows the active form field, including
-optional address and network pages. Huh still controls field validation,
-contextual help, Back navigation and cancellation (Ctrl+C). The wizard exits
-before the existing typed confirmation and administrator authorization. The
-full-screen setup shell and result screens are separate integration work.
+The interactive setup and preview use the same full-screen application frame
+and color palette. The step sidebar appears at 100 columns or wider; narrower
+terminals use a framed single-column form. The wizard needs at least 64 columns
+by 22 rows and may require more rows for a detailed review. Resize if prompted,
+or use `-accessible`. Input is paused while the complete current page cannot fit,
+except for Ctrl+C cancellation. Text and backgrounds are paired explicitly.
+Huh still controls the actual fields, validation, conditional pages and
+contextual keyboard help. Enter selects or advances; Shift+Tab goes Back when
+available. Q is not a quit shortcut in the wizard. The alternate screen closes
+before the original typed confirmation and administrator authorization.
+Structured operation/result screens remain separate integration work.
 
 The previous `-live -install` spelling remains supported.
 Real installation uses an embedded inspector
