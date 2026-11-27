@@ -175,3 +175,72 @@ func TestWizardFrameResizeAndCancel(t *testing.T) {
 		}
 	}
 }
+
+func TestWizardStandardPagesFitEveryWidth(t *testing.T) {
+	for _, installing := range []bool{false, true} {
+		for _, mono := range []bool{false, true} {
+			_, s := fixtureWizard(t, mono)
+			m := newWizardScreen(s, installing, mono)
+			m.Update(tea.WindowSizeMsg{Width: 110, Height: 40})
+			for i, field := range []string{"welcome", "hub", "power", "wol", "review"} {
+				if i > 0 {
+					deliverFormMessage(t, m.form, huh.NextField())
+				}
+				if got := m.form.GetFocusedField().GetKey(); got != field {
+					t.Fatalf("unexpected field %q, want %q", got, field)
+				}
+				for _, height := range []int{22, 24} {
+					for width := 64; width <= 140; width++ {
+						m.Update(tea.WindowSizeMsg{Width: width, Height: height})
+						view, fits := m.layout.render(m.form)
+						if !fits || lipgloss.Width(view) > width || lipgloss.Height(view) > height {
+							t.Fatalf("install=%t mono=%t field=%s at %dx%d: %s", installing, mono, field, width, height, view)
+						}
+						if field == "review" {
+							// The actual button labels and essential navigation
+							// must survive even at the sidebar threshold.
+							label := "Finish preview"
+							if installing {
+								label = "Continue to confirmation"
+							}
+							for _, want := range []string{label, "Cancel", "Enter", "Shift+Tab back"} {
+								if !strings.Contains(view, want) {
+									t.Fatalf("review missing %q at %dx%d:\n%s", want, width, height, view)
+								}
+							}
+						}
+					}
+				}
+				m.Update(tea.WindowSizeMsg{Width: 110, Height: 40})
+			}
+		}
+	}
+}
+
+func TestWizardReviewDefaultAndExplicitCancel(t *testing.T) {
+	for _, installing := range []bool{false, true} {
+		for _, cancel := range []bool{false, true} {
+			_, s := fixtureWizard(t, true)
+			m := newWizardScreen(s, installing, true)
+			m.Update(tea.WindowSizeMsg{Width: 100, Height: 24})
+			for i := 0; i < 4; i++ {
+				deliverFormMessage(t, m.form, huh.NextField())
+			}
+			if m.form.GetFocusedField().GetKey() != "review" || !*m.reviewChoice || s.finished {
+				t.Fatal("review default incorrectly represents completed setup")
+			}
+			if _, fits := m.layout.render(m.form); !fits {
+				t.Fatal("review cannot be displayed at sidebar threshold")
+			}
+			event := tea.KeyPressMsg{Code: tea.KeyEnter}
+			if cancel {
+				event = tea.KeyPressMsg{Code: 'n', Text: "n"}
+			}
+			deliverFormMessage(t, m.form, event)
+			if m.form.State != huh.StateCompleted || *m.reviewChoice == cancel || s.finished {
+				t.Fatalf("unexpected review outcome: install=%t cancel=%t state=%v choice=%t finished=%t",
+					installing, cancel, m.form.State, *m.reviewChoice, s.finished)
+			}
+		}
+	}
+}
