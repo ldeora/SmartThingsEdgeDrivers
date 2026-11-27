@@ -1,5 +1,9 @@
 # Computer Host LAN — change log
 
+## Unreleased
+
+- Edge: the device tile shows Host Status instead of on/off for Linux and Windows computers; the tile button still switches on/off (#192). Unreachable is shown as inactive, like Stopped (account-level presentation update, see `docs/development/DEVICE-TILE-ROLLOUT.md`). Pending hub test.
+
 ## v1.0.0-rc.3 (candidate, not published)
 
 - Linux: standalone release installer, protected install/upgrade/repair/uninstall/recovery; persistent wired WOL with explicit owned removal (#183–#185), retained rc.2 identity reuse (#186), historical restore (#187), maintenance menu (#188). Normal uninstall keeps credentials, snapshots and NIC WOL. Release builds require byte-identical Linux replicas and unified SHA-256/build metadata.
