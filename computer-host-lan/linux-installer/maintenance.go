@@ -164,7 +164,7 @@ func dispatchMaintenance(choice string, accessible bool, apiPath string, reader 
 	case "install", "upgrade", "repair":
 		return runInstallingWizardMode(accessible, apiPath, reader, writer, method, false, choice)
 	case "configure":
-		return configureMaintenance(reader, writer, func(action string) error {
+		return configurePresentation(accessible, reader, writer, func(action string) error {
 			return dispatchMaintenance(action, accessible, apiPath, reader, writer, method, info)
 		})
 	case "inspect":
@@ -179,9 +179,9 @@ func dispatchMaintenance(choice string, accessible bool, apiPath string, reader 
 		case "wol":
 			return runWOLManagement(reader, writer, method, false)
 		case "recover":
-			return runRecoveryWizard(reader, writer, method)
+			return runRecoveryPresentation(accessible, reader, writer, method)
 		case "uninstall":
-			return runUninstallWizard(reader, writer, method)
+			return runUninstallPresentation(accessible, reader, writer, method)
 		}
 	}
 	return fmt.Errorf("unknown maintenance task")

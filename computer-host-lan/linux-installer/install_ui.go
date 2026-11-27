@@ -775,14 +775,26 @@ func confirmUninstall(reader io.Reader, writer io.Writer,
 }
 
 func runUninstallWizard(reader io.Reader, writer io.Writer, method string) error {
+	return runUninstallPresentation(false, reader, writer, method)
+}
+
+func runUninstallPresentation(accessible bool, reader io.Reader, writer io.Writer, method string) error {
 	if os.Geteuid() == 0 {
 		return errors.New("run the wizard as your normal user; administrator authorization follows confirmation")
 	}
 	if !stdinIsTerminal() {
 		return errors.New("interactive uninstall needs a terminal")
 	}
+	proceed, err := operationReview(accessible, reader, writer, uninstallScreen())
+	if err != nil {
+		return err
+	}
+	if !proceed {
+		fmt.Fprintln(writer, "Uninstall cancelled. No changes made.")
+		return nil
+	}
 	removed := false
-	err := confirmUninstall(reader, writer, func(request privilegedRequest) (privilegedResult, error) {
+	err = confirmUninstall(reader, writer, func(request privilegedRequest) (privilegedResult, error) {
 		result, err := executeAuthorizedBootstrap(request, true, method)
 		removed = err == nil && result.Status == "uninstalled"
 		return result, err
@@ -824,12 +836,30 @@ func showRecoveryOutcome(writer io.Writer, response privilegedResult) {
 }
 
 func runRecoveryWizard(reader io.Reader, writer io.Writer, method string) error {
+	return runRecoveryPresentation(false, reader, writer, method)
+}
+
+func runRecoveryPresentation(accessible bool, reader io.Reader, writer io.Writer, method string) error {
 	if os.Geteuid() == 0 {
 		return errors.New("run the wizard as your normal user; sudo is requested after confirmation")
 	}
 	if !stdinIsTerminal() {
 		return errors.New("interactive recovery needs a terminal")
 	}
+	proceed, err := operationReview(accessible, reader, writer, recoveryScreen())
+	if err != nil {
+		return err
+	}
+	if !proceed {
+		fmt.Fprintln(writer, "Recovery cancelled. No changes made.")
+		return nil
+	}
+	return confirmRecovery(reader, writer, func(request privilegedRequest) (privilegedResult, error) {
+		return executeAuthorizedBootstrap(request, true, method)
+	})
+}
+
+func confirmRecovery(reader io.Reader, writer io.Writer, authorize func(privilegedRequest) (privilegedResult, error)) error {
 	fmt.Fprintln(writer, "Computer Host LAN — recover a previously interrupted installer operation.")
 	fmt.Fprintln(writer, "This rolls back an interrupted operation or finishes terminal cleanup; it never resumes deletion.")
 	fmt.Fprint(writer, "Type RECOVER to authorize the existing trusted helper: ")
@@ -841,8 +871,7 @@ func runRecoveryWizard(reader io.Reader, writer io.Writer, method string) error 
 		fmt.Fprintln(writer, "Recovery cancelled. No changes made.")
 		return nil
 	}
-	response, err := executeAuthorizedBootstrap(
-		privilegedRequest{SchemaVersion: 1, Action: "recover"}, true, method)
+	response, err := authorize(privilegedRequest{SchemaVersion: 1, Action: "recover"})
 	if err != nil {
 		return err
 	}

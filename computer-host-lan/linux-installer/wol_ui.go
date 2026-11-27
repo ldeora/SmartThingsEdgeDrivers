@@ -137,7 +137,7 @@ func runWOLManagement(reader io.Reader, writer io.Writer, method string, remove 
 
 func manageWOL(reader io.Reader, writer io.Writer, remove bool, authorize func(privilegedRequest) (privilegedResult, error)) error {
 	fmt.Fprintln(writer, "Configure — Wake-on-LAN")
-	fmt.Fprintln(writer, "Check or remove only settings previously recorded by Computer Host LAN. To enable Wake-on-LAN later, run setup again (Configure → Change power or WOL settings) and select Configure in the Wake-on-LAN step.")
+	fmt.Fprintln(writer, "Check or remove the saved Wake-on-LAN setting. To enable WOL, use Configure → Change power or Wake-on-LAN.")
 	nic := suggestedNIC("")
 	fmt.Fprintf(writer, "Wired interface [%s] (or quit): ", nic)
 	value, err := readConfirmationLine(reader)
