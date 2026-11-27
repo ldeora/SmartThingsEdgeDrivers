@@ -18,6 +18,18 @@ Do not elevate an ordinary downloaded CI artifact.
 
 Run as an ordinary user. Launch without arguments to open the real
 installation wizard on a clean host or the maintenance menu on an existing/retained host; `-accessible` opens its plain-text variant.
+On ordinary interactive terminals, the maintenance chooser uses a full-screen
+layout (minimum 64 columns by 22 rows). It displays the installed **file**
+version, the bundled agent version and the observed service state. A newer
+bundled version is recommended only when the installed file version can be
+reliably compared. Arrow keys or fixed numeric keys highlight tasks; Enter
+selects, Esc or Q exits. Unavailable tasks remain visible with an explanation.
+Protected backup availability and recovery state are not guessed by the menu.
+The full-screen chooser exits before invoking the existing operation wizard;
+selecting a task is never authorization. `NO_COLOR` with a non-empty value
+disables colors. Accessible mode and non-terminal/unsupported maintenance
+streams retain the original plain prompts.
+
 The previous `-live -install` spelling remains supported.
 Real installation uses an embedded inspector
 by default and requests administrator authorization only after explicit
