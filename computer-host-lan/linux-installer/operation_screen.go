@@ -132,7 +132,13 @@ func configurationScreen() operationScreen {
 	}
 }
 
-func confirmationScreen(title string, rows []detailRow) operationScreen {
+// Continue is the default for non-removal reviews. For removal, select
+// Cancel. In both cases the later literal token is the authorization.
+func confirmationScreen(title string, rows []detailRow, removal bool) operationScreen {
+	cursor := 0
+	if removal {
+		cursor = 1
+	}
 	return operationScreen{
 		title:  title,
 		review: rows,
@@ -140,61 +146,29 @@ func confirmationScreen(title string, rows []detailRow) operationScreen {
 			{"1", "continue", "Continue to typed confirmation"},
 			{"0", "", "Cancel"},
 		},
-		cursor: 1, // No destructive operation is the default choice.
+		cursor: cursor,
 	}
 }
 
 func recoveryScreen() operationScreen {
 	return confirmationScreen("RECOVER", []detailRow{
 		{"Recover an interrupted operation", "header"},
-		{"Restore the previous files/services or finish cleanup.", "normal"},
+		{"Undo an interrupted change or finish transaction cleanup.", "normal"},
 		{"Recovery never resumes an interrupted deletion.", "normal"},
-		{"Protected transaction state has not yet been checked.", "muted"},
-		{"The existing trusted helper determines what is safe.", "normal"},
-		{"Next: type RECOVER, then authorize as administrator.", "warning"},
-	})
+		{"Next: type RECOVER, then authorize as administrator.", "muted"},
+	}, false)
 }
 
 func uninstallScreen() operationScreen {
 	return confirmationScreen("UNINSTALL", []detailRow{
 		{"Remove Computer Host LAN", "header"},
-		{"REMOVE", "header"},
-		{"Agent files, systemd units/drop-ins and Avahi service.", "normal"},
-		{"Stop/disable agent and power socket; stop power helper.", "normal"},
-		{"KEEP", "header"},
-		{"Installation identity, control key and ownership record.", "normal"},
-		{"linuxhost account, snapshots and trusted recovery helper.", "normal"},
-		{"External WOL/network policy and firewall rules.", "normal"},
-		{"SmartThings device goes offline; it is not deleted.", "warning"},
-		{"Reinstall can reuse identity; this is not a full purge.", "normal"},
+		{"Removes the agent and its services.", "warning"},
+		{"Keeps your computer's identity, key and backups.", "normal"},
+		{"Reinstall can reconnect the same SmartThings device.", "normal"},
+		{"Keeps Wake-on-LAN and firewall settings by default.", "normal"},
+		{"The SmartThings device goes offline; it is not deleted.", "normal"},
 		{"Next: type UNINSTALL, then authorize as administrator.", "muted"},
-	})
-}
-
-func savedWOLScreen(nic string, result privilegedResult) operationScreen {
-	var rows []detailRow
-	rows = append(rows, detailRow{"Saved Wake-on-LAN policy", "header"},
-		detailRow{"Interface: " + nic, "normal"})
-	switch result.WOLStatus {
-	case "managed":
-		rows = append(rows, detailRow{"Configured by Computer Host LAN.", "normal"})
-	case "runtime_only":
-		rows = append(rows, detailRow{"Persistent policy was not changed by the installer.", "normal"})
-	case "review_required":
-		rows = append(rows, detailRow{"Policy could not be verified; keep the saved record.", "warning"})
-	case "not_managed":
-		rows = append(rows, detailRow{"No installer-owned setting for this interface.", "normal"})
-	default:
-		rows = append(rows, detailRow{"Policy status unavailable.", "warning"})
-	}
-	if result.Status != "passed" || !validWOLStatus(result, "wol-check") || result.WOLStatus == "not_managed" {
-		return operationScreen{title: "WAKE-ON-LAN", review: rows,
-			choices: []operationChoice{{"0", "", "Close"}}}
-	}
-	rows = append(rows, detailRow{"Remove only the installer-owned setting.", "normal"},
-		detailRow{"Administrator policy and the agent are unchanged.", "normal"},
-		detailRow{"Next: type REMOVE, then authorize as administrator.", "muted"})
-	return confirmationScreen("WAKE-ON-LAN", rows)
+	}, true)
 }
 
 // The normal terminal is restored before the existing literal prompt.
