@@ -36,8 +36,8 @@ protected engine mutates managed host state.
 ### Authorization and executable handoff
 
 The full-screen application returns an operation only after review and
-literal confirmation. Stop the program, revoke and join its input ownership
-and restore/check terminal settings before any privilege prompt. Never let a
+literal confirmation. Stop the program, revoke its input access, wait for the last permitted
+kernel read and restore/check terminal settings before any privilege prompt. Never let a
 stale Bubble Tea/Ultraviolet read consume a password or shell input.
 Passwords are handled by the OS, not the installer. Accessible mode uses
 plain prompts with the same consent boundary; noninteractive CLI requires

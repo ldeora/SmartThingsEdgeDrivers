@@ -9,7 +9,7 @@ Current wire contract for Computer Host LAN. Integration and agent versions are 
 * Every successful JSON response MUST contain
   `protocol: "computer-host-agent"`, `api_version: 2`,
   `platform: "linux" | "windows"` and stable installation UUID `id`.
-  Error objects may omit these envelope fields.
+  Error responses may omit these fields or have an empty body.
 * The Edge Driver validates protocol, version, platform and UUID and checks
   UUID again before saving metadata, reporting telemetry or sending power.
 * `platform` is the operating-system family, not the firmware power state.
@@ -77,8 +77,8 @@ See [driver state model](architecture.md#state-and-power-transitions).
 | `disk_root_available_bytes` | Available bytes on same filesystem/volume (optional) | f_bavail | AvailableFreeSpace |
 | `uptime_seconds` | System/kernel uptime | Yes | Kernel uptime; Fast Startup may retain it |
 | `boot_id` | Identifies a real boot session | Yes | Protected heuristic boot-session ID |
-| `cpu_temperature_c` | Sensor temperature or `null` | If available | Not reported |
-| `cpu_temperature_label` | Source description | If available | Not reported |
+| `cpu_temperature_c` | Sensor temperature or `null` | If available | null |
+| `cpu_temperature_label` | Source description | If available | null |
 | `load_1m`, `load_5m`, `load_15m` | Linux load averages | Yes | Omit; not directly comparable |
 
 Missing measurements may be JSON `null`. The Edge Driver skips unavailable
@@ -110,22 +110,25 @@ Linux and `TotalSize - TotalFreeSpace` on Windows), while available bytes
 are those accessible to the process (`f_bavail` or
 `AvailableFreeSpace`). Reserved blocks, btrfs accounting and quotas may
 mean **Used + Available ≠ Total**. Existing disk percentage remains
-`(Total - Available) / Total`, and may therefore differ from
-`Used / Total`. Do not silently change its established automation semantics.
+`100 × (Total - Available) / Total`, and may therefore differ from
+`100 × Used / Total`. Do not silently change its established automation semantics.
 
 Existing custom capability attributes must retain their semantics. Account-level schemas, translations and presentations are independent of driver packaging; see [development and rollout](../development.md#capabilities-and-presentations).
 
 ## Authentication
 
 * `GET /v2/challenge` returns a fresh lower-case 48-hex-character nonce
-  valid for 30 seconds. Requests may be rate-limited (HTTP 429 / Retry-After).
+  valid for 30 seconds, with `expires_in: 30`. Requests may be rate-limited
+  (HTTP 429; Linux includes Retry-After: 30). Power disabled returns 403.
 * The key is 32 random bytes represented as 64 hex characters; the SmartThings
   device preference must contain the matching secret. Do not log or expose it.
 * Signed requests have `Content-Length: 0` with **no request body**.
 * Signature: `HMAC-SHA256(bytes.fromhex(key), ASCII("POST\n" + path + "\n" + nonce + "\n"))`.
 * Header names: `X-ComputerHost-Nonce` and `X-ComputerHost-Signature`
-  (lowercase hex signature). Nonces are one-time-use. No silent retry of
-  accepted signed requests.
+  (lowercase hex signature). Nonces are one-time-use; invalid signatures
+  do not consume them. Windows also binds a challenge to the requesting
+  remote address; Linux does not. Reject request bodies and transfer encoding.
+  No silent retry of accepted signed requests.
 * POST response on acceptance is HTTP 202 including `accepted:true`, `action`,
   UUID and protocol envelope. Unauthorized=401, disabled=403,
   helper unavailable=503, unacceptable request=400/404.
@@ -142,14 +145,14 @@ The driver checks the protocol envelope, platform and expected installation
 UUID at info, health, metrics, challenge and power-response boundaries.
 An mDNS advertisement or matching UUID is not cryptographic identity proof.
 A POST is accepted only with valid authorization and a supported action;
-HTTP 409 means another operation is pending or the OS reports a shutdown
+On Windows, HTTP 409 means another operation is pending or the OS reports a shutdown
 already in progress, not successful acceptance. HTTP 503 covers immediate
 helper/native failures. Do not retry an uncertain accepted request.
 
 Linux limits HTTP headers to 12 KiB, with a five-second cumulative header
 deadline; both agents limit active connections to twelve globally and four
-per remote source. Challenge admission is bounded; Linux allows 20 challenges
-per source per rolling minute with at most 128 pending nonces. The Edge
+per remote source. Both agents allow 20 challenges per source per rolling
+minute with at most 128 pending nonces. The Edge
 driver limits replies to 32 KiB and does not follow redirects. Its four-second
 inactivity timeout is supplemented by an eight-second cooperative request
 deadline (separate budgets for challenge and POST); fallback to inactivity
@@ -168,4 +171,4 @@ for user-visible controls.
 
 ## Release consistency
 
-Release engineering verifies the component-version constants against `release.json` and reads the running Windows agent's `/v2/info.agent_version` in native Windows CI. A reported runtime version mismatch is a release defect, even when protocol v2 is compatible. Existing beta devices retain their UUID and profile component IDs across version updates.
+Release engineering verifies the component-version constants against `release.json` and reads the running Windows agent's `/v2/info.agent_version` in native Windows CI. A reported runtime version mismatch is a release defect, even when protocol v2 is compatible. Existing protocol-v2 devices retain their UUID and profile component IDs across version updates.
