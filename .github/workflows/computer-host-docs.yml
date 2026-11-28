@@ -22,3 +22,5 @@ jobs:
         run: python -m unittest discover -s .github/scripts -p test_check_computer_host_docs.py -v
       - name: Check tracked Markdown paths and anchors
         run: python .github/scripts/check_computer_host_docs.py
+      - name: Validate links in generated user and Windows fallback archives
+        run: python -m unittest discover -s .github/scripts -p test_computer_host_doc_archives.py -v

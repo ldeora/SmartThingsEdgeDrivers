@@ -1,43 +1,57 @@
 # Computer Host LAN — SmartThings for Linux and Windows
 
-**Upgrading? Run the new installer over your existing installation. Your device, settings, routines and key are kept; nothing needs to be changed in SmartThings.**
+Monitor and optionally control your computer through SmartThings using a
+local Edge driver and lightweight host agent. No additional broker, cloud
+account or Home Assistant installation is required; SmartThings itself
+uses its platform services.
 
-**Version 1.0.0-rc.3.** See the [versioned release](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v1.0.0-rc.3) and [release list](https://github.com/ldeora/SmartThingsEdgeDrivers/releases) for actual download availability. Use the instructions matching the version you downloaded.
-
-Monitor and control your computer in SmartThings, using your trusted local
-network. See CPU, RAM, disk usage, uptime and host status; optionally wake,
-shut down, reboot or suspend your computer, including through routines.
-The Edge driver communicates locally with your computer; no separate cloud
-service is required. SmartThings itself still uses its platform services.
+**Current published release: [v1.0.0-rc.3](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v1.0.0-rc.3).**
+Use version-matched packages from the release, not CI artifacts or development
+source scripts. This working branch may contain documentation improvements
+since that tag; it is not a new binary release.
 
 ## Get started
 
-- [Linux installer Quick Start — rc.3](docs/release/LINUX-INSTALLER-QUICK-START.md)
-- [Windows Setup Quick Start — rc.3](docs/release/WINDOWS-QUICK-START.md)
-- [SmartThings driver invitation](https://bestow-regional.api.smartthings.com/invite/1J2Qy7ZkxL20) — enroll your hub and install Computer Host LAN.
+| Guide | What it covers |
+| --- | --- |
+| [Install on Windows](docs/install-windows.md) | Graphical Setup, PowerShell fallback, installed components and uninstall |
+| [Install on Linux](docs/install-linux.md) | Standalone terminal installer, configuration and maintenance |
+| [SmartThings setup](docs/smartthings.md) | [Driver invitation](https://bestow-regional.api.smartthings.com/invite/1J2Qy7ZkxL20), device tile, metrics, power, preferences and routines |
+| [Upgrade and maintenance](docs/upgrade.md) | Upgrade, repair, restore, recovery, reinstall and fresh start |
+| [Troubleshooting](docs/troubleshooting.md) | Network, power, metrics, diagnostics and support |
+| [Volunteer testing](docs/testing.md) | Practical acceptance checklist |
+| [Security and privacy](SECURITY.md) | Trust model, credentials, limitations, security reporting |
+| [Release notes](docs/release/RELEASE-NOTES-v1.0.0-rc.3.md) | Current changes and limitations |
 
-For the older rc.2 packages see the [rc.2 Quick Start](docs/release/QUICK-START.md).
-New computer? Scan nearby once. Existing computer? Refresh its device; do
-not delete or re-pair it. Monitoring is enabled by default. Remote power is
-optional and requires opt-in on both sides. Use a trusted private LAN; never
-forward the agent's HTTP port to the Internet. WOL depends on hardware and
-firmware. Verify downloads against the same trusted versioned release.
-Packages are unsigned; checksums verify bytes, not publisher identity.
+**Upgrading?** Run the new installer over the existing installation. Keep
+identity, key, settings, routines and the same SmartThings device; refresh
+rather than re-pair. Do not uninstall first. Power control is opt-in.
 
-## Maintenance and support
+## Platforms and requirements
 
-[Upgrade, reinstall, recovery and fresh start](docs/release/UPGRADE.md) ·
-[Troubleshooting](docs/release/TROUBLESHOOTING.md) ·
-[Detailed installation](INSTALLATION.md) · [Security](SECURITY.md) ·
-[Protocol v2](PROTOCOL.md) · [rc.3 release notes](docs/release/RELEASE-NOTES-v1.0.0-rc.3.md)
+A trusted private LAN and SmartThings hub running Edge are required.
+Agent HTTP defaults to TCP 8765; discovery uses UDP 5353/mDNS. Do not forward
+the port to the Internet. See [security](SECURITY.md).
 
-The rc.3 Linux installer supports setup, power/WOL configuration, repair,
-historical restore, interrupted-operation recovery and normal uninstall.
-The source ZIP is **source only**, not a Linux installation package.
+| Platform | Requirements and qualification |
+| --- | --- |
+| Linux | x86-64, systemd, Python 3.10+, Avahi for discovery. Exact published rc.3 installer upgraded rc.2 on Gentoo with a real hub; monitoring, identity, tile and shutdown/wake passed. Debian, Ubuntu and Fedora have automated container/source coverage, not physical hardware certification. |
+| Windows | Windows 11 x64 target; self-contained .NET runtime. Automated Windows Server CI includes installer, service and protocol checks. Earlier volunteer hardware tests are positive; final rc.3 hardware scope remains tracked separately. |
+| Windows ARM64 | Cross-build only, no qualified ARM64 graphical installer. |
 
-## Release information
+WOL depends on Ethernet adapter, firmware, network and OS power state;
+Linux automated persistent WOL supports wired Ethernet only. Neither CI nor
+publication establishes every computer's power-state compatibility.
 
-Integration **1.0.0-rc.3**, Linux agent and Edge **0.4.7-rc.3**, Windows agent
-**0.2.8-rc.3**, protocol v2. See [release history, security cautions and earlier test evidence](docs/history/RC2-AND-EARLIER.md).
-Computer Host LAN is separate from the protocol-v1 Linux Host LAN integration;
-do not mix the agents or drivers.
+## Release and source
+
+Integration 1.0.0-rc.3; Linux agent/Edge 0.4.7-rc.3; Windows agent 0.2.8-rc.3;
+protocol v2. See [release history](CHANGELOG.md) and the [qualification record](https://github.com/ldeora/SmartThingsEdgeDrivers/issues/119).
+The packages are unsigned: verify SHA-256 against the trusted versioned
+release; checksums do not authenticate the publisher. The source ZIP is
+source only, not a Linux installer. Do not mix protocol-v1 Linux Host LAN
+agents/drivers with Computer Host LAN.
+
+[Protocol reference at the rc.3 tag](https://github.com/ldeora/SmartThingsEdgeDrivers/blob/computer-host-lan-v1.0.0-rc.3/computer-host-lan/PROTOCOL.md) ·
+[Source and component documentation](https://github.com/ldeora/SmartThingsEdgeDrivers/tree/main/computer-host-lan) ·
+[Third-party notices](docs/THIRD-PARTY-NOTICES.md) · [Apache-2.0 licence](LICENSE).

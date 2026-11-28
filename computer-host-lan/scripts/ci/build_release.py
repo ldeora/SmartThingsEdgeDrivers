@@ -14,6 +14,11 @@ import os
 import stat
 import zipfile
 
+try:
+    from .user_docs import docs_paths, validate_inputs
+except ImportError:  # Direct script invocation
+    from user_docs import docs_paths, validate_inputs
+
 BASE = Path(__file__).resolve().parents[2]
 VERSION = json.loads((BASE / 'release.json').read_text(encoding='utf-8'))['integration']
 TIMESTAMP = (2026, 11, 16, 12, 0, 0)
@@ -64,8 +69,9 @@ def main():
     guide = args.output_dir / f'computer-host-lan-v{VERSION}-documentation.zip'
     inputs = list(source_files())
     write_archive(full, f'computer-host-lan-v{VERSION}', inputs, include_manifest=True)
-    selected = [(rel, p) for rel, p in inputs
-                if str(rel).startswith(('docs/development/', 'docs/beta/', 'docs/release/', 'docs/history/')) or str(rel) in ('README.md', 'PROTOCOL.md', 'INSTALLATION.md', 'SECURITY.md', 'release.json', 'windows-agent/README.md', 'windows-agent/installer/README.md', 'windows-agent/installer/CONNECT-TO-SMARTTHINGS.html', 'linux-installer/THIRD-PARTY-NOTICES.txt')]
+    required = docs_paths(VERSION)
+    validate_inputs(BASE, required)
+    selected = [(Path(name), BASE / name) for name in sorted(required)]
     write_archive(guide, f'computer-host-lan-docs-v{VERSION}', selected, include_manifest=True)
     checksum_file = args.output_dir / f'computer-host-lan-v{VERSION}-SHA256SUMS.txt'
     checksum_file.write_text(''.join(f'{hashlib.sha256(p.read_bytes()).hexdigest()}  {p.name}\n' for p in (full, guide)))

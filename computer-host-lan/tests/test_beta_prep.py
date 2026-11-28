@@ -88,12 +88,14 @@ class BetaReadiness(unittest.TestCase):
         self.assertNotIn('..new_mac)', discovery)
 
     def test_windows_package_contains_dependency_notice(self):
-        source = (ROOT / 'scripts/ci/build_windows_kit.py').read_text()
+        source = (ROOT / 'scripts/ci/user_docs.py').read_text()
         setup = (ROOT / 'windows-agent/installer/ComputerHostLAN.iss').read_text()
         self.assertIn('THIRD-PARTY-NOTICES.md', source)
         self.assertIn('THIRD-PARTY-NOTICES.md', setup)
         self.assertIn('Source: "..\\..\\LICENSE"; DestDir: "{app}\\Docs"', setup)
-        self.assertIn('Zeroconf', (ROOT / 'docs/beta/THIRD-PARTY-NOTICES.md').read_text())
+        self.assertIn('Zeroconf', (ROOT / 'docs/THIRD-PARTY-NOTICES.md').read_text())
+        self.assertEqual((ROOT / 'docs/THIRD-PARTY-NOTICES.md').read_bytes(),
+                         (ROOT / 'docs/beta/THIRD-PARTY-NOTICES.md').read_bytes())
 
 
 if __name__ == '__main__':

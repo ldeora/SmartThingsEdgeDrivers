@@ -1,5 +1,5 @@
 ---
-name: Computer Host LAN beta bug report
+name: Computer Host LAN bug report
 about: Report monitoring, discovery, installation or power problems in Computer Host LAN (Linux/Windows)
 title: "[Computer Host LAN] "
 ---
@@ -19,7 +19,7 @@ title: "[Computer Host LAN] "
 
 ### Test and reproduction
 
-- Test ID ([checklist](../../computer-host-lan/docs/beta/TESTER-CHECKLIST.md)):
+- Relevant test ([checklist](../../computer-host-lan/docs/testing.md)):
 - Monitoring only / opted into power:
 - Steps to reproduce:
 - Expected result:

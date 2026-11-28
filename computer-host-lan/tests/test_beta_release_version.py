@@ -7,6 +7,7 @@ import unittest
 from zipfile import ZipFile
 
 from scripts.ci.build_windows_kit import build, release_kind
+from scripts.ci.user_docs import USER_DOCS
 
 ROOT = Path(__file__).resolve().parents[1]
 VERSION = re.compile(r"^\d+\.\d+\.\d+(?:-(?:beta|rc)\.\d+)?$")
@@ -62,6 +63,52 @@ class ReleaseVersionTests(unittest.TestCase):
         self.assertEqual(manifest["agent_protocol"], 2)
         self.assertEqual(manifest["power_control_default"], "disabled")
 
+    def test_packaged_user_guides_reference_current_version(self):
+        """Check current download instructions at every release stage.
+
+        Historical tag-pinned reference links are allowed; current release
+        download links and installer filenames must match the manifest exactly.
+        """
+        manifest = json.loads((ROOT / "release.json").read_text(encoding="utf-8"))
+        version = manifest["integration"]
+        tag = f"computer-host-lan-v{version}"
+        release_url = (
+            "https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/" + tag
+        )
+        required = {
+            "SECURITY.md", "docs/install-linux.md",
+            "docs/install-windows.md", "docs/testing.md",
+        }
+        self.assertTrue(required.issubset(USER_DOCS))
+        # Capture the complete tag, not a substring: stable 1.0.0 must not
+        # accept 1.0.0-rc.3, nor rc.1 accidentally accept rc.10.
+        release_links = re.compile(
+            r"https://github\.com/ldeora/SmartThingsEdgeDrivers/"
+            r"releases/(?:tag|download)/(computer-host-lan-v[^\s/)\x60>]+)"
+        )
+        asset_names = re.compile(
+            r"computer-host-lan-v([\w.-]+?)-"
+            r"(?:linux-x64-unsigned-installer|windows-x64-unsigned-setup\.exe)"
+        )
+        for name in ("README.md", *USER_DOCS):
+            if not name.endswith(".md"):
+                continue
+            with self.subTest(document=name):
+                content = (ROOT / name).read_text(encoding="utf-8")
+                tags = release_links.findall(content)
+                if name in required or name == "README.md":
+                    self.assertIn(tag, tags, release_url)
+                for found in tags:
+                    self.assertEqual(found, tag, "stale release download link")
+                for found in asset_names.findall(content):
+                    self.assertEqual(found, version, "stale installer filename")
+        for name, suffix in (
+            ("docs/install-linux.md", "linux-x64-unsigned-installer"),
+            ("docs/install-windows.md", "windows-x64-unsigned-setup.exe"),
+        ):
+            self.assertIn(f"{tag}-{suffix}",
+                          (ROOT / name).read_text(encoding="utf-8"), name)
+
     def test_published_docs_reference_current_release(self):
         manifest = json.loads((ROOT / "release.json").read_text(encoding="utf-8"))
         version = manifest["integration"]
@@ -115,10 +162,14 @@ class ReleaseVersionTests(unittest.TestCase):
             with ZipFile(archive) as zip_file:
                 self.assertEqual(zip_file.read("docs/RELEASE-NOTES.md"), notes_path.read_bytes())
                 if "linux_installer" in manifest:
-                    quick = ROOT / "docs/release/WINDOWS-QUICK-START.md"
-                    self.assertEqual(zip_file.read("docs/START-HERE.md"), quick.read_bytes())
-                    # Every relative screenshot in the quick start must be
-                    # present beside it in the fallback ZIP and checksummed.
+                    quick = ROOT / "docs/install-windows.md"
+                    self.assertEqual(zip_file.read("docs/install-windows.md"), quick.read_bytes())
+                    self.assertIn(b"(install-windows.md)", zip_file.read("docs/START-HERE.md"))
+                    self.assertEqual(zip_file.read("docs/testing.md"),
+                                     (ROOT / "docs/testing.md").read_bytes())
+                    self.assertIn(b"(testing.md)", zip_file.read("docs/TEST-CHECKLIST.md"))
+                    # Every relative screenshot in the guide is present and
+                    # checksummed, not merely linked in the repository.
                     import hashlib
                     images = re.findall(r"!\[[^\]]*\]\((images/windows-setup/[^)]+)\)",
                                         quick.read_text(encoding="utf-8"))
@@ -129,8 +180,11 @@ class ReleaseVersionTests(unittest.TestCase):
                         data = (quick.parent / rel).read_bytes()
                         self.assertEqual(zip_file.read(member), data)
                         self.assertIn(f"{hashlib.sha256(data).hexdigest()}  {member}\n", sums)
-                    self.assertEqual(zip_file.read("docs/TEST-CHECKLIST.md"),
-                                     (ROOT / "docs/release/RC3-READINESS.md").read_bytes())
+                    for name in ("SECURITY.md", "docs/smartthings.md", "docs/upgrade.md",
+                                 "docs/troubleshooting.md", "docs/install-linux.md",
+                                 "docs/THIRD-PARTY-NOTICES.md", "LICENSE"):
+                        self.assertEqual(zip_file.read(name), (ROOT / name).read_bytes())
+                    self.assertNotIn("docs/release/RC3-READINESS.md", zip_file.namelist())
 
     def test_published_rc1_warnings_survive_rc2_publication(self):
         """rc.1 remains downloadable and its security warning must remain."""
