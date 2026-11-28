@@ -118,31 +118,22 @@ class ReleaseVersionTests(unittest.TestCase):
             self.assertNotIn("not yet published", opening, name)
             self.assertNotIn("unpublished", opening, name)
 
-    def test_rc_notes_match_stage_and_are_packaged_verbatim(self):
+    def test_current_notes_are_stage_neutral_and_packaged_verbatim(self):
         """Current docs reflect publication status and are packaged exactly."""
         manifest = json.loads((ROOT / "release.json").read_text(encoding="utf-8"))
         version = manifest["integration"]
-        if release_kind(version) != "rc":
-            self.skipTest("publication-neutral RC notes apply to release candidates")
         notes_path = ROOT / release_notes(version)
         notes = notes_path.read_text(encoding="utf-8")
         release_url = (f"https://github.com/ldeora/SmartThingsEdgeDrivers/"
                        f"releases/tag/computer-host-lan-v{version}")
         self.assertIn(release_url, notes)
-        if "linux_installer" in manifest:
-            self.assertNotRegex(notes.lower(), r"not (?:yet )?published|planned rc\\.|once rc\.3 is published")
-        elif manifest["release_stage"] == f"rc-published-v{version}":
-            self.assertIn("Published:", notes)
-            self.assertIn("immutable", notes.lower())
-            self.assertNotIn("not yet published", notes.lower())
-        else:
-            self.assertIn("their presence does not by itself prove a release has been published", notes)
+        self.assertNotRegex(notes.lower(), r"not (?:yet )?published|planned rc\.|once rc\.3 is published")
         self.assertIn("separate", notes.lower())
         for stale in ("not yet published", "not published yet",
                       "after this RC is published", "no GitHub release"):
             self.assertNotIn(stale.lower(), notes.lower())
 
-        # The RC Windows fallback ZIP contains precisely this file, not a
+        # The Windows fallback ZIP contains precisely this file, not a
         # differently staged or hard-coded release announcement.
         with tempfile.TemporaryDirectory() as temporary:
             temp = Path(temporary)
@@ -226,6 +217,9 @@ class ReleaseVersionTests(unittest.TestCase):
         for name in ("README.md", "CHANGELOG.md", release_notes(version)):
             self.assertIn(version, (ROOT / name).read_text(encoding="utf-8"), name)
         self.assertTrue((ROOT / release_notes(version)).is_file(), release_notes(version))
+        self.assertIn(release_notes(version), (ROOT / 'README.md').read_text(encoding='utf-8'))
+        if manifest['release_stage'] == f'{release_kind(version)}-candidate-v{version}':
+            self.assertNotIn('current published release:', (ROOT / 'README.md').read_text(encoding='utf-8').lower())
 
 
 if __name__ == "__main__":

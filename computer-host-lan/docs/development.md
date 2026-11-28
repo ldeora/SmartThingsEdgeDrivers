@@ -185,11 +185,17 @@ separate. No public assignment or account mutation without explicit approval.
    publish (prerelease for RC/beta), then independently verify public tag,
    asset count, checksums and release metadata. Never move a published tag
    or replace published assets under the same version.
-6. Only after publication and channel approval, assign the previously
+6. Record the verified published tag, source commit, UTC publication time,
+   URL and manifest digest in release.json last_published, update the
+   published stage and published URL on main, and retain the prior record
+   during preparation of a new candidate. Main's stage describes the
+   release version, not the identity of every later CI build. Do not set
+   it to published until the exact release is independently verified.
+7. Only after publication and channel approval, assign the previously
    qualified exact Edge package to public channel; verify separately.
    Do not repackage the tested driver. Announce both distributions only
-   when confirmed. Update main's publication record without changing
-   the frozen tag or implying later source builds are published assets.
+   when confirmed. Record the actual platform package version separately
+   in the qualification issue; never infer public assignment from GitHub.
 
 Ordinary candidate assets include documentation/source ZIP, Windows x64
 ZIP and Setup.exe, Linux x64 installer, its checksum/build-info/notices

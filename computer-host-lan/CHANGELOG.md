@@ -2,7 +2,7 @@
 
 ## v1.0.0-rc.3 — published 2026-11-27 UTC
 
-[Release notes](docs/release-notes/v1.0.0-rc.3.md) · [Qualification record](https://github.com/ldeora/SmartThingsEdgeDrivers/issues/119)
+[Published release notes](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v1.0.0-rc.3) · [Qualification record](https://github.com/ldeora/SmartThingsEdgeDrivers/issues/119)
 
 - Linux: standalone protected x64 installer, full-screen and accessible
   wizard, CLI, explicit retained-state reuse, local historical restore,
