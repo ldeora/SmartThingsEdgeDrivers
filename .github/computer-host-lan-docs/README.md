@@ -53,14 +53,13 @@ hardware wake or support beyond the recorded evidence.
 ## Migration order
 
 1. Foundation: inventory, non-regression link gate, root project description.
-   No project files deleted/moved or packaging selection changed. The checker
-   compares broken-link occurrences to the pinned pre-migration snapshot,
-   reports inherited failures and fails new failures. The initial scan found
-   eight broken paths; all are repaired by this phase (the seven historical
+   No project files deleted/moved or packaging selection changed. The initial
+   fixed-baseline scan identified eight broken links. After the repair commit,
+   CI confirmed eight resolved, zero inherited and zero new defects. The
+   workflow now runs in strict mode with no baseline exception. Historical
    targets are pinned to the snapshot-creation commit rather than current
-   installation instructions). The inventory is a
-   routing map, not a completed semantic/incoming-link audit. Fix inherited
-   defects while replacing their documents; remove the baseline in phase 4.
+   installation instructions. The inventory is a routing map, not a
+   completed semantic/incoming-link audit.
 2. User guides and packaging: replace/install user docs only when successors
    are reviewed, migrate issue templates, screenshots and ZIP links together.
    Incorporate PR #211. Record the current release publication metadata on
@@ -69,7 +68,7 @@ hardware wake or support beyond the recorded evidence.
 3. References: verify source/test contracts, retain security and recovery
    invariants, move remaining open work to issues, consolidate developer docs.
 4. Final pass: remove remaining superseded prose, update navigation/changelog,
-   enforce strict links (including extracted ZIPs), check preferences and
+   extend strict links to extracted ZIPs, check preferences and
    current version facts, run all applicable CI. No release without its own
    exact-commit acceptance.
 

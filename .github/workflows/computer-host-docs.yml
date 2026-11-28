@@ -1,21 +1,8 @@
 name: Computer Host LAN documentation links
 on:
+  # A linked target can be moved outside the Computer Host LAN directory.
   push:
-    paths:
-      - 'computer-host-lan/**'
-      - 'README.md'
-      - '.github/ISSUE_TEMPLATE/computer-host-lan-bug.md'
-      - '.github/computer-host-lan-docs/**'
-      - '.github/scripts/*computer_host_docs.py'
-      - '.github/workflows/computer-host-docs.yml'
   pull_request:
-    paths:
-      - 'computer-host-lan/**'
-      - 'README.md'
-      - '.github/ISSUE_TEMPLATE/computer-host-lan-bug.md'
-      - '.github/computer-host-lan-docs/**'
-      - '.github/scripts/*computer_host_docs.py'
-      - '.github/workflows/computer-host-docs.yml'
   workflow_dispatch:
 permissions:
   contents: read
@@ -25,7 +12,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          fetch-depth: 0
           persist-credentials: false
       - uses: actions/setup-python@v7
         with:
@@ -35,6 +21,4 @@ jobs:
       - name: Link checker regression tests
         run: python -m unittest discover -s .github/scripts -p test_check_computer_host_docs.py -v
       - name: Check tracked Markdown paths and anchors
-        # Temporary pre-cleanup baseline. Remove --baseline when migration
-        # is complete; it is deliberately not the moving PR base.
-        run: python .github/scripts/check_computer_host_docs.py --baseline 88752d571e71ec4ce111a07408fa7440ebbbb304
+        run: python .github/scripts/check_computer_host_docs.py
