@@ -109,10 +109,14 @@ before verifying the live schema and presentation on the test hub.
 
 ## Host Status tile and Unreachable colour (#192)
 
-The `computerHostStatus` presentation now shows Unreachable as inactive. Only
-that presentation changes; update it alone with the backup and checks in
+The `computerHostStatus` presentation now shows Unreachable as inactive
+(applied to the account on 2026-11-28). Only that presentation changes; update
+it alone with the checks in
 [DEVICE-TILE-ROLLOUT.md](../../docs/development/DEVICE-TILE-ROLLOUT.md). The
-tile layout itself is part of the driver profiles and needs no account change.
+CLI read of a presentation is translated into the account's language, so it is
+not a rollback copy; roll back from the repository version in Git as described
+there. The tile layout itself is part of the driver profiles and needs no
+account change.
 
 ## Development v0.4.0: Create new generic capabilities, then update presentations
 
