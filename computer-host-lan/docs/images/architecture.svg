@@ -10,10 +10,10 @@
 <rect x="270" y="250" width="360" height="74" rx="5" fill="#ffffff" stroke="#94a3b8"/><text x="450" y="271" font-size="13">mDNS UDP 5353 · plain HTTP TCP 8765*</text><text x="450" y="291" font-size="13">Read telemetry: unauthenticated</text><text x="450" y="311" font-size="13" fill="#0f766e">Power POST: HMAC + one-use nonce</text>
 <rect x="65" y="280" width="190" height="94" rx="8" fill="#e0f2fe" stroke="#0369a1"/><text x="160" y="306" font-size="18" font-weight="bold">Linux agent</text><text x="160" y="328" font-size="13">Python · linuxhost</text><text x="160" y="348" font-size="13">systemd / Avahi</text>
 <rect x="645" y="280" width="190" height="94" rx="8" fill="#e0f2fe" stroke="#0369a1"/><text x="740" y="306" font-size="18" font-weight="bold">Windows agent</text><text x="740" y="328" font-size="13">.NET · LocalService</text><text x="740" y="348" font-size="13">Kestrel / DNS-SD</text>
-<path d="M160 374 V407 M740 374 V407" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
+<path d="M160 374 V407" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/><path d="M740 374 V407" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
 <rect x="65" y="410" width="190" height="56" rx="6" fill="#dcfce7" stroke="#15803d"/><text x="160" y="434" font-size="14" font-weight="bold">Optional power helper</text><text x="160" y="453" font-size="12">Restricted systemd socket</text>
 <rect x="645" y="410" width="190" height="56" rx="6" fill="#dcfce7" stroke="#15803d"/><text x="740" y="434" font-size="14" font-weight="bold">Optional native power</text><text x="740" y="453" font-size="12">Windows APIs</text>
-<path d="M650 140 H855 V380 H590 V390" fill="none" stroke="#c2410c" stroke-width="2" stroke-dasharray="5 4" marker-end="url(#arrow)"/>
+<path d="M650 140 H855 V380 H450 V390" fill="none" stroke="#c2410c" stroke-width="2" stroke-dasharray="5 4" marker-end="url(#arrow)"/>
 <rect x="310" y="390" width="280" height="76" rx="6" fill="#fff7ed" stroke="#c2410c"/><text x="450" y="414" font-size="15" font-weight="bold">Wake-on-LAN</text><text x="450" y="435" font-size="13">Hub sends UDP magic packets to NIC</text><text x="450" y="453" font-size="12">Unauthenticated · hardware-dependent</text>
 <text x="450" y="512" font-size="12">* Default HTTP port; restrict access to hub where practical. HMAC does not encrypt HTTP.</text>
 </g></svg>

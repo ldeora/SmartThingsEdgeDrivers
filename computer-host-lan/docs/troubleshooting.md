@@ -27,7 +27,92 @@ curl -fsS http://127.0.0.1:8765/v2/health
 avahi-browse -rt _computerhost._tcp
 ```
 
-Use the actual configured port if different. A successful local health request does not establish hub reachability. Windows Setup opens a Private-profile rule scoped to the hub or explicitly selected LocalSubnet. Only change the network to Private if it is genuinely trusted. Linux does not automatically change firewall rules or start Avahi. Check the trusted LAN's firewall zone and allow agent TCP only from the hub where practical, plus the required local mDNS traffic. Verify Avahi is running and advertising; if the directory was absent at install time, install/start Avahi according to your distribution and repair the agent installation. For administrator-specific examples see the [published installer reference](https://github.com/ldeora/SmartThingsEdgeDrivers/blob/computer-host-lan-v1.0.0-rc.3/computer-host-lan/linux-installer/README.md#troubleshooting-discovery-and-connectivity).
+Use the actual configured port if different. A successful local health request does not establish hub reachability. Windows Setup opens a Private-profile rule scoped to the hub or explicitly selected LocalSubnet. Only change the network to Private if it is genuinely trusted. Linux does not automatically change firewall rules or start Avahi. Check the trusted LAN's firewall zone and allow agent TCP only from the hub where practical, plus the required local mDNS traffic. Verify Avahi is running and advertising; if the directory was absent at install time, install/start Avahi according to your distribution and repair the agent installation.
+
+### Avahi / mDNS
+
+Before installing the agent, check that the Avahi daemon is running:
+
+```sh
+systemctl is-active avahi-daemon.service
+```
+
+If Avahi is missing, install the daemon and browsing tools appropriate for
+your distribution. Examples (choose only the applicable one):
+
+- Debian/Ubuntu: `sudo apt install avahi-daemon avahi-utils`
+- Fedora: `sudo dnf install avahi avahi-tools`
+- Gentoo: `net-dns/avahi` (ensure the distribution's D-Bus and systemd
+  integration is available).
+
+On a trusted systemd host, if permitted by your local policy, enable and
+start the installed daemon with
+`sudo systemctl enable --now avahi-daemon.service`.
+Install the prerequisites before running the agent installer: it only
+installs the managed Avahi service file when `/etc/avahi/services` exists.
+If you installed Avahi afterward, resolve any pending recovery first, then
+rerun the verified installer. The interactive wizard automatically chooses
+upgrade when it detects an existing installation. Alternatively, use the
+documented `cli repair --confirm REPAIR` action with an already-authorized
+noninteractive elevation provider (see [Linux CLI](install-linux.md#noninteractive-cli)). Do not delete the retained
+identity or SmartThings device.
+
+After installation, verify the agent advertisement on the local network:
+
+```sh
+avahi-browse -rt _computerhost._tcp
+```
+
+Look for your computer and its expected address/port, not just any
+Computer Host LAN agent. A local result does not establish that the hub
+can see it. Keep multicast DNS (UDP 5353) available on the trusted
+hub-facing network; guest isolation, VLANs or multicast filtering may
+prevent discovery. Do not expose mDNS to untrusted networks.
+
+### firewalld and other firewalls
+
+If firewalld is active, inspect the runtime configuration as administrator:
+
+```sh
+sudo firewall-cmd --get-active-zones
+sudo firewall-cmd --zone=ZONE --list-all
+```
+
+Replace `ZONE` with the zone that actually applies to the hub's traffic;
+check the interface and any source-based zone assignments. Use the
+agent's configured TCP port (default 8765) and the hub's actual IPv4.
+For example, the following adds a **temporary, hub-scoped IPv4 rule**
+for testing only. Replace both the example zone `home` and the reserved
+documentation address `192.0.2.20` with your own values, and adjust the port
+if necessary. Do not use this rule on an untrusted network.
+
+```sh
+sudo firewall-cmd --zone=home --add-rich-rule='rule family="ipv4" source address="192.0.2.20/32" port port="8765" protocol="tcp" accept' --timeout=5m
+```
+
+The rule expires after five minutes. If hub connectivity works, add
+the same reviewed rule to the permanent configuration. Replace the zone,
+hub IPv4 and port just as for the temporary rule:
+
+```sh
+sudo firewall-cmd --permanent --zone=home --add-rich-rule='rule family="ipv4" source address="192.0.2.20/32" port port="8765" protocol="tcp" accept'
+sudo firewall-cmd --reload
+```
+
+Before reloading, review the permanent configuration and any unrelated
+runtime-only rules: reloading replaces runtime policy with permanent policy,
+which can remove other temporary rules and affect connectivity. Do not reload
+until it is safe for your host. The temporary test rule is replaced by the
+permanent rule, as intended. Verify hub connectivity again. Check runtime
+and permanent policy separately; avoid copying unrelated runtime rules
+into permanent policy. Reserve the hub's IP or update the rule if it changes.
+
+Check mDNS separately on the trusted LAN (firewalld's `mdns` service may be
+appropriate there). If using UFW, nftables or another firewall, apply
+the equivalent hub-scoped rule using that firewall's own administration
+tools. A missing firewalld warning does not mean the firewall is inactive
+or that traffic is permitted. Do not disable the firewall, broadly open
+the agent port or forward it to the Internet.
 
 ## IP address changed
 

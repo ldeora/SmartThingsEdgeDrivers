@@ -51,7 +51,7 @@ graph and build-info; preserve full upstream license texts.
 Windows uses .NET 10, Windows PowerShell 5.1 and Inno Setup 7; build/test
 the solution on a native Windows CI worker. The release workflow publishes
 self-contained win-x64, builds the hub discovery helper, compiles Setup,
-and exercises the extracted PowerShell kit. ARM64 cross-build is not
+and exercises the extracted PowerShell kit. For native development, run dotnet build on the agent project, dotnet run on the contract test project, then Publish-WindowsAgent.ps1 and Smoke-WindowsAgent.ps1 in windows-agent. ARM64 cross-build is not
 native qualification. Inspect the workflow for exact commands, compiler
 version and build flags. Never invoke shutdown/suspend on CI.
 
@@ -206,7 +206,22 @@ different NICs, Gentoo plus another supported Linux host (Debian/Ubuntu),
 WOL persistence and retained identity, Windows GUI and network behavior,
 Linux accessibility/authorization and recovery, mixed-agent/device
 continuity, transport/hub checks and the seven-day real-hardware soak.
-No physical wake guarantee from build/container evidence. Use safe
+No physical wake guarantee from build/container evidence.
+The earlier gate and qualification details remain accessible in the
+[pinned pre-cleanup record](https://github.com/ldeora/SmartThingsEdgeDrivers/blob/ae6a53d870df67a1e3756a06ed9857731d8ba8a5/computer-host-lan/docs/release/RC3-READINESS.md).
+Specifically retain a clean physical NetworkManager lifecycle and minimal
+Linux installation without ethtool; run0 on a suitably configured host,
+plain accessible UI and custom port/firewall/Avahi checks; Windows first
+search painting, retry/manual IP and scope, scaling, retained-state
+refusal only on disposable systems; separate hub-IP and host DHCP/port
+changes, DNS-SD rediscovery within 180 seconds after restored connectivity,
+same-UUID competing endpoint and WOL metadata revalidation on a disposable
+fixture. Repeat exact-candidate Edge transport checks: one hour normal
+monitoring, accepted-command timing, slow challenge/POST and slow
+headers/body on disposable listeners, cleanup/recovery and no scheduler
+fallback. Report generic command errors separately from acceptance; never
+retry an uncertain POST. Historical results cannot satisfy a new build's
+qualification. For historical stable gate details see the [pinned gates](https://github.com/ldeora/SmartThingsEdgeDrivers/blob/ae6a53d870df67a1e3756a06ed9857731d8ba8a5/computer-host-lan/docs/release/V1-RELEASE-GATES.md). Use safe
 volunteer tests in [testing](testing.md); destructive/unsafe-state tests
 belong only in disposable fixtures. Unverified or unsupported hardware
 must be distinguished from defects. Separate account-level rollout evidence

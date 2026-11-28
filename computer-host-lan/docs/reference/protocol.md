@@ -147,12 +147,15 @@ An mDNS advertisement or matching UUID is not cryptographic identity proof.
 A POST is accepted only with valid authorization and a supported action;
 On Windows, HTTP 409 means another operation is pending or the OS reports a shutdown
 already in progress, not successful acceptance. HTTP 503 covers immediate
-helper/native failures. Do not retry an uncertain accepted request.
+helper/native failures. Windows checks power-disabled (403) before unknown
+action (404); Linux checks in reverse order. Clients must not depend on
+this precedence. Do not retry an uncertain accepted request.
 
-Linux limits HTTP headers to 12 KiB, with a five-second cumulative header
-deadline; both agents limit active connections to twelve globally and four
+Both agents enforce a five-second header deadline; Linux also caps HTTP
+headers at 12 KiB. Both limit active connections to twelve globally and four
 per remote source. Both agents allow 20 challenges per source per rolling
-minute with at most 128 pending nonces. The Edge
+minute with at most 128 pending nonces. Linux also limits challenge
+admission globally to 120 per rolling minute. The Edge
 driver limits replies to 32 KiB and does not follow redirects. Its four-second
 inactivity timeout is supplemented by an eight-second cooperative request
 deadline (separate budgets for challenge and POST); fallback to inactivity
