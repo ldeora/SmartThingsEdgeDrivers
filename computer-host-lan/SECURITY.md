@@ -1,8 +1,10 @@
 # Computer Host LAN — security and responsible use
 
-**Scope and version:** Computer Host LAN uses local `computer-host-agent` protocol v2 on Linux and Windows. This page describes **published v1.0.0-rc.2** (Linux/Edge 0.4.6-rc.2, Windows 0.2.7-rc.2; [release](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v1.0.0-rc.2), source commit `72e4a99c4b2e8f958ce771152826319318d0d537`). The published rc.1 binaries **do not include the later security fixes**; its post-rc.1 hardening is present in rc.2 only. Publication is not independent security certification or completion of physical Windows 11 acceptance. See [PROTOCOL.md](PROTOCOL.md), [INSTALLATION.md](INSTALLATION.md), [release gates](docs/release/V1-RELEASE-GATES.md) and earlier Linux notes in [SECURITY-HARDENING.md](SECURITY-HARDENING.md).
+**Scope:** Current protocol-v2 Computer Host LAN on Linux and Windows. See the [current release](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v1.0.0-rc.3), [SmartThings setup](docs/smartthings.md) and [maintenance](docs/upgrade.md). Publication is not independent security certification or proof of every hardware configuration.
 
 ## Known issues in the published rc.1
+
+The published rc.1 binaries **do not include the later security fixes**.
 
 **Version-specific security notice:** The downloadable **v1.0.0-rc.1** Windows Setup.exe, Windows ZIP and Linux source archive were published on November 20, 2026 **UTC** from tag `5466ad0`, not the current `main` implementation. The fixes below were merged **after** rc.1 and are **included in published rc.2**. They do **not** apply retroactively to the published rc.1 release.
 
@@ -11,7 +13,7 @@
 - **Power acknowledgments ([#33](https://github.com/ldeora/SmartThingsEdgeDrivers/issues/33), [#44](https://github.com/ldeora/SmartThingsEdgeDrivers/issues/44)):** rc.1 lacks PR #57's Windows native shutdown/reboot acceptance/error mapping and Linux executable validation and delayed power-off/reboot attempt. The detailed HTTP 409/503 and one-second grace-period semantics stated below apply to `main`, **not rc.1**.
 - **Network diagnostics ([#46](https://github.com/ldeora/SmartThingsEdgeDrivers/issues/46)):** rc.1 does not include the additional Windows Public-network warning introduced on `main` in PR #59. All releases continue to require an appropriately configured trusted private LAN.
 
-Use the published rc.1 **only with its documented limitations**; prefer published rc.2 when testing the post-rc.1 fixes. Neither GitHub publication nor green CI replaces physical hardware acceptance.
+Use the published rc.1 **only with its documented limitations**; prefer the current published release. Neither GitHub publication nor green CI replaces physical hardware acceptance.
 
 ## Supported trust model
 
@@ -21,7 +23,7 @@ The Windows installer offers a Private-profile firewall rule scoped to the selec
 
 The unauthenticated read-only endpoints `/v2/info`, `/v2/health`, and `/v2/metrics` can disclose hostname, installation UUID, OS and system telemetry to any client that can reach the listening port. HMAC authentication for power operations **does not encrypt or authenticate the monitoring channel**, and it does not authenticate mDNS advertisements. An attacker with sufficient LAN access could observe or interfere with monitoring or disrupt connectivity; network isolation remains necessary.
 
-**Post-rc.2 Linux implementation (intended rc.3):** In addition to the existing
+**Linux connection admission:** In addition to the existing
 12-handler global limit and absolute five-second header deadline, a single
 source IP can hold at most four active HTTP handlers. Excess connections are
 closed before a handler thread is started. Source IPs shared by several
@@ -32,7 +34,7 @@ other LAN interference. No authentication, rate guarantee or firewall
 policy is added. The published rc.2 packages do not contain this per-source
 limit.
 
-**Post-rc.2 Edge implementation (intended rc.3):** The existing four-second
+**Edge transport:** The existing four-second
 socket inactivity timeout is supplemented by an eight-second budget per
 HTTP request. The driver bounds each cooperative cosock readiness wait,
 including repeated waits inside a single read or write, and closes its
@@ -48,10 +50,9 @@ until driver restart, with the original inactivity timeout retained. An
 unavailable initial deadline clock/select also triggers the compatibility
 path. There is no automatic retry, including for signed POST. This is a
 limited compatibility safeguard, not protection against arbitrary runtime
-incompatibility; fallback is a failed qualification. #177 merged after native
-CI and scoped V4 hub qualification; exact rc.3 acceptance remains required.
+incompatibility; fallback is a failed qualification.
 
-**Post-rc.2 discovery implementation (intended rc.3, #124):** A known
+**Endpoint selection:** A known
 responsive endpoint returning the expected installation UUID from health
 wins over a competing discovery candidate. When the known endpoint cannot
 be confirmed, discovery can select a matching candidate; the driver retains
@@ -88,7 +89,7 @@ Existing **installation UUIDs and control keys must be preserved across normal u
 
 There is **no automatic key rotation or automatic pairing protocol planned for v1.0**. The installer never silently replaces a working credential. If the key is missing or incorrect, monitoring can still work while authenticated power commands remain unavailable. Verify the configuration before making changes; do not print or publish the key in troubleshooting logs.
 
-If a key is **suspected compromised**, first disable power control on the host and in SmartThings, restrict network access and investigate the exposure. Do not treat re-copying the same exposed key as a security fix. A deliberate manual replacement must preserve the stable installation UUID: restore the state directory's trusted ACLs, remove only the compromised `control-token`, run Setup with power management enabled to generate a new key, and update the SmartThings device's `controlKey` preference before re-enabling `allowPowerCommands`. Never purge the whole state directory as a key-rotation shortcut. See [INSTALLATION.md](INSTALLATION.md) for the first-install orphan recovery path.
+If a key is **suspected compromised**, first disable power control on the host and in SmartThings, restrict network access and investigate the exposure. Do not treat re-copying the same exposed key as a security fix. A deliberate manual replacement must preserve the stable installation UUID: restore the state directory's trusted ACLs, remove only the compromised `control-token`, run Setup with power management enabled to generate a new key, and update the SmartThings device's `controlKey` preference before re-enabling `allowPowerCommands`. Never purge the whole state directory as a key-rotation shortcut. See [maintenance](docs/upgrade.md) for safe recovery. The preceding manual token replacement description is for Windows Setup only; on Linux do not remove a token or protected installer state to force a new key—seek maintainer guidance for deliberate rotation.
 
 Treat screenshots, exported preferences, clipboard history, synchronised clipboard, Windows Event Logs, journal output, diagnostic ZIPs, private IPv4 addresses, MAC addresses, installation UUIDs and SmartThings account/location identifiers as potentially sensitive. Review even sanitized reports manually before sharing. The Windows installer copies a control key to the clipboard only after an explicit user action.
 
@@ -100,7 +101,7 @@ Do **not** post real credentials, privately identifying diagnostics, or proof-of
 
 The v1.0 acceptance checklist separately requires review of third-party redistribution notices, final build integrity/provenance, signing policy, Windows/Linux installation and upgrade recovery, and real hardware behavior. These remain **release gates**, not claims already satisfied. TLS/mTLS, automatic pairing and routine key rotation are out of scope for v1.0.
 
-### Windows connection admission (prospective rc.3)
+### Windows connection admission
 
 Kestrel retains its global limit of twelve connections and five-second header
 deadline. Connection middleware before HTTP parsing admits at most four
@@ -109,7 +110,7 @@ Excess connections are aborted, not queued by this middleware. This reduces
 single-source saturation; it is not authentication or protection against
 distributed saturation, shared-source contention or transport backlog pressure.
 
-### rc.3 Linux distribution and maintenance
+### Linux distribution and maintenance
 
 The standalone installer uses a fixed embedded trusted payload and protected
 transaction engine. It requires explicit confirmation before modifying agent
@@ -117,7 +118,7 @@ files or installer-owned NIC policy. Retained rc.2 state requires explicit
 reuse consent and validation; historical restoration validates root-private
 local backups and keeps current credentials. A local backup digest is not a
 publisher signature. Normal uninstall preserves identity/key and backups.
-See [maintenance journeys](docs/release/UPGRADE.md). See the release evidence for physical acceptance; implementation alone does not establish hardware compatibility.
+See [maintenance journeys](docs/upgrade.md). See the release evidence for physical acceptance; implementation alone does not establish hardware compatibility.
 
 The maintainer's November 26 release-scope decision retains unsigned packages
 for rc.3 and v1.0 and defers formal signing/independent attestation approval
