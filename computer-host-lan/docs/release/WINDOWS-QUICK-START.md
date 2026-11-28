@@ -49,3 +49,29 @@ update the hub IP, use the matching package's Set-WindowsHubAddress.ps1 as
 documented in [installation](https://github.com/ldeora/SmartThingsEdgeDrivers/blob/computer-host-lan-v1.0.0-rc.3/computer-host-lan/INSTALLATION.md). For an abandoned upgrade
 snapshot use Setup's recovery or the matching ZIP's documented restore
 script. See [maintenance journeys](https://github.com/ldeora/SmartThingsEdgeDrivers/blob/computer-host-lan-v1.0.0-rc.3/computer-host-lan/docs/release/UPGRADE.md) before a reinstall or fresh start.
+
+## 6. Frequently asked questions
+
+### What does Setup install, and where can I see it?
+
+- **Program files** in `C:\Program Files\Computer Host Agent`: the agent with its own .NET runtime (nothing else to install), its settings file `appsettings.json`, a `Docs` folder (connection guide, licence, third-party notices) and an `Installer` folder with maintenance scripts.
+- **A Windows service**, "Computer Host Agent (monitoring)" (`ComputerHostAgent`). It runs as the limited LocalService account and starts with Windows. See `services.msc`.
+- **A firewall rule**, "Computer Host Agent (trusted LAN)": incoming TCP 8765, Private networks only, limited to your hub (or the local network if you chose that option). See Windows Defender Firewall → Advanced settings → Inbound Rules.
+- **The installation identity and key** in `C:\ProgramData\ComputerHostAgent`.
+- **A Start menu entry**, Computer Host LAN → Connect to SmartThings, and **an entry in Settings → Apps → Installed apps**: "Computer Host LAN - Windows Agent".
+
+Setup installs no drivers, scheduled tasks or browser components. Its hub search runs from a temporary folder and is not kept.
+
+### How do I uninstall it?
+
+Settings → Apps → Installed apps → "Computer Host LAN - Windows Agent" → Uninstall. This removes the service, program files, firewall rule and Start menu entry.
+
+`C:\ProgramData\ComputerHostAgent` stays on purpose, so a later reinstall continues as the same SmartThings device. To remove everything permanently, delete that folder as an administrator after uninstalling, then delete the device in the SmartThings app. Removing the driver from the hub is optional.
+
+### Is Setup available in German?
+
+Not yet. The SmartThings app already shows the device, Host Status and metrics in German; Setup itself is English. A German Setup is planned after the stable release ([#210](https://github.com/ldeora/SmartThingsEdgeDrivers/issues/210)).
+
+### Why does the uptime show several days although I shut the PC down?
+
+The uptime is the time since Windows last really started, the same value Task Manager shows (Performance → CPU → Up time). With Fast Startup, which Windows 11 enables by default, "Shut down" saves the Windows session instead of ending it, so the uptime continues. **Restart** resets it.
