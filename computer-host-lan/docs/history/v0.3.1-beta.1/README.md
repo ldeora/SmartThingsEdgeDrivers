@@ -1,6 +1,6 @@
 # Linux Host LAN integration — beta-engineering candidate 0.3.1-beta.1
 
-**Start here:** [`docs/beta/START-HERE.md`](docs/beta/START-HERE.md). This release contains the **unchanged** tested Linux Agent **0.3.0** and Edge Driver **0.2.9**. New work is distro-test automation, release tooling, privacy-safe reporting and volunteer documentation. Do not publish as an unrestricted public beta until `docs/beta/PUBLICATION-GATES.md` has been satisfied, especially the copyright-holder license decision. Testing described in the compatibility matrix is evidence-specific; a source-only container smoke pass is not a systemd or hardware validation.
+**Start here:** [`docs/beta/START-HERE.md`](https://github.com/ldeora/SmartThingsEdgeDrivers/blob/97b078727180096631ca52b7892f168086d0490b/computer-host-lan/docs/beta/START-HERE.md). This release contains the **unchanged** tested Linux Agent **0.3.0** and Edge Driver **0.2.9**. New work is distro-test automation, release tooling, privacy-safe reporting and volunteer documentation. Do not publish as an unrestricted public beta until `docs/beta/PUBLICATION-GATES.md` has been satisfied, especially the copyright-holder license decision. Testing described in the compatibility matrix is evidence-specific; a source-only container smoke pass is not a systemd or hardware validation.
 
 ---
 
@@ -16,7 +16,7 @@ its Gentoo rollout and cross-distro service/SELinux tests remain to be done.
 
 Read **[INSTALLATION.md](INSTALLATION.md)** for safe preflight, preview,
 installation, upgrade, rollback and uninstallation. Read
-**[SECURITY-HARDENING.md](SECURITY-HARDENING.md)** and
+**[SECURITY-HARDENING.md](https://github.com/ldeora/SmartThingsEdgeDrivers/blob/97b078727180096631ca52b7892f168086d0490b/computer-host-lan/SECURITY-HARDENING.md)** and
 **[VALIDATION.md](VALIDATION.md)** for limits and remaining release gates.
 
 No reinstall or repackaging of the already-working Edge Driver is required.
@@ -59,9 +59,9 @@ The installer can select a compatible parallel interpreter (`python3.11` or
 changes distribution `python3` symlinks.
 
 Read [RELEASE-BRIEF.md](RELEASE-BRIEF.md),
-[DISTRO-MATRIX.md](DISTRO-MATRIX.md),
-[PACKAGING-STRATEGY.md](PACKAGING-STRATEGY.md),
-[SECURITY-REVIEW-RELEASE.md](SECURITY-REVIEW-RELEASE.md) and
+[DISTRO-MATRIX.md](https://github.com/ldeora/SmartThingsEdgeDrivers/blob/97b078727180096631ca52b7892f168086d0490b/computer-host-lan/DISTRO-MATRIX.md),
+[PACKAGING-STRATEGY.md](https://github.com/ldeora/SmartThingsEdgeDrivers/blob/97b078727180096631ca52b7892f168086d0490b/computer-host-lan/PACKAGING-STRATEGY.md),
+[SECURITY-REVIEW-RELEASE.md](https://github.com/ldeora/SmartThingsEdgeDrivers/blob/97b078727180096631ca52b7892f168086d0490b/computer-host-lan/SECURITY-REVIEW-RELEASE.md) and
 [RELEASE-PLAN.md](RELEASE-PLAN.md) before deploying beyond a trusted LAN.
 
 **Public end users will eventually install the Edge driver through our

@@ -1,4 +1,4 @@
-> **Latest changes:** See [SECURITY-HARDENING.md](SECURITY-HARDENING.md).
+> **Latest changes:** See [SECURITY-HARDENING.md](https://github.com/ldeora/SmartThingsEdgeDrivers/blob/97b078727180096631ca52b7892f168086d0490b/computer-host-lan/SECURITY-HARDENING.md).
 
 # Security notes (historical baseline; see SECURITY-HARDENING.md for v0.3.0)
 

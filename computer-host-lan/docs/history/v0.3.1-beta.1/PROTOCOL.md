@@ -5,7 +5,7 @@ request construction as v0.2.2. A new response code **HTTP 429** can appear
 for excessive `/v1/challenge` requests; it carries `Retry-After: 30`.
 The client may retry after a delay. No accepted signed power command is
 silently retried. HTTP keepalive is disabled; partial requests time out.
-Refer to [SECURITY-HARDENING.md](SECURITY-HARDENING.md) for resource limits and
+Refer to [SECURITY-HARDENING.md](https://github.com/ldeora/SmartThingsEdgeDrivers/blob/97b078727180096631ca52b7892f168086d0490b/computer-host-lan/SECURITY-HARDENING.md) for resource limits and
 trust boundaries.
 
 ---

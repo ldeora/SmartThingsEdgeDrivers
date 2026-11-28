@@ -55,7 +55,10 @@ hardware wake or support beyond the recorded evidence.
 1. Foundation: inventory, non-regression link gate, root project description.
    No project files deleted/moved or packaging selection changed. The checker
    compares broken-link occurrences to the pinned pre-migration snapshot,
-   reports inherited failures and fails new failures. The inventory is a
+   reports inherited failures and fails new failures. The initial scan found
+   eight broken paths; all are repaired by this phase (the seven historical
+   targets are pinned to the snapshot-creation commit rather than current
+   installation instructions). The inventory is a
    routing map, not a completed semantic/incoming-link audit. Fix inherited
    defects while replacing their documents; remove the baseline in phase 4.
 2. User guides and packaging: replace/install user docs only when successors
