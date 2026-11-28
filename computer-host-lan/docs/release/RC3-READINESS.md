@@ -59,8 +59,10 @@ do not modify tested package bytes to insert their own digest.
   Linux system and appropriate authorization providers, accessibility/resize
   and remaining negative tests; two independent physical Windows 11 hosts
   including first paint, display scaling, dark mode and tile/routines;
-  mixed-agent/network/transport tests and separate approved account-level
-  Unreachable colour update with live backup, comparison and verification.
+  mixed-agent/network/transport tests. The account-level Unreachable colour
+  update was applied on 2026-11-28 after comparison with the live
+  presentation and verified on Linux (agent stopped and started); roll back
+  only from the repository version, see DEVICE-TILE-ROLLOUT.md.
 - Publication requires explicit approval of exact tested commit, digests,
   installed driver and outstanding gate dispositions. Stable requires
   the existing minimum seven-day Linux and Windows real-hub soak, plus
