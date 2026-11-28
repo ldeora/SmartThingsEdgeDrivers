@@ -1,6 +1,6 @@
 # Computer Host LAN — visual prototype
 
-This is phase 1 of #194. It is a standalone **inert demonstration**, not the
+This is a standalone **inert demonstration**, not the
 real installer, and is not included in the production installer executable.
 It uses only example data and in-memory navigation. It does not inspect the
 host, discover or contact the hub, access credentials or backup files, launch
@@ -8,7 +8,7 @@ subprocesses, request elevation, or perform installation operations. The
 example progress advances only on a key press, not a transaction event.
 The production installer and its accessible and CLI paths are untouched.
 
-From a checkout of this branch, with the repository's normal Go toolchain:
+From a trusted checkout, with the repository's normal Go toolchain:
 
 ```sh
 cd computer-host-lan/linux-installer
@@ -40,9 +40,5 @@ no manual address entry or real authorization is connected.
 - [ ] Terminal restored after normal exit, Escape and Ctrl+C.
 - [ ] No changes to the running agent, device or private state.
 
-No candidate or release version is changed by this prototype. Approval of
-the visual concept is not acceptance of a live installer. Later PRs must
-integrate the reviewed presentation into the real application and retain
-all existing authorization, protected transaction, diagnostic, accessible
-and CLI contracts. Any revised release candidate must be rebuilt and
-requalified independently; do not overwrite the frozen rc.3 artifacts.
+This inert demo is not evidence of live installer acceptance. See the
+[production engineering contract](../../docs/reference/linux-installer.md).

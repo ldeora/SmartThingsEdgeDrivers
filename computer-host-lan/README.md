@@ -21,7 +21,7 @@ since that tag; it is not a new binary release.
 | [Troubleshooting](docs/troubleshooting.md) | Network, power, metrics, diagnostics and support |
 | [Volunteer testing](docs/testing.md) | Practical acceptance checklist |
 | [Security and privacy](SECURITY.md) | Trust model, credentials, limitations, security reporting |
-| [Release notes](docs/release/RELEASE-NOTES-v1.0.0-rc.3.md) | Current changes and limitations |
+| [Release notes](docs/release-notes/v1.0.0-rc.3.md) | Current changes and limitations |
 
 **Upgrading?** Run the new installer over the existing installation. Keep
 identity, key, settings, routines and the same SmartThings device; refresh

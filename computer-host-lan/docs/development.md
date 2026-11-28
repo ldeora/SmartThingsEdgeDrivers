@@ -51,7 +51,7 @@ graph and build-info; preserve full upstream license texts.
 Windows uses .NET 10, Windows PowerShell 5.1 and Inno Setup 7; build/test
 the solution on a native Windows CI worker. The release workflow publishes
 self-contained win-x64, builds the hub discovery helper, compiles Setup,
-and exercises the extracted PowerShell kit. ARM64 cross-build is not
+and exercises the extracted PowerShell kit. For native development, run dotnet build on the agent project, dotnet run on the contract test project, then Publish-WindowsAgent.ps1 and Smoke-WindowsAgent.ps1 in windows-agent. ARM64 cross-build is not
 native qualification. Inspect the workflow for exact commands, compiler
 version and build flags. Never invoke shutdown/suspend on CI.
 
@@ -129,10 +129,37 @@ bulk scripts/publish-presentations.sh --apply for an isolated edit; its
 default dry run previews all six presentations and twelve translations.
 Stop on API failure; never delete/recreate a capability as a workaround.
 Rollback with reviewed pre-change canonical Git bytes, not localized
-CLI output. The previously applied Unreachable inactive color is distinct
-from the driver tile layout. Embedded deviceConfig must list every
-component and capability in detail/automation views; test device
-presentation and routine compatibility.
+CLI output. Embedded deviceConfig must list every component and capability
+in detail/automation views; test device presentation and routine compatibility.
+
+### Live Unreachable colour rollback
+
+The account-level Host Status presentation update has been live since
+2026-11-28 (maintainer-reported Linux stop/start verification): Unreachable
+is inactive in dashboard, detail and automation. This is separate from
+the driver tile layout; Windows and English-label confirmation remain open.
+The canonical [pre-change presentation](https://github.com/ldeora/SmartThingsEdgeDrivers/blob/3060925374e8313705baf4d12d7281c3a08f7568/computer-host-lan/edge-driver/custom-capabilities/computerHostStatus.presentation.json)
+differs from the current file only in the three unreachable types (active
+before, inactive now). From the repository root, extract it for review:
+
+```sh
+git show 3060925374e8313705baf4d12d7281c3a08f7568:computer-host-lan/edge-driver/custom-capabilities/computerHostStatus.presentation.json > computerHostStatus.presentation.before-192.json
+smartthings capabilities:presentation oceancircle09600.computerHostStatus 1 -j
+```
+
+Compare the live presentation against both canonical versions per key/type,
+allowing only expected translated labels. Stop on unrelated drift or API
+failure. Only if rollback is needed and explicitly approved, from the
+same directory:
+
+```sh
+smartthings capabilities:presentation:update oceancircle09600.computerHostStatus 1 -i computerHostStatus.presentation.before-192.json
+```
+
+Verify the returned stored i18n placeholders and all three unreachable
+types (active), then check the app after propagation. Never upload the
+localized CLI read or run the bulk presentation publisher. No driver
+repackaging, re-pairing or other capability update is needed.
 
 For additive schema changes, verify existing schema before updating,
 apply reviewed definitions/translations/presentation in controlled order,
@@ -185,11 +212,17 @@ separate. No public assignment or account mutation without explicit approval.
    publish (prerelease for RC/beta), then independently verify public tag,
    asset count, checksums and release metadata. Never move a published tag
    or replace published assets under the same version.
-6. Only after publication and channel approval, assign the previously
+6. Record the verified published tag, source commit, UTC publication time,
+   URL and manifest digest in release.json last_published, update the
+   published stage and published URL on main, and retain the prior record
+   during preparation of a new candidate. Main's stage describes the
+   release version, not the identity of every later CI build. Do not set
+   it to published until the exact release is independently verified.
+7. Only after publication and channel approval, assign the previously
    qualified exact Edge package to public channel; verify separately.
    Do not repackage the tested driver. Announce both distributions only
-   when confirmed. Update main's publication record without changing
-   the frozen tag or implying later source builds are published assets.
+   when confirmed. Record the actual platform package version separately
+   in the qualification issue; never infer public assignment from GitHub.
 
 Ordinary candidate assets include documentation/source ZIP, Windows x64
 ZIP and Setup.exe, Linux x64 installer, its checksum/build-info/notices
@@ -206,7 +239,22 @@ different NICs, Gentoo plus another supported Linux host (Debian/Ubuntu),
 WOL persistence and retained identity, Windows GUI and network behavior,
 Linux accessibility/authorization and recovery, mixed-agent/device
 continuity, transport/hub checks and the seven-day real-hardware soak.
-No physical wake guarantee from build/container evidence. Use safe
+No physical wake guarantee from build/container evidence.
+The earlier gate and qualification details remain accessible in the
+[pinned pre-cleanup record](https://github.com/ldeora/SmartThingsEdgeDrivers/blob/ae6a53d870df67a1e3756a06ed9857731d8ba8a5/computer-host-lan/docs/release/RC3-READINESS.md).
+Specifically retain a clean physical NetworkManager lifecycle and minimal
+Linux installation without ethtool; run0 on a suitably configured host,
+plain accessible UI and custom port/firewall/Avahi checks; Windows first
+search painting, retry/manual IP and scope, scaling, retained-state
+refusal only on disposable systems; separate hub-IP and host DHCP/port
+changes, DNS-SD rediscovery within 180 seconds after restored connectivity,
+same-UUID competing endpoint and WOL metadata revalidation on a disposable
+fixture. Repeat exact-candidate Edge transport checks: one hour normal
+monitoring, accepted-command timing, slow challenge/POST and slow
+headers/body on disposable listeners, cleanup/recovery and no scheduler
+fallback. Report generic command errors separately from acceptance; never
+retry an uncertain POST. Historical results cannot satisfy a new build's
+qualification. For historical stable gate details see the [pinned gates](https://github.com/ldeora/SmartThingsEdgeDrivers/blob/ae6a53d870df67a1e3756a06ed9857731d8ba8a5/computer-host-lan/docs/release/V1-RELEASE-GATES.md). Use safe
 volunteer tests in [testing](testing.md); destructive/unsafe-state tests
 belong only in disposable fixtures. Unverified or unsupported hardware
 must be distinguished from defects. Separate account-level rollout evidence

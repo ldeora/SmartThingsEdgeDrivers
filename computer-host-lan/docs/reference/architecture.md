@@ -12,7 +12,7 @@ are outside the agent's trust boundary.
 | Component | Responsibility |
 | --- | --- |
 | `edge-driver/src/init.lua` | Device lifecycle, health/telemetry timers, command acknowledgements and state reconciliation |
-| `computerhost/discovery.lua`, `util.lua` | DNS-SD candidates, verified UUID association, endpoint/WOL metadata and preference validation |
+| `computerhost/discovery.lua`, `manual_hosts.lua`, `util.lua` | DNS-SD candidates, manual fallback hosts, verified UUID association, endpoint/WOL metadata and preference validation |
 | `computerhost/api.lua`, `sha256.lua` | Bounded local HTTP and HMAC; no automatic retry of power POSTs |
 | `computerhost/state.lua`, `presence.lua` | Pure state transition and failure classification |
 | `computerhost/power.lua`, `wol.lua` | Challenge/command path and UDP magic packet transmission |

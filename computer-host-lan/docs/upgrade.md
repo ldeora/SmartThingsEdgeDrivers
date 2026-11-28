@@ -60,8 +60,8 @@ The backup is protocol evidence, not proof linking a particular key to it.
 Enable remote power again during setup if you used it before; otherwise an
 existing device with power enabled can show a generic refusal. Keep WOL by
 default. Refresh the original device; no new key or re-pairing is needed if
-continuity is verified. For the CLI: review `cli plan --action install` and
-run `cli install --confirm REUSE` (add `--power enable` if intended).
+continuity is verified. For the CLI: review `./computer-host-linux-installer cli plan --action install` and
+run `./computer-host-linux-installer cli install --confirm REUSE` (add `--power enable` if intended).
 If reuse is refused, preserve state and backups and seek support. Reinstall
 with REUSE before trying historical restoration on this layout.
 
@@ -79,8 +79,8 @@ interface pin may be restored. An older version can have known defects.
 Refresh the existing device and test; upgrade again when ready. An interrupted
 restore is undone with Recover, not by choosing the historical backup again.
 
-CLI: `cli backups`, then
-`cli restore --backup NAME --backup-digest DIGEST --confirm RESTORE`.
+CLI: `./computer-host-linux-installer cli backups`, then
+`./computer-host-linux-installer cli restore --backup NAME --backup-digest DIGEST --confirm RESTORE`.
 Use the name and digest from the reviewed list, not an arbitrary path. Local
 backup digests bind the selection, not release authenticity.
 

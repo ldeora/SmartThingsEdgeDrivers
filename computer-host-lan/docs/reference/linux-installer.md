@@ -51,7 +51,10 @@ a caller-writable extracted Python tree as root. The root bootstrap validates
 the embedded allowlist, prepares the installed helper under
 /usr/libexec/computer-host-lan and uses only fixed system interpreter
 locations (Python 3.10+, isolated -I -S -B). No elevated custom Python,
-source paths, shell commands or credential paths from callers. The installed
+source paths, shell commands or credential paths from callers. The internal installed-only launcher is
+`/usr/libexec/computer-host-lan/installer-entry.sh --request-stdin`; it is
+called by the authorized bootstrap with validated request bytes, not a
+user installation command. The installed
 helper and payload manifest are validated for trusted ownership and
 permissions. Do not replace a helper beneath an incomplete transaction;
 status/recover use the existing compatible helper. A missing helper is not
