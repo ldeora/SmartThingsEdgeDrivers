@@ -100,7 +100,7 @@ def parse(content):
     return links, anchors | used
 
 
-def check(paths, read):
+def check(paths, read, scope=in_scope):
     """Return a multiset of (source, target, reason), independent of line edits."""
     dirs = {""}
     for path in paths:
@@ -114,7 +114,7 @@ def check(paths, read):
         return parse(read(path))
 
     defects = Counter()
-    for source in sorted(p for p in paths if in_scope(p)):
+    for source in sorted(p for p in paths if scope(p)):
         for target in document(source)[0]:
             try:
                 url = urlsplit(target)

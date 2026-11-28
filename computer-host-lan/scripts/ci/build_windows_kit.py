@@ -14,19 +14,25 @@ from pathlib import Path
 import stat
 import zipfile
 
+try:
+    from .user_docs import USER_DOCS, notes_path
+except ImportError:  # Direct script invocation
+    from user_docs import USER_DOCS, notes_path
+
 ROOT = Path(__file__).resolve().parents[2]
 STAMP = (2026, 11, 16, 12, 0, 0)
 HELPERS = ("Install-WindowsAgent.ps1", "Uninstall-WindowsAgent.ps1",
            "Get-WolDiagnostics.ps1", "Collect-WindowsDiagnostics.ps1",
            "Verify-Package.ps1", "Restore-WindowsAgentUpgrade.ps1",
     "Check-WindowsAgentHealth.ps1", "Set-WindowsHubAddress.ps1")
-DOCUMENTS = {
-    "docs/START-HERE.md": ROOT / "docs/beta/START-HERE.md",
-    "docs/TEST-CHECKLIST.md": ROOT / "docs/beta/TESTER-CHECKLIST.md",
-    "docs/FEEDBACK-AND-SUPPORT.md": ROOT / "docs/beta/FEEDBACK-AND-SUPPORT.md",
-    "docs/SECURITY-AND-PRIVACY.md": ROOT / "docs/beta/SECURITY-AND-PRIVACY.md",
-    "docs/THIRD-PARTY-NOTICES.md": ROOT / "docs/beta/THIRD-PARTY-NOTICES.md",
-    "docs/HARDWARE-TEST-MATRIX.md": ROOT / "windows-agent/docs/HARDWARE-TEST-MATRIX.md",
+# Compatibility entry points from older fallback ZIPs. These are navigation
+# files, not duplicate copies of obsolete beta or maintainer documents.
+LEGACY_GUIDES = {
+    "docs/START-HERE.md": ("Install on Windows", "install-windows.md"),
+    "docs/TEST-CHECKLIST.md": ("Volunteer testing", "testing.md"),
+    "docs/FEEDBACK-AND-SUPPORT.md": ("Troubleshooting and support", "troubleshooting.md"),
+    "docs/SECURITY-AND-PRIVACY.md": ("Security and privacy", "../SECURITY.md"),
+    "docs/HARDWARE-TEST-MATRIX.md": ("Volunteer testing", "testing.md"),
 }
 DISALLOWED_PARTS = {"control-token", "installation-id", "boot-session.json", "appsettings.Development.json"}
 
@@ -59,7 +65,6 @@ def build(published: Path, output_dir: Path, runtime: str, commit: str) -> Path:
         f"{stage}-candidate-v{version}", f"{stage}-published-v{version}"
     ):
         raise ValueError("release_stage is incompatible with integration version")
-    notes_directory = "beta" if stage == "beta" else "release"
     release_label = {"beta": "beta", "rc": "release candidate", "stable": "stable release"}[stage]
     if runtime not in ("win-x64", "win-arm64"):
         raise ValueError("Only win-x64 / win-arm64 builds are supported")
@@ -81,23 +86,15 @@ def build(published: Path, output_dir: Path, runtime: str, commit: str) -> Path:
 
     for helper in HELPERS:
         add_source(entries, f"scripts/{helper}", ROOT / "windows-agent/scripts" / helper)
-    for dst, src in DOCUMENTS.items():
-        if stage != "beta":
-            if dst == "docs/START-HERE.md":
-                src = ROOT / ("docs/release/WINDOWS-QUICK-START.md" if "linux_installer" in release
-                              else "docs/release/QUICK-START.md")
-            elif dst == "docs/TEST-CHECKLIST.md":
-                src = ROOT / ("docs/release/RC3-READINESS.md" if "linux_installer" in release
-                              else "docs/release/RC-ACCEPTANCE.md")
-        add_source(entries, dst, src)
-    # The current quick start embeds these relative screenshots. Keep them
-    # next to the copied guide, covered by the same internal checksum manifest.
-    if stage != "beta" and "linux_installer" in release:
-        for name in ("01-welcome.png", "02-upgrade.png", "04-connect.png"):
-            rel = f"images/windows-setup/{name}"
-            add_source(entries, f"docs/{rel}", ROOT / "docs/release" / rel)
-    add_source(entries, "docs/RELEASE-NOTES.md", ROOT / "docs" / notes_directory / f"RELEASE-NOTES-v{version}.md")
+    for name in USER_DOCS:
+        add_source(entries, name, ROOT / name)
+    # Both install guides are included because shared maintenance and
+    # SmartThings pages link to them, including for mixed-platform hubs.
+    add_source(entries, "CHANGELOG.md", ROOT / "CHANGELOG.md")
+    add_source(entries, "docs/RELEASE-NOTES.md", ROOT / notes_path(version))
     add_source(entries, "LICENSE", ROOT / "LICENSE")
+    for destination, (title, target) in LEGACY_GUIDES.items():
+        entries[destination] = f"# {title}\n\nSee [{title}]({target}).\n".encode("utf-8")
     entries["README.md"] = (f"""# Computer Host LAN — Windows package
 
 Integration {version} · Windows agent {agent_version} · {runtime}
@@ -109,6 +106,14 @@ upgrade behavior, but cannot prove compatibility with every Windows computer or
 SmartThings hub. Keep a known-good installer for rollback.
 Physical recovery remains essential for optional power testing.
 Use only on a trusted PRIVATE LAN; never forward TCP 8765 to the Internet.
+
+## Platforms and requirements
+
+Windows 11 x64 is the graphical Setup target. ARM64 is cross-build-only.
+A trusted private LAN and SmartThings hub are required. The shared
+[Linux guide](docs/install-linux.md) is included for mixed-platform hubs;
+it requires a separate Linux x86-64 installer, systemd, Python 3.10+ and
+Avahi. See the [security model](SECURITY.md).
 
 ## Start with monitoring only
 
@@ -126,7 +131,7 @@ Use only on a trusted PRIVATE LAN; never forward TCP 8765 to the Internet.
    https://bestow-regional.api.smartthings.com/invite/1J2Qy7ZkxL20
    Sign in, accept, enroll your hub and install Computer Host LAN under Available
    Drivers. Then use Scan nearby in the SmartThings app.
-   Full instructions: docs/START-HERE.md.
+   Full instructions: [Install on Windows](docs/install-windows.md).
 
 ## Optional power (after monitoring is working)
 
@@ -138,7 +143,7 @@ shutdown/WOL only with physical access and saved work. Windows power behavior
 varies across hardware and power states. Uninstall via
 .\\scripts\\Uninstall-WindowsAgent.ps1 (retains state by default).
 
-Release notes: docs/RELEASE-NOTES.md. For feedback use docs/TEST-CHECKLIST.md and the sanitized
+[Release notes](docs/RELEASE-NOTES.md). For feedback use [Volunteer testing](docs/testing.md) and the sanitized
 .\\scripts\\Collect-WindowsDiagnostics.ps1; manually review reports before sharing.
 No .NET SDK is required for the self-contained executable.
 

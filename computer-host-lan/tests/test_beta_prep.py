@@ -93,7 +93,9 @@ class BetaReadiness(unittest.TestCase):
         self.assertIn('THIRD-PARTY-NOTICES.md', source)
         self.assertIn('THIRD-PARTY-NOTICES.md', setup)
         self.assertIn('Source: "..\\..\\LICENSE"; DestDir: "{app}\\Docs"', setup)
-        self.assertIn('Zeroconf', (ROOT / 'docs/beta/THIRD-PARTY-NOTICES.md').read_text())
+        self.assertIn('Zeroconf', (ROOT / 'docs/THIRD-PARTY-NOTICES.md').read_text())
+        self.assertEqual((ROOT / 'docs/THIRD-PARTY-NOTICES.md').read_bytes(),
+                         (ROOT / 'docs/beta/THIRD-PARTY-NOTICES.md').read_bytes())
 
 
 if __name__ == '__main__':

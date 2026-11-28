@@ -30,7 +30,7 @@
 - PR #58: refuse Windows ProgramData state with untrusted owner/permissions/reparse points; atomic protected-directory creation and path-specific ACLs, retaining credentials and UUID across legitimate upgrades (#32).
 - PR #59: retry unconfirmed device creation after 120 seconds, preserve known switch state on failed Wake, warn about Windows Public profile while retaining Private-only firewall, and permit redacted beta/RC reporting on a custom local port (#34, #37, #46, #47).
 - PR #60: align published rc.1 metadata and security/docs with the actual tag, distinguish rc.1 from post-tag hardening, verify bundled notes exactly (#52–#54).
-- Publisher reports an rc.2 Gentoo Linux upgrade running as expected (2026-11-21). Individual rc.2 power tests, Windows 11 acceptance, additional Linux hardware and seven-day soak are still needed before stable. See [rc.2 notes](docs/release/RELEASE-NOTES-v1.0.0-rc.2.md).
+- Publisher reports an rc.2 Gentoo Linux upgrade running as expected (2026-11-21). Individual rc.2 power tests, Windows 11 acceptance, additional Linux hardware and seven-day soak are still needed before stable. See [rc.2 notes](https://github.com/ldeora/SmartThingsEdgeDrivers/blob/computer-host-lan-v1.0.0-rc.2/computer-host-lan/docs/release/RELEASE-NOTES-v1.0.0-rc.2.md).
 
 ## v1.0.0-rc.1 (published prerelease 2026-11-20 UTC) — installation and update readiness
 
@@ -112,4 +112,4 @@ Initial Windows monitoring agent implementation and test scaffolding.
 
 New `_computerhost._tcp` discovery, `computer-host-agent` API v2, shared driver, platform-specific profiles and custom monitoring capabilities. Linux successfully validated on Gentoo `hydra`.
 
-Older Linux-only release history: [archived change log](docs/history/v0.3.1-beta.1/CHANGELOG.md).
+Older Linux-only release history: [archived change log](https://github.com/ldeora/SmartThingsEdgeDrivers/blob/97b078727180096631ca52b7892f168086d0490b/computer-host-lan/docs/history/v0.3.1-beta.1/CHANGELOG.md).

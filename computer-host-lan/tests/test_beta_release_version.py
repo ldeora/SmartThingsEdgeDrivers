@@ -115,10 +115,14 @@ class ReleaseVersionTests(unittest.TestCase):
             with ZipFile(archive) as zip_file:
                 self.assertEqual(zip_file.read("docs/RELEASE-NOTES.md"), notes_path.read_bytes())
                 if "linux_installer" in manifest:
-                    quick = ROOT / "docs/release/WINDOWS-QUICK-START.md"
-                    self.assertEqual(zip_file.read("docs/START-HERE.md"), quick.read_bytes())
-                    # Every relative screenshot in the quick start must be
-                    # present beside it in the fallback ZIP and checksummed.
+                    quick = ROOT / "docs/install-windows.md"
+                    self.assertEqual(zip_file.read("docs/install-windows.md"), quick.read_bytes())
+                    self.assertIn(b"(install-windows.md)", zip_file.read("docs/START-HERE.md"))
+                    self.assertEqual(zip_file.read("docs/testing.md"),
+                                     (ROOT / "docs/testing.md").read_bytes())
+                    self.assertIn(b"(testing.md)", zip_file.read("docs/TEST-CHECKLIST.md"))
+                    # Every relative screenshot in the guide is present and
+                    # checksummed, not merely linked in the repository.
                     import hashlib
                     images = re.findall(r"!\[[^\]]*\]\((images/windows-setup/[^)]+)\)",
                                         quick.read_text(encoding="utf-8"))
@@ -129,8 +133,11 @@ class ReleaseVersionTests(unittest.TestCase):
                         data = (quick.parent / rel).read_bytes()
                         self.assertEqual(zip_file.read(member), data)
                         self.assertIn(f"{hashlib.sha256(data).hexdigest()}  {member}\n", sums)
-                    self.assertEqual(zip_file.read("docs/TEST-CHECKLIST.md"),
-                                     (ROOT / "docs/release/RC3-READINESS.md").read_bytes())
+                    for name in ("SECURITY.md", "docs/smartthings.md", "docs/upgrade.md",
+                                 "docs/troubleshooting.md", "docs/install-linux.md",
+                                 "docs/THIRD-PARTY-NOTICES.md", "LICENSE"):
+                        self.assertEqual(zip_file.read(name), (ROOT / name).read_bytes())
+                    self.assertNotIn("docs/release/RC3-READINESS.md", zip_file.namelist())
 
     def test_published_rc1_warnings_survive_rc2_publication(self):
         """rc.1 remains downloadable and its security warning must remain."""
