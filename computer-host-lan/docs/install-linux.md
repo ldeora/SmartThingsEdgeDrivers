@@ -86,7 +86,7 @@ All existing flags remain available. See [all maintenance journeys](upgrade.md).
 
 ## What's installed and what stays on uninstall
 
-The installer itself is a downloaded executable, not a resident service.
+The downloaded installer itself is not a resident service; the installer also provisions protected recovery components.
 The agent uses the selected system Python (no additional PyPI runtime
 packages). The following are the managed locations; optional files may
 not be present on every computer.
@@ -101,10 +101,10 @@ not be present on every computer.
 | `/var/lib/linux-host-agent` | Private persistent host identity and key | Retained |
 | `/var/lib/linux-host-agent-installer/protocol` | Installer ownership/protocol marker | Retained |
 | `/var/backups/linux-host-agent` | Private snapshots and recovery material | Retained |
-| `/usr/libexec/computer-host-lan` and protected installer state | Trusted recovery helper, transaction and staging material | Retained as required for safe recovery |
+| `/usr/libexec/computer-host-lan`, `/var/lib/computer-host-installer` | Trusted recovery helper, transaction and staging material | Retained as required for safe recovery |
 | NetworkManager profile or per-MAC systemd .link rule | Persistent wired WOL, if configured | Retained unless separately authorized for removal |
 
-The installer does not install a firewall, change firewall rules or start
+The installer does not install firewall software, change firewall rules or start
 Avahi. It does not pair devices. Administrator network policy not owned by
 the installer is not removed.
 

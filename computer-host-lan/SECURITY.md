@@ -1,129 +1,132 @@
-# Computer Host LAN — security and responsible use
+# Security and privacy
 
-**Scope:** Current protocol-v2 Computer Host LAN on Linux and Windows. See the [current release](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v1.0.0-rc.3), [SmartThings setup](docs/smartthings.md) and [maintenance](docs/upgrade.md). Publication is not independent security certification or proof of every hardware configuration.
+Computer Host LAN is designed for a trusted private LAN, not an Internet-facing
+service. These are the current protocol-v2 guarantees and limitations. Use the
+[versioned release](https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v1.0.0-rc.3) and its matching instructions.
+
+## Network and data
+
+| Traffic | Direction / purpose | Protection |
+| --- | --- | --- |
+| UDP 5353 (mDNS/DNS-SD) | Local discovery | Unauthenticated |
+| TCP 8765 by default (HTTP) | Hub → agent; info, health, metrics | Plain HTTP, unauthenticated reads |
+| TCP agent port (HTTP) | Hub → agent; challenge and power requests | HMAC-SHA256 on power requests; not encrypted |
+| UDP 9 by default (WOL) | Hub → LAN; magic packet | Unauthenticated |
+
+The read endpoints can disclose hostname, installation UUID, OS, network
+metadata and system measurements to clients that can reach the agent.
+HMAC does not authenticate discovery, protect monitoring integrity or provide
+confidentiality. The hub communicates locally with the agent; SmartThings
+itself still uses its platform services. No additional cloud service is
+required.
+
+Restrict HTTP access to the hub's LAN address where practical; allow local
+discovery. Never forward the port to the Internet or disable firewalls to
+make discovery work. Windows Setup offers a Private-profile hub-scoped rule
+or an explicitly selected Private LocalSubnet fallback. It does not open a
+Public-profile rule. Linux firewall configuration remains the administrator's
+responsibility. See [network troubleshooting](docs/troubleshooting.md#firewall-and-avahi).
+
+Both agents limit concurrent connections globally (12) and per source (4),
+with five-second cumulative header deadlines. The Edge driver uses a
+four-second inactivity timeout and an eight-second cooperative HTTP request
+budget; response size is capped at 32 KiB and redirects are not followed.
+These limits mitigate resource exhaustion, not authentication or protection
+from distributed saturation, shared-source contention, DNS rebinding or
+all LAN interference. The cooperative deadline has a compatibility fallback
+to inactivity-only behavior and is not a preemptive DNS/runtime deadline.
+Automatic discovery prefers a responsive known matching endpoint and requires
+health confirmation after migration before power POSTs or WOL metadata
+refresh. This does not authenticate the endpoint or the advertised UUID.
+
+## Power and credentials
+
+Monitoring is enabled by default; shutdown, reboot and suspend require host
+opt-in, device opt-in and the matching 256-bit secret (64 hexadecimal
+characters). Power requests use a short-lived, single-use challenge nonce
+and HMAC-SHA256 over the protocol's defined fields; the key itself is not
+transmitted in the request body. The host stores it with restricted OS
+permissions. SmartThings preferences are sensitive configuration data,
+not a secure vault.
+
+An HTTP 202 acknowledges acceptance at the platform's implementation point,
+not completed physical power transition. Linux shutdown/reboot accepts a
+delayed attempt before invoking systemd; Windows shutdown/reboot acknowledges
+successful native request acceptance, and suspend queues a delayed attempt.
+Linux suspend acknowledges successful systemctl invocation. Errors after
+acceptance may not reach the hub. Save work and keep physical access.
+Do not retry a request whose acceptance is uncertain. WOL uses no key and
+depends on hardware. See [Host Status](docs/smartthings.md#host-status-and-the-switch).
+
+## Host containment and maintenance
+
+- **Linux:** the agent runs under the restricted `linuxhost` account.
+  Optional power requests use a restricted systemd socket and a minimal
+  helper checking peer UID and allowing only fixed actions, using validated
+  systemctl from standard system directories. The protected standalone
+  installer requires reviewed explicit consent and authorization. It
+  refuses ambiguous ownership/state or network policy rather than
+  overriding it, keeps identity and key across ordinary upgrades, and
+  validates retained state and eligible local snapshots. A backup digest is
+  not a publisher signature. Normal removal retains recovery material.
+- **Windows:** the service runs as LocalService with access restricted by
+  its exact service SID. New state directories are created with protected
+  ACLs; existing directories and files are checked for trusted ownership,
+  allow rules and reparse points. Unsafe identity/boot state refuses startup;
+  an unsafe, malformed, unreadable or missing key disables power if
+  monitoring state is otherwise safe. These are use-boundary checks, not
+  continuous ACL monitoring. The agent does not silently repair ACLs or
+  regenerate keys. Power privilege checks can leave monitoring available
+  with power disabled.
+
+Neither implementation is independently security-certified. See
+[maintenance](docs/upgrade.md) before repairing, reinstalling or removing
+an agent. Never purge valid identity or delete protected journals to force
+an upgrade.
+
+## Key handling and suspected compromise
+
+Do not publish control keys, nonces, signatures, UUIDs, addresses, MACs,
+hostnames or account/location identifiers. Review screenshots, clipboard
+history, exported preferences, diagnostics and logs before sharing, even
+when a diagnostic tool is designed to redact them.
+
+If a key may have been exposed, disable power on the host and in SmartThings,
+restrict network access and investigate. Re-copying the same compromised key
+does not restore security. There is no automatic rotation or pairing
+protocol. Seek maintainer guidance for deliberate replacement while
+preserving identity; do not delete the whole state directory or bypass
+protected installer state. In particular, do not remove a Linux key or
+protected journal simply to force regeneration.
+
+## Package integrity
+
+Verify SHA-256 against the matching trusted published release. Linux and
+Windows installers are unsigned; normal releases lack independent artifact
+attestation. Checksums verify content, not publisher identity. Do not bypass
+platform protections or elevate ordinary CI artifacts or development source
+scripts. See [third-party notices](docs/THIRD-PARTY-NOTICES.md). Signing,
+attestation, TLS and automatic key management are not current features.
+
+## Reporting a security concern
+
+Use GitHub private vulnerability reporting if enabled. Otherwise ask the
+maintainer for a private reporting channel in a non-sensitive public message.
+Do not post exploit details, credentials or identifying diagnostics in public.
+For ordinary bugs use [troubleshooting and reporting](docs/troubleshooting.md#reporting-a-problem).
 
 ## Known issues in the published rc.1
 
 The published rc.1 binaries **do not include the later security fixes**.
 
-**Version-specific security notice:** The downloadable **v1.0.0-rc.1** Windows Setup.exe, Windows ZIP and Linux source archive were published on November 20, 2026 **UTC** from tag `5466ad0`, not the current `main` implementation. The fixes below were merged **after** rc.1 and are **included in published rc.2**. They do **not** apply retroactively to the published rc.1 release.
+**Version-specific security notice:** The downloadable **v1.0.0-rc.1** Windows Setup.exe, Windows ZIP and Linux source archive were published on November 20, 2026 **UTC** from commit `5466ad0`, not the current `main` implementation. The fixes below were merged **after** rc.1 and are included in published rc.2 and later releases. They do **not** apply retroactively to the published rc.1 release.
 
 - **Windows retained state and control key ([#32](https://github.com/ldeora/SmartThingsEdgeDrivers/issues/32)):** rc.1 does **not** verify the ownership and access rules of a pre-existing ProgramData state directory before reusing its token, nor create a new directory with the final protected ACL atomically. A less-trusted local Windows account may be able to influence the control key used for authenticated power commands. **Do not enable power control on rc.1 on shared PCs with untrusted local accounts.** A preliminary check of `%ProgramData%\ComputerHostAgent` for unexpected files and ownership is prudent, but **cannot eliminate the fresh-creation race**. Do not delete valid retained state or re-pair the existing SmartThings device. The protection documented in the **Windows** subsection below is included in published rc.2, not rc.1.
 - **HTTP reliability ([#30](https://github.com/ldeora/SmartThingsEdgeDrivers/issues/30), [#31](https://github.com/ldeora/SmartThingsEdgeDrivers/issues/31)):** rc.1 does not include the corrected Edge-driver HTTP timeout enforcement or the cumulative Linux HTTP-header deadline behavior introduced in PR #56; unresponsive or slow connections can behave differently.
-- **Power acknowledgments ([#33](https://github.com/ldeora/SmartThingsEdgeDrivers/issues/33), [#44](https://github.com/ldeora/SmartThingsEdgeDrivers/issues/44)):** rc.1 lacks PR #57's Windows native shutdown/reboot acceptance/error mapping and Linux executable validation and delayed power-off/reboot attempt. The detailed HTTP 409/503 and one-second grace-period semantics stated below apply to `main`, **not rc.1**.
-- **Network diagnostics ([#46](https://github.com/ldeora/SmartThingsEdgeDrivers/issues/46)):** rc.1 does not include the additional Windows Public-network warning introduced on `main` in PR #59. All releases continue to require an appropriately configured trusted private LAN.
+- **Power acknowledgments ([#33](https://github.com/ldeora/SmartThingsEdgeDrivers/issues/33), [#44](https://github.com/ldeora/SmartThingsEdgeDrivers/issues/44)):** rc.1 lacks PR #57's Windows native shutdown/reboot acceptance/error mapping and Linux executable validation and delayed power-off/reboot attempt. The detailed HTTP 409/503 and one-second grace-period semantics stated below apply to the current release, **not rc.1**.
+- **Network diagnostics ([#46](https://github.com/ldeora/SmartThingsEdgeDrivers/issues/46)):** rc.1 does not include the additional Windows Public-network warning introduced after rc.1. All releases continue to require an appropriately configured trusted private LAN.
 
 Use the published rc.1 **only with its documented limitations**; prefer the current published release. Neither GitHub publication nor green CI replaces physical hardware acceptance.
 
-## Supported trust model
-
-Use **only on a trusted private LAN**. The computer agent listens on TCP 8765 by default (or a configured alternative), and the SmartThings hub connects to it using **unencrypted HTTP**. It does not require forwarding a port from the public Internet. Where practical, permit incoming agent HTTP traffic **only from the SmartThings hub's LAN address**; allow DNS-SD/mDNS discovery as required by the network. Do not disable firewalls globally or open a public/Internet-facing rule to make discovery work.
-
-The Windows installer offers a Private-profile firewall rule scoped to the selected hub address; a broader Private LocalSubnet fallback requires explicit selection. It does not automatically configure Public-profile access. Linux firewall configuration depends on the host distribution and local administrator. If the hub IP address changes, a Windows allow-list may need an intentional update.
-
-The unauthenticated read-only endpoints `/v2/info`, `/v2/health`, and `/v2/metrics` can disclose hostname, installation UUID, OS and system telemetry to any client that can reach the listening port. HMAC authentication for power operations **does not encrypt or authenticate the monitoring channel**, and it does not authenticate mDNS advertisements. An attacker with sufficient LAN access could observe or interfere with monitoring or disrupt connectivity; network isolation remains necessary.
-
-**Linux connection admission:** In addition to the existing
-12-handler global limit and absolute five-second header deadline, a single
-source IP can hold at most four active HTTP handlers. Excess connections are
-closed before a handler thread is started. Source IPs shared by several
-clients share this limit; ordinary serial requests and up to four concurrent
-connections remain supported. This mitigates one source monopolizing the
-global handler pool, not distributed saturation, listen-backlog pressure or
-other LAN interference. No authentication, rate guarantee or firewall
-policy is added. The published rc.2 packages do not contain this per-source
-limit.
-
-**Edge transport:** The existing four-second
-socket inactivity timeout is supplemented by an eight-second budget per
-HTTP request. The driver bounds each cooperative cosock readiness wait,
-including repeated waits inside a single read or write, and closes its
-owned connection on expiry. Agent responses are still capped at 32 KiB;
-redirects are not followed. Challenge and signed POST have separate
-budgets, and an expired power request may already have been accepted.
-Do not blindly retry. This is a cooperative transport deadline, not a
-preemptive limit on synchronous DNS resolution or other non-yielding
-runtime work, nor a monotonic real-time guarantee under clock changes.
-A detected incompatible scheduler yield is relayed unchanged to finish the
-same request; a one-time error records that the cumulative budget is disabled
-until driver restart, with the original inactivity timeout retained. An
-unavailable initial deadline clock/select also triggers the compatibility
-path. There is no automatic retry, including for signed POST. This is a
-limited compatibility safeguard, not protection against arbitrary runtime
-incompatibility; fallback is a failed qualification.
-
-**Endpoint selection:** A known
-responsive endpoint returning the expected installation UUID from health
-wins over a competing discovery candidate. When the known endpoint cannot
-be confirmed, discovery can select a matching candidate; the driver retains
-cached WOL metadata and requires a matching normal health poll before
-refreshing it or sending power POSTs to the new automatic endpoint. Explicit
-host overrides prevent automatic endpoint updates. This is a conservative
-selection heuristic, not authentication of discovery, UUID, telemetry or
-WOL metadata: a reachable untrusted responder at the known address, or one
-selected while the genuine host is unavailable, can still mislead monitoring.
-A competing candidate may add one bounded health request; rediscovery is
-not a single globally bounded HTTP transaction. Use a trusted private LAN
-and explicit override where appropriate. Published rc.2 does not include
-these changes.
-
-## Power commands and credentials
-
-- **Monitoring only by default.** Shutdown, reboot and suspend are optional and require enabling power control on the host *and* setting `allowPowerCommands` plus the matching control key on the SmartThings device.
-- The agent generates a **random 256-bit control secret** represented as 64 hexadecimal characters. The host protects its persisted copy using OS file permissions/ACLs. The matching copy in a **SmartThings device preference is sensitive configuration data, not a secure vault**; its access and retention are governed by the platform.
-- Requests for `/v2/power/{shutdown,reboot,suspend}` use HMAC-SHA256, a short-lived one-use challenge nonce and a fixed list of supported actions. The secret itself is not sent as the HTTP request body. Challenge requests and signed traffic still travel over plain HTTP.
-- HTTP **202 is an acknowledgement of the platform-specific acceptance point, not proof that the computer has completed a power-state transition**. On Linux, shutdown/reboot 202 means the helper accepted a delayed attempt; the systemd job is invoked after a one-second grace period so the agent can reply before shutdown stops its services. Linux suspend 202 means the systemctl command returned success, not that the host is asleep. On Windows, shutdown/reboot 202 follows a successful native API call; suspend 202 means the service queued its delayed attempt. Unsaved Windows applications can keep a graceful shutdown pending. Timeouts and host reachability cannot prove physical shutdown, sleep or wake. Never blindly retry a power command that may already have been accepted.
-- Wake-on-LAN uses **unauthenticated network magic packets**. Supported sleep and shutdown states depend on the network adapter, driver, firmware and OS; Windows Fast Startup, Modern Standby and S5 wake are not universal capabilities.
-
-## Platform-specific containment
-
-**Linux:** The normal agent runs as the restricted `linuxhost` user, with the opt-in privileged power actions delegated through a restricted systemd socket to a minimal helper. The helper checks the connecting process's UID, resolves `systemctl` from fixed standard system directories at startup, and accepts only the three fixed operations. It uses `systemctl --no-block` for all actions. For shutdown/reboot, it replies `OK` first, gives the HTTP agent one second to respond, and then attempts the systemd command; failures after this acknowledgment cannot be reported to the hub. For suspend, it waits for the command to return success before replying `OK`, and reports an immediate command error as HTTP 503. Missing or inaccessible executables are rejected before the acknowledgment. Delay inhibitors or later systemd failures can defer or prevent a power transition even after acknowledgment. Linux firewall, systemd security features, SELinux/AppArmor and WOL persistence must be validated on the intended distribution.
-
-**Windows:** The agent runs as `NT AUTHORITY\LocalService` with access controls on persistent state and a service-specific security boundary for its token files. A privilege preflight can disable advertised power actions without taking monitoring offline if host policy prevents the necessary operations. Shutdown/reboot call the native Windows API before returning 202; `ERROR_SHUTDOWN_IN_PROGRESS` is reported as HTTP 409 and other immediate native failures as HTTP 503. The API is called without forcing applications closed, so unsaved work can keep shutdown pending until the console user responds. Suspend retains a delayed background attempt so the HTTP response can leave before the machine sleeps; its 202 does not prove that sleep succeeded. The Windows installer creates a new ProgramData state directory with its protected DACL in the directory-creation operation, then verifies it immediately; it does not expose a newly created folder with inherited ProgramData permissions. The published rc.2 installer checks retained state before installation, including ownership, allow ACEs and reparse points. In rc.3, the agent also checks the protected directory, installation identity and boot-session files before startup use. A missing or unsafe state directory is not created by the agent; unsafe identity or boot state causes startup refusal. A missing, unreadable, malformed or unsafe control-token disables power only, provided identity and monitoring state remain safe. The agent never fixes ACLs or regenerates a power key. These are startup/use-boundary checks, not continuous ACL monitoring or protection from concurrent trusted administrator changes; restart the agent after correcting the state. Existing published rc.2 binaries do not include these runtime checks. The directory and control-token are restricted to administrators/SYSTEM and the exact ComputerHostAgent service SID; LocalService and that service SID are accepted as owners only for agent-created state files. Untrusted ownership, unexpected allow rules or a reparse-point redirect cause a fail-closed refusal. Normal upgrades preserve the same key and UUID. Windows installer and agent binaries in rc.2 and rc.3 are **unsigned**. Checksums verify downloaded file content but do not authenticate the publisher in the same way as a trusted code signature.
-
-Neither platform implementation is independently security-certified. Do not infer complete Windows or distro coverage from container tests or Windows Server CI alone.
-
-## Key handling and recovery policy for v1.0
-
-Existing **installation UUIDs and control keys must be preserved across normal upgrades**, along with the existing SmartThings computer device. Never delete persistent state, uninstall-and-purge, or reset credentials merely to fix a failed upgrade.
-
-There is **no automatic key rotation or automatic pairing protocol planned for v1.0**. The installer never silently replaces a working credential. If the key is missing or incorrect, monitoring can still work while authenticated power commands remain unavailable. Verify the configuration before making changes; do not print or publish the key in troubleshooting logs.
-
-If a key is **suspected compromised**, first disable power control on the host and in SmartThings, restrict network access and investigate the exposure. Do not treat re-copying the same exposed key as a security fix. A deliberate manual replacement must preserve the stable installation UUID: restore the state directory's trusted ACLs, remove only the compromised `control-token`, run Setup with power management enabled to generate a new key, and update the SmartThings device's `controlKey` preference before re-enabling `allowPowerCommands`. Never purge the whole state directory as a key-rotation shortcut. See [maintenance](docs/upgrade.md) for safe recovery. The preceding manual token replacement description is for Windows Setup only; on Linux do not remove a token or protected installer state to force a new key—seek maintainer guidance for deliberate rotation.
-
-Treat screenshots, exported preferences, clipboard history, synchronised clipboard, Windows Event Logs, journal output, diagnostic ZIPs, private IPv4 addresses, MAC addresses, installation UUIDs and SmartThings account/location identifiers as potentially sensitive. Review even sanitized reports manually before sharing. The Windows installer copies a control key to the clipboard only after an explicit user action.
-
-## Reporting a security concern
-
-Do **not** post real credentials, privately identifying diagnostics, or proof-of-exploit details in a public GitHub issue or Community thread. If GitHub's **private vulnerability reporting** option is enabled for this repository, use it for sensitive reports. Otherwise, use a non-sensitive public request asking the maintainer for a private reporting channel, without disclosing exploit steps or secrets. For ordinary installation problems, file a redacted issue with OS version, agent/driver version and a concise description.
-
-## Release limitations and open decisions
-
-The v1.0 acceptance checklist separately requires review of third-party redistribution notices, final build integrity/provenance, signing policy, Windows/Linux installation and upgrade recovery, and real hardware behavior. These remain **release gates**, not claims already satisfied. TLS/mTLS, automatic pairing and routine key rotation are out of scope for v1.0.
-
-### Windows connection admission
-
-Kestrel retains its global limit of twelve connections and five-second header
-deadline. Connection middleware before HTTP parsing admits at most four
-active connections per remote IP (IPv4-mapped IPv6 normalized to IPv4).
-Excess connections are aborted, not queued by this middleware. This reduces
-single-source saturation; it is not authentication or protection against
-distributed saturation, shared-source contention or transport backlog pressure.
-
-### Linux distribution and maintenance
-
-The standalone installer uses a fixed embedded trusted payload and protected
-transaction engine. It requires explicit confirmation before modifying agent
-files or installer-owned NIC policy. Retained rc.2 state requires explicit
-reuse consent and validation; historical restoration validates root-private
-local backups and keeps current credentials. A local backup digest is not a
-publisher signature. Normal uninstall preserves identity/key and backups.
-See [maintenance journeys](docs/upgrade.md). See the release evidence for physical acceptance; implementation alone does not establish hardware compatibility.
-
-The maintainer's November 26 release-scope decision retains unsigned packages
-for rc.3 and v1.0 and defers formal signing/independent attestation approval
-and notice automation to v1.2. Use exact-source release assets, SHA-256 and
-build metadata; checksums do not independently authenticate the publisher.
-Do not disable platform protections or substitute ordinary CI artifacts.
-Applicable third-party redistribution obligations remain. No release or
-security acceptance is implied by this decision.
+For the complete version-matched historical security and transport details,
+see the [rc.3 tagged security reference](https://github.com/ldeora/SmartThingsEdgeDrivers/blob/computer-host-lan-v1.0.0-rc.3/computer-host-lan/SECURITY.md).

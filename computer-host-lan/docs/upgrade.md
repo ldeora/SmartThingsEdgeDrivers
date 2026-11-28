@@ -17,13 +17,9 @@ management is a separate opt-in. If the optional WOL check is unavailable the
 agent can still install, with WOL left unchanged. Confirm the plan with INSTALL.
 In SmartThings scan nearby once for each new computer. Check monitoring first.
 
-## Add a computer alongside an existing one
+## Add another computer
 
-The same Edge driver supports Linux and Windows protocol-v2 agents. Leave the
-working device and its settings untouched. Install the matching agent on the
-other PC, scan nearby and check that each device reports only its own metrics.
-Enable power separately, with that computer's key. Older rc.2 agents do not
-need a simultaneous update; test that both devices still work after an upgrade.
+See [adding a computer](smartthings.md#add-a-computer). Keep each host's private state separate.
 
 ## Upgrade in place
 
@@ -137,42 +133,16 @@ credential into the new installation. Historical backups do not establish
 identity ownership; keep them private and do not use them to recover a
 different installation. Treat any unexpected reuse prompt as a stop condition.
 
-## Change power control or the agent's interface pin
+## Change power or Wake-on-LAN settings
 
-On Linux choose **2 — Configure → 1 — Change power or WOL settings**;
-this reruns setup using the bundled agent version, not a configuration-only
-edit. Review Enable/Disable (Keep is the existing setting), the interface
-choice and final INSTALL confirmation. The pin selects the agent's reported
-WOL interface; it does not persistently enable NIC wake by itself. After
-enabling power, use the existing key if valid and opt in on SmartThings.
-After disabling, also turn off Enable shutdown/reboot/suspend in the device.
-Windows: rerun Setup and Change settings; preserve valid scope. Do not
-regenerate keys for normal configuration changes.
+Follow the [Linux configuration instructions](install-linux.md#enable-power-or-wake-on-lan-later) or [Windows Setup instructions](install-windows.md#2-run-setup). Keep working credentials and network scope. A Linux interface pin selects the agent's reported WOL interface, not persistent NIC wake by itself. Disable power in SmartThings too when disabling it on the host.
 
-## Configure and test persistent Wake-on-LAN
-
-Use wired Ethernet, firmware/BIOS WOL support and a trusted local network.
-Linux Configure → change power or WOL settings → Configure in the WOL step
-reviews a NetworkManager profile or per-MAC systemd .link rule before
-authorization. Ordinary-user ethtool may not report capabilities; confirmed
-unsupported or unavailable hardware is nonfatal, and unsafe or changed
-policy is not overwritten. If ethtool is missing, install it and rerun setup.
-Save work, retain physical access, shut down from SmartThings, switch on,
-reboot and repeat. On Windows configure NIC/firmware WOL manually; sleep
-and shutdown states depend on hardware. Linux Configure → check/remove
-installer-owned WOL (or `-configure`) is separate from changing the agent;
-REMOVE requires explicit consent. Independently configured settings are kept.
-Normal uninstall preserves WOL unless separately authorized for removal.
-
-## Mixed-version use and driver upgrade
+## Driver updates
 
 Agent and Edge releases are separate. A driver update should preserve the
-existing device network identity, preferences and routines. Test with an
-unchanged rc.2 agent beside an rc.3 agent, verify actual installed driver
-version on a private test hub/channel, refresh both devices, check metrics,
-reconnection and opted-in power. Do not move a public channel for testing.
-If a candidate fails, follow the version-matched recovery guidance; do not
-delete or re-pair devices. Publication and channel assignment are separate.
+existing device, preferences and routines. Refresh each existing device
+and check monitoring and any previously enabled power controls. Protocol-v2
+agents are intended to coexist; simultaneous upgrades are not required.
 
 See [troubleshooting](troubleshooting.md) for refusals and connectivity.
 Report exact versions and redacted symptoms. Never publish identity, key,

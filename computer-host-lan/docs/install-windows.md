@@ -69,7 +69,7 @@ Settings → Apps → Installed apps → "Computer Host LAN - Windows Agent" →
 
 ### Is Setup available in German?
 
-Not yet. The SmartThings app already shows the device, Host Status and metrics in German; Setup itself is English. A German Setup is planned after the stable release ([#210](https://github.com/ldeora/SmartThingsEdgeDrivers/issues/210)).
+Not yet. The device capabilities include German translations; Setup itself is English. A German Setup is planned after the stable release ([#210](https://github.com/ldeora/SmartThingsEdgeDrivers/issues/210)).
 
 ### Why does the uptime show several days although I shut the PC down?
 
@@ -102,7 +102,7 @@ the trusted package's documented verification procedure.
 After installation, follow [SmartThings setup](smartthings.md). If power
 was enabled, retrieve the existing key privately from an elevated prompt:
 `Get-Content "$env:ProgramData\ComputerHostAgent\control-token"`.
-For script-based removal use ` .\scripts\Uninstall-WindowsAgent.ps1 `
+For script-based removal use `.\scripts\Uninstall-WindowsAgent.ps1`
 (without `-PurgeState`). See [maintenance](upgrade.md) for recovery or a
 deliberate fresh start.
 
