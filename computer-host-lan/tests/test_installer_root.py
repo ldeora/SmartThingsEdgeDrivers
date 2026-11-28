@@ -453,7 +453,7 @@ class RootProtocolTests(unittest.TestCase):
                                 f'Trusted launcher packaging file missing: {name}')
         entry = [name for name in names if name.endswith('.sh')]
         self.assertEqual(entry, ['installer-entry.sh'])
-        documentation = (ROOT / 'docs/development/LINUX-INSTALLER-PRIVILEGED-RECOVERY.md').read_text()
+        documentation = (ROOT / 'docs/reference/linux-installer.md').read_text()
         self.assertIn('/usr/libexec/computer-host-lan/' + entry[0] + ' --request-stdin',
                       documentation)
 
