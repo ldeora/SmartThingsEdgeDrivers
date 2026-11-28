@@ -88,7 +88,7 @@ class BetaReadiness(unittest.TestCase):
         self.assertNotIn('..new_mac)', discovery)
 
     def test_windows_package_contains_dependency_notice(self):
-        source = (ROOT / 'scripts/ci/build_windows_kit.py').read_text()
+        source = (ROOT / 'scripts/ci/user_docs.py').read_text()
         setup = (ROOT / 'windows-agent/installer/ComputerHostLAN.iss').read_text()
         self.assertIn('THIRD-PARTY-NOTICES.md', source)
         self.assertIn('THIRD-PARTY-NOTICES.md', setup)

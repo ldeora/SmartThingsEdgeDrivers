@@ -81,7 +81,7 @@ In accessible mode, type the number and press Enter; 0 or Enter alone exits.
 | 0 | Highlight Exit; press Enter to leave without changes |
 
 Selecting a task is not authorization. Follow its separate confirmation.
-Inspect does not verify the protected journal; use `cli status` for that.
+Inspect does not verify the protected journal; use `./computer-host-linux-installer cli status` for that.
 All existing flags remain available. See [all maintenance journeys](upgrade.md).
 
 ## What's installed and what stays on uninstall

@@ -7,6 +7,7 @@ import unittest
 from zipfile import ZipFile
 
 from scripts.ci.build_windows_kit import build, release_kind
+from scripts.ci.user_docs import USER_DOCS
 
 ROOT = Path(__file__).resolve().parents[1]
 VERSION = re.compile(r"^\d+\.\d+\.\d+(?:-(?:beta|rc)\.\d+)?$")
@@ -61,6 +62,52 @@ class ReleaseVersionTests(unittest.TestCase):
                       (ROOT / "agent/linux_host_agent.py").read_text())
         self.assertEqual(manifest["agent_protocol"], 2)
         self.assertEqual(manifest["power_control_default"], "disabled")
+
+    def test_packaged_user_guides_reference_current_version(self):
+        """Check current download instructions at every release stage.
+
+        Historical tag-pinned reference links are allowed; current release
+        download links and installer filenames must match the manifest exactly.
+        """
+        manifest = json.loads((ROOT / "release.json").read_text(encoding="utf-8"))
+        version = manifest["integration"]
+        tag = f"computer-host-lan-v{version}"
+        release_url = (
+            "https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/" + tag
+        )
+        required = {
+            "SECURITY.md", "docs/install-linux.md",
+            "docs/install-windows.md", "docs/testing.md",
+        }
+        self.assertTrue(required.issubset(USER_DOCS))
+        # Capture the complete tag, not a substring: stable 1.0.0 must not
+        # accept 1.0.0-rc.3, nor rc.1 accidentally accept rc.10.
+        release_links = re.compile(
+            r"https://github\.com/ldeora/SmartThingsEdgeDrivers/"
+            r"releases/(?:tag|download)/(computer-host-lan-v[^\s/)\x60>]+)"
+        )
+        asset_names = re.compile(
+            r"computer-host-lan-v([\w.-]+?)-"
+            r"(?:linux-x64-unsigned-installer|windows-x64-unsigned-setup\.exe)"
+        )
+        for name in ("README.md", *USER_DOCS):
+            if not name.endswith(".md"):
+                continue
+            with self.subTest(document=name):
+                content = (ROOT / name).read_text(encoding="utf-8")
+                tags = release_links.findall(content)
+                if name in required or name == "README.md":
+                    self.assertIn(tag, tags, release_url)
+                for found in tags:
+                    self.assertEqual(found, tag, "stale release download link")
+                for found in asset_names.findall(content):
+                    self.assertEqual(found, version, "stale installer filename")
+        for name, suffix in (
+            ("docs/install-linux.md", "linux-x64-unsigned-installer"),
+            ("docs/install-windows.md", "windows-x64-unsigned-setup.exe"),
+        ):
+            self.assertIn(f"{tag}-{suffix}",
+                          (ROOT / name).read_text(encoding="utf-8"), name)
 
     def test_published_docs_reference_current_release(self):
         manifest = json.loads((ROOT / "release.json").read_text(encoding="utf-8"))

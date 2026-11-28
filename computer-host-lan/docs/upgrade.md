@@ -10,7 +10,8 @@ Never delete a working device or private state to repair an upgrade.
 
 ## Fresh installation on a new computer
 
-Install using the platform Quick Start. Each computer has its own identity and
+Follow the [Linux installation guide](install-linux.md) or
+[Windows installation guide](install-windows.md). Each computer has its own identity and
 key; do not copy private state to another computer. Monitoring is the default.
 On Linux, a suggested physical wired NIC defaults to Configure WOL; power
 management is a separate opt-in. If the optional WOL check is unavailable the
@@ -123,8 +124,6 @@ explicit `-PurgeState` option for deliberate removal of ProgramData state;
 use only after confirming the old service is stopped/removed and the
 state path is legitimate. Never purge for normal upgrades.
 
-For permanent retirement rather than reinstall, stop after supported uninstall and safe private-state handling; remove the corresponding SmartThings device only when its routines and dependencies are no longer needed. Linux retains the protected installer components by design; complete removal of every such component is not an automated supported operation. Never delete or purge another computer's state.
-
 Run the new verified installer normally. Confirm the new monitoring
 installation works, then deliberately remove the old SmartThings device
 and scan nearby to create the new device; rebuild its routines/settings.
@@ -132,6 +131,10 @@ If enabling power, configure the new private key. Do not restore an old
 credential into the new installation. Historical backups do not establish
 identity ownership; keep them private and do not use them to recover a
 different installation. Treat any unexpected reuse prompt as a stop condition.
+
+### Retire a computer permanently
+
+For permanent retirement rather than reinstall, stop after supported uninstall and safe private-state handling; remove the corresponding SmartThings device only when its routines and dependencies are no longer needed. Linux retains the protected installer components by design; complete removal of every such component is not an automated supported operation. Never delete or purge another computer's state.
 
 ## Change power or Wake-on-LAN settings
 
