@@ -27,6 +27,9 @@ def notes_path(version: str) -> str:
 
 def docs_paths(version: str) -> tuple[str, ...]:
     return (*USER_DOCS, notes_path(version), "README.md", "CHANGELOG.md",
+            "docs/development.md", "docs/reference/architecture.md",
+            "docs/reference/protocol.md", "docs/reference/linux-installer.md",
+            "docs/images/architecture.svg",
             "LICENSE", "release.json", "linux-installer/THIRD-PARTY-NOTICES.txt")
 
 

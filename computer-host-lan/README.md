@@ -52,6 +52,6 @@ release; checksums do not authenticate the publisher. The source ZIP is
 source only, not a Linux installer. Do not mix protocol-v1 Linux Host LAN
 agents/drivers with Computer Host LAN.
 
-[Protocol reference at the rc.3 tag](https://github.com/ldeora/SmartThingsEdgeDrivers/blob/computer-host-lan-v1.0.0-rc.3/computer-host-lan/PROTOCOL.md) ·
+[Protocol v2](docs/reference/protocol.md) · [Architecture](docs/reference/architecture.md) · [Developer guide](docs/development.md) · [Linux installer engineering](docs/reference/linux-installer.md) ·
 [Source and component documentation](https://github.com/ldeora/SmartThingsEdgeDrivers/tree/main/computer-host-lan) ·
 [Third-party notices](docs/THIRD-PARTY-NOTICES.md) · [Apache-2.0 licence](LICENSE).
