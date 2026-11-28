@@ -1,0 +1,24 @@
+name: Computer Host LAN documentation links
+on:
+  # A linked target can be moved outside the Computer Host LAN directory.
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  links:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - name: Install documentation-check-only parser
+        run: python -m pip install markdown-it-py==4.0.0 mdurl==0.1.2
+      - name: Link checker regression tests
+        run: python -m unittest discover -s .github/scripts -p test_check_computer_host_docs.py -v
+      - name: Check tracked Markdown paths and anchors
+        run: python .github/scripts/check_computer_host_docs.py
