@@ -71,10 +71,11 @@ class BetaReadiness(unittest.TestCase):
         self.assertIn('do NOT run systemd as PID 1', workflow)
 
     def test_tester_docs_present(self):
-        for name in ('START-HERE', 'TESTER-CHECKLIST', 'FEEDBACK-AND-SUPPORT',
-                     'COMPATIBILITY-STATUS', 'SECURITY-AND-PRIVACY',
-                     'PACKAGING-RELEASE-DECISION', 'PUBLICATION-GATES', 'LICENSE-DECISION'):
-            self.assertGreater((ROOT / 'docs/beta' / (name + '.md')).stat().st_size, 500)
+        for name in ('install-windows', 'install-linux', 'smartthings', 'upgrade',
+                     'troubleshooting', 'testing', 'development'):
+            self.assertGreater((ROOT / 'docs' / (name + '.md')).stat().st_size, 500)
+        self.assertGreater((ROOT / 'SECURITY.md').stat().st_size, 500)
+        self.assertGreater((ROOT / 'README.md').stat().st_size, 500)
 
     def test_no_user_data_files_in_source_tree(self):
         files = [p.relative_to(ROOT).as_posix() for p in ROOT.rglob('*') if p.is_file()]
@@ -94,8 +95,7 @@ class BetaReadiness(unittest.TestCase):
         self.assertIn('THIRD-PARTY-NOTICES.md', setup)
         self.assertIn('Source: "..\\..\\LICENSE"; DestDir: "{app}\\Docs"', setup)
         self.assertIn('Zeroconf', (ROOT / 'docs/THIRD-PARTY-NOTICES.md').read_text())
-        self.assertEqual((ROOT / 'docs/THIRD-PARTY-NOTICES.md').read_bytes(),
-                         (ROOT / 'docs/beta/THIRD-PARTY-NOTICES.md').read_bytes())
+        self.assertIn('docs\\\\THIRD-PARTY-NOTICES.md', setup)
 
 
 if __name__ == '__main__':

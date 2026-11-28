@@ -7,15 +7,10 @@ import unittest
 from zipfile import ZipFile
 
 from scripts.ci.build_windows_kit import build, release_kind
-from scripts.ci.user_docs import USER_DOCS
+from scripts.ci.user_docs import USER_DOCS, notes_path as release_notes
 
 ROOT = Path(__file__).resolve().parents[1]
 VERSION = re.compile(r"^\d+\.\d+\.\d+(?:-(?:beta|rc)\.\d+)?$")
-
-
-def release_notes(version):
-    directory = "beta" if release_kind(version) == "beta" else "release"
-    return f"docs/{directory}/RELEASE-NOTES-v{version}.md"
 
 
 class ReleaseVersionTests(unittest.TestCase):
@@ -115,11 +110,8 @@ class ReleaseVersionTests(unittest.TestCase):
         if manifest["release_stage"] != f"{release_kind(version)}-published-v{version}":
             self.skipTest("release is not yet published")
         release_url = manifest.get("github_release", manifest.get("github_prerelease"))
-        for name in ("README.md", "INSTALLATION.md",
-                     "windows-agent/README.md",
-                     "docs/beta/START-HERE.md" if release_kind(version) == "beta"
-                     else "docs/release/QUICK-START.md",
-                     release_notes(version)):
+        for name in ("README.md", "SECURITY.md", "docs/install-linux.md",
+                     "docs/install-windows.md", "docs/testing.md", release_notes(version)):
             content = (ROOT / name).read_text(encoding="utf-8")
             self.assertIn(release_url, content, name)
             opening = "\n".join(content.splitlines()[:6]).lower()
@@ -186,109 +178,52 @@ class ReleaseVersionTests(unittest.TestCase):
                         self.assertEqual(zip_file.read(name), (ROOT / name).read_bytes())
                     self.assertNotIn("docs/release/RC3-READINESS.md", zip_file.namelist())
 
-    def test_published_rc1_warnings_survive_rc2_publication(self):
-        """rc.1 remains downloadable and its security warning must remain."""
-        manifest = json.loads((ROOT / "release.json").read_text(encoding="utf-8"))
-        published_rc1_url = (
-            "https://github.com/ldeora/SmartThingsEdgeDrivers/"
-            "releases/tag/computer-host-lan-v1.0.0-rc.1"
-        )
-        # Do not skip just because the current prerelease advances to rc.2.
-        self.assertNotEqual(manifest.get("github_prerelease"), published_rc1_url)
-        required = {
-            ("docs/history/RC2-AND-EARLIER.md" if "linux_installer" in manifest
-             else "README.md"): ("#32", "rc.2", "rc.1"),
-            "INSTALLATION.md": ("#32", "#33", "#44", "rc.2", "rc.1"),
-            "SECURITY.md": ("#30", "#31", "#32", "#33", "#44", "rc.2", "rc.1"),
-            "windows-agent/README.md": ("#32", "rc.2", "rc.1"),
-            "docs/release/QUICK-START.md": ("#32", "rc.2", "rc.1"),
-            "docs/release/RC-ACCEPTANCE.md": ("rc.2", "rc.1"),
-        }
-        for name, terms in required.items():
-            with self.subTest(document=name):
-                content = (ROOT / name).read_text(encoding="utf-8")
-                for term in terms:
-                    self.assertIn(term, content, (name, term))
-        install = (ROOT / "INSTALLATION.md").read_text(encoding="utf-8")
+    def test_published_rc1_security_warning_retained(self):
+        """Old downloadable rc.1 lacks security fixes; keep the warning."""
         security = (ROOT / "SECURITY.md").read_text(encoding="utf-8")
-        self.assertIn("fresh-install race", install)
-        self.assertIn("Known issues in the published rc.1", security)
-        self.assertIn("do not include the later security fixes", security)
+        for term in ("#30", "#31", "#32", "#33", "#44", "rc.2", "rc.1",
+                     "Known issues in the published rc.1",
+                     "do not include the later security fixes",
+                     "cannot eliminate the fresh-creation race"):
+            self.assertIn(term, security)
         self.assertIn("do not enable power control", security.lower())
 
-    def test_current_rc_candidate_versions_and_publication_separation(self):
-        """Future RCs are version coherent but never imply publication."""
+    def test_current_notes_and_publication_separation(self):
+        """Build identity is independent of the last verified public assets."""
         manifest = json.loads((ROOT / "release.json").read_text(encoding="utf-8"))
         version = manifest["integration"]
-        if manifest["release_stage"] != f"rc-candidate-v{version}" and "linux_installer" not in manifest:
-            self.skipTest("only applies to unannounced RC source candidates or neutral release docs")
-        candidate_url = ("https://github.com/ldeora/SmartThingsEdgeDrivers/"
-                         f"releases/tag/computer-host-lan-v{version}")
-        self.assertEqual(manifest["release_candidate_tag"], f"computer-host-lan-v{version}")
-        if manifest["release_stage"] == f"rc-candidate-v{version}":
-            self.assertNotEqual(manifest.get("github_prerelease"), candidate_url,
-                                "unpublished candidate must not replace latest published URL")
+        tag = f"computer-host-lan-v{version}"
+        kind = release_kind(version)
+        url = f"https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/{tag}"
+        self.assertEqual(manifest["release_candidate_tag"], tag)
         notes = (ROOT / release_notes(version)).read_text(encoding="utf-8")
-        self.assertIn(candidate_url, notes)
-        if "linux_installer" not in manifest:
-            self.assertIn("NOT published", notes)
-            self.assertIn("evidence that the release exists", notes)
+        self.assertIn(url, notes)
         self.assertIn("separate", notes.lower())
         for field in ("agent", "edge_driver", "windows_agent"):
             self.assertIn(manifest[field], notes, field)
-
-        if "linux_installer" in manifest:
-            # Publication is external to the exact candidate bytes. A
-            # versioned guide may link a release but must not claim either
-            # publication or non-publication, or redirect to an older kit.
-            for name in ("README.md", "INSTALLATION.md", "windows-agent/README.md",
-                         "docs/release/LINUX-INSTALLER-QUICK-START.md",
-                         "docs/release/WINDOWS-QUICK-START.md", "docs/release/UPGRADE.md",
-                         "docs/release/TROUBLESHOOTING.md", release_notes(version)):
-                content = (ROOT / name).read_text(encoding="utf-8")
-                with self.subTest(document=name):
-                    self.assertIn(version, "\n".join(content.splitlines()[:10]))
-                    self.assertNotRegex(content.lower(),
-                                        r"not (?:yet )?published|not published yet|planned rc\.3|once rc\.3 is published|latest published prerelease:.*rc\.2")
-            self.assertIn(candidate_url, (ROOT / "README.md").read_text())
-            self.assertIn(candidate_url, (ROOT / "docs/release/LINUX-INSTALLER-QUICK-START.md").read_text())
-            self.assertIn(candidate_url, (ROOT / "docs/release/WINDOWS-QUICK-START.md").read_text())
+        published = manifest["last_published"]
+        self.assertRegex(published["source_commit"], r"^[0-9a-f]{40}$")
+        self.assertRegex(published["manifest_sha256"], r"^[0-9a-f]{64}$")
+        self.assertRegex(published["published_at"], r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
+        self.assertEqual(published["url"],
+                         "https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/"
+                         + published["tag"])
+        if manifest["release_stage"] == f"{kind}-published-v{version}":
+            self.assertEqual(published["tag"], tag)
+            self.assertEqual(published["url"], url)
+            self.assertEqual(manifest.get("github_release", manifest.get("github_prerelease")), url)
         else:
-            for name in ("README.md", "INSTALLATION.md",
-                         "windows-agent/README.md", "docs/release/QUICK-START.md"):
-                intro = (ROOT / name).read_text(encoding="utf-8").splitlines()[:8]
-                self.assertRegex("\n".join(intro).lower(), r"(?:not published|unpublished|not a published download)", name)
-                self.assertIn(version, "\n".join(intro), name)
-        acceptance = (ROOT / "docs/release/RC-ACCEPTANCE.md").read_text(encoding="utf-8")
-        self.assertIn(version, acceptance)
-        self.assertIn("not", acceptance.lower())
+            self.assertNotEqual(published["tag"], tag,
+                                "candidate is not its own publication")
+            self.assertNotEqual(manifest.get("github_release", manifest.get("github_prerelease")), url)
+        self.assertIn("issues/119", manifest["candidate_acceptance"])
         self.assertEqual(manifest["agent_protocol"], 2)
-        self.assertEqual(manifest["power_control_default"], "disabled")
-
-    def test_published_rc2_docs_link_release_and_keep_channel_distinct(self):
-        manifest = json.loads((ROOT / "release.json").read_text(encoding="utf-8"))
-        if manifest["release_stage"] != "rc-published-v1.0.0-rc.2":
-            self.skipTest("specific to published rc.2")
-        url = "https://github.com/ldeora/SmartThingsEdgeDrivers/releases/tag/computer-host-lan-v1.0.0-rc.2"
-        self.assertEqual(manifest["github_prerelease"], url)
-        for name in ("README.md", "INSTALLATION.md", "SECURITY.md",
-                     "windows-agent/README.md", "windows-agent/installer/README.md",
-                     "docs/release/QUICK-START.md", "docs/release/RC-ACCEPTANCE.md",
-                     "docs/release/RELEASE-NOTES-v1.0.0-rc.2.md",
-                     "docs/beta/SMARTTHINGS-CHANNEL.md", "RELEASE-READINESS.md"):
-            content = (ROOT / name).read_text(encoding="utf-8")
-            self.assertIn(url, content, name)
-            opening = "\\n".join(content.splitlines()[:8]).lower()
-            self.assertNotIn("not published", opening, name)
-            self.assertNotIn("unpublished rc.2", opening, name)
-        self.assertIn("not independently confirmed",
-                      (ROOT / "docs/beta/SMARTTHINGS-CHANNEL.md").read_text())
         self.assertEqual(manifest["power_control_default"], "disabled")
 
     def test_release_docs_consistent(self):
         manifest = json.loads((ROOT / "release.json").read_text(encoding="utf-8"))
         version = manifest["integration"]
-        for name in ("README.md", "CHANGELOG.md", "INSTALLATION.md"):
+        for name in ("README.md", "CHANGELOG.md", release_notes(version)):
             self.assertIn(version, (ROOT / name).read_text(encoding="utf-8"), name)
         self.assertTrue((ROOT / release_notes(version)).is_file(), release_notes(version))
 

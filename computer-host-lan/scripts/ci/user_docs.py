@@ -21,8 +21,7 @@ USER_DOCS = (
 
 
 def notes_path(version: str) -> str:
-    directory = "beta" if "-beta." in version else "release"
-    return f"docs/{directory}/RELEASE-NOTES-v{version}.md"
+    return f"docs/release-notes/v{version}.md"
 
 
 def docs_paths(version: str) -> tuple[str, ...]:

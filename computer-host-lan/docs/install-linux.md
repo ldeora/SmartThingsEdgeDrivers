@@ -131,3 +131,40 @@ There is no supported automatic Linux purge of all recovery components.
 Do not manually delete protected journals, staging files, helpers or backups
 to bypass refusal. Seek support if you require complete removal beyond the
 supported uninstall and private-state retirement procedure.
+
+## Noninteractive CLI
+
+Use the verified, version-matched installer, as an ordinary user. The CLI
+requires an already-authorized noninteractive sudo/doas/run0 context;
+it does not prompt for passwords or fall back to another provider after
+failure. For interactive authorization including terminal su, use the wizard.
+
+```sh
+./computer-host-linux-installer cli --help
+./computer-host-linux-installer cli plan --action upgrade --power preserve
+./computer-host-linux-installer cli upgrade --confirm UPGRADE --power preserve
+./computer-host-linux-installer cli status
+```
+
+Choose the action matching the detected installation. Plan is read-only,
+not authorization. Install/upgrade/repair use INSTALL/UPGRADE/REPAIR
+respectively (REUSE for validated retained legacy v2 state); recovery,
+uninstall and historical restore require RECOVER, UNINSTALL and RESTORE.
+The default power choice is preserve. Use --power enable or disable
+explicitly. A bare --wol-interface pins the agent's interface only.
+For persistent WOL, review `cli plan --action upgrade --wol configure --wol-interface IFNAME`,
+then use the corresponding upgrade action with --wol configure,
+--wol-interface and the reviewed --wol-plan-digest. Substitute actual
+values from the plan; do not guess a digest or use an unrelated interface.
+Keep/leave do not write network policy. Use separate wol-check/wol-remove
+for inspection and explicit REMOVE of installer-owned WOL.
+See [maintenance](upgrade.md) for backup and reuse choices.
+
+The CLI reports one redacted JSON result (except help). Exit 0 means
+completed, 1 failure or unknown outcome, 2 invalid invocation, 3
+outstanding transaction or cleanup. Status may initialize coordination
+locks but does not install. A plan's privileged state is unknown;
+it does not establish hub reachability or runtime health. Do not recover
+an active transaction simply because status returns 3. Lost or uncertain
+results require status inspection before deciding on recovery, not
+blindly retrying a modifying operation.
